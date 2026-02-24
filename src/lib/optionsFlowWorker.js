@@ -1,4 +1,5 @@
-﻿const { parentPort, workerData } = require('worker_threads');
+﻿/* eslint-disable @typescript-eslint/no-require-imports */
+const { parentPort, workerData } = require('worker_threads');
 const https = require('https');
 
 // Persistent keepAlive agent: reuses TCP connections so we open at most maxSockets
@@ -173,7 +174,7 @@ if (parentPort) {
                                    return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
                             } else {
                                    // HISTORICAL MODE: Market is closed
-                                   let tradingDate = new Date(eastern);
+                                   const tradingDate = new Date(eastern);
 
                                    // If today is weekday but after hours, scan today's session
                                    if (day >= 1 && day <= 5 && currentTime >= marketClose) {

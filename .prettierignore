@@ -1,0 +1,12 @@
+# Prettier ignore file
+node_modules
+.next
+out
+build
+next-env.d.ts
+
+# Large debug-heavy file with patterns TypeScript accepts but Prettier doesn't
+src/components/trading/TradingViewChart.tsx
+
+# CJS worker file using top-level return (valid in Node.js CJS, not in Prettier's ES parser)
+src/lib/optionsFlowWorker.js

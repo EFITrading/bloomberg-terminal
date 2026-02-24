@@ -1,10 +1,11 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
-import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService';
+﻿import { NextRequest, NextResponse } from 'next/server'
+
+import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService'
 
 // Configure runtime for streaming
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 // Handle preflight CORS requests
 export async function OPTIONS() {
@@ -15,99 +16,101 @@ export async function OPTIONS() {
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
-  });
+  })
 }
 
 interface ProcessedTrade {
-  ticker: string;
-  underlying_ticker: string;
-  strike: number;
-  expiry: string;
-  type: 'call' | 'put';
-  trade_size: number;
-  premium_per_contract: number;
-  total_premium: number;
-  spot_price: number;
-  exchange: number;
-  exchange_name: string;
-  sip_timestamp: number;
-  sequence_number?: number;
-  conditions: number[];
-  trade_timestamp: Date;
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG';
-  window_group?: string;
-  related_trades?: string[];
-  moneyness: 'ATM' | 'ITM' | 'OTM';
-  days_to_expiry: number;
-  trading_date?: string; // Format: "YYYY-MM-DD" for multi-day scans
+  ticker: string
+  underlying_ticker: string
+  strike: number
+  expiry: string
+  type: 'call' | 'put'
+  trade_size: number
+  premium_per_contract: number
+  total_premium: number
+  spot_price: number
+  exchange: number
+  exchange_name: string
+  sip_timestamp: number
+  sequence_number?: number
+  conditions: number[]
+  trade_timestamp: Date
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG'
+  window_group?: string
+  related_trades?: string[]
+  moneyness: 'ATM' | 'ITM' | 'OTM'
+  days_to_expiry: number
+  trading_date?: string // Format: "YYYY-MM-DD" for multi-day scans
 }
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  let ticker = searchParams.get('ticker');
-  const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
+  const searchParams = request.nextUrl.searchParams
+  const ticker = searchParams.get('ticker')
+  const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W'
   // Chunked ALL scan: browser sends offset+limit to stay within Vercel's 300s limit
-  const chunkOffset = parseInt(searchParams.get('offset') || '0', 10);
-  const chunkLimit = parseInt(searchParams.get('limit') || '50', 10);
+  const chunkOffset = parseInt(searchParams.get('offset') || '0', 10)
+  const chunkLimit = parseInt(searchParams.get('limit') || '50', 10)
 
-  console.log(`[ROUTE] ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
+  console.log(
+    `[ROUTE] ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`
+  )
 
-  const polygonApiKey = process.env.POLYGON_API_KEY;
+  const polygonApiKey = process.env.POLYGON_API_KEY
 
   if (!polygonApiKey) {
     return new Response('POLYGON_API_KEY not configured', {
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'text/plain'
-      }
-    });
+        'Content-Type': 'text/plain',
+      },
+    })
   }
 
   // Enhanced headers for better EventSource compatibility
   const headers = {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
-    'Connection': 'keep-alive',
+    Connection: 'keep-alive',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET',
     'Access-Control-Allow-Headers': 'Cache-Control',
     'X-Accel-Buffering': 'no', // Disable nginx buffering
     'Transfer-Encoding': 'chunked',
-    'Content-Encoding': 'none' // Prevent compression that can delay SSE
-  };
+    'Content-Encoding': 'none', // Prevent compression that can delay SSE
+  }
 
   // Create shared state for the stream
-  let streamState = {
+  const streamState = {
     isActive: true,
-    heartbeatInterval: null as NodeJS.Timeout | null
-  };
+    heartbeatInterval: null as NodeJS.Timeout | null,
+  }
 
   // Create a readable stream for Server-Sent Events with enhanced error handling
   const stream = new ReadableStream({
     async start(controller) {
-      const encoder = new TextEncoder();
+      const encoder = new TextEncoder()
 
       // Send IMMEDIATE connection comment to establish the stream
       // This ensures Vercel/edge doesn't buffer the response
       try {
-        controller.enqueue(encoder.encode(': connected\n\n'));
+        controller.enqueue(encoder.encode(': connected\n\n'))
       } catch (error) {
-        console.error('Failed to send initial comment:', error);
+        console.error('Failed to send initial comment:', error)
       }
 
       // Enhanced data sending with error handling
       const sendData = (data: any) => {
-        if (!streamState.isActive) return;
+        if (!streamState.isActive) return
 
         try {
-          const message = `data: ${JSON.stringify(data)}\n\n`;
-          controller.enqueue(encoder.encode(message));
+          const message = `data: ${JSON.stringify(data)}\n\n`
+          controller.enqueue(encoder.encode(message))
         } catch (error) {
-          console.error('Error sending stream data:', error);
-          streamState.isActive = false;
+          console.error('Error sending stream data:', error)
+          streamState.isActive = false
         }
-      };
+      }
 
       // Send IMMEDIATE connection acknowledgment to keep stream alive
       try {
@@ -115,12 +118,12 @@ export async function GET(request: NextRequest) {
           type: 'connected',
           message: 'Stream connected successfully',
           timestamp: new Date().toISOString(),
-          connectionId: Math.random().toString(36).substring(7)
-        });
+          connectionId: Math.random().toString(36).substring(7),
+        })
       } catch (error) {
-        console.error('Failed to send initial connection message:', error);
-        controller.close();
-        return;
+        console.error('Failed to send initial connection message:', error)
+        controller.close()
+        return
       }
 
       // Send heartbeat to keep connection alive
@@ -129,19 +132,21 @@ export async function GET(request: NextRequest) {
           try {
             sendData({
               type: 'heartbeat',
-              timestamp: new Date().toISOString()
-            });
+              timestamp: new Date().toISOString(),
+            })
           } catch (error) {
-            console.error('Heartbeat failed:', error);
-            streamState.isActive = false;
+            console.error('Heartbeat failed:', error)
+            streamState.isActive = false
           }
         }
-      }, 15000); // Every 15 seconds
+      }, 15000) // Every 15 seconds
 
       try {
-        const scanType = ticker || 'MARKET-WIDE';
-        console.log(`[STREAM] STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
-        console.log(`[INFO] Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
+        const scanType = ticker || 'MARKET-WIDE'
+        console.log(`[STREAM] STREAMING OPTIONS FLOW: Starting ${scanType} scan`)
+        console.log(
+          `[INFO] Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`
+        )
 
         // Send initial status with connection confirmation
         sendData({
@@ -149,70 +154,83 @@ export async function GET(request: NextRequest) {
           message: `Connection established, starting ${scanType} options flow scan...`,
           timestamp: new Date().toISOString(),
           connectionId: Math.random().toString(36).substring(7),
-          scanType: scanType
-        });
+          scanType: scanType,
+        })
 
         // Initialize the options flow service with streaming callback
-        const optionsFlowService = new OptionsFlowService(polygonApiKey);
+        const optionsFlowService = new OptionsFlowService(polygonApiKey)
 
         // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
           // [DISABLED] Don't send progressive updates
           // Only send status messages to show scan progress
-          if (!streamState.isActive) return; // Check if stream is still active
+          if (!streamState.isActive) return // Check if stream is still active
 
           if (trades.length === 0) {
             sendData({
               type: 'status',
               message: status,
               progress: progress,
-              timestamp: new Date().toISOString()
-            });
+              timestamp: new Date().toISOString(),
+            })
           }
-        };
+        }
 
-        console.log('[INFO] Starting parallel flow scan...');
+        console.log('[INFO] Starting parallel flow scan...')
 
-        let finalTrades: any[] = [];
+        let finalTrades: any[] = []
         // Chunked ALL scan metadata (set inside 1D branch if applicable)
-        let isLastChunk = true;
-        let totalSymbolsForChunk = 0;
+        let isLastChunk = true
+        let totalSymbolsForChunk = 0
 
         if (timeframe === '1D') {
           // Sequential per-ticker: scan → enrich → stream immediately for each ticker
-          const { getSmartDateRange } = require('../../../lib/optionsFlowService');
-          const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
-          sendData({ type: 'status', message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Starting sequential scan...` });
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getSmartDateRange } = require('../../../lib/optionsFlowService')
+          const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange()
+          sendData({
+            type: 'status',
+            message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Starting sequential scan...`,
+          })
 
           let tickersToScan: string[] = ticker
-            ? ticker.split(',').map((t: string) => t.trim().toUpperCase()).filter(Boolean)
-            : [];
+            ? ticker
+                .split(',')
+                .map((t: string) => t.trim().toUpperCase())
+                .filter(Boolean)
+            : []
 
           // Chunked ALL scan: slice the symbol list to stay within Vercel's 300s limit
           if (tickersToScan.length === 1 && tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7') {
-            const allSymbols = optionsFlowService.getTop1000Symbols();
-            totalSymbolsForChunk = allSymbols.length;
-            tickersToScan = allSymbols.slice(chunkOffset, chunkOffset + chunkLimit);
-            isLastChunk = chunkOffset + chunkLimit >= totalSymbolsForChunk;
-            sendData({ type: 'status', message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}...` });
+            const allSymbols = optionsFlowService.getTop1000Symbols()
+            totalSymbolsForChunk = allSymbols.length
+            tickersToScan = allSymbols.slice(chunkOffset, chunkOffset + chunkLimit)
+            isLastChunk = chunkOffset + chunkLimit >= totalSymbolsForChunk
+            sendData({
+              type: 'status',
+              message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}...`,
+            })
           }
 
           if (tickersToScan.length > 1) {
             // PARALLEL: scan all tickers simultaneously via parallel workers, then stream results per ticker
-            sendData({ type: 'status', message: `[SERVER] Scanning ${tickersToScan.length} tickers in parallel...` });
+            sendData({
+              type: 'status',
+              message: `[SERVER] Scanning ${tickersToScan.length} tickers in parallel...`,
+            })
 
             const allTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
               tickersToScan.join(','),
               streamingCallback,
               { startTimestamp, endTimestamp, currentDate, isLive }
-            );
+            )
 
             // Group classified/filtered trades by ticker and stream each ticker's results
-            const tradesByTicker = new Map<string, any[]>();
+            const tradesByTicker = new Map<string, any[]>()
             for (const trade of allTrades) {
-              const t = trade.underlying_ticker || trade.ticker;
-              if (!tradesByTicker.has(t)) tradesByTicker.set(t, []);
-              tradesByTicker.get(t)!.push(trade);
+              const t = trade.underlying_ticker || trade.ticker
+              if (!tradesByTicker.has(t)) tradesByTicker.set(t, [])
+              tradesByTicker.get(t)!.push(trade)
             }
 
             for (const [t, trades] of tradesByTicker) {
@@ -221,55 +239,55 @@ export async function GET(request: NextRequest) {
                 ticker: t,
                 trades,
                 count: trades.length,
-                timestamp: new Date().toISOString()
-              });
+                timestamp: new Date().toISOString(),
+              })
             }
 
-            finalTrades = allTrades;
+            finalTrades = allTrades
           } else {
             // Single ticker path
             for (const t of tickersToScan) {
-              if (!streamState.isActive) break;
+              if (!streamState.isActive) break
 
-              sendData({ type: 'status', message: `[SERVER] Scanning ${t}...` });
+              sendData({ type: 'status', message: `[SERVER] Scanning ${t}...` })
 
               const tickerTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
                 t,
                 streamingCallback,
                 { startTimestamp, endTimestamp, currentDate, isLive }
-              );
+              )
 
               sendData({
                 type: 'ticker_complete',
                 ticker: t,
                 trades: tickerTrades,
                 count: tickerTrades.length,
-                timestamp: new Date().toISOString()
-              });
+                timestamp: new Date().toISOString(),
+              })
 
-              finalTrades.push(...tickerTrades);
+              finalTrades.push(...tickerTrades)
             }
           }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
-          console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
+          console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`)
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
             timeframe,
             streamingCallback
-          );
+          )
 
           // No timeout - let it complete naturally
-          finalTrades = await scanPromise;
-          console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          finalTrades = await scanPromise
+          console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`)
 
           // Stream all trades to the client grouped by ticker (same pattern as 1D scan)
           // Without this the client's accumulatedTradesRef stays empty and the table shows nothing
-          const tradesByTicker = new Map<string, any[]>();
+          const tradesByTicker = new Map<string, any[]>()
           for (const trade of finalTrades) {
-            const t = (trade as any).underlying_ticker || (trade as any).ticker;
-            if (!tradesByTicker.has(t)) tradesByTicker.set(t, []);
-            tradesByTicker.get(t)!.push(trade);
+            const t = (trade as any).underlying_ticker || (trade as any).ticker
+            if (!tradesByTicker.has(t)) tradesByTicker.set(t, [])
+            tradesByTicker.get(t)!.push(trade)
           }
           for (const [t, trades] of tradesByTicker) {
             sendData({
@@ -277,28 +295,32 @@ export async function GET(request: NextRequest) {
               ticker: t,
               trades,
               count: trades.length,
-              timestamp: new Date().toISOString()
-            });
+              timestamp: new Date().toISOString(),
+            })
           }
         }
 
         // Send final summary only - trades were already streamed per ticker
         const summary = {
           total_trades: finalTrades.length,
-          total_premium: finalTrades.reduce((sum: number, t: ProcessedTrade) => sum + t.total_premium, 0),
+          total_premium: finalTrades.reduce(
+            (sum: number, t: ProcessedTrade) => sum + t.total_premium,
+            0
+          ),
           unique_symbols: new Set(finalTrades.map((t: ProcessedTrade) => t.underlying_ticker)).size,
           trade_types: {
             BLOCK: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'BLOCK').length,
             SWEEP: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'SWEEP').length,
-            'MULTI-LEG': finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'MULTI-LEG').length,
+            'MULTI-LEG': finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'MULTI-LEG')
+              .length,
             MINI: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'MINI').length,
           },
           call_put_ratio: {
             calls: finalTrades.filter((t: ProcessedTrade) => t.type === 'call').length,
             puts: finalTrades.filter((t: ProcessedTrade) => t.type === 'put').length,
           },
-          processing_time_ms: 0
-        };
+          processing_time_ms: 0,
+        }
 
         // Complete event: just summary, trades already streamed per ticker
         sendData({
@@ -309,23 +331,22 @@ export async function GET(request: NextRequest) {
             status: 'LIVE',
             is_live: true,
             data_date: new Date().toISOString().split('T')[0],
-            market_open: true
+            market_open: true,
           },
           // Chunked ALL scan metadata for browser
           isLastChunk: isLastChunk,
           totalSymbols: totalSymbolsForChunk,
           chunkOffset: chunkOffset,
           chunkLimit: chunkLimit,
-          timestamp: new Date().toISOString()
-        });
+          timestamp: new Date().toISOString(),
+        })
 
-        console.log(`[OK] STREAMING COMPLETE: ${finalTrades.length} trades processed`);
-
+        console.log(`[OK] STREAMING COMPLETE: ${finalTrades.length} trades processed`)
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorStack = error instanceof Error ? error.stack : '';
-        console.error('[ERROR] STREAMING ERROR:', errorMessage);
-        console.error('Stack trace:', errorStack);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        const errorStack = error instanceof Error ? error.stack : ''
+        console.error('[ERROR] STREAMING ERROR:', errorMessage)
+        console.error('Stack trace:', errorStack)
 
         // Always try to send error event, even if streamState.isActive was cleared
         // (e.g. a failed heartbeat enqueue sets isActive=false before we get here)
@@ -336,18 +357,18 @@ export async function GET(request: NextRequest) {
             errorType: error instanceof Error ? error.name : 'UnknownError',
             timestamp: new Date().toISOString(),
             retryable: !errorMessage.includes('API key') && !errorMessage.includes('403'),
-            details: process.env.NODE_ENV === 'development' ? errorStack : undefined
-          });
-          controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
+            details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
+          })
+          controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`))
         } catch (sendErr) {
-          console.error('[ERROR] Could not send error event to client:', sendErr);
+          console.error('[ERROR] Could not send error event to client:', sendErr)
         }
       } finally {
         // Cleanup resources
-        streamState.isActive = false;
+        streamState.isActive = false
         if (streamState.heartbeatInterval) {
-          clearInterval(streamState.heartbeatInterval);
-          streamState.heartbeatInterval = null;
+          clearInterval(streamState.heartbeatInterval)
+          streamState.heartbeatInterval = null
         }
 
         // Send final close message (always attempt, regardless of isActive)
@@ -355,27 +376,27 @@ export async function GET(request: NextRequest) {
           const closePayload = JSON.stringify({
             type: 'close',
             message: 'Stream connection closing',
-            timestamp: new Date().toISOString()
-          });
-          controller.enqueue(encoder.encode(`data: ${closePayload}\n\n`));
+            timestamp: new Date().toISOString(),
+          })
+          controller.enqueue(encoder.encode(`data: ${closePayload}\n\n`))
         } catch (closeError) {
-          console.error('Error sending close message:', closeError);
+          console.error('Error sending close message:', closeError)
         } finally {
-          controller.close();
+          controller.close()
         }
       }
     },
 
     // Handle client disconnection
     cancel() {
-      console.log('Client disconnected from options flow stream');
-      streamState.isActive = false;
+      console.log('Client disconnected from options flow stream')
+      streamState.isActive = false
       if (streamState.heartbeatInterval) {
-        clearInterval(streamState.heartbeatInterval);
-        streamState.heartbeatInterval = null;
+        clearInterval(streamState.heartbeatInterval)
+        streamState.heartbeatInterval = null
       }
-    }
-  });
+    },
+  })
 
-  return new Response(stream, { headers });
+  return new Response(stream, { headers })
 }

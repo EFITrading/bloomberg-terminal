@@ -4652,6 +4652,8 @@ const renderTechnalysisIndicators = (
 
 ) => {
 
+  console.log({
+
     dataLength: data.length,
 
     startIndex,
@@ -5707,6 +5709,8 @@ export default function TradingViewChart({
 
 
           if (gexResult.success) {
+
+            console.log({
 
               totalCallGEX: gexResult.gexData.totalCallGEX,
 
@@ -8201,6 +8205,7 @@ export default function TradingViewChart({
 
 
         // Debug: Check what data we're actually getting from API in main fetch
+        console.log({
 
           symbol: sym,
 
@@ -8229,6 +8234,7 @@ export default function TradingViewChart({
         const allVolumes = result.results?.map((item: any) => item.v).filter((v: any) => v !== undefined && v !== null) || [];
 
         const nonZeroVolumes = allVolumes.filter((v: any) => v > 0);
+        console.log({
 
           totalItems: result.results?.length || 0,
 
@@ -8301,6 +8307,8 @@ export default function TradingViewChart({
           // Debug first few items
 
           if (i < 3) {
+
+            console.log({
 
               rawVolume: item.v,
 
@@ -8476,6 +8484,8 @@ export default function TradingViewChart({
 
     // Debug: Check what data we're actually getting from API
 
+    console.log({
+
       symbol,
 
       timeframe,
@@ -8527,6 +8537,8 @@ export default function TradingViewChart({
       // Debug first few items
 
       if (index < 3) {
+
+        console.log({
 
           rawItem: item,
 
@@ -9880,6 +9892,8 @@ export default function TradingViewChart({
 
     // ?? CRITICAL DEBUG: Check what we actually got
 
+    console.log({
+
       visibleDataLength: visibleData.length,
 
       firstCandle: visibleData[0] ? {
@@ -9915,6 +9929,8 @@ export default function TradingViewChart({
 
 
     // Debug logging
+
+    console.log({
 
       scrollOffset,
 
@@ -9961,6 +9977,8 @@ export default function TradingViewChart({
       // We're in the future area, calculate how much
 
       limitedFuturePeriods = requestedEnd - data.length;
+
+      console.log({
 
         requestedEnd,
 
@@ -10195,6 +10213,8 @@ export default function TradingViewChart({
     if (isGexActive && (liveGexData || gexData)) {
 
       const gexDataToUse = liveGexData || gexData;
+
+      console.log({
 
         hasLiveGexData: !!liveGexData,
 

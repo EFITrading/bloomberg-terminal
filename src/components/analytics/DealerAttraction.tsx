@@ -1,115 +1,139 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
-import DealerOpenInterestChart from './DealerOpenInterestChart';
-import DealerGEXChart from './DealerGEXChart';
-import DealerAttractionOIMobile from './DealerAttractionOIMobile';
-import DealerAttractionOIDesktop from './DealerAttractionOIDesktop';
-import GEXTimelineScrubber from './GEXTimelineScrubber';
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  Gauge,
+  RefreshCw,
+  Target,
+  TrendingUp,
+} from 'lucide-react'
+
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+
+// Import the Top 1000 symbols
+import { PRELOAD_TIERS } from '../../lib/Top1000Symbols'
+import DealerAttractionOIDesktop from './DealerAttractionOIDesktop'
+import DealerAttractionOIMobile from './DealerAttractionOIMobile'
+import DealerGEXChart from './DealerGEXChart'
+import DealerOpenInterestChart from './DealerOpenInterestChart'
+import GEXTimelineScrubber from './GEXTimelineScrubber'
 
 // Unified OI/GEX Tab Component - now delegates to mobile/desktop specific components
-const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({ selectedTicker, activeTableCount = 0 }) => {
-  const [isMobile, setIsMobile] = useState<boolean>(false);
+const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({
+  selectedTicker,
+  activeTableCount = 0,
+}) => {
+  const [isMobile, setIsMobile] = useState<boolean>(false)
 
   // Detect mobile on mount and resize
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768);
-    };
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768)
+    }
 
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   // Render mobile or desktop component based on screen size
   if (isMobile) {
-    return <DealerAttractionOIMobile selectedTicker={selectedTicker} />;
+    return <DealerAttractionOIMobile selectedTicker={selectedTicker} />
   }
 
-  return <DealerAttractionOIDesktop selectedTicker={selectedTicker} activeTableCount={activeTableCount} />;
-};
+  return (
+    <DealerAttractionOIDesktop
+      selectedTicker={selectedTicker}
+      activeTableCount={activeTableCount}
+    />
+  )
+}
 
 // Legacy OIGEXTab content removed - replaced by separate mobile/desktop components above
 const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
-  const [sharedExpiration, setSharedExpiration] = useState<string>('');
-  const [expirationDates, setExpirationDates] = useState<string[]>([]);
+  const [sharedExpiration, setSharedExpiration] = useState<string>('')
+  const [expirationDates, setExpirationDates] = useState<string[]>([])
 
   // OI Chart State
-  const [showCalls, setShowCalls] = useState<boolean>(true);
-  const [showPuts, setShowPuts] = useState<boolean>(true);
-  const [showNetOI, setShowNetOI] = useState<boolean>(false);
-  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
-  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+  const [showCalls, setShowCalls] = useState<boolean>(true)
+  const [showPuts, setShowPuts] = useState<boolean>(true)
+  const [showNetOI, setShowNetOI] = useState<boolean>(false)
+  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('')
+  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('')
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number; put: number } | null>(null)
 
   // GEX Chart State
-  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
-  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
-  const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
+  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true)
+  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true)
+  const [showNetGamma, setShowNetGamma] = useState<boolean>(true)
 
   // Unified Controls (affect both charts)
-  const [showPremium, setShowPremium] = useState<boolean>(false);
-  const [showAITowers, setShowAITowers] = useState<boolean>(false);
+  const [showPremium, setShowPremium] = useState<boolean>(false)
+  const [showAITowers, setShowAITowers] = useState<boolean>(false)
 
   // Fetch expiration dates once
   useEffect(() => {
-    if (!selectedTicker) return;
+    if (!selectedTicker) return
 
     const fetchExpirations = async () => {
       try {
-        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
-        const result = await response.json();
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`)
+        const result = await response.json()
 
         if (result.success && result.data) {
-          const dates = Object.keys(result.data).sort();
-          setExpirationDates(dates);
+          const dates = Object.keys(result.data).sort()
+          setExpirationDates(dates)
 
           if (dates.length > 0 && !sharedExpiration) {
-            setSharedExpiration(dates[0]);
+            setSharedExpiration(dates[0])
           }
         }
       } catch (err) {
-        console.error('Error fetching expirations:', err);
+        console.error('Error fetching expirations:', err)
       }
-    };
+    }
 
-    fetchExpirations();
-  }, [selectedTicker]);
+    fetchExpirations()
+  }, [selectedTicker])
 
   return (
     <div className="space-y-8">
       {/* Unified Control Bar - 2 Rows × 3 Columns Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(0, max-content))',
-        gap: '8px',
-        padding: '12px',
-        background: '#000000',
-        borderRadius: '12px',
-        border: '1px solid #333333',
-        boxShadow: `
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, max-content))',
+          gap: '8px',
+          padding: '12px',
+          background: '#000000',
+          borderRadius: '12px',
+          border: '1px solid #333333',
+          boxShadow: `
           0 8px 32px rgba(0, 0, 0, 0.8),
           0 2px 8px rgba(0, 0, 0, 0.6),
           inset 0 1px 0 rgba(255, 255, 255, 0.1),
           inset 0 -1px 0 rgba(0, 0, 0, 0.8)
         `,
-        position: 'relative' as const,
-        zIndex: 100,
-        transform: 'translateZ(0)',
-        backdropFilter: 'blur(20px)'
-      }}>
+          position: 'relative' as const,
+          zIndex: 100,
+          transform: 'translateZ(0)',
+          backdropFilter: 'blur(20px)',
+        }}
+      >
         {/* 3D Highlight Effect */}
-        <div style={{
-          position: 'absolute' as const,
-          top: '1px',
-          left: '1px',
-          right: '1px',
-          height: '50%',
-          background: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: '12px 12px 0 0',
-          pointerEvents: 'none' as const
-        }} />
+        <div
+          style={{
+            position: 'absolute' as const,
+            top: '1px',
+            left: '1px',
+            right: '1px',
+            height: '50%',
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '12px 12px 0 0',
+            pointerEvents: 'none' as const,
+          }}
+        />
 
         {/* Row 1, Col 1: Expiration Selector */}
         <select
@@ -133,73 +157,100 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
-          <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+          <option
+            key="45-days"
+            value="45-days"
+            style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}
+          >
             45 Days (All)
           </option>
-          {expirationDates.map(date => (
+          {expirationDates.map((date) => (
             <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
-              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
+              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                timeZone: 'America/New_York',
+              })}
             </option>
           ))}
         </select>
 
         {/* Row 1, Col 2: 90% Range P/C Display */}
-        <div className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]" style={{
-          background: '#000000',
-          borderRadius: '8px',
-          border: '1px solid #333333',
-          boxShadow: `
+        <div
+          className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]"
+          style={{
+            background: '#000000',
+            borderRadius: '8px',
+            border: '1px solid #333333',
+            boxShadow: `
             inset 0 2px 4px rgba(0, 0, 0, 0.6),
             inset 0 -1px 0 rgba(255, 255, 255, 0.05),
             0 1px 0 rgba(255, 255, 255, 0.1)
           `,
-          zIndex: 1
-        }}>
-          <div className="text-[6px] md:text-[9px]" style={{
-            color: '#ff6600',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase' as const
-          }}>
+            zIndex: 1,
+          }}
+        >
+          <div
+            className="text-[6px] md:text-[9px]"
+            style={{
+              color: '#ff6600',
+              fontWeight: '600',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase' as const,
+            }}
+          >
             90% Range P/C
           </div>
-          <div className="text-[8px] md:text-[11px]" style={{
-            color: '#ffffff',
-            fontWeight: '600',
-            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
-          }}>
+          <div
+            className="text-[8px] md:text-[11px]"
+            style={{
+              color: '#ffffff',
+              fontWeight: '600',
+              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
+            }}
+          >
             {expectedRangePCRatio || 'Calc...'}
           </div>
         </div>
 
         {/* Row 1, Col 3: 45D P/C Display */}
-        <div className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]" style={{
-          background: '#000000',
-          borderRadius: '8px',
-          border: '1px solid #333333',
-          boxShadow: `
+        <div
+          className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]"
+          style={{
+            background: '#000000',
+            borderRadius: '8px',
+            border: '1px solid #333333',
+            boxShadow: `
             inset 0 2px 4px rgba(0, 0, 0, 0.6),
             inset 0 -1px 0 rgba(255, 255, 255, 0.05),
             0 1px 0 rgba(255, 255, 255, 0.1)
           `,
-          zIndex: 1
-        }}>
-          <div className="text-[6px] md:text-[9px]" style={{
-            color: '#ff6600',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase' as const
-          }}>
+            zIndex: 1,
+          }}
+        >
+          <div
+            className="text-[6px] md:text-[9px]"
+            style={{
+              color: '#ff6600',
+              fontWeight: '600',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase' as const,
+            }}
+          >
             45D P/C
           </div>
-          <div className="text-[8px] md:text-[11px]" style={{
-            color: '#ffffff',
-            fontWeight: '600',
-            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
-          }}>
+          <div
+            className="text-[8px] md:text-[11px]"
+            style={{
+              color: '#ffffff',
+              fontWeight: '600',
+              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
+            }}
+          >
             {cumulativePCRatio45Days || 'Calc...'}
           </div>
         </div>
@@ -221,14 +272,16 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: showPremium ? 'none' : `
+            boxShadow: showPremium
+              ? 'none'
+              : `
               inset 0 2px 4px rgba(0, 0, 0, 0.6),
               inset 0 -1px 0 rgba(255, 255, 255, 0.05),
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
           💰 Premium
@@ -243,7 +296,9 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             justifyContent: 'center',
             gap: '4px',
             padding: '8px 10px',
-            background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#000000',
+            background: showAITowers
+              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              : '#000000',
             border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
             borderRadius: '8px',
             color: '#ffffff',
@@ -251,14 +306,16 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : `
+            boxShadow: showAITowers
+              ? '0 4px 12px rgba(102, 126, 234, 0.4)'
+              : `
               inset 0 2px 4px rgba(0, 0, 0, 0.6),
               inset 0 -1px 0 rgba(255, 255, 255, 0.05),
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
           👑 AI
@@ -267,52 +324,59 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         {/* Row 2, Col 3: Combined OI & GEX Dropdown */}
         <select
           value={
-            showNetOI ? 'net-oi' :
-              showNetGamma ? 'net-gex' :
-                (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
-                  (showCalls && showPuts) ? 'oi-both' :
-                    showCalls ? 'calls' :
-                      showPuts ? 'puts' :
-                        showPositiveGamma ? 'positive' :
-                          'negative'
+            showNetOI
+              ? 'net-oi'
+              : showNetGamma
+                ? 'net-gex'
+                : showCalls && showPuts && showPositiveGamma && showNegativeGamma
+                  ? 'both'
+                  : showCalls && showPuts
+                    ? 'oi-both'
+                    : showCalls
+                      ? 'calls'
+                      : showPuts
+                        ? 'puts'
+                        : showPositiveGamma
+                          ? 'positive'
+                          : 'negative'
           }
           onChange={(e) => {
-            const value = e.target.value;
+            const value = e.target.value
             if (value === 'both') {
-              setShowCalls(true);
-              setShowPuts(true);
-              setShowNetOI(false);
-              setShowPositiveGamma(true);
-              setShowNegativeGamma(true);
-              setShowNetGamma(false);
+              setShowCalls(true)
+              setShowPuts(true)
+              setShowNetOI(false)
+              setShowPositiveGamma(true)
+              setShowNegativeGamma(true)
+              setShowNetGamma(false)
             } else if (value === 'oi-both') {
-              setShowCalls(true);
-              setShowPuts(true);
-              setShowNetOI(false);
+              setShowCalls(true)
+              setShowPuts(true)
+              setShowNetOI(false)
             } else if (value === 'calls') {
-              setShowCalls(true);
-              setShowPuts(false);
-              setShowNetOI(false);
+              setShowCalls(true)
+              setShowPuts(false)
+              setShowNetOI(false)
             } else if (value === 'puts') {
-              setShowCalls(false);
-              setShowPuts(true);
-              setShowNetOI(false);
+              setShowCalls(false)
+              setShowPuts(true)
+              setShowNetOI(false)
             } else if (value === 'net-oi') {
-              setShowNetOI(true);
-              setShowCalls(false);
-              setShowPuts(false);
+              setShowNetOI(true)
+              setShowCalls(false)
+              setShowPuts(false)
             } else if (value === 'positive') {
-              setShowPositiveGamma(true);
-              setShowNegativeGamma(false);
-              setShowNetGamma(false);
+              setShowPositiveGamma(true)
+              setShowNegativeGamma(false)
+              setShowNetGamma(false)
             } else if (value === 'negative') {
-              setShowPositiveGamma(false);
-              setShowNegativeGamma(true);
-              setShowNetGamma(false);
+              setShowPositiveGamma(false)
+              setShowNegativeGamma(true)
+              setShowNetGamma(false)
             } else if (value === 'net-gex') {
-              setShowNetGamma(true);
-              setShowPositiveGamma(false);
-              setShowNegativeGamma(false);
+              setShowNetGamma(true)
+              setShowPositiveGamma(false)
+              setShowNegativeGamma(false)
             }
           }}
           style={{
@@ -333,20 +397,36 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
           <optgroup label="━━━ OI Options ━━━" style={{ background: '#000000', color: '#ff6600' }}>
-            <option value="oi-both" style={{ background: '#000000', color: '#ffffff' }}>OI: Both</option>
-            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>OI: Calls Only</option>
-            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>OI: Puts Only</option>
-            <option value="net-oi" style={{ background: '#000000', color: '#ffffff' }}>OI: Net</option>
+            <option value="oi-both" style={{ background: '#000000', color: '#ffffff' }}>
+              OI: Both
+            </option>
+            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
+              OI: Calls Only
+            </option>
+            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
+              OI: Puts Only
+            </option>
+            <option value="net-oi" style={{ background: '#000000', color: '#ffffff' }}>
+              OI: Net
+            </option>
           </optgroup>
           <optgroup label="━━━ GEX Options ━━━" style={{ background: '#000000', color: '#667eea' }}>
-            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>GEX: Both</option>
-            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>GEX: Positive</option>
-            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>GEX: Negative</option>
-            <option value="net-gex" style={{ background: '#000000', color: '#ffffff' }}>GEX: Net</option>
+            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+              GEX: Both
+            </option>
+            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>
+              GEX: Positive
+            </option>
+            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>
+              GEX: Negative
+            </option>
+            <option value="net-gex" style={{ background: '#000000', color: '#ffffff' }}>
+              GEX: Net
+            </option>
           </optgroup>
         </select>
       </div>
@@ -382,220 +462,341 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         />
       </div>
     </div>
-  );
-};
+  )
+}
 
 interface GEXData {
-  strike: number;
-  [key: string]: number | { call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number, flowCall?: number, flowPut?: number, flowNet?: number };
+  strike: number
+  [key: string]:
+    | number
+    | {
+        call: number
+        put: number
+        net: number
+        callOI: number
+        putOI: number
+        callPremium?: number
+        putPremium?: number
+        callVex?: number
+        putVex?: number
+        callDelta?: number
+        putDelta?: number
+        flowCall?: number
+        flowPut?: number
+        flowNet?: number
+      }
 }
 
 interface ServerGEXData {
-  ticker: string;
-  attractionLevel: number;
-  dealerSweat: number;
-  currentPrice: number;
-  netGex: number;
-  marketCap?: number;
-  gexImpactScore?: number;
+  ticker: string
+  attractionLevel: number
+  dealerSweat: number
+  currentPrice: number
+  netGex: number
+  marketCap?: number
+  gexImpactScore?: number
   largestWall?: {
-    strike: number;
-    gex: number;
-    type: 'call' | 'put';
-    pressure: number;
+    strike: number
+    gex: number
+    type: 'call' | 'put'
+    pressure: number
     cluster?: {
-      strikes: number[];
-      centralStrike: number;
-      totalGEX: number;
-      contributions: number[];
-      type: 'call' | 'put';
-    };
-  };
+      strikes: number[]
+      centralStrike: number
+      totalGEX: number
+      contributions: number[]
+      type: 'call' | 'put'
+    }
+  }
 }
 
 interface OptionContract {
-  ticker: string;
-  expiration_date: string;
-  strike_price: number;
-  contract_type: 'call' | 'put';
+  ticker: string
+  expiration_date: string
+  strike_price: number
+  contract_type: 'call' | 'put'
 }
 
 interface MMData {
-  strike: number;
-  netMM: number;
-  callMM: number;
-  putMM: number;
-  totalOI: number;
-  daysToExpiry: number;
-  impact: number;
+  strike: number
+  netMM: number
+  callMM: number
+  putMM: number
+  totalOI: number
+  daysToExpiry: number
+  impact: number
   // Enhanced Greeks data
-  netDelta: number;
-  netGamma: number;
-  netTheta: number;
-  netVega: number;
-  callDelta: number;
-  putDelta: number;
-  callGamma: number;
-  putGamma: number;
-  callTheta: number;
-  putTheta: number;
-  callVega: number;
-  putVega: number;
+  netDelta: number
+  netGamma: number
+  netTheta: number
+  netVega: number
+  callDelta: number
+  putDelta: number
+  callGamma: number
+  putGamma: number
+  callTheta: number
+  putTheta: number
+  callVega: number
+  putVega: number
 }
 
 interface MMDashboardProps {
-  selectedTicker: string;
-  currentPrice: number;
-  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callTheta?: number, putTheta?: number, callVega?: number, putVega?: number } } };
-  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
-  expirations: string[];
-  strikeWidth?: number;
+  selectedTicker: string
+  currentPrice: number
+  gexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callTheta?: number
+        putTheta?: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }
+  vexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }
+  expirations: string[]
+  strikeWidth?: number
 }
 
 interface SIDashboardProps {
-  selectedTicker: string;
-  currentPrice: number;
-  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number } } };
-  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
-  expirations: string[];
+  selectedTicker: string
+  currentPrice: number
+  gexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }
+  vexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }
+  expirations: string[]
 }
 
 interface MaxPainDashboardProps {
-  selectedTicker: string;
-  currentPrice: number;
-  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } };
-  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
-  expirations: string[];
+  selectedTicker: string
+  currentPrice: number
+  gexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVega?: number
+        putVega?: number
+        callTheta?: number
+        putTheta?: number
+      }
+    }
+  }
+  vexByStrikeByExpiration: {
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }
+  expirations: string[]
 }
 
 // MM Dashboard Component - Enhanced with Full Greeks
-const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations, strikeWidth = 75 }) => {
-
+const MMDashboard: React.FC<MMDashboardProps> = ({
+  selectedTicker,
+  currentPrice,
+  gexByStrikeByExpiration,
+  vexByStrikeByExpiration,
+  expirations,
+  strikeWidth = 75,
+}) => {
   // Use dynamic strike width from props
-  const strikeColumnWidth = strikeWidth;
+  const strikeColumnWidth = strikeWidth
 
   // State for max pain expiration selector
-  const [maxPainExpiration, setMaxPainExpiration] = useState<string>('');
+  const [maxPainExpiration, setMaxPainExpiration] = useState<string>('')
 
   // State for Strike Risk table expiration selector
-  const [strikeRiskExpiration, setStrikeRiskExpiration] = useState<string>('');
-  const [strikeTableTab, setStrikeTableTab] = useState<'mm' | 'risk'>('mm');
+  const [strikeRiskExpiration, setStrikeRiskExpiration] = useState<string>('')
+  const [strikeTableTab, setStrikeTableTab] = useState<'mm' | 'risk'>('mm')
 
   // Filter to 45-day expirations only
   const mmExpirations = useMemo(() => {
-    const today = new Date();
-    const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
+    const today = new Date()
+    const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000) // 45 days from now
 
-    return expirations.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate >= today && expDate <= maxDate; // FIX: Added >= today check
-    }).sort();
-  }, [expirations]);
+    return expirations
+      .filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        return expDate >= today && expDate <= maxDate // FIX: Added >= today check
+      })
+      .sort()
+  }, [expirations])
 
   // Initialize max pain expiration to first available
   useEffect(() => {
     if (mmExpirations.length > 0 && !maxPainExpiration) {
-      setMaxPainExpiration(mmExpirations[0]);
+      setMaxPainExpiration(mmExpirations[0])
     }
     if (mmExpirations.length > 0 && !strikeRiskExpiration) {
-      setStrikeRiskExpiration(mmExpirations[0]);
+      setStrikeRiskExpiration(mmExpirations[0])
     }
-  }, [mmExpirations, maxPainExpiration, strikeRiskExpiration]);
+  }, [mmExpirations, maxPainExpiration, strikeRiskExpiration])
 
   // Quick Max Pain calculation for the compact display
   const quickMaxPain = useMemo(() => {
     if (!currentPrice || !maxPainExpiration || !gexByStrikeByExpiration[maxPainExpiration]) {
-      return { maxPainStrike: 0, liquidityPivotStrike: 0, priceDistance: 0, dealerPressure: 'NEUTRAL' };
+      return {
+        maxPainStrike: 0,
+        liquidityPivotStrike: 0,
+        priceDistance: 0,
+        dealerPressure: 'NEUTRAL',
+      }
     }
 
-    const strikeData = gexByStrikeByExpiration[maxPainExpiration];
-    const strikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
+    const strikeData = gexByStrikeByExpiration[maxPainExpiration]
+    const strikes = Object.keys(strikeData)
+      .map(Number)
+      .sort((a, b) => a - b)
 
     // Simple max pain: find strike with minimum total dollar value at expiration
-    let minPain = Infinity;
-    let maxPainStrike = currentPrice;
+    let minPain = Infinity
+    let maxPainStrike = currentPrice
 
-    strikes.forEach(testStrike => {
-      let totalPain = 0;
-      strikes.forEach(strike => {
-        const data = strikeData[strike];
-        const callOI = data?.callOI || 0;
-        const putOI = data?.putOI || 0;
+    strikes.forEach((testStrike) => {
+      let totalPain = 0
+      strikes.forEach((strike) => {
+        const data = strikeData[strike]
+        const callOI = data?.callOI || 0
+        const putOI = data?.putOI || 0
 
         // Calculate value of options at test strike
         if (testStrike > strike) {
-          totalPain += callOI * (testStrike - strike) * 100; // Calls ITM
+          totalPain += callOI * (testStrike - strike) * 100 // Calls ITM
         }
         if (testStrike < strike) {
-          totalPain += putOI * (strike - testStrike) * 100; // Puts ITM
+          totalPain += putOI * (strike - testStrike) * 100 // Puts ITM
         }
-      });
+      })
 
       if (totalPain < minPain) {
-        minPain = totalPain;
-        maxPainStrike = testStrike;
+        minPain = totalPain
+        maxPainStrike = testStrike
       }
-    });
+    })
 
     // Find liquidity pivot (highest gamma strike)
-    let maxGamma = 0;
-    let liquidityPivotStrike = currentPrice;
-    strikes.forEach(strike => {
-      const data = strikeData[strike];
-      const totalGamma = Math.abs(data?.callGamma || 0) + Math.abs(data?.putGamma || 0);
-      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
-      const gammaExposure = totalGamma * totalOI;
+    let maxGamma = 0
+    let liquidityPivotStrike = currentPrice
+    strikes.forEach((strike) => {
+      const data = strikeData[strike]
+      const totalGamma = Math.abs(data?.callGamma || 0) + Math.abs(data?.putGamma || 0)
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0)
+      const gammaExposure = totalGamma * totalOI
 
       if (gammaExposure > maxGamma) {
-        maxGamma = gammaExposure;
-        liquidityPivotStrike = strike;
+        maxGamma = gammaExposure
+        liquidityPivotStrike = strike
       }
-    });
+    })
 
-    const priceDistance = currentPrice - maxPainStrike;
-    const dealerPressure = Math.abs(priceDistance) < currentPrice * 0.01
-      ? 'PINNED'
-      : priceDistance > 0
-        ? 'DOWNWARD'
-        : 'UPWARD';
+    const priceDistance = currentPrice - maxPainStrike
+    const dealerPressure =
+      Math.abs(priceDistance) < currentPrice * 0.01
+        ? 'PINNED'
+        : priceDistance > 0
+          ? 'DOWNWARD'
+          : 'UPWARD'
 
-    return { maxPainStrike, liquidityPivotStrike, priceDistance, dealerPressure };
-  }, [currentPrice, maxPainExpiration, gexByStrikeByExpiration]);
+    return { maxPainStrike, liquidityPivotStrike, priceDistance, dealerPressure }
+  }, [currentPrice, maxPainExpiration, gexByStrikeByExpiration])
 
   // Full Max Pain Analysis for Strike Risk table
   const maxPainAnalysis = useMemo(() => {
-    if (!currentPrice || !strikeRiskExpiration || Object.keys(gexByStrikeByExpiration).length === 0) {
+    if (
+      !currentPrice ||
+      !strikeRiskExpiration ||
+      Object.keys(gexByStrikeByExpiration).length === 0
+    ) {
       return {
         optimalStrike: currentPrice,
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: 0
-      };
+        avgDTE: 0,
+      }
     }
 
-    const strikeData = gexByStrikeByExpiration[strikeRiskExpiration];
-    const vexData = vexByStrikeByExpiration[strikeRiskExpiration];
+    const strikeData = gexByStrikeByExpiration[strikeRiskExpiration]
+    const vexData = vexByStrikeByExpiration[strikeRiskExpiration]
     if (!strikeData) {
       return {
         optimalStrike: currentPrice,
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: 0
-      };
+        avgDTE: 0,
+      }
     }
 
-    const expDate = new Date(strikeRiskExpiration + 'T00:00:00Z');
-    const today = new Date();
-    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const expDate = new Date(strikeRiskExpiration + 'T00:00:00Z')
+    const today = new Date()
+    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
-    const allStrikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
-    const significantStrikes = allStrikes.filter(strike => {
-      const data = strikeData[strike];
-      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
-      return totalOI >= 100;
-    });
+    const allStrikes = Object.keys(strikeData)
+      .map(Number)
+      .sort((a, b) => a - b)
+    const significantStrikes = allStrikes.filter((strike) => {
+      const data = strikeData[strike]
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0)
+      return totalOI >= 100
+    })
 
     if (significantStrikes.length === 0) {
       return {
@@ -603,81 +804,101 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: daysToExp
-      };
+        avgDTE: daysToExp,
+      }
     }
 
-    const lowestStrike = significantStrikes[0];
-    const highestStrike = significantStrikes[significantStrikes.length - 1];
-    const bufferPct = 0.05;
-    const strikeSpan = highestStrike - lowestStrike;
-    const minStrike = lowestStrike - (strikeSpan * bufferPct);
-    const maxStrike = highestStrike + (strikeSpan * bufferPct);
-    const relevantStrikes = allStrikes.filter(s => s >= minStrike && s <= maxStrike);
+    const lowestStrike = significantStrikes[0]
+    const highestStrike = significantStrikes[significantStrikes.length - 1]
+    const bufferPct = 0.05
+    const strikeSpan = highestStrike - lowestStrike
+    const minStrike = lowestStrike - strikeSpan * bufferPct
+    const maxStrike = highestStrike + strikeSpan * bufferPct
+    const relevantStrikes = allStrikes.filter((s) => s >= minStrike && s <= maxStrike)
 
-    const testPrices: number[] = [];
-    const testMin = Math.max(minStrike, currentPrice * 0.70);
-    const testMax = Math.min(maxStrike, currentPrice * 1.30);
-    const testStep = (testMax - testMin) / 100;
+    const testPrices: number[] = []
+    const testMin = Math.max(minStrike, currentPrice * 0.7)
+    const testMax = Math.min(maxStrike, currentPrice * 1.3)
+    const testStep = (testMax - testMin) / 100
 
     for (let price = testMin; price <= testMax; price += testStep) {
-      testPrices.push(price);
+      testPrices.push(price)
     }
 
-    let totalOI = 0;
-    const strikeRiskData: Array<{ strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number }> = [];
+    let totalOI = 0
+    const strikeRiskData: Array<{
+      strike: number
+      risk: number
+      oi: number
+      callOI: number
+      putOI: number
+      distance: number
+    }> = []
 
-    const riskResults = testPrices.map(testPrice => {
-      let totalRisk = 0;
+    const riskResults = testPrices.map((testPrice) => {
+      let totalRisk = 0
 
-      relevantStrikes.forEach(strike => {
-        const data = strikeData[strike];
-        if (!data) return;
+      relevantStrikes.forEach((strike) => {
+        const data = strikeData[strike]
+        if (!data) return
 
-        const callOI = data.callOI || 0;
-        const putOI = data.putOI || 0;
-        const callGamma = data.callGamma || 0;
-        const putGamma = data.putGamma || 0;
-        const callTheta = data.callTheta || 0;
-        const putTheta = data.putTheta || 0;
-        const callVega = vexData?.[strike]?.callVega || 0;
-        const putVega = vexData?.[strike]?.putVega || 0;
+        const callOI = data.callOI || 0
+        const putOI = data.putOI || 0
+        const callGamma = data.callGamma || 0
+        const putGamma = data.putGamma || 0
+        const callTheta = data.callTheta || 0
+        const putTheta = data.putTheta || 0
+        const callVega = vexData?.[strike]?.callVega || 0
+        const putVega = vexData?.[strike]?.putVega || 0
 
-        const moneyness = strike / testPrice;
-        let callDelta = 0;
-        let putDelta = 0;
+        const moneyness = strike / testPrice
+        let callDelta = 0
+        let putDelta = 0
 
-        if (moneyness > 1.1) { callDelta = 0.1; putDelta = -0.9; }
-        else if (moneyness > 1.05) { callDelta = 0.3; putDelta = -0.7; }
-        else if (moneyness > 1.0) { callDelta = 0.4; putDelta = -0.6; }
-        else if (moneyness > 0.95) { callDelta = 0.6; putDelta = -0.4; }
-        else if (moneyness > 0.9) { callDelta = 0.7; putDelta = -0.3; }
-        else { callDelta = 0.9; putDelta = -0.1; }
+        if (moneyness > 1.1) {
+          callDelta = 0.1
+          putDelta = -0.9
+        } else if (moneyness > 1.05) {
+          callDelta = 0.3
+          putDelta = -0.7
+        } else if (moneyness > 1.0) {
+          callDelta = 0.4
+          putDelta = -0.6
+        } else if (moneyness > 0.95) {
+          callDelta = 0.6
+          putDelta = -0.4
+        } else if (moneyness > 0.9) {
+          callDelta = 0.7
+          putDelta = -0.3
+        } else {
+          callDelta = 0.9
+          putDelta = -0.1
+        }
 
-        const priceDiff = testPrice - strike;
-        const priceDiffSq = priceDiff * priceDiff;
-        const M = 100;
-        const deltaV = 0.02;
+        const priceDiff = testPrice - strike
+        const priceDiffSq = priceDiff * priceDiff
+        const M = 100
+        const deltaV = 0.02
 
         if (callOI > 0) {
-          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff);
-          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq;
-          const thetaRisk = Math.abs(callTheta);
-          const vegaRisk = Math.abs(callVega * deltaV);
-          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff)
+          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq
+          const thetaRisk = Math.abs(callTheta)
+          const vegaRisk = Math.abs(callVega * deltaV)
+          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk)
         }
 
         if (putOI > 0) {
-          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff);
-          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq;
-          const thetaRisk = Math.abs(putTheta);
-          const vegaRisk = Math.abs(putVega * deltaV);
-          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff)
+          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq
+          const thetaRisk = Math.abs(putTheta)
+          const vegaRisk = Math.abs(putVega * deltaV)
+          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk)
         }
-      });
+      })
 
-      return { testPrice, risk: totalRisk };
-    });
+      return { testPrice, risk: totalRisk }
+    })
 
     if (riskResults.length === 0) {
       return {
@@ -685,40 +906,41 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: daysToExp
-      };
+        avgDTE: daysToExp,
+      }
     }
 
     const optimalResult = riskResults.reduce((min, current) =>
       current.risk < min.risk ? current : min
-    );
+    )
 
-    let closestStrike = relevantStrikes[0] || currentPrice;
-    let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
+    let closestStrike = relevantStrikes[0] || currentPrice
+    let minDistance = Math.abs(closestStrike - optimalResult.testPrice)
 
-    relevantStrikes.forEach(strike => {
-      const distance = Math.abs(strike - optimalResult.testPrice);
+    relevantStrikes.forEach((strike) => {
+      const distance = Math.abs(strike - optimalResult.testPrice)
       if (distance < minDistance) {
-        minDistance = distance;
-        closestStrike = strike;
+        minDistance = distance
+        closestStrike = strike
       }
-    });
+    })
 
-    relevantStrikes.forEach(strike => {
-      const data = strikeData[strike];
-      if (!data) return;
+    relevantStrikes.forEach((strike) => {
+      const data = strikeData[strike]
+      if (!data) return
 
-      const callOI = data.callOI || 0;
-      const putOI = data.putOI || 0;
-      totalOI += callOI + putOI;
+      const callOI = data.callOI || 0
+      const putOI = data.putOI || 0
+      totalOI += callOI + putOI
 
-      let strikeRisk = 0;
-      const callGamma = data.callGamma || 0;
-      const putGamma = data.putGamma || 0;
-      const priceDiff = strike - currentPrice;
-      const priceDiffSq = priceDiff * priceDiff;
+      let strikeRisk = 0
+      const callGamma = data.callGamma || 0
+      const putGamma = data.putGamma || 0
+      const priceDiff = strike - currentPrice
+      const priceDiffSq = priceDiff * priceDiff
 
-      strikeRisk = (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001);
+      strikeRisk =
+        (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001)
 
       strikeRiskData.push({
         strike,
@@ -726,153 +948,181 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         oi: callOI + putOI,
         callOI,
         putOI,
-        distance: strike - currentPrice
-      });
-    });
+        distance: strike - currentPrice,
+      })
+    })
 
-    strikeRiskData.sort((a, b) => b.risk - a.risk);
+    strikeRiskData.sort((a, b) => b.risk - a.risk)
 
     return {
       optimalStrike: closestStrike,
       minRisk: optimalResult.risk,
       riskByStrike: strikeRiskData,
       totalOI,
-      avgDTE: daysToExp
-    };
-  }, [currentPrice, strikeRiskExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration]);
+      avgDTE: daysToExp,
+    }
+  }, [currentPrice, strikeRiskExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration])
 
   // Calculate MM data with standard ±20% strike range
   const mmData = useMemo(() => {
-    if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return [];
+    if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return []
 
-    const strikeRange = currentPrice * 0.20; // ±20% standard range
-    const minStrike = currentPrice - strikeRange;
-    const maxStrike = currentPrice + strikeRange;
+    const strikeRange = currentPrice * 0.2 // ±20% standard range
+    const minStrike = currentPrice - strikeRange
+    const maxStrike = currentPrice + strikeRange
 
-    const allStrikes = new Set<number>();
-    mmExpirations.forEach(exp => {
+    const allStrikes = new Set<number>()
+    mmExpirations.forEach((exp) => {
       if (gexByStrikeByExpiration[exp]) {
         Object.keys(gexByStrikeByExpiration[exp])
           .map(Number)
-          .filter(strike => strike >= minStrike && strike <= maxStrike)
-          .forEach(strike => allStrikes.add(strike));
+          .filter((strike) => strike >= minStrike && strike <= maxStrike)
+          .forEach((strike) => allStrikes.add(strike))
       }
-    });
+    })
 
-    const mmByStrike: MMData[] = Array.from(allStrikes).map(strike => {
-      let totalCallMM = 0;
-      let totalPutMM = 0;
-      let totalOI = 0;
-      let avgDaysToExpiry = 0;
-      let validExpirations = 0;
+    const mmByStrike: MMData[] = Array.from(allStrikes)
+      .map((strike) => {
+        let totalCallMM = 0
+        let totalPutMM = 0
+        let totalOI = 0
+        let avgDaysToExpiry = 0
+        let validExpirations = 0
 
-      // Enhanced Greeks aggregation
-      let totalCallDelta = 0, totalPutDelta = 0;
-      let totalCallGamma = 0, totalPutGamma = 0;
-      let totalCallTheta = 0, totalPutTheta = 0;
-      let totalCallVega = 0, totalPutVega = 0;
+        // Enhanced Greeks aggregation
+        let totalCallDelta = 0,
+          totalPutDelta = 0
+        let totalCallGamma = 0,
+          totalPutGamma = 0
+        let totalCallTheta = 0,
+          totalPutTheta = 0
+        let totalCallVega = 0,
+          totalPutVega = 0
 
-      mmExpirations.forEach(exp => {
-        const strikeData = gexByStrikeByExpiration[exp]?.[strike];
-        const vexData = vexByStrikeByExpiration[exp]?.[strike];
-        if (strikeData) {
-          // Calculate days to expiry first for weighting
-          const expDate = new Date(exp + 'T00:00:00Z');
-          const today = new Date();
-          const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        mmExpirations.forEach((exp) => {
+          const strikeData = gexByStrikeByExpiration[exp]?.[strike]
+          const vexData = vexByStrikeByExpiration[exp]?.[strike]
+          if (strikeData) {
+            // Calculate days to expiry first for weighting
+            const expDate = new Date(exp + 'T00:00:00Z')
+            const today = new Date()
+            const daysToExp = Math.ceil(
+              (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+            )
 
-          // Apply time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
-          const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1;
+            // Apply time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
+            const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1
 
-          // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
-          const callMM = (strikeData.call / (currentPrice * 0.01)) * dteWeight;
-          const putMM = (strikeData.put / (currentPrice * 0.01)) * dteWeight;
+            // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
+            const callMM = (strikeData.call / (currentPrice * 0.01)) * dteWeight
+            const putMM = (strikeData.put / (currentPrice * 0.01)) * dteWeight
 
-          totalCallMM += callMM;
-          totalPutMM += putMM;
-          totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
+            totalCallMM += callMM
+            totalPutMM += putMM
+            totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0)
 
-          // Aggregate Greeks with DTE weighting
-          const callOI = strikeData.callOI || 0;
-          const putOI = strikeData.putOI || 0;
+            // Aggregate Greeks with DTE weighting
+            const callOI = strikeData.callOI || 0
+            const putOI = strikeData.putOI || 0
 
-          // Delta: Approximate based on moneyness
-          const moneyness = strike / currentPrice;
-          let callDelta = 0, putDelta = 0;
-          if (moneyness > 1.1) { callDelta = 0.1; putDelta = -0.9; }
-          else if (moneyness > 1.05) { callDelta = 0.3; putDelta = -0.7; }
-          else if (moneyness > 1.0) { callDelta = 0.4; putDelta = -0.6; }
-          else if (moneyness > 0.95) { callDelta = 0.6; putDelta = -0.4; }
-          else if (moneyness > 0.9) { callDelta = 0.7; putDelta = -0.3; }
-          else { callDelta = 0.9; putDelta = -0.1; }
+            // Delta: Approximate based on moneyness
+            const moneyness = strike / currentPrice
+            let callDelta = 0,
+              putDelta = 0
+            if (moneyness > 1.1) {
+              callDelta = 0.1
+              putDelta = -0.9
+            } else if (moneyness > 1.05) {
+              callDelta = 0.3
+              putDelta = -0.7
+            } else if (moneyness > 1.0) {
+              callDelta = 0.4
+              putDelta = -0.6
+            } else if (moneyness > 0.95) {
+              callDelta = 0.6
+              putDelta = -0.4
+            } else if (moneyness > 0.9) {
+              callDelta = 0.7
+              putDelta = -0.3
+            } else {
+              callDelta = 0.9
+              putDelta = -0.1
+            }
 
-          totalCallDelta += (callDelta * callOI * 100) * dteWeight;
-          totalPutDelta += (putDelta * putOI * 100) * dteWeight;
+            totalCallDelta += callDelta * callOI * 100 * dteWeight
+            totalPutDelta += putDelta * putOI * 100 * dteWeight
 
-          // Gamma from GEX data
-          totalCallGamma += ((strikeData.callGamma || 0) * callOI) * dteWeight;
-          totalPutGamma += ((strikeData.putGamma || 0) * putOI) * dteWeight;
+            // Gamma from GEX data
+            totalCallGamma += (strikeData.callGamma || 0) * callOI * dteWeight
+            totalPutGamma += (strikeData.putGamma || 0) * putOI * dteWeight
 
-          // Theta from GEX data
-          totalCallTheta += ((strikeData.callTheta || 0) * callOI) * dteWeight;
-          totalPutTheta += ((strikeData.putTheta || 0) * putOI) * dteWeight;
+            // Theta from GEX data
+            totalCallTheta += (strikeData.callTheta || 0) * callOI * dteWeight
+            totalPutTheta += (strikeData.putTheta || 0) * putOI * dteWeight
 
-          // Vega from GEX data (stored there during calculation)
-          totalCallVega += ((strikeData.callVega || 0) * callOI) * dteWeight;
-          totalPutVega += ((strikeData.putVega || 0) * putOI) * dteWeight;
+            // Vega from GEX data (stored there during calculation)
+            totalCallVega += (strikeData.callVega || 0) * callOI * dteWeight
+            totalPutVega += (strikeData.putVega || 0) * putOI * dteWeight
 
-          avgDaysToExpiry += daysToExp;
-          validExpirations++;
+            avgDaysToExpiry += daysToExp
+            validExpirations++
+          }
+        })
+
+        if (validExpirations > 0) {
+          avgDaysToExpiry = avgDaysToExpiry / validExpirations
         }
-      });
 
-      if (validExpirations > 0) {
-        avgDaysToExpiry = avgDaysToExpiry / validExpirations;
-      }
+        const netMM = totalCallMM + totalPutMM
+        const netDelta = totalCallDelta + totalPutDelta
+        const netGamma = totalCallGamma + totalPutGamma
+        const netTheta = totalCallTheta + totalPutTheta
+        const netVega = totalCallVega + totalPutVega
 
-      const netMM = totalCallMM + totalPutMM;
-      const netDelta = totalCallDelta + totalPutDelta;
-      const netGamma = totalCallGamma + totalPutGamma;
-      const netTheta = totalCallTheta + totalPutTheta;
-      const netVega = totalCallVega + totalPutVega;
+        return {
+          strike,
+          netMM,
+          callMM: totalCallMM,
+          putMM: totalPutMM,
+          totalOI,
+          daysToExpiry: Math.round(avgDaysToExpiry),
+          impact: Math.abs(netMM),
+          netDelta,
+          netGamma,
+          netTheta,
+          netVega,
+          callDelta: totalCallDelta,
+          putDelta: totalPutDelta,
+          callGamma: totalCallGamma,
+          putGamma: totalPutGamma,
+          callTheta: totalCallTheta,
+          putTheta: totalPutTheta,
+          callVega: totalCallVega,
+          putVega: totalPutVega,
+        }
+      })
+      .sort((a, b) => b.strike - a.strike)
 
-      return {
-        strike,
-        netMM,
-        callMM: totalCallMM,
-        putMM: totalPutMM,
-        totalOI,
-        daysToExpiry: Math.round(avgDaysToExpiry),
-        impact: Math.abs(netMM),
-        netDelta,
-        netGamma,
-        netTheta,
-        netVega,
-        callDelta: totalCallDelta,
-        putDelta: totalPutDelta,
-        callGamma: totalCallGamma,
-        putGamma: totalPutGamma,
-        callTheta: totalCallTheta,
-        putTheta: totalPutTheta,
-        callVega: totalCallVega,
-        putVega: totalPutVega
-      };
-    }).sort((a, b) => b.strike - a.strike);
-
-    return mmByStrike;
-  }, [currentPrice, gexByStrikeByExpiration, mmExpirations]);
+    return mmByStrike
+  }, [currentPrice, gexByStrikeByExpiration, mmExpirations])
 
   // Calculate aggregate metrics with Enhanced Greeks
   const metrics = useMemo(() => {
-    const totalNetMM = mmData.reduce((sum, item) => sum + item.netMM, 0);
-    const maxCallWall = mmData.reduce((max, item) => item.callMM > max.callMM ? item : max, mmData[0] || { callMM: 0, strike: 0 });
-    const maxPutFloor = mmData.reduce((max, item) => Math.abs(item.putMM) > Math.abs(max.putMM) ? item : max, mmData[0] || { putMM: 0, strike: 0 });
+    const totalNetMM = mmData.reduce((sum, item) => sum + item.netMM, 0)
+    const maxCallWall = mmData.reduce(
+      (max, item) => (item.callMM > max.callMM ? item : max),
+      mmData[0] || { callMM: 0, strike: 0 }
+    )
+    const maxPutFloor = mmData.reduce(
+      (max, item) => (Math.abs(item.putMM) > Math.abs(max.putMM) ? item : max),
+      mmData[0] || { putMM: 0, strike: 0 }
+    )
 
     // Aggregate Greek exposures
-    const totalNetDelta = mmData.reduce((sum, item) => sum + item.netDelta, 0);
-    const totalNetGamma = mmData.reduce((sum, item) => sum + item.netGamma, 0);
-    const totalNetTheta = mmData.reduce((sum, item) => sum + item.netTheta, 0);
-    const totalNetVega = mmData.reduce((sum, item) => sum + item.netVega, 0);
+    const totalNetDelta = mmData.reduce((sum, item) => sum + item.netDelta, 0)
+    const totalNetGamma = mmData.reduce((sum, item) => sum + item.netGamma, 0)
+    const totalNetTheta = mmData.reduce((sum, item) => sum + item.netTheta, 0)
+    const totalNetVega = mmData.reduce((sum, item) => sum + item.netVega, 0)
 
     // DEBUG: Log actual Greek totals before normalization
     console.log('🎯 GREEK TOTALS BEFORE NORMALIZATION:', {
@@ -880,57 +1130,56 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       totalNetGamma,
       totalNetTheta,
       totalNetVega,
-      mmDataCount: mmData.length
-    });
+      mmDataCount: mmData.length,
+    })
 
     // Calculate absolute exposure (total notional risk)
-    const totalCallDelta = mmData.reduce((sum, item) => sum + Math.abs(item.callDelta), 0);
-    const totalPutDelta = mmData.reduce((sum, item) => sum + Math.abs(item.putDelta), 0);
+    const totalCallDelta = mmData.reduce((sum, item) => sum + Math.abs(item.callDelta), 0)
+    const totalPutDelta = mmData.reduce((sum, item) => sum + Math.abs(item.putDelta), 0)
 
     // Hedging pressure: How much dealers need to hedge
-    const hedgingPressure = Math.abs(totalNetDelta) * currentPrice; // Dollar value of delta hedge
+    const hedgingPressure = Math.abs(totalNetDelta) * currentPrice // Dollar value of delta hedge
 
     // Volatility risk: How sensitive to IV changes
-    const volRisk = Math.abs(totalNetVega);
+    const volRisk = Math.abs(totalNetVega)
 
     // === ADVANCED GREEK-BASED SIGNAL CALCULATION ===
     // Use ALL Greeks to determine true dealer positioning and market setup
 
     // 1. DELTA SCORE: Directional bias (-100 to +100)
     // Greeks from API are PER CONTRACT, multiplied by OI already, need different normalization
-    const deltaScore = Math.max(-100, Math.min(100, totalNetDelta / 100000)); // Adjusted normalization
+    const deltaScore = Math.max(-100, Math.min(100, totalNetDelta / 100000)) // Adjusted normalization
 
     // 2. GAMMA SCORE: Reflexivity (-100 to +100)
-    const gammaScore = Math.max(-100, Math.min(100, totalNetGamma / 1000)); // Adjusted normalization
+    const gammaScore = Math.max(-100, Math.min(100, totalNetGamma / 1000)) // Adjusted normalization
 
     // 3. THETA SCORE: Time decay pressure (-100 to +100)
     // Theta values are typically in thousands, normalize accordingly
-    const thetaScore = Math.max(-100, Math.min(100, totalNetTheta / 1000)); // Changed from 10000 to 1000
+    const thetaScore = Math.max(-100, Math.min(100, totalNetTheta / 1000)) // Changed from 10000 to 1000
 
     // 4. VEGA SCORE: Volatility positioning (-100 to +100)
     // Vega values are typically in thousands, normalize accordingly
-    const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000)); // Changed from 10000 to 1000
+    const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000)) // Changed from 10000 to 1000
 
     console.log('🎯 GREEK SCORES AFTER NORMALIZATION:', {
       deltaScore,
       gammaScore,
       thetaScore,
-      vegaScore
-    });
+      vegaScore,
+    })
 
     // === COMPOSITE SIGNAL ALGORITHM ===
     // Weight the Greeks based on their importance for trading decisions
-    const DELTA_WEIGHT = 0.30;  // 30% - Direction matters most
-    const GAMMA_WEIGHT = 0.35;  // 35% - Reflexivity is key for dealer behavior
-    const THETA_WEIGHT = 0.20;  // 20% - Time decay creates urgency
-    const VEGA_WEIGHT = 0.15;   // 15% - Vol exposure secondary
+    const DELTA_WEIGHT = 0.3 // 30% - Direction matters most
+    const GAMMA_WEIGHT = 0.35 // 35% - Reflexivity is key for dealer behavior
+    const THETA_WEIGHT = 0.2 // 20% - Time decay creates urgency
+    const VEGA_WEIGHT = 0.15 // 15% - Vol exposure secondary
 
-    const compositeScore = (
+    const compositeScore =
       deltaScore * DELTA_WEIGHT +
       gammaScore * GAMMA_WEIGHT +
       thetaScore * THETA_WEIGHT +
       vegaScore * VEGA_WEIGHT
-    );
 
     console.log('🎯 COMPOSITE SCORE:', {
       compositeScore,
@@ -938,59 +1187,60 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         deltaContribution: deltaScore * DELTA_WEIGHT,
         gammaContribution: gammaScore * GAMMA_WEIGHT,
         thetaContribution: thetaScore * THETA_WEIGHT,
-        vegaContribution: vegaScore * VEGA_WEIGHT
-      }
-    });
+        vegaContribution: vegaScore * VEGA_WEIGHT,
+      },
+    })
 
     // === SIGNAL CLASSIFICATION ===
-    let signal = 'WAIT';
-    let signalColor = 'yellow';
-    let signalExplanation = 'Mixed signals - no clear edge';
+    let signal = 'WAIT'
+    let signalColor = 'yellow'
+    let signalExplanation = 'Mixed signals - no clear edge'
 
     // STRONG BUY: Much more realistic thresholds
     if (compositeScore > 3) {
-      signal = 'BUY SETUP';
-      signalColor = 'green';
+      signal = 'BUY SETUP'
+      signalColor = 'green'
       if (gammaScore > 5 && deltaScore > 3) {
-        signalExplanation = 'Strong long gamma + bullish delta - dealers will buy dips & stabilize';
+        signalExplanation = 'Strong long gamma + bullish delta - dealers will buy dips & stabilize'
       } else if (thetaScore < -5 && Math.abs(deltaScore) > 5) {
-        signalExplanation = 'Large theta bleed + directional position - dealers need price movement';
+        signalExplanation = 'Large theta bleed + directional position - dealers need price movement'
       } else {
-        signalExplanation = 'Net bullish positioning across all Greeks - favorable setup';
+        signalExplanation = 'Net bullish positioning across all Greeks - favorable setup'
       }
     }
     // STRONG SELL: Much more realistic thresholds
     else if (compositeScore < -3) {
-      signal = 'SELL SETUP';
-      signalColor = 'red';
+      signal = 'SELL SETUP'
+      signalColor = 'red'
       if (gammaScore < -5 && deltaScore < -3) {
-        signalExplanation = 'Strong short gamma + bearish delta - dealers will sell rallies & amplify';
+        signalExplanation =
+          'Strong short gamma + bearish delta - dealers will sell rallies & amplify'
       } else if (thetaScore > 5 && vegaScore < -3) {
-        signalExplanation = 'Collecting premium + short vol - dealers want compression & decay';
+        signalExplanation = 'Collecting premium + short vol - dealers want compression & decay'
       } else {
-        signalExplanation = 'Net bearish positioning across all Greeks - favorable short setup';
+        signalExplanation = 'Net bearish positioning across all Greeks - favorable short setup'
       }
     }
     // MODERATE BUY: Lowered threshold
     else if (compositeScore > 1) {
-      signal = 'LEAN BUY';
-      signalColor = 'green';
-      signalExplanation = 'Moderate bullish bias - consider smaller long positions';
+      signal = 'LEAN BUY'
+      signalColor = 'green'
+      signalExplanation = 'Moderate bullish bias - consider smaller long positions'
     }
     // MODERATE SELL: Lowered threshold
     else if (compositeScore < -1) {
-      signal = 'LEAN SELL';
-      signalColor = 'red';
-      signalExplanation = 'Moderate bearish bias - consider smaller short positions';
+      signal = 'LEAN SELL'
+      signalColor = 'red'
+      signalExplanation = 'Moderate bearish bias - consider smaller short positions'
     }
     // NEUTRAL: Stay flat
     else {
-      signal = 'WAIT';
-      signalColor = 'yellow';
+      signal = 'WAIT'
+      signalColor = 'yellow'
       if (Math.abs(gammaScore) < 2 && Math.abs(deltaScore) < 2) {
-        signalExplanation = 'Low conviction across all Greeks - wait for clearer setup';
+        signalExplanation = 'Low conviction across all Greeks - wait for clearer setup'
       } else {
-        signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade';
+        signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade'
       }
     }
 
@@ -1017,173 +1267,185 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       compositeScore,
       signal,
       signalColor,
-      signalExplanation
-    };
-  }, [mmData, currentPrice]);
+      signalExplanation,
+    }
+  }, [mmData, currentPrice])
 
   const formatMM = (value: number) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? '-' : '+';
+    const absValue = Math.abs(value)
+    const sign = value < 0 ? '-' : '+'
 
     if (absValue >= 1e9) {
-      return `${sign}$${(absValue / 1e9).toFixed(2)}B`;
+      return `${sign}$${(absValue / 1e9).toFixed(2)}B`
     } else if (absValue >= 1e6) {
-      return `${sign}$${(absValue / 1e6).toFixed(1)}M`;
+      return `${sign}$${(absValue / 1e6).toFixed(1)}M`
     } else if (absValue >= 1000) {
-      return `${sign}$${(absValue / 1000).toFixed(1)}K`;
+      return `${sign}$${(absValue / 1000).toFixed(1)}K`
     }
-    return `${sign}$${absValue.toFixed(0)}`;
-  };
+    return `${sign}$${absValue.toFixed(0)}`
+  }
 
   const formatOI = (value: number) => {
     if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(1)}M`;
+      return `${(value / 1000000).toFixed(1)}M`
     } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`;
+      return `${(value / 1000).toFixed(1)}K`
     }
-    return value.toLocaleString();
-  };
+    return value.toLocaleString()
+  }
 
   const formatRisk = (value: number) => {
-    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-    return value.toFixed(0);
-  };
+    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+    return value.toFixed(0)
+  }
 
   // ============================================================================
   // STABILITY INDEX (SI) CALCULATION - UNIFIED ACCURATE METHOD
   // ============================================================================
   // This calculation is now IDENTICAL between the gauge and screener for consistency.
-  // 
+  //
   // Formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
-  // 
+  //
   // Where:
   // - GEX (Gamma Exposure) = Gamma × OI × Price² × 100
   //   * Calls: positive gamma contribution
-  //   * Puts: negative gamma contribution  
-  // 
+  //   * Puts: negative gamma contribution
+  //
   // - VEX (Vega Exposure) = Vega × OI × 100
   //   * Calls: positive vega contribution
   //   * Puts: negative vega contribution
-  // 
+  //
   // - DEX (Delta Exposure) = Delta × OI × Price × 100
   //   * Delta approximated by moneyness:
   //     - OTM calls (strike/price > 1.05): delta = max(0, min(1, (moneyness-1)*2))
   //     - ITM calls (strike/price < 0.95): delta = max(0, min(1, 0.8+(1-moneyness)*0.4))
   //     - ATM calls (else): delta = 0.5
   //     - Put delta = Call delta - 1 (put-call parity)
-  // 
+  //
   // Time Horizon: 45-day expirations only
   // ============================================================================
 
   // Calculate SI metrics for the gauge - ACCURATE METHOD using raw Greeks
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
-      return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data', stabilityColor: 'text-gray-400' };
+      return {
+        si: 0,
+        gexTotal: 0,
+        vexTotal: 0,
+        dexTotal: 0,
+        siNorm: 0,
+        stability: 'UNKNOWN',
+        marketBehavior: 'No Data',
+        stabilityColor: 'text-gray-400',
+      }
     }
 
-    let totalGEX = 0;
-    let totalVEX = 0;
-    let totalDEX = 0;
+    let totalGEX = 0
+    let totalVEX = 0
+    let totalDEX = 0
 
     // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
-    mmExpirations.forEach(exp => {
-      const gexData = gexByStrikeByExpiration[exp];
-      const vexData = vexByStrikeByExpiration[exp];
+    mmExpirations.forEach((exp) => {
+      const gexData = gexByStrikeByExpiration[exp]
+      const vexData = vexByStrikeByExpiration[exp]
 
       if (gexData) {
         Object.entries(gexData).forEach(([strike, data]) => {
-          const strikePrice = parseFloat(strike);
+          const strikePrice = parseFloat(strike)
 
-          const callOI = data.callOI || 0;
-          const putOI = data.putOI || 0;
+          const callOI = data.callOI || 0
+          const putOI = data.putOI || 0
 
           if (callOI > 0 || putOI > 0) {
             // Calculate GEX from raw gamma (stored in data)
-            const callGamma = data.callGamma || 0;
-            const putGamma = data.putGamma || 0;
+            const callGamma = data.callGamma || 0
+            const putGamma = data.putGamma || 0
 
             if (callOI > 0 && callGamma !== 0) {
-              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
-              totalGEX += callGEX;
+              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100
+              totalGEX += callGEX
             }
             if (putOI > 0 && putGamma !== 0) {
-              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
-              totalGEX += putGEX;
+              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100
+              totalGEX += putGEX
             }
 
             // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
-            const callVega = data.callVega || 0;
-            const putVega = data.putVega || 0;
+            const callVega = data.callVega || 0
+            const putVega = data.putVega || 0
 
             if (callOI > 0 && callVega !== 0) {
-              const callVEX = callVega * callOI * 100;
-              totalVEX += callVEX;
+              const callVEX = callVega * callOI * 100
+              totalVEX += callVEX
             }
             if (putOI > 0 && putVega !== 0) {
-              const putVEX = -putVega * putOI * 100;
-              totalVEX += putVEX;
+              const putVEX = -putVega * putOI * 100
+              totalVEX += putVEX
             }
 
             // Calculate DEX using standardized delta approximation
-            const moneyness = strikePrice / currentPrice;
-            let callDelta = 0;
-            let putDelta = 0;
+            const moneyness = strikePrice / currentPrice
+            let callDelta = 0
+            let putDelta = 0
 
-            if (moneyness > 1.05) { // OTM calls
-              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
-            } else if (moneyness < 0.95) { // ITM calls
-              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
-            } else { // ATM calls
-              callDelta = 0.5;
+            if (moneyness > 1.05) {
+              // OTM calls
+              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
+            } else if (moneyness < 0.95) {
+              // ITM calls
+              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
+            } else {
+              // ATM calls
+              callDelta = 0.5
             }
 
-            putDelta = callDelta - 1; // Put-call parity
+            putDelta = callDelta - 1 // Put-call parity
 
             // Calculate DEX
-            const callDEX = callDelta * callOI * 100 * currentPrice;
-            const putDEX = putDelta * putOI * 100 * currentPrice;
+            const callDEX = callDelta * callOI * 100 * currentPrice
+            const putDEX = putDelta * putOI * 100 * currentPrice
 
-            totalDEX += callDEX + putDEX;
+            totalDEX += callDEX + putDEX
           }
-        });
+        })
       }
-    });
+    })
 
     // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
-    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-    const si = denominator !== 0 ? totalGEX / denominator : 0;
+    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
+    const si = denominator !== 0 ? totalGEX / denominator : 0
 
     // Determine stability level and market behavior based on actual SI ranges
-    let stability = '';
-    let marketBehavior = '';
-    let stabilityColor = '';
+    let stability = ''
+    let marketBehavior = ''
+    let stabilityColor = ''
 
     if (si >= 2.0) {
-      stability = 'EXTREMELY STABLE';
-      marketBehavior = 'Strong Mean Reversion';
-      stabilityColor = 'text-green-500';
+      stability = 'EXTREMELY STABLE'
+      marketBehavior = 'Strong Mean Reversion'
+      stabilityColor = 'text-green-500'
     } else if (si >= 0.5) {
-      stability = 'HIGHLY STABLE';
-      marketBehavior = 'Mean Reverting';
-      stabilityColor = 'text-green-400';
+      stability = 'HIGHLY STABLE'
+      marketBehavior = 'Mean Reverting'
+      stabilityColor = 'text-green-400'
     } else if (si >= 0) {
-      stability = 'MILDLY SUPPORTIVE';
-      marketBehavior = 'Range-bound';
-      stabilityColor = 'text-blue-400';
+      stability = 'MILDLY SUPPORTIVE'
+      marketBehavior = 'Range-bound'
+      stabilityColor = 'text-blue-400'
     } else if (si >= -0.5) {
-      stability = 'VOLATILITY BUILDING';
-      marketBehavior = 'Breakout Likely';
-      stabilityColor = 'text-yellow-400';
+      stability = 'VOLATILITY BUILDING'
+      marketBehavior = 'Breakout Likely'
+      stabilityColor = 'text-yellow-400'
     } else if (si >= -2.0) {
-      stability = 'REFLEXIVE MARKET';
-      marketBehavior = 'Fragile & Explosive';
-      stabilityColor = 'text-red-400';
+      stability = 'REFLEXIVE MARKET'
+      marketBehavior = 'Fragile & Explosive'
+      stabilityColor = 'text-red-400'
     } else {
-      stability = 'EXTREMELY REFLEXIVE';
-      marketBehavior = 'Highly Explosive';
-      stabilityColor = 'text-red-500';
+      stability = 'EXTREMELY REFLEXIVE'
+      marketBehavior = 'Highly Explosive'
+      stabilityColor = 'text-red-500'
     }
 
     return {
@@ -1194,17 +1456,15 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       siNorm: si, // Use actual SI value, not normalized
       stability,
       marketBehavior,
-      stabilityColor
-    };
-  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, mmExpirations]);
+      stabilityColor,
+    }
+  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, mmExpirations])
 
   return (
     <div className="space-y-6">
       {/* Stability Index Gauge - Now hidden, moved to Trading Signal section */}
-
       {/* Trading Signal Gauge */}
       <div className="bg-black border border-gray-600 md:p-8 p-0 md:pt-8 pt-2">
-
         {/* Two Gauges Side by Side */}
         <div className="grid grid-cols-2 md:gap-8 gap-2 md:mb-8 mb-2">
           {/* Intensity Gauge (Left) */}
@@ -1231,7 +1491,17 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               </defs>
 
               {/* Title */}
-              <text x="200" y="15" fill="white" fontSize="16" fontWeight="bold" textAnchor="middle" letterSpacing="2">INTENSITY</text>
+              <text
+                x="200"
+                y="15"
+                fill="white"
+                fontSize="16"
+                fontWeight="bold"
+                textAnchor="middle"
+                letterSpacing="2"
+              >
+                INTENSITY
+              </text>
 
               {/* Background Arc */}
               <path
@@ -1250,7 +1520,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   stroke="url(#gaugeSellGradient)"
                   strokeWidth="35"
                   strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(Math.abs(metrics.compositeScore), 20) / 20)}
+                  strokeDashoffset={
+                    ((Math.PI * 160) / 2) *
+                    (1 - Math.min(Math.abs(metrics.compositeScore), 20) / 20)
+                  }
                   strokeLinecap="round"
                   className="transition-all duration-500"
                 />
@@ -1262,7 +1535,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   stroke="url(#gaugeBuyGradient)"
                   strokeWidth="35"
                   strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(metrics.compositeScore, 20) / 20)}
+                  strokeDashoffset={
+                    ((Math.PI * 160) / 2) * (1 - Math.min(metrics.compositeScore, 20) / 20)
+                  }
                   strokeLinecap="round"
                   className="transition-all duration-500"
                 />
@@ -1287,50 +1562,82 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               {/* Scale Labels - Positioned INSIDE the gauge arc stroke */}
               {/* SELL SETUP (far left) */}
               <text fill="#FF0000" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="55" y="135" transform="rotate(-55 55 135)">BREAK</tspan>
-                <tspan x="55" y="144" transform="rotate(-55 55 144)">DOWN</tspan>
+                <tspan x="55" y="135" transform="rotate(-55 55 135)">
+                  BREAK
+                </tspan>
+                <tspan x="55" y="144" transform="rotate(-55 55 144)">
+                  DOWN
+                </tspan>
               </text>
 
               {/* STRONG SELL */}
               <text fill="#FFA500" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="87" y="90" transform="rotate(-40 87 90)">STRONG</tspan>
-                <tspan x="87" y="99" transform="rotate(-40 87 99)">SELL</tspan>
+                <tspan x="87" y="90" transform="rotate(-40 87 90)">
+                  STRONG
+                </tspan>
+                <tspan x="87" y="99" transform="rotate(-40 87 99)">
+                  SELL
+                </tspan>
               </text>
 
               {/* SELL SETUP */}
               <text fill="#FFFF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="128" y="55" transform="rotate(-22 128 55)">SELL</tspan>
-                <tspan x="128" y="64" transform="rotate(-22 128 64)">SETUP</tspan>
+                <tspan x="128" y="55" transform="rotate(-22 128 55)">
+                  SELL
+                </tspan>
+                <tspan x="128" y="64" transform="rotate(-22 128 64)">
+                  SETUP
+                </tspan>
               </text>
 
               {/* LEAN SELL */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="165" y="43" transform="rotate(-10 165 43)">LEAN</tspan>
-                <tspan x="165" y="52" transform="rotate(-10 165 52)">SELL</tspan>
+                <tspan x="165" y="43" transform="rotate(-10 165 43)">
+                  LEAN
+                </tspan>
+                <tspan x="165" y="52" transform="rotate(-10 165 52)">
+                  SELL
+                </tspan>
               </text>
 
               {/* LEAN BUY */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="235" y="43" transform="rotate(10 235 43)">LEAN</tspan>
-                <tspan x="235" y="52" transform="rotate(10 235 52)">BUY</tspan>
+                <tspan x="235" y="43" transform="rotate(10 235 43)">
+                  LEAN
+                </tspan>
+                <tspan x="235" y="52" transform="rotate(10 235 52)">
+                  BUY
+                </tspan>
               </text>
 
               {/* BUY SETUP */}
               <text fill="#00FFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="272" y="55" transform="rotate(22 272 55)">BUY</tspan>
-                <tspan x="272" y="64" transform="rotate(22 272 64)">SETUP</tspan>
+                <tspan x="272" y="55" transform="rotate(22 272 55)">
+                  BUY
+                </tspan>
+                <tspan x="272" y="64" transform="rotate(22 272 64)">
+                  SETUP
+                </tspan>
               </text>
 
               {/* STRONG BUY */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="313" y="90" transform="rotate(40 313 90)">STRONG</tspan>
-                <tspan x="313" y="99" transform="rotate(40 313 99)">BUY</tspan>
+                <tspan x="313" y="90" transform="rotate(40 313 90)">
+                  STRONG
+                </tspan>
+                <tspan x="313" y="99" transform="rotate(40 313 99)">
+                  BUY
+                </tspan>
               </text>
 
               {/* BUY SETUP (far right) */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="345" y="135" transform="rotate(55 345 135)">BREAK</tspan>
-                <tspan x="345" y="144" transform="rotate(55 345 144)">OUT</tspan>
+                <tspan x="345" y="135" transform="rotate(55 345 135)">
+                  BREAK
+                </tspan>
+                <tspan x="345" y="144" transform="rotate(55 345 144)">
+                  OUT
+                </tspan>
               </text>
 
               {/* Needle */}
@@ -1345,7 +1652,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 className="transition-all duration-500"
                 style={{
                   transformOrigin: '200px 200px',
-                  transform: `rotate(${-90 + ((Math.max(-20, Math.min(20, metrics.compositeScore)) + 20) / 40) * 180}deg)`
+                  transform: `rotate(${-90 + ((Math.max(-20, Math.min(20, metrics.compositeScore)) + 20) / 40) * 180}deg)`,
                 }}
               />
 
@@ -1355,17 +1662,27 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
-              <div className={`md:text-3xl text-lg font-bold ${metrics.signal.includes('BUY') ? 'text-green-400' :
-                metrics.signal.includes('SELL') ? 'text-red-400' :
-                  'text-yellow-400'
-                }`}>
-                {metrics.compositeScore > 0 ? '+' : ''}{metrics.compositeScore.toFixed(1)}
+              <div
+                className={`md:text-3xl text-lg font-bold ${
+                  metrics.signal.includes('BUY')
+                    ? 'text-green-400'
+                    : metrics.signal.includes('SELL')
+                      ? 'text-red-400'
+                      : 'text-yellow-400'
+                }`}
+              >
+                {metrics.compositeScore > 0 ? '+' : ''}
+                {metrics.compositeScore.toFixed(1)}
               </div>
             </div>
 
             {/* Side Labels */}
-            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">SELL</div>
-            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">BUY</div>
+            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">
+              SELL
+            </div>
+            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">
+              BUY
+            </div>
           </div>
 
           {/* Stability Gauge (Right) */}
@@ -1392,7 +1709,17 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               </defs>
 
               {/* Title */}
-              <text x="200" y="15" fill="white" fontSize="16" fontWeight="bold" textAnchor="middle" letterSpacing="2">STABILITY</text>
+              <text
+                x="200"
+                y="15"
+                fill="white"
+                fontSize="16"
+                fontWeight="bold"
+                textAnchor="middle"
+                letterSpacing="2"
+              >
+                STABILITY
+              </text>
 
               {/* Background Arc */}
               <path
@@ -1411,7 +1738,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   stroke="url(#siSellGradient)"
                   strokeWidth="35"
                   strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(Math.abs(siMetrics.siNorm), 10) / 10)}
+                  strokeDashoffset={
+                    ((Math.PI * 160) / 2) * (1 - Math.min(Math.abs(siMetrics.siNorm), 10) / 10)
+                  }
                   strokeLinecap="round"
                   className="transition-all duration-500"
                 />
@@ -1423,7 +1752,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   stroke="url(#siBuyGradient)"
                   strokeWidth="35"
                   strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(siMetrics.siNorm, 10) / 10)}
+                  strokeDashoffset={
+                    ((Math.PI * 160) / 2) * (1 - Math.min(siMetrics.siNorm, 10) / 10)
+                  }
                   strokeLinecap="round"
                   className="transition-all duration-500"
                 />
@@ -1448,50 +1779,82 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               {/* Scale Labels - Positioned INSIDE the gauge arc stroke */}
               {/* AMPLIFIED (far left) */}
               <text fill="#FF0000" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="55" y="135" transform="rotate(-55 55 135)">AMPL-</tspan>
-                <tspan x="55" y="144" transform="rotate(-55 55 144)">IFIED</tspan>
+                <tspan x="55" y="135" transform="rotate(-55 55 135)">
+                  AMPL-
+                </tspan>
+                <tspan x="55" y="144" transform="rotate(-55 55 144)">
+                  IFIED
+                </tspan>
               </text>
 
               {/* VOLATILE */}
               <text fill="#FFA500" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="87" y="90" transform="rotate(-40 87 90)">VOL-</tspan>
-                <tspan x="87" y="99" transform="rotate(-40 87 99)">ATILE</tspan>
+                <tspan x="87" y="90" transform="rotate(-40 87 90)">
+                  VOL-
+                </tspan>
+                <tspan x="87" y="99" transform="rotate(-40 87 99)">
+                  ATILE
+                </tspan>
               </text>
 
               {/* TRENDING */}
               <text fill="#FFFF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="128" y="55" transform="rotate(-22 128 55)">TREND-</tspan>
-                <tspan x="128" y="64" transform="rotate(-22 128 64)">ING</tspan>
+                <tspan x="128" y="55" transform="rotate(-22 128 55)">
+                  TREND-
+                </tspan>
+                <tspan x="128" y="64" transform="rotate(-22 128 64)">
+                  ING
+                </tspan>
               </text>
 
               {/* NEUTRAL (left) */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="165" y="43" transform="rotate(-10 165 43)">NEUT-</tspan>
-                <tspan x="165" y="52" transform="rotate(-10 165 52)">RAL</tspan>
+                <tspan x="165" y="43" transform="rotate(-10 165 43)">
+                  NEUT-
+                </tspan>
+                <tspan x="165" y="52" transform="rotate(-10 165 52)">
+                  RAL
+                </tspan>
               </text>
 
               {/* NEUTRAL (right) */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="235" y="43" transform="rotate(10 235 43)">NEUT-</tspan>
-                <tspan x="235" y="52" transform="rotate(10 235 52)">RAL</tspan>
+                <tspan x="235" y="43" transform="rotate(10 235 43)">
+                  NEUT-
+                </tspan>
+                <tspan x="235" y="52" transform="rotate(10 235 52)">
+                  RAL
+                </tspan>
               </text>
 
               {/* DAMPENED */}
               <text fill="#00FFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="272" y="55" transform="rotate(22 272 55)">DAMP-</tspan>
-                <tspan x="272" y="64" transform="rotate(22 272 64)">ENED</tspan>
+                <tspan x="272" y="55" transform="rotate(22 272 55)">
+                  DAMP-
+                </tspan>
+                <tspan x="272" y="64" transform="rotate(22 272 64)">
+                  ENED
+                </tspan>
               </text>
 
               {/* REVERSION */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="313" y="90" transform="rotate(40 313 90)">REVER-</tspan>
-                <tspan x="313" y="99" transform="rotate(40 313 99)">SION</tspan>
+                <tspan x="313" y="90" transform="rotate(40 313 90)">
+                  REVER-
+                </tspan>
+                <tspan x="313" y="99" transform="rotate(40 313 99)">
+                  SION
+                </tspan>
               </text>
 
               {/* STABLE/PINNED (far right) */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-                <tspan x="345" y="135" transform="rotate(55 345 135)">STABLE</tspan>
-                <tspan x="345" y="144" transform="rotate(55 345 144)">PINNED</tspan>
+                <tspan x="345" y="135" transform="rotate(55 345 135)">
+                  STABLE
+                </tspan>
+                <tspan x="345" y="144" transform="rotate(55 345 144)">
+                  PINNED
+                </tspan>
               </text>
 
               {/* Needle */}
@@ -1506,7 +1869,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 className="transition-all duration-500"
                 style={{
                   transformOrigin: '200px 200px',
-                  transform: `rotate(${-90 + ((Math.max(-10, Math.min(10, siMetrics.siNorm)) + 10) / 20) * 180}deg)`
+                  transform: `rotate(${-90 + ((Math.max(-10, Math.min(10, siMetrics.siNorm)) + 10) / 20) * 180}deg)`,
                 }}
               />
 
@@ -1516,17 +1879,27 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
-              <div className={`md:text-3xl text-lg font-bold ${siMetrics.siNorm > 2 ? 'text-green-400' :
-                siMetrics.siNorm < -2 ? 'text-red-400' :
-                  'text-yellow-400'
-                }`}>
-                {siMetrics.siNorm > 0 ? '+' : ''}{siMetrics.siNorm.toFixed(1)}
+              <div
+                className={`md:text-3xl text-lg font-bold ${
+                  siMetrics.siNorm > 2
+                    ? 'text-green-400'
+                    : siMetrics.siNorm < -2
+                      ? 'text-red-400'
+                      : 'text-yellow-400'
+                }`}
+              >
+                {siMetrics.siNorm > 0 ? '+' : ''}
+                {siMetrics.siNorm.toFixed(1)}
               </div>
             </div>
 
             {/* Side Labels */}
-            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">VOLATILE</div>
-            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">STABLE</div>
+            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">
+              VOLATILE
+            </div>
+            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">
+              STABLE
+            </div>
           </div>
         </div>
 
@@ -1534,36 +1907,42 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black border border-gray-700 p-3 md:p-5 rounded-lg mb-2 md:mb-8 text-xs md:text-sm shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-6">
             <div>
-              <div className="text-blue-400 font-bold md:text-base text-xs mb-1">Dealer Behavior</div>
+              <div className="text-blue-400 font-bold md:text-base text-xs mb-1">
+                Dealer Behavior
+              </div>
               <div className="text-white md:text-sm text-[11px]">
                 {siMetrics.siNorm >= 2.0
-                  ? "Dealers are pinning the price near strike levels with concentrated gamma positions. Strong mean reversion expected."
+                  ? 'Dealers are pinning the price near strike levels with concentrated gamma positions. Strong mean reversion expected.'
                   : siMetrics.siNorm >= 0.5
-                    ? "Dealers are dampening volatility through hedging activity. Moderate mean reversion in effect."
+                    ? 'Dealers are dampening volatility through hedging activity. Moderate mean reversion in effect.'
                     : siMetrics.siNorm >= -0.5
-                      ? "Dealers in neutral positioning mode. Mixed hedging activity without clear directional bias."
+                      ? 'Dealers in neutral positioning mode. Mixed hedging activity without clear directional bias.'
                       : siMetrics.siNorm >= -2.0
-                        ? "Dealers creating market trending conditions through directional positioning. Reduced mean reversion."
-                        : "Dealers are amplifying market moves through concentrated directional exposure. Minimal mean reversion, high volatility regime."}
+                        ? 'Dealers creating market trending conditions through directional positioning. Reduced mean reversion.'
+                        : 'Dealers are amplifying market moves through concentrated directional exposure. Minimal mean reversion, high volatility regime.'}
               </div>
             </div>
             <div>
-              <div className="text-purple-400 font-bold md:text-base text-xs mb-1">Market Behavior</div>
+              <div className="text-purple-400 font-bold md:text-base text-xs mb-1">
+                Market Behavior
+              </div>
               <div className="text-white md:text-sm text-[11px]">
                 {siMetrics.siNorm >= 2.0
-                  ? "Price shows strong tendency to revert to key levels. Low volatility, high stability environment."
+                  ? 'Price shows strong tendency to revert to key levels. Low volatility, high stability environment.'
                   : siMetrics.siNorm >= 0.5
-                    ? "Price exhibits mean reverting characteristics with reduced volatility. Moderate stability."
+                    ? 'Price exhibits mean reverting characteristics with reduced volatility. Moderate stability.'
                     : siMetrics.siNorm >= -0.5
-                      ? "Market in balanced state with normal volatility patterns. No strong directional or reverting bias."
+                      ? 'Market in balanced state with normal volatility patterns. No strong directional or reverting bias.'
                       : siMetrics.siNorm >= -2.0
-                        ? "Market showing trending behavior with elevated volatility. Reduced mean reversion tendencies."
-                        : "Market in high volatility, low stability regime. Price moves are amplified with minimal reversion to mean."}
+                        ? 'Market showing trending behavior with elevated volatility. Reduced mean reversion tendencies.'
+                        : 'Market in high volatility, low stability regime. Price moves are amplified with minimal reversion to mean.'}
               </div>
             </div>
             {metrics.signalExplanation && (
               <div>
-                <div className="text-green-400 font-bold md:text-base text-xs mb-1">Trading Signal</div>
+                <div className="text-green-400 font-bold md:text-base text-xs mb-1">
+                  Trading Signal
+                </div>
                 <div className="text-white md:text-sm text-[11px]">{metrics.signalExplanation}</div>
               </div>
             )}
@@ -1571,12 +1950,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
 
         {/* Signal explanation - Removed as it's now in Market Interpretation */}
-
       </div>
-
       {/* Main Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0">
-
         {/* Max Pain Compact Display */}
         <div className="hidden md:block bg-black border border-gray-600 p-3">
           <div className="flex items-center gap-2 mb-3">
@@ -1587,7 +1963,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           <div className="space-y-2">
             {/* Max Pain Strike */}
             <div className="bg-red-950/20 border-l-2 border-red-500 px-2 py-1.5">
-              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Max Pain</div>
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">
+                Max Pain
+              </div>
               <div className="text-lg font-bold text-red-400 leading-none">
                 ${quickMaxPain.maxPainStrike.toFixed(2)}
               </div>
@@ -1595,7 +1973,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Current Price */}
             <div className="bg-gray-950/30 border-l-2 border-gray-600 px-2 py-1.5">
-              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Current</div>
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">
+                Current
+              </div>
               <div className="text-lg font-bold text-white leading-none">
                 ${currentPrice.toFixed(2)}
               </div>
@@ -1603,46 +1983,75 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Liquidity Pivot */}
             <div className="bg-purple-950/20 border-l-2 border-purple-500 px-2 py-1.5">
-              <div className="text-[9px] text-purple-400 uppercase tracking-wider font-bold mb-0.5">Pivot</div>
+              <div className="text-[9px] text-purple-400 uppercase tracking-wider font-bold mb-0.5">
+                Pivot
+              </div>
               <div className="text-lg font-bold text-purple-400 leading-none">
                 ${quickMaxPain.liquidityPivotStrike.toFixed(2)}
               </div>
             </div>
 
             {/* Dealer Pressure */}
-            <div className={`border-l-2 px-2 py-1.5 ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'bg-red-950/20 border-red-500' :
-              quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
-                'bg-yellow-950/20 border-yellow-500'
-              }`}>
-              <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Pressure</div>
-              <div className={`text-xs font-bold leading-tight ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'text-red-400' :
-                quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
-                  'text-yellow-400'
-                }`}>
-                {quickMaxPain.dealerPressure === 'DOWNWARD' ? '↓ DOWNWARD' :
-                  quickMaxPain.dealerPressure === 'UPWARD' ? '↑ UPWARD' :
-                    '● PINNED'}
+            <div
+              className={`border-l-2 px-2 py-1.5 ${
+                quickMaxPain.dealerPressure === 'DOWNWARD'
+                  ? 'bg-red-950/20 border-red-500'
+                  : quickMaxPain.dealerPressure === 'UPWARD'
+                    ? 'bg-green-950/20 border-green-500'
+                    : 'bg-yellow-950/20 border-yellow-500'
+              }`}
+            >
+              <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">
+                Pressure
+              </div>
+              <div
+                className={`text-xs font-bold leading-tight ${
+                  quickMaxPain.dealerPressure === 'DOWNWARD'
+                    ? 'text-red-400'
+                    : quickMaxPain.dealerPressure === 'UPWARD'
+                      ? 'text-green-400'
+                      : 'text-yellow-400'
+                }`}
+              >
+                {quickMaxPain.dealerPressure === 'DOWNWARD'
+                  ? '↓ DOWNWARD'
+                  : quickMaxPain.dealerPressure === 'UPWARD'
+                    ? '↑ UPWARD'
+                    : '● PINNED'}
               </div>
             </div>
 
             {/* Expiration Selector */}
             <div className="bg-black/50 border border-gray-700 rounded px-2 py-1.5">
-              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Expiration</div>
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">
+                Expiration
+              </div>
               <select
                 value={maxPainExpiration}
                 onChange={(e) => setMaxPainExpiration(e.target.value)}
                 className="w-full bg-gray-900 border-none text-white text-[10px] font-bold focus:outline-none cursor-pointer p-0.5"
                 style={{ backgroundColor: '#111827' }}
               >
-                {mmExpirations.map(exp => {
-                  const expDate = new Date(exp + 'T00:00:00Z');
-                  const today = new Date();
-                  const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                {mmExpirations.map((exp) => {
+                  const expDate = new Date(exp + 'T00:00:00Z')
+                  const today = new Date()
+                  const daysToExp = Math.ceil(
+                    (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+                  )
                   return (
-                    <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
-                      {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                    <option
+                      key={exp}
+                      value={exp}
+                      style={{ backgroundColor: '#111827', color: '#ffffff' }}
+                    >
+                      {expDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        timeZone: 'UTC',
+                      })}{' '}
+                      ({daysToExp}d)
                     </option>
-                  );
+                  )
                 })}
               </select>
             </div>
@@ -1653,7 +2062,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <Gauge className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Reflexivity Gauge</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">
+              Reflexivity Gauge
+            </h3>
           </div>
 
           <div className="relative">
@@ -1666,15 +2077,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   className="w-1 h-12 bg-yellow-400 transform-gpu transition-transform duration-500"
                   style={{
                     transformOrigin: 'bottom center',
-                    transform: `rotate(${Math.max(-45, Math.min(45, (metrics.totalNetMM / 1000000) * 10))}deg)`
+                    transform: `rotate(${Math.max(-45, Math.min(45, (metrics.totalNetMM / 1000000) * 10))}deg)`,
                   }}
                 />
               </div>
 
               {/* Labels */}
-              <div className="absolute top-2 left-2 text-[10px] text-red-400 font-bold">AMPLIFY</div>
-              <div className="absolute top-2 right-2 text-[10px] text-green-400 font-bold">DAMPEN</div>
-              <div className="absolute top-2 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-400 font-bold">NEUTRAL</div>
+              <div className="absolute top-2 left-2 text-[10px] text-red-400 font-bold">
+                AMPLIFY
+              </div>
+              <div className="absolute top-2 right-2 text-[10px] text-green-400 font-bold">
+                DAMPEN
+              </div>
+              <div className="absolute top-2 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-400 font-bold">
+                NEUTRAL
+              </div>
             </div>
 
             <div className="text-center mt-3">
@@ -1702,8 +2119,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                 <span className="text-green-400 font-bold text-[10px] uppercase">Call Wall</span>
               </div>
-              <div className="text-white font-bold text-base">${metrics.maxCallWall?.strike?.toFixed(0)}</div>
-              <div className="text-green-400 text-xs">{formatMM(metrics.maxCallWall?.callMM || 0)}</div>
+              <div className="text-white font-bold text-base">
+                ${metrics.maxCallWall?.strike?.toFixed(0)}
+              </div>
+              <div className="text-green-400 text-xs">
+                {formatMM(metrics.maxCallWall?.callMM || 0)}
+              </div>
             </div>
 
             {/* Current Price */}
@@ -1722,8 +2143,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 <div className="w-2 h-2 bg-red-400 rounded-full"></div>
                 <span className="text-red-400 font-bold text-[10px] uppercase">Put Floor</span>
               </div>
-              <div className="text-white font-bold text-base">${metrics.maxPutFloor?.strike?.toFixed(0)}</div>
-              <div className="text-red-400 text-xs">{formatMM(metrics.maxPutFloor?.putMM || 0)}</div>
+              <div className="text-white font-bold text-base">
+                ${metrics.maxPutFloor?.strike?.toFixed(0)}
+              </div>
+              <div className="text-red-400 text-xs">
+                {formatMM(metrics.maxPutFloor?.putMM || 0)}
+              </div>
             </div>
           </div>
         </div>
@@ -1732,14 +2157,16 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Strike Pressure</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">
+              Strike Pressure
+            </h3>
           </div>
 
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {mmData.slice(0, 10).map((item, idx) => {
-              const maxImpact = Math.max(...mmData.map(d => d.impact));
-              const barWidth = maxImpact > 0 ? (item.impact / maxImpact) * 100 : 0;
-              const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
+              const maxImpact = Math.max(...mmData.map((d) => d.impact))
+              const barWidth = maxImpact > 0 ? (item.impact / maxImpact) * 100 : 0
+              const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1
 
               return (
                 <div key={item.strike} className="flex items-center gap-1 text-[10px]">
@@ -1748,37 +2175,47 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   </div>
                   <div className="flex-1 bg-gray-800 rounded-sm h-3 relative overflow-hidden">
                     <div
-                      className={`h-full transition-all ${item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
-                        }`}
+                      className={`h-full transition-all ${
+                        item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
+                      }`}
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
-                  <div className={`w-12 text-right font-mono ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
+                  <div
+                    className={`w-12 text-right font-mono ${
+                      item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
                     {formatMM(item.netMM)}
                   </div>
                 </div>
-              );
+              )
             })}
           </div>
         </div>
       </div>
-
       {/* Enhanced Greek Exposure Dashboard */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 mt-6">
-
         {/* Delta Exposure */}
         <div className="bg-black border-2 border-blue-500/50 p-6">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="text-blue-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Delta Exposure</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">
+              Delta Exposure
+            </h3>
           </div>
 
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${metrics.netDirectionalBias === 'BULLISH' ? 'text-green-400' :
-                metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
-                }`}>
+              <div
+                className={`text-2xl font-bold ${
+                  metrics.netDirectionalBias === 'BULLISH'
+                    ? 'text-green-400'
+                    : metrics.netDirectionalBias === 'BEARISH'
+                      ? 'text-red-400'
+                      : 'text-gray-400'
+                }`}
+              >
                 {metrics.netDirectionalBias}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Net Bias</div>
@@ -1787,8 +2224,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Delta:</span>
-                <span className={`font-bold font-mono ${metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
+                <span
+                  className={`font-bold font-mono ${
+                    metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
+                >
                   {(metrics.totalNetDelta / 1000000).toFixed(2)}M
                 </span>
               </div>
@@ -1806,13 +2246,18 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black border-2 border-purple-500/50 p-6">
           <div className="flex items-center gap-2 mb-4">
             <Activity className="text-purple-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Gamma Exposure</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">
+              Gamma Exposure
+            </h3>
           </div>
 
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
+              <div
+                className={`text-2xl font-bold ${
+                  metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
                 {metrics.totalNetGamma > 0 ? 'LONG' : 'SHORT'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Position</div>
@@ -1821,8 +2266,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Γ:</span>
-                <span className={`font-bold font-mono ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
+                <span
+                  className={`font-bold font-mono ${
+                    metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
+                >
                   {(metrics.totalNetGamma / 1000).toFixed(1)}K
                 </span>
               </div>
@@ -1840,13 +2288,18 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black border-2 border-orange-500/50 p-6">
           <div className="flex items-center gap-2 mb-4">
             <AlertCircle className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Theta Exposure</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">
+              Theta Exposure
+            </h3>
           </div>
 
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-                }`}>
+              <div
+                className={`text-2xl font-bold ${
+                  metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                }`}
+              >
                 {metrics.totalNetTheta < 0 ? 'DECAY' : 'GAIN'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Time Value</div>
@@ -1855,15 +2308,18 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Daily θ:</span>
-                <span className={`font-bold font-mono ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-                  }`}>
+                <span
+                  className={`font-bold font-mono ${
+                    metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                  }`}
+                >
                   ${(metrics.totalNetTheta / 1000).toFixed(1)}K
                 </span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Weekly:</span>
                 <span className="font-bold font-mono text-orange-400">
-                  ${(metrics.totalNetTheta * 5 / 1000).toFixed(1)}K
+                  ${((metrics.totalNetTheta * 5) / 1000).toFixed(1)}K
                 </span>
               </div>
             </div>
@@ -1879,8 +2335,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
+              <div
+                className={`text-2xl font-bold ${
+                  metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
                 {metrics.totalNetVega > 0 ? 'LONG VOL' : 'SHORT VOL'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">IV Sensitivity</div>
@@ -1889,8 +2348,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net ν:</span>
-                <span className={`font-bold font-mono ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
+                <span
+                  className={`font-bold font-mono ${
+                    metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
+                >
                   {(metrics.totalNetVega / 1000).toFixed(1)}K
                 </span>
               </div>
@@ -1904,69 +2366,100 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </div>
         </div>
       </div>
-
       {/* Tabbed Strike Tables - Side by Side on Desktop */}
       <div className="mt-6">
         {/* Mobile: Tabs (hidden on desktop) */}
         <div className="flex md:hidden border-b border-gray-600 mb-0">
           <button
             onClick={() => setStrikeTableTab('mm')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'mm'
-              ? 'bg-black text-white border-b-2 border-orange-500'
-              : 'bg-gray-900 text-gray-400 hover:text-white'
-              }`}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'mm'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
           >
             MM BY STRIKE
           </button>
           <button
             onClick={() => setStrikeTableTab('risk')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'risk'
-              ? 'bg-black text-white border-b-2 border-orange-500'
-              : 'bg-gray-900 text-gray-400 hover:text-white'
-              }`}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'risk'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
           >
             STRIKE-LEVEL RISK
           </button>
         </div>
-
         {/* Desktop: Side by Side / Mobile: Tab Content */}
         <div className="md:grid md:grid-cols-2 md:gap-4">
           {/* Tab Content - Mobile: Only show selected tab */}
           <div className={`${strikeTableTab === 'mm' ? 'block' : 'hidden'} md:block`}>
-          /* Detailed Strike Table */
+            {/* Detailed Strike Table */}
             <div className="bg-black border border-gray-600 border-t-0">
-
               <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '500px' }}>
                 <table className="w-full">
                   <thead className="bg-gray-900">
                     <tr>
-                      <th className="px-2 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
-                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net MM</th>
-                      <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call MM</th>
-                      <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put MM</th>
-                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Total OI</th>
-                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Days</th>
-                      <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Impact</th>
+                      <th
+                        className="px-2 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest"
+                        style={{
+                          width: `${strikeColumnWidth}px`,
+                          minWidth: `${strikeColumnWidth}px`,
+                          maxWidth: `${strikeColumnWidth}px`,
+                        }}
+                      >
+                        Strike
+                      </th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">
+                        Net MM
+                      </th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">
+                        Call MM
+                      </th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">
+                        Put MM
+                      </th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">
+                        Total OI
+                      </th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">
+                        Days
+                      </th>
+                      <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">
+                        Impact
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {mmData.map((item, idx) => {
-                      const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
-                      const maxImpact = Math.max(...mmData.map(d => d.impact));
-                      const impactBars = maxImpact > 0 ? Math.round((item.impact / maxImpact) * 8) : 0;
+                      const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1
+                      const maxImpact = Math.max(...mmData.map((d) => d.impact))
+                      const impactBars =
+                        maxImpact > 0 ? Math.round((item.impact / maxImpact) * 8) : 0
 
                       return (
                         <tr
                           key={item.strike}
                           className="border-b border-gray-800 hover:bg-gray-900/50"
                         >
-                          <td className="px-2 py-3" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                          <td
+                            className="px-2 py-3"
+                            style={{
+                              width: `${strikeColumnWidth}px`,
+                              minWidth: `${strikeColumnWidth}px`,
+                              maxWidth: `${strikeColumnWidth}px`,
+                            }}
+                          >
                             <div className="font-mono font-bold text-white">
                               ${item.strike.toFixed(1)}
                             </div>
                           </td>
-                          <td className={`px-4 py-3 text-right font-mono font-bold ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                            }`}>
+                          <td
+                            className={`px-4 py-3 text-right font-mono font-bold ${
+                              item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}
+                          >
                             {formatMM(item.netMM)}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-green-400">
@@ -1989,7 +2482,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                             </div>
                           </td>
                         </tr>
-                      );
+                      )
                     })}
                   </tbody>
                 </table>
@@ -1997,28 +2490,40 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             </div>
           </div>
           <div className={`${strikeTableTab === 'risk' ? 'block' : 'hidden'} md:block`}>
-          /* Max Pain Strike Risk Analysis */
+            {/* Max Pain Strike Risk Analysis */}
             <div className="bg-black border border-gray-600 md:border-t">
-
               {/* Expiration Selector */}
               <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
                 <div className="flex items-center gap-4">
-                  <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Expiration:</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">
+                    Expiration:
+                  </div>
                   <select
                     value={strikeRiskExpiration}
                     onChange={(e) => setStrikeRiskExpiration(e.target.value)}
                     className="bg-gray-900 border border-gray-700 text-white text-xs font-bold focus:outline-none cursor-pointer px-2 py-1 rounded"
                     style={{ backgroundColor: '#111827' }}
                   >
-                    {mmExpirations.map(exp => {
-                      const expDate = new Date(exp + 'T00:00:00Z');
-                      const today = new Date();
-                      const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    {mmExpirations.map((exp) => {
+                      const expDate = new Date(exp + 'T00:00:00Z')
+                      const today = new Date()
+                      const daysToExp = Math.ceil(
+                        (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+                      )
                       return (
-                        <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
-                          {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                        <option
+                          key={exp}
+                          value={exp}
+                          style={{ backgroundColor: '#111827', color: '#ffffff' }}
+                        >
+                          {expDate.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            timeZone: 'UTC',
+                          })}{' '}
+                          ({daysToExp}d)
                         </option>
-                      );
+                      )
                     })}
                   </select>
                 </div>
@@ -2028,48 +2533,91 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 <table className="w-full">
                   <thead className="bg-gray-900 sticky top-0 z-10">
                     <tr>
-                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
+                      <th
+                        className="px-2 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800"
+                        style={{
+                          width: `${strikeColumnWidth}px`,
+                          minWidth: `${strikeColumnWidth}px`,
+                          maxWidth: `${strikeColumnWidth}px`,
+                        }}
+                      >
+                        Strike
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        MM Risk
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        Total OI
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        Call OI
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        Put OI
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        Distance
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                        Bias
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
-                      const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
-                      const isATM = Math.abs(item.strike - currentPrice) < 1;
-                      const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
-                      const isHighestRisk = item.risk === maxRisk;
-                      const riskPercent = (item.risk / maxRisk) * 100;
+                      const isMaxPain = item.strike === maxPainAnalysis.optimalStrike
+                      const isATM = Math.abs(item.strike - currentPrice) < 1
+                      const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map((s) => s.risk))
+                      const isHighestRisk = item.risk === maxRisk
+                      const riskPercent = (item.risk / maxRisk) * 100
 
                       return (
                         <tr
                           key={item.strike}
-                          className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
-                            isHighestRisk ? 'bg-purple-950/20' :
-                              isATM ? 'bg-orange-950/10' : ''
-                            }`}
+                          className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                            isMaxPain
+                              ? 'bg-red-950/20'
+                              : isHighestRisk
+                                ? 'bg-purple-950/20'
+                                : isATM
+                                  ? 'bg-orange-950/10'
+                                  : ''
+                          }`}
                         >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
-                              <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
-                                isHighestRisk ? 'text-purple-400' :
-                                  isATM ? 'text-orange-400' : 'text-white'
-                                }`}>
+                              <span
+                                className={`font-mono text-sm font-semibold ${
+                                  isMaxPain
+                                    ? 'text-red-400'
+                                    : isHighestRisk
+                                      ? 'text-purple-400'
+                                      : isATM
+                                        ? 'text-orange-400'
+                                        : 'text-white'
+                                }`}
+                              >
                                 ${item.strike.toFixed(1)}
                               </span>
-                              {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
-                              {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
+                              {isMaxPain && (
+                                <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>
+                              )}
+                              {isHighestRisk && !isMaxPain && (
+                                <span className="text-xs text-purple-400 font-bold">
+                                  ● LIQUIDITY PIVOT
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center justify-end gap-2">
                               <div className="w-20 bg-gray-900 rounded-sm h-2">
                                 <div
-                                  className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
+                                  className={
+                                    isHighestRisk
+                                      ? 'bg-purple-500 h-full rounded-sm'
+                                      : 'bg-red-500 h-full rounded-sm'
+                                  }
                                   style={{ width: `${riskPercent}%` }}
                                 />
                               </div>
@@ -2094,59 +2642,81 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-right">
-                            <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                              item.distance > 0 ? 'text-red-400' : 'text-green-400'
-                              }`}>
-                              {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
+                            <span
+                              className={`font-mono text-xs ${
+                                Math.abs(item.distance) < 1
+                                  ? 'text-yellow-400 font-bold'
+                                  : item.distance > 0
+                                    ? 'text-red-400'
+                                    : 'text-green-400'
+                              }`}
+                            >
+                              {item.distance >= 0 ? '+' : ''}
+                              {item.distance.toFixed(2)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-center">
-                            <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                              item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                                'text-gray-500'
-                              }`}>
-                              {item.callOI > item.putOI * 1.5 ? 'CALL' :
-                                item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                            <span
+                              className={`text-xs font-bold ${
+                                item.callOI > item.putOI * 1.5
+                                  ? 'text-green-400'
+                                  : item.putOI > item.callOI * 1.5
+                                    ? 'text-red-400'
+                                    : 'text-gray-500'
+                              }`}
+                            >
+                              {item.callOI > item.putOI * 1.5
+                                ? 'CALL'
+                                : item.putOI > item.callOI * 1.5
+                                  ? 'PUT'
+                                  : 'MIXED'}
                             </span>
                           </td>
                         </tr>
-                      );
+                      )
                     })}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
-        </div> {/* End grid for side-by-side tables */}
-      </div> {/* End Tabbed Strike Tables */}
-
+        </div>{' '}
+        {/* End grid for side-by-side tables */}
+      </div>{' '}
+      {/* End Tabbed Strike Tables */}
     </div>
-  );
-};
-
-// Import the Top 1000 symbols
-import { PRELOAD_TIERS } from '../../lib/Top1000Symbols';
+  )
+}
 
 // SI Dashboard Component
-const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
-
-  const [screenerFilter, setScreenerFilter] = useState<string>('all');
-  const [screenerData, setScreenerData] = useState<any[]>([]);
-  const [screenerLoading, setScreenerLoading] = useState(false);
-  const [screenerAbortController, setScreenerAbortController] = useState<AbortController | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+const SIDashboard: React.FC<SIDashboardProps> = ({
+  selectedTicker,
+  currentPrice,
+  gexByStrikeByExpiration,
+  vexByStrikeByExpiration,
+  expirations,
+}) => {
+  const [screenerFilter, setScreenerFilter] = useState<string>('all')
+  const [screenerData, setScreenerData] = useState<any[]>([])
+  const [screenerLoading, setScreenerLoading] = useState(false)
+  const [screenerAbortController, setScreenerAbortController] = useState<AbortController | null>(
+    null
+  )
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 15
 
   // Filter to 45-day expirations for SI analysis
   const siExpirations = useMemo(() => {
-    const today = new Date();
-    const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
+    const today = new Date()
+    const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000) // 45 days from now
 
-    return expirations.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate >= today && expDate <= maxDate;
-    }).sort();
-  }, [expirations]);
+    return expirations
+      .filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        return expDate >= today && expDate <= maxDate
+      })
+      .sort()
+  }, [expirations])
 
   // ============================================================================
   // STABILITY INDEX (SI) CALCULATION - UNIFIED ACCURATE METHOD
@@ -2157,111 +2727,122 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   // Calculate SI using real GEX, VEX, and DEX data - ACCURATE METHOD
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
-      return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data' };
+      return {
+        si: 0,
+        gexTotal: 0,
+        vexTotal: 0,
+        dexTotal: 0,
+        siNorm: 0,
+        stability: 'UNKNOWN',
+        marketBehavior: 'No Data',
+      }
     }
 
-    let totalGEX = 0;
-    let totalVEX = 0;
-    let totalDEX = 0;
+    let totalGEX = 0
+    let totalVEX = 0
+    let totalDEX = 0
 
     // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
-    siExpirations.forEach(exp => {
-      const gexData = gexByStrikeByExpiration[exp];
-      const vexData = vexByStrikeByExpiration[exp];
+    siExpirations.forEach((exp) => {
+      const gexData = gexByStrikeByExpiration[exp]
+      const vexData = vexByStrikeByExpiration[exp]
 
       if (gexData) {
         Object.entries(gexData).forEach(([strike, data]) => {
-          const strikePrice = parseFloat(strike);
+          const strikePrice = parseFloat(strike)
 
-          const callOI = data.callOI || 0;
-          const putOI = data.putOI || 0;
+          const callOI = data.callOI || 0
+          const putOI = data.putOI || 0
 
           if (callOI > 0 || putOI > 0) {
             // Calculate GEX from raw gamma
-            const callGamma = data.callGamma || 0;
-            const putGamma = data.putGamma || 0;
+            const callGamma = data.callGamma || 0
+            const putGamma = data.putGamma || 0
 
             if (callOI > 0 && callGamma !== 0) {
-              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
-              totalGEX += callGEX;
+              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100
+              totalGEX += callGEX
             }
             if (putOI > 0 && putGamma !== 0) {
-              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
-              totalGEX += putGEX;
+              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100
+              totalGEX += putGEX
             }
 
             // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
-            const callVega = data.callVega || 0;
-            const putVega = data.putVega || 0;
+            const callVega = data.callVega || 0
+            const putVega = data.putVega || 0
 
             if (callOI > 0 && callVega !== 0) {
-              const callVEX = callVega * callOI * 100;
-              totalVEX += callVEX;
+              const callVEX = callVega * callOI * 100
+              totalVEX += callVEX
             }
             if (putOI > 0 && putVega !== 0) {
-              const putVEX = -putVega * putOI * 100;
-              totalVEX += putVEX;
+              const putVEX = -putVega * putOI * 100
+              totalVEX += putVEX
             }
 
             // Calculate DEX using standardized delta approximation
-            const moneyness = strikePrice / currentPrice;
-            let callDelta = 0;
-            let putDelta = 0;
+            const moneyness = strikePrice / currentPrice
+            let callDelta = 0
+            let putDelta = 0
 
-            if (moneyness > 1.05) { // OTM calls
-              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
-            } else if (moneyness < 0.95) { // ITM calls
-              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
-            } else { // ATM calls
-              callDelta = 0.5;
+            if (moneyness > 1.05) {
+              // OTM calls
+              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
+            } else if (moneyness < 0.95) {
+              // ITM calls
+              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
+            } else {
+              // ATM calls
+              callDelta = 0.5
             }
 
-            putDelta = callDelta - 1; // Put-call parity
+            putDelta = callDelta - 1 // Put-call parity
 
             // Calculate DEX
-            const callDEX = callDelta * callOI * 100 * currentPrice;
-            const putDEX = putDelta * putOI * 100 * currentPrice;
+            const callDEX = callDelta * callOI * 100 * currentPrice
+            const putDEX = putDelta * putOI * 100 * currentPrice
 
-            totalDEX += callDEX + putDEX;
+            totalDEX += callDEX + putDEX
           }
-        });
+        })
       }
-    });
+    })
 
     // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
-    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-    const si = denominator !== 0 ? totalGEX / denominator : 0;
+    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
+    const si = denominator !== 0 ? totalGEX / denominator : 0
 
     // Use the raw SI value without artificial clamping
     // Determine stability level and market behavior based on actual SI ranges
-    let stability = '';
-    let marketBehavior = '';
-    let stabilityColor = '';
+    let stability = ''
+    let marketBehavior = ''
+    let stabilityColor = ''
 
     if (si >= 2.0) {
-      stability = 'EXTREMELY STABLE';
-      marketBehavior = 'Strong Mean Reversion';
-      stabilityColor = 'text-green-500';
+      stability = 'EXTREMELY STABLE'
+      marketBehavior = 'Strong Mean Reversion'
+      stabilityColor = 'text-green-500'
     } else if (si >= 0.5) {
-      stability = 'HIGHLY STABLE';
-      marketBehavior = 'Mean Reverting';
-      stabilityColor = 'text-green-400';
+      stability = 'HIGHLY STABLE'
+      marketBehavior = 'Mean Reverting'
+      stabilityColor = 'text-green-400'
     } else if (si >= 0) {
-      stability = 'MILDLY SUPPORTIVE';
-      marketBehavior = 'Range-bound';
-      stabilityColor = 'text-blue-400';
+      stability = 'MILDLY SUPPORTIVE'
+      marketBehavior = 'Range-bound'
+      stabilityColor = 'text-blue-400'
     } else if (si >= -0.5) {
-      stability = 'VOLATILITY BUILDING';
-      marketBehavior = 'Breakout Likely';
-      stabilityColor = 'text-yellow-400';
+      stability = 'VOLATILITY BUILDING'
+      marketBehavior = 'Breakout Likely'
+      stabilityColor = 'text-yellow-400'
     } else if (si >= -2.0) {
-      stability = 'REFLEXIVE MARKET';
-      marketBehavior = 'Fragile & Explosive';
-      stabilityColor = 'text-red-400';
+      stability = 'REFLEXIVE MARKET'
+      marketBehavior = 'Fragile & Explosive'
+      stabilityColor = 'text-red-400'
     } else {
-      stability = 'EXTREMELY REFLEXIVE';
-      marketBehavior = 'Highly Explosive';
-      stabilityColor = 'text-red-500';
+      stability = 'EXTREMELY REFLEXIVE'
+      marketBehavior = 'Highly Explosive'
+      stabilityColor = 'text-red-500'
     }
 
     return {
@@ -2272,188 +2853,205 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       siNorm: si, // Use actual SI value, not normalized
       stability,
       marketBehavior,
-      stabilityColor
-    };
-  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, siExpirations]);
+      stabilityColor,
+    }
+  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, siExpirations])
 
   const formatExposure = (value: number) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? '-' : '+';
+    const absValue = Math.abs(value)
+    const sign = value < 0 ? '-' : '+'
 
     if (absValue >= 1e9) {
-      return `${sign}${(absValue / 1e9).toFixed(2)}B`;
+      return `${sign}${(absValue / 1e9).toFixed(2)}B`
     } else if (absValue >= 1e6) {
-      return `${sign}${(absValue / 1e6).toFixed(1)}M`;
+      return `${sign}${(absValue / 1e6).toFixed(1)}M`
     } else if (absValue >= 1000) {
-      return `${sign}${(absValue / 1000).toFixed(1)}K`;
+      return `${sign}${(absValue / 1000).toFixed(1)}K`
     }
-    return `${sign}${absValue.toFixed(0)}`;
-  };
+    return `${sign}${absValue.toFixed(0)}`
+  }
 
   // Function to calculate SI for a single ticker - REBUILT FROM SCRATCH using main gauge logic
   const calculateSIForTicker = async (ticker: string) => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
 
       const response = await fetch(`/api/options-chain?ticker=${ticker}`, {
         signal: controller.signal,
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-      });
-      clearTimeout(timeoutId);
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      })
+      clearTimeout(timeoutId)
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-      const result = await response.json();
-      if (!result.success || !result.data) return null;
+      const result = await response.json()
+      if (!result.success || !result.data) return null
 
-      const price = result.currentPrice;
-      const optionsData = result.data;
-      if (!price || price <= 0) return null;
+      const price = result.currentPrice
+      const optionsData = result.data
+      if (!price || price <= 0) return null
 
       // STEP 1: Filter EXACTLY like main component does (first 3 months, then 45 days)
-      const allExps = Object.keys(optionsData).sort();
-      const threeMonthsFromNow = new Date();
-      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-      const expsWithin3Months = allExps.filter(exp => {
-        const expDate = new Date(exp + 'T00:00:00Z');
-        return expDate <= threeMonthsFromNow;
-      });
+      const allExps = Object.keys(optionsData).sort()
+      const threeMonthsFromNow = new Date()
+      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3)
+      const expsWithin3Months = allExps.filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        return expDate <= threeMonthsFromNow
+      })
 
       // Then filter to 45 days
-      const today = new Date();
-      const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
-      const validExps = expsWithin3Months.filter(exp => {
-        const expDate = new Date(exp + 'T00:00:00Z');
-        return expDate >= today && expDate <= maxDate;
-      }).sort();
+      const today = new Date()
+      const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
+      const validExps = expsWithin3Months
+        .filter((exp) => {
+          const expDate = new Date(exp + 'T00:00:00Z')
+          return expDate >= today && expDate <= maxDate
+        })
+        .sort()
 
-      if (validExps.length === 0) return null;
+      if (validExps.length === 0) return null
 
       // STEP 2: Build GEX and VEX structures - ACCUMULATE across multiple expirations
-      const gexByStrikeByExp: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } = {};
-      const vexByStrikeByExp: { [strike: number]: { call: number, put: number } } = {};
+      const gexByStrikeByExp: {
+        [strike: number]: { call: number; put: number; callOI: number; putOI: number }
+      } = {}
+      const vexByStrikeByExp: { [strike: number]: { call: number; put: number } } = {}
 
-      validExps.forEach(exp => {
-        const expData = optionsData[exp];
-        if (!expData?.calls || !expData?.puts) return;
+      validExps.forEach((exp) => {
+        const expData = optionsData[exp]
+        if (!expData?.calls || !expData?.puts) return
 
-        const { calls, puts } = expData;
+        const { calls, puts } = expData
 
         // Process calls - ACCUMULATE values for same strikes across expirations
         Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike);
-          const oi = data.open_interest || 0;
+          const strikeNum = parseFloat(strike)
+          const oi = data.open_interest || 0
 
           if (oi > 0) {
             if (!gexByStrikeByExp[strikeNum]) {
-              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
             }
             if (!vexByStrikeByExp[strikeNum]) {
-              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
             }
 
-            gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE OI
+            gexByStrikeByExp[strikeNum].callOI += oi // ACCUMULATE OI
 
-            const gamma = data.greeks?.gamma || 0;
+            const gamma = data.greeks?.gamma || 0
             if (gamma) {
-              const gex = gamma * oi * (price * price) * 100;
-              gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE GEX
+              const gex = gamma * oi * (price * price) * 100
+              gexByStrikeByExp[strikeNum].call += gex // ACCUMULATE GEX
             }
 
-            const vega = data.greeks?.vega || 0;
+            const vega = data.greeks?.vega || 0
             if (vega) {
-              const vex = vega * oi * 100;
-              vexByStrikeByExp[strikeNum].call += vex; // ACCUMULATE VEX
+              const vex = vega * oi * 100
+              vexByStrikeByExp[strikeNum].call += vex // ACCUMULATE VEX
             }
           }
-        });
+        })
 
         // Process puts - ACCUMULATE values for same strikes across expirations
         Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike);
-          const oi = data.open_interest || 0;
+          const strikeNum = parseFloat(strike)
+          const oi = data.open_interest || 0
 
           if (oi > 0) {
             if (!gexByStrikeByExp[strikeNum]) {
-              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
             }
             if (!vexByStrikeByExp[strikeNum]) {
-              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
             }
 
-            gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE OI
+            gexByStrikeByExp[strikeNum].putOI += oi // ACCUMULATE OI
 
-            const gamma = data.greeks?.gamma || 0;
+            const gamma = data.greeks?.gamma || 0
             if (gamma) {
-              const gex = -gamma * oi * (price * price) * 100;
-              gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE GEX
+              const gex = -gamma * oi * (price * price) * 100
+              gexByStrikeByExp[strikeNum].put += gex // ACCUMULATE GEX
             }
 
-            const vega = data.greeks?.vega || 0;
+            const vega = data.greeks?.vega || 0
             if (vega) {
-              const vex = -vega * oi * 100;
-              vexByStrikeByExp[strikeNum].put += vex; // ACCUMULATE VEX
+              const vex = -vega * oi * 100
+              vexByStrikeByExp[strikeNum].put += vex // ACCUMULATE VEX
             }
           }
-        });
-      });
+        })
+      })
 
       // STEP 3: Calculate SI using EXACT logic from main gauge (lines 877-926)
-      let totalGEX = 0;
-      let totalVEX = 0;
-      let totalDEX = 0;
+      let totalGEX = 0
+      let totalVEX = 0
+      let totalDEX = 0
 
       Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
-        const strikePrice = parseFloat(strike);
+        const strikePrice = parseFloat(strike)
 
         // Add GEX (EXACT copy from line 891)
-        totalGEX += data.call + data.put;
+        totalGEX += data.call + data.put
 
         // Add VEX (EXACT copy from lines 894-896)
         if (vexByStrikeByExp[strikePrice]) {
-          totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
+          totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put
         }
 
         // Calculate DEX (EXACT copy from lines 899-922)
-        const callOI = data.callOI || 0;
-        const putOI = data.putOI || 0;
+        const callOI = data.callOI || 0
+        const putOI = data.putOI || 0
 
-        const moneyness = strikePrice / price;
-        let callDelta = 0;
-        let putDelta = 0;
+        const moneyness = strikePrice / price
+        let callDelta = 0
+        let putDelta = 0
 
         if (moneyness > 1.05) {
-          callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+          callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
         } else if (moneyness < 0.95) {
-          callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+          callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
         } else {
-          callDelta = 0.5;
+          callDelta = 0.5
         }
 
-        putDelta = callDelta - 1;
+        putDelta = callDelta - 1
 
-        const callDEX = callDelta * callOI * 100 * price;
-        const putDEX = putDelta * putOI * 100 * price;
+        const callDEX = callDelta * callOI * 100 * price
+        const putDEX = putDelta * putOI * 100 * price
 
-        totalDEX += callDEX + putDEX;
-      });
+        totalDEX += callDEX + putDEX
+      })
 
       // STEP 4: Calculate SI (EXACT copy from lines 926-927)
-      const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-      const si = denominator !== 0 ? totalGEX / denominator : 0;
+      const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
+      const si = denominator !== 0 ? totalGEX / denominator : 0
 
-      if (!isFinite(si)) return null;
+      if (!isFinite(si)) return null
 
       // Categorize
-      let regime = '';
-      let regimeColor = '';
-      if (si >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
-      else if (si >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
-      else if (si >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
-      else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
-      else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
-      else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
+      let regime = ''
+      let regimeColor = ''
+      if (si >= 2.0) {
+        regime = 'EXTREMELY STABLE'
+        regimeColor = 'text-green-500'
+      } else if (si >= 0.5) {
+        regime = 'STABLE'
+        regimeColor = 'text-green-400'
+      } else if (si >= 0) {
+        regime = 'SUPPORTIVE'
+        regimeColor = 'text-blue-400'
+      } else if (si >= -0.5) {
+        regime = 'BUILDING'
+        regimeColor = 'text-yellow-400'
+      } else if (si >= -2.0) {
+        regime = 'REFLEXIVE'
+        regimeColor = 'text-red-400'
+      } else {
+        regime = 'EXTREMELY REFLEXIVE'
+        regimeColor = 'text-red-500'
+      }
 
       return {
         ticker,
@@ -2464,34 +3062,33 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         gex: totalGEX,
         vex: totalVEX,
         dex: totalDEX,
-        contractCount: Object.keys(gexByStrikeByExp).length
-      };
-
+        contractCount: Object.keys(gexByStrikeByExp).length,
+      }
     } catch (error) {
-      return null;
+      return null
     }
-  };
+  }
 
   // Cancel screener scan
   const cancelScreenerScan = () => {
     if (screenerAbortController) {
-      screenerAbortController.abort();
-      setScreenerAbortController(null);
+      screenerAbortController.abort()
+      setScreenerAbortController(null)
     }
-    setScreenerLoading(false);
-  };
+    setScreenerLoading(false)
+  }
 
   // Load screener data for top symbols with advanced parallel processing
   const loadScreenerData = async () => {
     // Cancel any existing scan
     if (screenerAbortController) {
-      screenerAbortController.abort();
+      screenerAbortController.abort()
     }
 
-    const newController = new AbortController();
-    setScreenerAbortController(newController);
-    setScreenerLoading(true);
-    setScreenerData([]); // Clear existing data
+    const newController = new AbortController()
+    setScreenerAbortController(newController)
+    setScreenerLoading(true)
+    setScreenerData([]) // Clear existing data
 
     try {
       // Use your full Top 1000+ symbols - all tiers (deduplicated)
@@ -2501,134 +3098,140 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         ...PRELOAD_TIERS.TIER_3_REGULAR,
         ...PRELOAD_TIERS.TIER_4_BACKGROUND,
         ...PRELOAD_TIERS.TIER_5_EXTENDED,
-        ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
-      ];
-      const allSymbols = [...new Set(allSymbolsWithDupes)]; // Remove duplicates
+        ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE,
+      ]
+      const allSymbols = [...new Set(allSymbolsWithDupes)] // Remove duplicates
 
       // Process in priority batches but use ALL symbols (deduplicated)
-      const primarySymbols = [...new Set(PRELOAD_TIERS.TIER_1_INSTANT)];
-      const secondarySymbols = [...new Set(PRELOAD_TIERS.TIER_2_FAST)];
-      const tertiarySymbols = [...new Set([
-        ...PRELOAD_TIERS.TIER_3_REGULAR,
-        ...PRELOAD_TIERS.TIER_4_BACKGROUND,
-        ...PRELOAD_TIERS.TIER_5_EXTENDED,
-        ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
-      ])];
+      const primarySymbols = [...new Set(PRELOAD_TIERS.TIER_1_INSTANT)]
+      const secondarySymbols = [...new Set(PRELOAD_TIERS.TIER_2_FAST)]
+      const tertiarySymbols = [
+        ...new Set([
+          ...PRELOAD_TIERS.TIER_3_REGULAR,
+          ...PRELOAD_TIERS.TIER_4_BACKGROUND,
+          ...PRELOAD_TIERS.TIER_5_EXTENDED,
+          ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE,
+        ]),
+      ]
 
-      console.log(`Starting parallel SI scan with ${allSymbols.length} symbols from your full universe...`);
+      console.log(
+        `Starting parallel SI scan with ${allSymbols.length} symbols from your full universe...`
+      )
 
-      const results: any[] = [];
-      let successCount = 0;
-      let failCount = 0;
+      const results: any[] = []
+      let successCount = 0
+      let failCount = 0
 
       // Enhanced SI calculation with multiple fallbacks
       const calculateSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
-        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000];
+        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000]
 
         for (let attempt = 0; attempt < timeouts.length; attempt++) {
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt]);
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt])
 
             const response = await fetch(`/api/options-chain?ticker=${symbol}`, {
               signal: controller.signal,
               headers: {
-                'Accept': 'application/json',
+                Accept: 'application/json',
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache'
-              }
-            });
+                'Cache-Control': 'no-cache',
+              },
+            })
 
-            clearTimeout(timeoutId);
+            clearTimeout(timeoutId)
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-            const result = await response.json();
+            const result = await response.json()
 
             if (!result.success || !result.data || !result.currentPrice) {
-              throw new Error('Invalid response data');
+              throw new Error('Invalid response data')
             }
 
-            const optionsData = result.data;
-            const validExps = Object.keys(optionsData).filter(exp => {
-              const expData = optionsData[exp];
-              return expData && expData.calls && expData.puts && Object.keys(expData.calls).length > 0;
-            });
+            const optionsData = result.data
+            const validExps = Object.keys(optionsData).filter((exp) => {
+              const expData = optionsData[exp]
+              return (
+                expData && expData.calls && expData.puts && Object.keys(expData.calls).length > 0
+              )
+            })
 
-            if (validExps.length === 0) throw new Error('No valid options data');
+            if (validExps.length === 0) throw new Error('No valid options data')
 
-            return await calculateSIFromData(symbol, result.currentPrice, optionsData);
-
+            return await calculateSIFromData(symbol, result.currentPrice, optionsData)
           } catch (error) {
             if (attempt < timeouts.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
             }
           }
         }
 
-        throw new Error(`All attempts failed for ${symbol}`);
-      };
+        throw new Error(`All attempts failed for ${symbol}`)
+      }
 
       // Process in priority batches with parallel execution
       const processBatch = async (symbols: string[], priority: string, batchSize = 3) => {
-        const batches = [];
+        const batches = []
         for (let i = 0; i < symbols.length; i += batchSize) {
-          batches.push(symbols.slice(i, i + batchSize));
+          batches.push(symbols.slice(i, i + batchSize))
         }
 
         for (const batch of batches) {
-          if (newController.signal.aborted) break;
+          if (newController.signal.aborted) break
 
           const batchPromises = batch.map(async (symbol: string) => {
             try {
-              const result = await calculateSIWithFallbacks(symbol, priority);
+              const result = await calculateSIWithFallbacks(symbol, priority)
               if (result) {
-                successCount++;
-                results.push(result);
-                console.log(`✓ ${symbol}: SI = ${result.si.toFixed(3)} (${result.regime})`);
+                successCount++
+                results.push(result)
+                console.log(`✓ ${symbol}: SI = ${result.si.toFixed(3)} (${result.regime})`)
 
                 // Update UI immediately for each result
-                const sorted = [...results].sort((a, b) => b.si - a.si);
-                setScreenerData(sorted);
+                const sorted = [...results].sort((a, b) => b.si - a.si)
+                setScreenerData(sorted)
 
-                return result;
+                return result
               }
             } catch (error) {
-              failCount++;
+              failCount++
               // Less noisy error logging - only log first few failures
               if (failCount <= 5) {
-                console.warn(`Failed to fetch ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                console.warn(
+                  `Failed to fetch ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`
+                )
               } else if (failCount === 6) {
-                console.warn(`... suppressing further error logs (${failCount}+ failures)`);
+                console.warn(`... suppressing further error logs (${failCount}+ failures)`)
               }
-              return null;
+              return null
             }
-          });
+          })
 
-          await Promise.allSettled(batchPromises);
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await Promise.allSettled(batchPromises)
+          await new Promise((resolve) => setTimeout(resolve, 200))
         }
-      };
+      }
 
       // Process in priority order
-      await processBatch(primarySymbols, 'high', 2);
-      await processBatch(secondarySymbols, 'normal', 3);
-      await processBatch(tertiarySymbols, 'low', 4);
+      await processBatch(primarySymbols, 'high', 2)
+      await processBatch(secondarySymbols, 'normal', 3)
+      await processBatch(tertiarySymbols, 'low', 4)
 
-      console.log(`SI scan complete: ${successCount} successful, ${failCount} failed`);
+      console.log(`SI scan complete: ${successCount} successful, ${failCount} failed`)
 
       // Final update
-      const finalResults = results.sort((a, b) => b.si - a.si);
-      setScreenerData(finalResults);
-
+      const finalResults = results.sort((a, b) => b.si - a.si)
+      setScreenerData(finalResults)
     } catch (error) {
-      console.error('Error loading screener data:', error);
-      setScreenerData([]);
+      console.error('Error loading screener data:', error)
+      setScreenerData([])
     } finally {
-      setScreenerLoading(false);
-      setScreenerAbortController(null);
+      setScreenerLoading(false)
+      setScreenerAbortController(null)
     }
-  };
+  }
 
   // ============================================================================
   // SCREENER: SI CALCULATION FROM RAW OPTIONS CHAIN DATA
@@ -2641,146 +3244,164 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   // Separate SI calculation function - Uses unified accurate method
   const calculateSIFromData = async (ticker: string, price: number, optionsData: any) => {
     // STEP 1: Filter EXACTLY like main component (first 3 months, then 45 days)
-    const allExps = Object.keys(optionsData).sort();
-    const threeMonthsFromNow = new Date();
-    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-    const expsWithin3Months = allExps.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate <= threeMonthsFromNow;
-    });
+    const allExps = Object.keys(optionsData).sort()
+    const threeMonthsFromNow = new Date()
+    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3)
+    const expsWithin3Months = allExps.filter((exp) => {
+      const expDate = new Date(exp + 'T00:00:00Z')
+      return expDate <= threeMonthsFromNow
+    })
 
-    const today = new Date();
-    const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
-    const validExps = expsWithin3Months.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate >= today && expDate <= maxDate;
-    }).sort();
+    const today = new Date()
+    const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
+    const validExps = expsWithin3Months
+      .filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        return expDate >= today && expDate <= maxDate
+      })
+      .sort()
 
-    if (validExps.length === 0) throw new Error('No valid expirations');
+    if (validExps.length === 0) throw new Error('No valid expirations')
 
     // STEP 2: Build GEX and VEX structures EXACTLY like main component
-    const gexByStrikeByExp: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } = {};
-    const vexByStrikeByExp: { [strike: number]: { call: number, put: number } } = {};
+    const gexByStrikeByExp: {
+      [strike: number]: { call: number; put: number; callOI: number; putOI: number }
+    } = {}
+    const vexByStrikeByExp: { [strike: number]: { call: number; put: number } } = {}
 
-    validExps.forEach(exp => {
-      const expData = optionsData[exp];
-      if (!expData?.calls || !expData?.puts) return;
+    validExps.forEach((exp) => {
+      const expData = optionsData[exp]
+      if (!expData?.calls || !expData?.puts) return
 
-      const { calls, puts } = expData;
+      const { calls, puts } = expData
 
       // Process calls - ACCUMULATE values for same strikes across expirations
       Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-        const strikeNum = parseFloat(strike);
-        const oi = data.open_interest || 0;
+        const strikeNum = parseFloat(strike)
+        const oi = data.open_interest || 0
 
         if (oi > 0) {
           if (!gexByStrikeByExp[strikeNum]) {
-            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
           }
           if (!vexByStrikeByExp[strikeNum]) {
-            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
           }
 
-          gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE
+          gexByStrikeByExp[strikeNum].callOI += oi // ACCUMULATE
 
-          const gamma = data.greeks?.gamma || 0;
+          const gamma = data.greeks?.gamma || 0
           if (gamma) {
-            const gex = gamma * oi * (price * price) * 100;
-            gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE
+            const gex = gamma * oi * (price * price) * 100
+            gexByStrikeByExp[strikeNum].call += gex // ACCUMULATE
           }
 
-          const vega = data.greeks?.vega || 0;
+          const vega = data.greeks?.vega || 0
           if (vega) {
-            const vex = vega * oi * 100;
-            vexByStrikeByExp[strikeNum].call += vex; // ACCUMULATE
+            const vex = vega * oi * 100
+            vexByStrikeByExp[strikeNum].call += vex // ACCUMULATE
           }
         }
-      });
+      })
 
       // Process puts - ACCUMULATE values for same strikes across expirations
       Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-        const strikeNum = parseFloat(strike);
-        const oi = data.open_interest || 0;
+        const strikeNum = parseFloat(strike)
+        const oi = data.open_interest || 0
 
         if (oi > 0) {
           if (!gexByStrikeByExp[strikeNum]) {
-            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
           }
           if (!vexByStrikeByExp[strikeNum]) {
-            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
           }
 
-          gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE
+          gexByStrikeByExp[strikeNum].putOI += oi // ACCUMULATE
 
-          const gamma = data.greeks?.gamma || 0;
+          const gamma = data.greeks?.gamma || 0
           if (gamma) {
-            const gex = -gamma * oi * (price * price) * 100;
-            gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE
+            const gex = -gamma * oi * (price * price) * 100
+            gexByStrikeByExp[strikeNum].put += gex // ACCUMULATE
           }
 
-          const vega = data.greeks?.vega || 0;
+          const vega = data.greeks?.vega || 0
           if (vega) {
-            const vex = -vega * oi * 100;
-            vexByStrikeByExp[strikeNum].put += vex; // ACCUMULATE
+            const vex = -vega * oi * 100
+            vexByStrikeByExp[strikeNum].put += vex // ACCUMULATE
           }
         }
-      });
-    });
+      })
+    })
 
     // STEP 3: Calculate SI using accumulated GEX/VEX from Greeks and calculated DEX
-    let totalGEX = 0;
-    let totalVEX = 0;
-    let totalDEX = 0;
+    let totalGEX = 0
+    let totalVEX = 0
+    let totalDEX = 0
 
     Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
-      const strikePrice = parseFloat(strike);
+      const strikePrice = parseFloat(strike)
 
       // Use accumulated GEX values (already calculated from gamma × oi × price² × 100)
-      totalGEX += data.call + data.put;
+      totalGEX += data.call + data.put
 
       // Use accumulated VEX values (already calculated from vega × oi × 100)
       if (vexByStrikeByExp[strikePrice]) {
-        totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
+        totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put
       }
 
       // Calculate DEX using standardized delta approximation
-      const callOI = data.callOI || 0;
-      const putOI = data.putOI || 0;
+      const callOI = data.callOI || 0
+      const putOI = data.putOI || 0
 
-      const moneyness = strikePrice / price;
-      let callDelta = 0;
-      let putDelta = 0;
+      const moneyness = strikePrice / price
+      let callDelta = 0
+      let putDelta = 0
 
       if (moneyness > 1.05) {
-        callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+        callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
       } else if (moneyness < 0.95) {
-        callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+        callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
       } else {
-        callDelta = 0.5;
+        callDelta = 0.5
       }
 
-      putDelta = callDelta - 1;
+      putDelta = callDelta - 1
 
-      const callDEX = callDelta * callOI * 100 * price;
-      const putDEX = putDelta * putOI * 100 * price;
+      const callDEX = callDelta * callOI * 100 * price
+      const putDEX = putDelta * putOI * 100 * price
 
-      totalDEX += callDEX + putDEX;
-    });
+      totalDEX += callDEX + putDEX
+    })
 
-    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-    if (denominator === 0) throw new Error('Zero denominator');
+    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
+    if (denominator === 0) throw new Error('Zero denominator')
 
-    const si = totalGEX / denominator;
-    if (!isFinite(si)) throw new Error('Invalid SI result');
+    const si = totalGEX / denominator
+    if (!isFinite(si)) throw new Error('Invalid SI result')
 
     // Categorize
-    let regime = '', regimeColor = '';
-    if (si >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
-    else if (si >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
-    else if (si >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
-    else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
-    else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
-    else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
+    let regime = '',
+      regimeColor = ''
+    if (si >= 2.0) {
+      regime = 'EXTREMELY STABLE'
+      regimeColor = 'text-green-500'
+    } else if (si >= 0.5) {
+      regime = 'STABLE'
+      regimeColor = 'text-green-400'
+    } else if (si >= 0) {
+      regime = 'SUPPORTIVE'
+      regimeColor = 'text-blue-400'
+    } else if (si >= -0.5) {
+      regime = 'BUILDING'
+      regimeColor = 'text-yellow-400'
+    } else if (si >= -2.0) {
+      regime = 'REFLEXIVE'
+      regimeColor = 'text-red-400'
+    } else {
+      regime = 'EXTREMELY REFLEXIVE'
+      regimeColor = 'text-red-500'
+    }
 
     return {
       ticker,
@@ -2791,35 +3412,40 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       gex: totalGEX,
       vex: totalVEX,
       dex: totalDEX,
-      contractCount: Object.keys(gexByStrikeByExp).length
-    };
-  };
+      contractCount: Object.keys(gexByStrikeByExp).length,
+    }
+  }
 
   // Filter screener data based on regime
   const filteredScreenerData = useMemo(() => {
-    if (screenerFilter === 'all') return screenerData;
+    if (screenerFilter === 'all') return screenerData
 
-    return screenerData.filter(item => {
+    return screenerData.filter((item) => {
       switch (screenerFilter) {
-        case 'highly-stable': return item.si >= 0.5;
-        case 'mildly-supportive': return item.si >= 0 && item.si < 0.5;
-        case 'volatility-building': return item.si >= -0.5 && item.si < 0;
-        case 'reflexive': return item.si < -0.5;
-        default: return true;
+        case 'highly-stable':
+          return item.si >= 0.5
+        case 'mildly-supportive':
+          return item.si >= 0 && item.si < 0.5
+        case 'volatility-building':
+          return item.si >= -0.5 && item.si < 0
+        case 'reflexive':
+          return item.si < -0.5
+        default:
+          return true
       }
-    });
-  }, [screenerData, screenerFilter]);
+    })
+  }, [screenerData, screenerFilter])
 
   // Pagination calculations
-  const totalPages = Math.ceil(filteredScreenerData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedData = filteredScreenerData.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(filteredScreenerData.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedData = filteredScreenerData.slice(startIndex, endIndex)
 
   // Reset to page 1 when filter changes
   useEffect(() => {
-    setCurrentPage(1);
-  }, [screenerFilter]);
+    setCurrentPage(1)
+  }, [screenerFilter])
 
   // Don't auto-load screener data on mount - let user trigger it manually
   // This prevents 1000+ API calls on page load
@@ -2851,9 +3477,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             <div className={`text-2xl font-bold mb-2 ${siMetrics.stabilityColor}`}>
               {siMetrics.stability}
             </div>
-            <div className="text-lg text-gray-300">
-              {siMetrics.marketBehavior}
-            </div>
+            <div className="text-lg text-gray-300">{siMetrics.marketBehavior}</div>
           </div>
 
           {/* Right side - Interpretation */}
@@ -2958,7 +3582,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               height: '75px !important',
               minHeight: '75px',
               maxHeight: '75px',
-              background: 'linear-gradient(to right, #dc2626 0%, #ef4444 20%, #eab308 40%, #3b82f6 60%, #22c55e 80%, #16a34a 100%)'
+              background:
+                'linear-gradient(to right, #dc2626 0%, #ef4444 20%, #eab308 40%, #3b82f6 60%, #22c55e 80%, #16a34a 100%)',
             }}
           >
             {/* Red border for left half */}
@@ -2970,7 +3595,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 border: '6px solid #ff0000',
                 borderRight: 'none',
                 borderRadius: '75px 0 0 75px',
-                clipPath: 'inset(0 50% 0 0)'
+                clipPath: 'inset(0 50% 0 0)',
               }}
             />
             {/* Green border for right half */}
@@ -2982,7 +3607,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 border: '6px solid #00ff00',
                 borderLeft: 'none',
                 borderRadius: '0 75px 75px 0',
-                clipPath: 'inset(0 0 0 50%)'
+                clipPath: 'inset(0 0 0 50%)',
               }}
             />
             {/* SI Indicator - position based on actual SI value with extended range */}
@@ -2991,7 +3616,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               style={{
                 width: '30px',
                 height: '75px',
-                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%`
+                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%`,
               }}
             />
           </div>
@@ -3026,12 +3651,13 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       {/* Hidden: GEX, VEX, DEX Components - functionality preserved */}
       {false && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
           {/* GEX Component */}
           <div className="bg-black border border-gray-600 p-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 bg-orange-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Gamma Exposure</h3>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
+                Gamma Exposure
+              </h3>
             </div>
 
             <div className="text-center">
@@ -3048,16 +3674,16 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           <div className="bg-black border border-gray-600 p-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 bg-purple-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Vega Exposure</h3>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
+                Vega Exposure
+              </h3>
             </div>
 
             <div className="text-center">
               <div className="text-3xl font-bold text-purple-400 mb-2">
                 {formatExposure(siMetrics.vexTotal)}
               </div>
-              <div className="text-sm text-gray-300">
-                Volatility Sensitivity
-              </div>
+              <div className="text-sm text-gray-300">Volatility Sensitivity</div>
             </div>
           </div>
 
@@ -3065,22 +3691,20 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           <div className="bg-black border border-gray-600 p-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 bg-blue-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Delta Exposure</h3>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
+                Delta Exposure
+              </h3>
             </div>
 
             <div className="text-center">
               <div className="text-3xl font-bold text-blue-400 mb-2">
                 {formatExposure(siMetrics.dexTotal)}
               </div>
-              <div className="text-sm text-gray-300">
-                Directional Sensitivity
-              </div>
+              <div className="text-sm text-gray-300">Directional Sensitivity</div>
             </div>
           </div>
         </div>
       )}
-
-
 
       {/* SI Screener */}
       <div className="bg-black border border-gray-600">
@@ -3090,7 +3714,9 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Filter Controls */}
             <div className="flex items-center gap-4">
-              <span className="text-purple-400 font-bold text-sm uppercase tracking-wider">FILTER:</span>
+              <span className="text-purple-400 font-bold text-sm uppercase tracking-wider">
+                FILTER:
+              </span>
               <div className="relative">
                 <select
                   value={screenerFilter}
@@ -3105,7 +3731,11 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 </select>
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                   <svg className="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </div>
               </div>
@@ -3133,11 +3763,21 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           <table className="w-full">
             <thead className="bg-gray-900">
               <tr>
-                <th className="px-4 py-4 text-left text-sm font-black text-purple-400 uppercase tracking-widest">Symbol</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">Price</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">SI</th>
-                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">Regime</th>
-                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">Action</th>
+                <th className="px-4 py-4 text-left text-sm font-black text-purple-400 uppercase tracking-widest">
+                  Symbol
+                </th>
+                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">
+                  Price
+                </th>
+                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">
+                  SI
+                </th>
+                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">
+                  Regime
+                </th>
+                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -3164,7 +3804,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                     <div className="space-y-3">
                       <div className="text-gray-400">No data loaded</div>
                       <div className="text-sm text-gray-500">
-                        Click <span className="text-purple-400 font-bold">START SCAN</span> to analyze market stability
+                        Click <span className="text-purple-400 font-bold">START SCAN</span> to
+                        analyze market stability
                       </div>
                     </div>
                   </td>
@@ -3172,35 +3813,40 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               ) : paginatedData.length > 0 ? (
                 paginatedData.map((item, idx) => {
                   // Determine action based on actual SI ranges
-                  let actionText = '';
-                  let actionColor = '';
+                  let actionText = ''
+                  let actionColor = ''
 
                   if (item.si >= 2.0) {
-                    actionText = 'STRONG FADE';
-                    actionColor = 'text-green-500';
+                    actionText = 'STRONG FADE'
+                    actionColor = 'text-green-500'
                   } else if (item.si >= 0.5) {
-                    actionText = 'FADE MOVES';
-                    actionColor = 'text-green-400';
+                    actionText = 'FADE MOVES'
+                    actionColor = 'text-green-400'
                   } else if (item.si >= 0) {
-                    actionText = 'RANGE TRADE';
-                    actionColor = 'text-blue-400';
+                    actionText = 'RANGE TRADE'
+                    actionColor = 'text-blue-400'
                   } else if (item.si >= -0.5) {
-                    actionText = 'AWAIT BREAKOUT';
-                    actionColor = 'text-yellow-400';
+                    actionText = 'AWAIT BREAKOUT'
+                    actionColor = 'text-yellow-400'
                   } else if (item.si >= -2.0) {
-                    actionText = 'MOMENTUM TRADE';
-                    actionColor = 'text-red-400';
+                    actionText = 'MOMENTUM TRADE'
+                    actionColor = 'text-red-400'
                   } else {
-                    actionText = 'HIGH MOMENTUM';
-                    actionColor = 'text-red-500';
+                    actionText = 'HIGH MOMENTUM'
+                    actionColor = 'text-red-500'
                   }
 
                   return (
-                    <tr key={item.ticker} className="border-b border-gray-800 hover:bg-gray-900/50 transition-colors duration-200">
+                    <tr
+                      key={item.ticker}
+                      className="border-b border-gray-800 hover:bg-gray-900/50 transition-colors duration-200"
+                    >
                       <td className="px-4 py-3 text-white font-bold text-lg tracking-wider">
                         {item.ticker}
                       </td>
-                      <td className="px-4 py-3 text-right text-white font-mono">${item.price.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-white font-mono">
+                        ${item.price.toFixed(2)}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <span className={`font-bold text-lg ${item.regimeColor}`}>
                           {item.si.toFixed(3)}
@@ -3217,14 +3863,16 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                         </span>
                       </td>
                     </tr>
-                  );
+                  )
                 })
               ) : (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                     <div className="text-sm">
-                      <strong className="text-purple-400">SI SCREENER READY</strong><br />
-                      Click START SCAN to begin SI analysis.<br />
+                      <strong className="text-purple-400">SI SCREENER READY</strong>
+                      <br />
+                      Click START SCAN to begin SI analysis.
+                      <br />
                       Results will appear when scan completes.
                     </div>
                   </td>
@@ -3239,55 +3887,66 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           <div className="bg-black border-t border-gray-600 px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="text-sm text-gray-400">
-                Showing {startIndex + 1}-{Math.min(endIndex, filteredScreenerData.length)} of {filteredScreenerData.length} symbols
+                Showing {startIndex + 1}-{Math.min(endIndex, filteredScreenerData.length)} of{' '}
+                {filteredScreenerData.length} symbols
               </div>
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === 1
-                    ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                    : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                    }`}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
+                    currentPage === 1
+                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                  }`}
                 >
                   PREVIOUS
                 </button>
 
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
                     // Show first page, last page, current page, and pages around current
-                    const showPage = page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1;
-                    const showEllipsis = (page === 2 && currentPage > 3) || (page === totalPages - 1 && currentPage < totalPages - 2);
+                    const showPage =
+                      page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1
+                    const showEllipsis =
+                      (page === 2 && currentPage > 3) ||
+                      (page === totalPages - 1 && currentPage < totalPages - 2)
 
                     if (showEllipsis) {
-                      return <span key={page} className="px-2 text-gray-500">...</span>;
+                      return (
+                        <span key={page} className="px-2 text-gray-500">
+                          ...
+                        </span>
+                      )
                     }
 
-                    if (!showPage) return null;
+                    if (!showPage) return null
 
                     return (
                       <button
                         key={page}
                         onClick={() => setCurrentPage(page)}
-                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${currentPage === page
-                          ? 'bg-purple-600 border-purple-500 text-white'
-                          : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
-                          }`}
+                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${
+                          currentPage === page
+                            ? 'bg-purple-600 border-purple-500 text-white'
+                            : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
+                        }`}
                       >
                         {page}
                       </button>
-                    );
+                    )
                   })}
                 </div>
 
                 <button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === totalPages
-                    ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                    : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                    }`}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
+                    currentPage === totalPages
+                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                  }`}
                 >
                   NEXT
                 </button>
@@ -3297,35 +3956,42 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
 // Max Pain Dashboard Component - True MM-Optimal Expiry Target
-const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
-
-  const [selectedExpiration, setSelectedExpiration] = useState<string>('');
+const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
+  selectedTicker,
+  currentPrice,
+  gexByStrikeByExpiration,
+  vexByStrikeByExpiration,
+  expirations,
+}) => {
+  const [selectedExpiration, setSelectedExpiration] = useState<string>('')
 
   // Get available future expirations
   const availableExpirations = useMemo(() => {
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    return expirations.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate >= today;
-    }).sort();
-  }, [expirations]);
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    return expirations
+      .filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        return expDate >= today
+      })
+      .sort()
+  }, [expirations])
   // Auto-select default expiration
   useEffect(() => {
     if (availableExpirations.length > 0 && !selectedExpiration) {
-      const today = new Date();
-      const monthlyExps = availableExpirations.filter(exp => {
-        const expDate = new Date(exp + 'T00:00:00Z');
-        const dayOfMonth = expDate.getUTCDate();
-        return dayOfMonth >= 14 && dayOfMonth <= 22;
-      });
-      setSelectedExpiration(monthlyExps.length > 0 ? monthlyExps[0] : availableExpirations[0]);
+      const today = new Date()
+      const monthlyExps = availableExpirations.filter((exp) => {
+        const expDate = new Date(exp + 'T00:00:00Z')
+        const dayOfMonth = expDate.getUTCDate()
+        return dayOfMonth >= 14 && dayOfMonth <= 22
+      })
+      setSelectedExpiration(monthlyExps.length > 0 ? monthlyExps[0] : availableExpirations[0])
     }
-  }, [availableExpirations, selectedExpiration]);
+  }, [availableExpirations, selectedExpiration])
 
   // Calculate MM Risk for each strike using the TRUE formula
   const maxPainAnalysis = useMemo(() => {
@@ -3335,36 +4001,38 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: 0
-      };
+        avgDTE: 0,
+      }
     }
 
-    const strikeData = gexByStrikeByExpiration[selectedExpiration];
-    const vexData = vexByStrikeByExpiration[selectedExpiration];
+    const strikeData = gexByStrikeByExpiration[selectedExpiration]
+    const vexData = vexByStrikeByExpiration[selectedExpiration]
     if (!strikeData) {
       return {
         optimalStrike: currentPrice,
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: 0
-      };
+        avgDTE: 0,
+      }
     }
 
     // Calculate DTE
-    const expDate = new Date(selectedExpiration + 'T00:00:00Z');
-    const today = new Date();
-    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const expDate = new Date(selectedExpiration + 'T00:00:00Z')
+    const today = new Date()
+    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
     // Get all strikes and determine range dynamically based on actual options data
-    const allStrikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
+    const allStrikes = Object.keys(strikeData)
+      .map(Number)
+      .sort((a, b) => a - b)
 
     // Find where significant OI exists (filter out strikes with < 100 total OI)
-    const significantStrikes = allStrikes.filter(strike => {
-      const data = strikeData[strike];
-      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
-      return totalOI >= 100; // Only consider strikes with meaningful OI
-    });
+    const significantStrikes = allStrikes.filter((strike) => {
+      const data = strikeData[strike]
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0)
+      return totalOI >= 100 // Only consider strikes with meaningful OI
+    })
 
     if (significantStrikes.length === 0) {
       return {
@@ -3372,111 +4040,118 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: daysToExp
-      };
+        avgDTE: daysToExp,
+      }
     }
 
     // Use actual data range (where OI exists) instead of arbitrary ±15%
-    const lowestStrike = significantStrikes[0];
-    const highestStrike = significantStrikes[significantStrikes.length - 1];
+    const lowestStrike = significantStrikes[0]
+    const highestStrike = significantStrikes[significantStrikes.length - 1]
 
     // Expand slightly beyond actual strikes (±5% buffer) to catch edge cases
-    const bufferPct = 0.05;
-    const strikeSpan = highestStrike - lowestStrike;
-    const minStrike = lowestStrike - (strikeSpan * bufferPct);
-    const maxStrike = highestStrike + (strikeSpan * bufferPct);
+    const bufferPct = 0.05
+    const strikeSpan = highestStrike - lowestStrike
+    const minStrike = lowestStrike - strikeSpan * bufferPct
+    const maxStrike = highestStrike + strikeSpan * bufferPct
 
-    const relevantStrikes = allStrikes.filter(s => s >= minStrike && s <= maxStrike);
+    const relevantStrikes = allStrikes.filter((s) => s >= minStrike && s <= maxStrike)
 
     // Test price points across the actual data range
-    const testPrices: number[] = [];
-    const testMin = Math.max(minStrike, currentPrice * 0.70); // Safety floor at -30%
-    const testMax = Math.min(maxStrike, currentPrice * 1.30); // Safety ceiling at +30%
-    const testStep = (testMax - testMin) / 100; // 100 test points
+    const testPrices: number[] = []
+    const testMin = Math.max(minStrike, currentPrice * 0.7) // Safety floor at -30%
+    const testMax = Math.min(maxStrike, currentPrice * 1.3) // Safety ceiling at +30%
+    const testStep = (testMax - testMin) / 100 // 100 test points
 
     for (let price = testMin; price <= testMax; price += testStep) {
-      testPrices.push(price);
+      testPrices.push(price)
     }
 
-    let totalOI = 0;
-    const strikeRiskData: Array<{ strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number }> = [];
+    let totalOI = 0
+    const strikeRiskData: Array<{
+      strike: number
+      risk: number
+      oi: number
+      callOI: number
+      putOI: number
+      distance: number
+    }> = []
 
     // Calculate MM Risk for each test price
-    const riskResults = testPrices.map(testPrice => {
-      let totalRisk = 0;
+    const riskResults = testPrices.map((testPrice) => {
+      let totalRisk = 0
 
-      relevantStrikes.forEach(strike => {
-        const data = strikeData[strike];
-        if (!data) return;
+      relevantStrikes.forEach((strike) => {
+        const data = strikeData[strike]
+        if (!data) return
 
-        const callOI = data.callOI || 0;
-        const putOI = data.putOI || 0;
-        const callGamma = data.callGamma || 0;
-        const putGamma = data.putGamma || 0;
-        const callTheta = data.callTheta || 0;
-        const putTheta = data.putTheta || 0;
+        const callOI = data.callOI || 0
+        const putOI = data.putOI || 0
+        const callGamma = data.callGamma || 0
+        const putGamma = data.putGamma || 0
+        const callTheta = data.callTheta || 0
+        const putTheta = data.putTheta || 0
 
         // Get vega if available
-        const callVega = vexData?.[strike]?.callVega || 0;
-        const putVega = vexData?.[strike]?.putVega || 0;
+        const callVega = vexData?.[strike]?.callVega || 0
+        const putVega = vexData?.[strike]?.putVega || 0
 
         // Calculate delta based on moneyness (simplified BSM approximation)
-        const moneyness = strike / testPrice;
-        let callDelta = 0;
-        let putDelta = 0;
+        const moneyness = strike / testPrice
+        let callDelta = 0
+        let putDelta = 0
 
         if (moneyness > 1.1) {
-          callDelta = 0.1;
-          putDelta = -0.9;
+          callDelta = 0.1
+          putDelta = -0.9
         } else if (moneyness > 1.05) {
-          callDelta = 0.3;
-          putDelta = -0.7;
+          callDelta = 0.3
+          putDelta = -0.7
         } else if (moneyness > 1.0) {
-          callDelta = 0.4;
-          putDelta = -0.6;
+          callDelta = 0.4
+          putDelta = -0.6
         } else if (moneyness > 0.95) {
-          callDelta = 0.6;
-          putDelta = -0.4;
+          callDelta = 0.6
+          putDelta = -0.4
         } else if (moneyness > 0.9) {
-          callDelta = 0.7;
-          putDelta = -0.3;
+          callDelta = 0.7
+          putDelta = -0.3
         } else {
-          callDelta = 0.9;
-          putDelta = -0.1;
+          callDelta = 0.9
+          putDelta = -0.1
         }
 
-        const priceDiff = testPrice - strike;
-        const priceDiffSq = priceDiff * priceDiff;
+        const priceDiff = testPrice - strike
+        const priceDiffSq = priceDiff * priceDiff
 
         // TRUE MM RISK FORMULA:
         // MM_Risk = OI * M * [|Delta| * |S-K| + 0.5 * Gamma * (S-K)^2 + |Theta| + |Vega * ΔV|]
 
-        const M = 100; // Contract multiplier
-        const deltaV = 0.02; // Assumed 2% IV shift (conservative)
+        const M = 100 // Contract multiplier
+        const deltaV = 0.02 // Assumed 2% IV shift (conservative)
 
         // Call option risk
         if (callOI > 0) {
-          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff);
-          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq;
-          const thetaRisk = Math.abs(callTheta);
-          const vegaRisk = Math.abs(callVega * deltaV);
+          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff)
+          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq
+          const thetaRisk = Math.abs(callTheta)
+          const vegaRisk = Math.abs(callVega * deltaV)
 
-          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk)
         }
 
         // Put option risk
         if (putOI > 0) {
-          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff);
-          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq;
-          const thetaRisk = Math.abs(putTheta);
-          const vegaRisk = Math.abs(putVega * deltaV);
+          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff)
+          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq
+          const thetaRisk = Math.abs(putTheta)
+          const vegaRisk = Math.abs(putVega * deltaV)
 
-          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk)
         }
-      });
+      })
 
-      return { testPrice, risk: totalRisk };
-    });
+      return { testPrice, risk: totalRisk }
+    })
 
     // Find the price with MINIMUM risk (MM optimal expiry level)
     if (riskResults.length === 0) {
@@ -3485,44 +4160,45 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         minRisk: 0,
         riskByStrike: [],
         totalOI: 0,
-        avgDTE: daysToExp
-      };
+        avgDTE: daysToExp,
+      }
     }
 
     const optimalResult = riskResults.reduce((min, current) =>
       current.risk < min.risk ? current : min
-    );
+    )
 
     // Find the actual strike closest to optimal price (this is the MAX PAIN strike)
-    let closestStrike = relevantStrikes[0] || currentPrice;
-    let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
+    let closestStrike = relevantStrikes[0] || currentPrice
+    let minDistance = Math.abs(closestStrike - optimalResult.testPrice)
 
-    relevantStrikes.forEach(strike => {
-      const distance = Math.abs(strike - optimalResult.testPrice);
+    relevantStrikes.forEach((strike) => {
+      const distance = Math.abs(strike - optimalResult.testPrice)
       if (distance < minDistance) {
-        minDistance = distance;
-        closestStrike = strike;
+        minDistance = distance
+        closestStrike = strike
       }
-    });
+    })
 
     // Calculate risk profile for each actual strike
-    relevantStrikes.forEach(strike => {
-      const data = strikeData[strike];
-      if (!data) return;
+    relevantStrikes.forEach((strike) => {
+      const data = strikeData[strike]
+      if (!data) return
 
-      const callOI = data.callOI || 0;
-      const putOI = data.putOI || 0;
-      totalOI += callOI + putOI;
+      const callOI = data.callOI || 0
+      const putOI = data.putOI || 0
+      totalOI += callOI + putOI
 
       // Calculate risk at this strike
-      let strikeRisk = 0;
-      const callGamma = data.callGamma || 0;
-      const putGamma = data.putGamma || 0;
-      const priceDiff = strike - currentPrice;
-      const priceDiffSq = priceDiff * priceDiff;
+      let strikeRisk = 0
+      const callGamma = data.callGamma || 0
+      const putGamma = data.putGamma || 0
+      const priceDiff = strike - currentPrice
+      const priceDiffSq = priceDiff * priceDiff
 
       // Simplified risk calculation for strike display
-      strikeRisk = (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001);
+      strikeRisk =
+        (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001)
 
       strikeRiskData.push({
         strike,
@@ -3530,60 +4206,64 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         oi: callOI + putOI,
         callOI,
         putOI,
-        distance: strike - currentPrice
-      });
-    });
+        distance: strike - currentPrice,
+      })
+    })
 
-    strikeRiskData.sort((a, b) => b.risk - a.risk);
+    strikeRiskData.sort((a, b) => b.risk - a.risk)
 
     return {
       optimalStrike: closestStrike, // Return the actual strike, not test price
       minRisk: optimalResult.risk,
       riskByStrike: strikeRiskData,
       totalOI,
-      avgDTE: daysToExp
-    };
-  }, [currentPrice, selectedExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration]);
+      avgDTE: daysToExp,
+    }
+  }, [currentPrice, selectedExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration])
 
   const formatOI = (value: number) => {
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-    return value.toLocaleString();
-  };
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+    return value.toLocaleString()
+  }
 
   const formatRisk = (value: number) => {
-    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-    return value.toFixed(0);
-  };
+    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+    return value.toFixed(0)
+  }
 
-  const priceDistance = currentPrice - maxPainAnalysis.optimalStrike;
-  const priceDistancePercent = (priceDistance / currentPrice) * 100;
+  const priceDistance = currentPrice - maxPainAnalysis.optimalStrike
+  const priceDistancePercent = (priceDistance / currentPrice) * 100
 
   return (
     <div className="space-y-4">
       {/* Professional Header Row */}
       <div className="bg-gradient-to-r from-black via-gray-950 to-black border border-gray-800 rounded">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-4">
-
           {/* Left: Key Metrics */}
           <div className="lg:col-span-8 grid grid-cols-3 gap-4">
-
             {/* Max Pain Strike */}
             <div className="bg-black/50 border-l-4 border-red-500 px-4 py-3">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Max Pain</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">
+                Max Pain
+              </div>
               <div className="text-3xl font-bold text-red-400 leading-none mb-1">
                 ${maxPainAnalysis.optimalStrike.toFixed(2)}
               </div>
-              <div className={`text-[10px] font-semibold ${priceDistance > 0 ? 'text-red-400' : 'text-green-400'}`}>
+              <div
+                className={`text-[10px] font-semibold ${priceDistance > 0 ? 'text-red-400' : 'text-green-400'}`}
+              >
                 {priceDistance > 0 ? '↓' : '↑'} {Math.abs(priceDistancePercent).toFixed(2)}%
               </div>
             </div>
 
             {/* Current Spot */}
             <div className="bg-black/50 border-l-4 border-gray-600 px-4 py-3">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Current</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">
+                Current
+              </div>
               <div className="text-3xl font-bold text-white leading-none mb-1">
                 ${currentPrice.toFixed(2)}
               </div>
@@ -3594,7 +4274,9 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
             {/* MM Risk - Liquidity Pivot */}
             <div className="bg-black/50 border-l-4 border-purple-500 px-4 py-3">
-              <div className="text-[10px] text-purple-400 uppercase tracking-wider font-bold mb-1">Liquidity Pivot</div>
+              <div className="text-[10px] text-purple-400 uppercase tracking-wider font-bold mb-1">
+                Liquidity Pivot
+              </div>
               <div className="text-3xl font-bold text-purple-400 leading-none mb-1">
                 ${maxPainAnalysis.riskByStrike[0]?.strike.toFixed(2) || '0.00'}
               </div>
@@ -3606,15 +4288,26 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
           {/* Right: Dealer Pressure + Expiration */}
           <div className="lg:col-span-4 flex flex-col gap-3">
-
             {/* Dealer Pressure */}
-            <div className={`flex-1 border-l-4 px-4 py-2 rounded ${priceDistance > 0 ? 'bg-red-950/30 border-red-500' :
-              'bg-green-950/30 border-green-500'
-              }`}>
-              <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">Dealer Pressure</div>
-              <div className={`text-sm font-bold leading-tight ${Math.abs(priceDistance) < currentPrice * 0.01 ? 'text-yellow-400' :
-                priceDistance > 0 ? 'text-red-400' : 'text-green-400'
-                }`}>
+            <div
+              className={`flex-1 border-l-4 px-4 py-2 rounded ${
+                priceDistance > 0
+                  ? 'bg-red-950/30 border-red-500'
+                  : 'bg-green-950/30 border-green-500'
+              }`}
+            >
+              <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">
+                Dealer Pressure
+              </div>
+              <div
+                className={`text-sm font-bold leading-tight ${
+                  Math.abs(priceDistance) < currentPrice * 0.01
+                    ? 'text-yellow-400'
+                    : priceDistance > 0
+                      ? 'text-red-400'
+                      : 'text-green-400'
+                }`}
+              >
                 {Math.abs(priceDistance) < currentPrice * 0.01
                   ? '● PINNED'
                   : priceDistance > 0
@@ -3628,22 +4321,35 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
             {/* Expiration Selector */}
             <div className="bg-black/50 border border-gray-700 rounded px-3 py-2">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Expiration</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">
+                Expiration
+              </div>
               <select
                 value={selectedExpiration}
                 onChange={(e) => setSelectedExpiration(e.target.value)}
                 className="w-full bg-gray-900 border-none text-white text-sm font-bold focus:outline-none cursor-pointer"
                 style={{ backgroundColor: '#111827' }}
               >
-                {availableExpirations.map(exp => {
-                  const expDate = new Date(exp + 'T00:00:00Z');
-                  const today = new Date();
-                  const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                {availableExpirations.map((exp) => {
+                  const expDate = new Date(exp + 'T00:00:00Z')
+                  const today = new Date()
+                  const daysToExp = Math.ceil(
+                    (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+                  )
                   return (
-                    <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
-                      {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                    <option
+                      key={exp}
+                      value={exp}
+                      style={{ backgroundColor: '#111827', color: '#ffffff' }}
+                    >
+                      {expDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        timeZone: 'UTC',
+                      })}{' '}
+                      ({daysToExp}d)
                     </option>
-                  );
+                  )
                 })}
               </select>
             </div>
@@ -3654,55 +4360,93 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
       {/* Strike Risk Table */}
       <div className="bg-black border border-gray-800 rounded">
         <div className="border-b border-gray-800 px-4 py-3 bg-gray-950">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Strike-Level Risk Analysis</h3>
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+            Strike-Level Risk Analysis
+          </h3>
         </div>
 
         <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
           <table className="w-full">
             <thead className="bg-gray-950 sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Strike</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Strike
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  MM Risk
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Total OI
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Call OI
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Put OI
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Distance
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">
+                  Bias
+                </th>
               </tr>
             </thead>
             <tbody>
               {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
-                const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
-                const isATM = Math.abs(item.strike - currentPrice) < 1;
-                const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
-                const isHighestRisk = item.risk === maxRisk; // Highest risk = Liquidity Pivot
-                const riskPercent = (item.risk / maxRisk) * 100;
+                const isMaxPain = item.strike === maxPainAnalysis.optimalStrike
+                const isATM = Math.abs(item.strike - currentPrice) < 1
+                const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map((s) => s.risk))
+                const isHighestRisk = item.risk === maxRisk // Highest risk = Liquidity Pivot
+                const riskPercent = (item.risk / maxRisk) * 100
 
                 return (
                   <tr
                     key={item.strike}
-                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
-                      isHighestRisk ? 'bg-purple-950/20' :
-                        isATM ? 'bg-orange-950/10' : ''
-                      }`}
+                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                      isMaxPain
+                        ? 'bg-red-950/20'
+                        : isHighestRisk
+                          ? 'bg-purple-950/20'
+                          : isATM
+                            ? 'bg-orange-950/10'
+                            : ''
+                    }`}
                   >
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
-                          isHighestRisk ? 'text-purple-400' :
-                            isATM ? 'text-orange-400' : 'text-white'
-                          }`}>
+                        <span
+                          className={`font-mono text-sm font-semibold ${
+                            isMaxPain
+                              ? 'text-red-400'
+                              : isHighestRisk
+                                ? 'text-purple-400'
+                                : isATM
+                                  ? 'text-orange-400'
+                                  : 'text-white'
+                          }`}
+                        >
                           ${item.strike.toFixed(1)}
                         </span>
-                        {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
-                        {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
+                        {isMaxPain && (
+                          <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>
+                        )}
+                        {isHighestRisk && !isMaxPain && (
+                          <span className="text-xs text-purple-400 font-bold">
+                            ● LIQUIDITY PIVOT
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-20 bg-gray-900 rounded-sm h-2">
                           <div
-                            className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
+                            className={
+                              isHighestRisk
+                                ? 'bg-purple-500 h-full rounded-sm'
+                                : 'bg-red-500 h-full rounded-sm'
+                            }
                             style={{ width: `${riskPercent}%` }}
                           />
                         </div>
@@ -3712,9 +4456,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <span className="font-mono text-xs text-white">
-                        {formatOI(item.oi)}
-                      </span>
+                      <span className="font-mono text-xs text-white">{formatOI(item.oi)}</span>
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <span className="font-mono text-xs text-green-500">
@@ -3722,397 +4464,533 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <span className="font-mono text-xs text-red-500">
-                        {formatOI(item.putOI)}
-                      </span>
+                      <span className="font-mono text-xs text-red-500">{formatOI(item.putOI)}</span>
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
-                        }`}>
-                        {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
+                      <span
+                        className={`font-mono text-xs ${
+                          Math.abs(item.distance) < 1
+                            ? 'text-yellow-400 font-bold'
+                            : item.distance > 0
+                              ? 'text-red-400'
+                              : 'text-green-400'
+                        }`}
+                      >
+                        {item.distance >= 0 ? '+' : ''}
+                        {item.distance.toFixed(2)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                          'text-gray-500'
-                        }`}>
-                        {item.callOI > item.putOI * 1.5 ? 'CALL' :
-                          item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                      <span
+                        className={`text-xs font-bold ${
+                          item.callOI > item.putOI * 1.5
+                            ? 'text-green-400'
+                            : item.putOI > item.callOI * 1.5
+                              ? 'text-red-400'
+                              : 'text-gray-500'
+                        }`}
+                      >
+                        {item.callOI > item.putOI * 1.5
+                          ? 'CALL'
+                          : item.putOI > item.callOI * 1.5
+                            ? 'PUT'
+                            : 'MIXED'}
                       </span>
                     </td>
                   </tr>
-                );
+                )
               })}
             </tbody>
           </table>
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 // Helper function to calculate Vanna using Black-Scholes formula
 // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
-const calculateVanna = (strike: number, spotPrice: number, T: number, impliedVol: number, riskFreeRate: number = 0.0408): number => {
-  if (T <= 0 || impliedVol <= 0 || spotPrice <= 0) return 0;
+const calculateVanna = (
+  strike: number,
+  spotPrice: number,
+  T: number,
+  impliedVol: number,
+  riskFreeRate: number = 0.0408
+): number => {
+  if (T <= 0 || impliedVol <= 0 || spotPrice <= 0) return 0
 
-  const sigma = impliedVol;
-  const r = riskFreeRate;
-  const S = spotPrice;
-  const K = strike;
+  const sigma = impliedVol
+  const r = riskFreeRate
+  const S = spotPrice
+  const K = strike
 
   // Calculate d1 and d2
-  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T));
-  const d2 = d1 - sigma * Math.sqrt(T);
+  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T))
+  const d2 = d1 - sigma * Math.sqrt(T)
 
   // Calculate N'(d1) - standard normal probability density function
-  const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+  const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1)
 
   // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
-  const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma);
+  const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma)
 
-  return vanna;
-};
+  return vanna
+}
 
 interface DealerAttractionProps {
-  onClose?: () => void;
+  onClose?: () => void
 }
 
 const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
-  const [data, setData] = useState<GEXData[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expirations, setExpirations] = useState<string[]>([]);
-  const [currentPrice, setCurrentPrice] = useState(0);
-  const [selectedTicker, setSelectedTicker] = useState('');
-  const [tickerInput, setTickerInput] = useState('');
-  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number } } }>({});
-  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } }>({});
+  const [data, setData] = useState<GEXData[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [expirations, setExpirations] = useState<string[]>([])
+  const [currentPrice, setCurrentPrice] = useState(0)
+  const [selectedTicker, setSelectedTicker] = useState('')
+  const [tickerInput, setTickerInput] = useState('')
+  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVanna?: number
+        putVanna?: number
+        callTheta?: number
+        putTheta?: number
+      }
+    }
+  }>({})
+  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVanna?: number
+        putVanna?: number
+        callVega?: number
+        putVega?: number
+        callTheta?: number
+        putTheta?: number
+      }
+    }
+  }>({})
 
   // Backup original base data before live mode modifies it
-  const [baseGexByStrikeByExpiration, setBaseGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number } } }>({});
-  const [baseDealerByStrikeByExpiration, setBaseDealerByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } }>({});
+  const [baseGexByStrikeByExpiration, setBaseGexByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVanna?: number
+        putVanna?: number
+        callTheta?: number
+        putTheta?: number
+      }
+    }
+  }>({})
+  const [baseDealerByStrikeByExpiration, setBaseDealerByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+        callDelta?: number
+        putDelta?: number
+        callVanna?: number
+        putVanna?: number
+        callVega?: number
+        putVega?: number
+        callTheta?: number
+        putTheta?: number
+      }
+    }
+  }>({})
 
-  const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
-  const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
-  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } }>({});
-  const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } }>({});
+  const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP') // C/P by default
+  const [analysisType, setAnalysisType] = useState<'GEX'>('GEX') // Gamma Exposure by default
+  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callVega?: number
+        putVega?: number
+      }
+    }
+  }>({})
+  const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callVolume: number
+        putVolume: number
+      }
+    }
+  }>({})
   // Desktop: Duo mode (both showGEX and showDealer true) | Mobile: Normal + Dealer (both true)
-  const [showGEX, setShowGEX] = useState(true);
-  const [showDealer, setShowDealer] = useState(true);
-  const [duoMode, setDuoMode] = useState(typeof window !== 'undefined' && window.innerWidth >= 768 ? true : false);
-  const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
-  const [showFlowGEX, setShowFlowGEX] = useState(false);
-  const [showHistoricalGEX, setShowHistoricalGEX] = useState(true); // Historical GEX Timeline - always on
-  const [historicalTimestamp, setHistoricalTimestamp] = useState<number | null>(null); // Selected historical timestamp
-  const [historicalPrice, setHistoricalPrice] = useState<number>(0); // Price at selected timestamp
-  const [historicalGEXData, setHistoricalGEXData] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number } } }>({});
+  const [showGEX, setShowGEX] = useState(true)
+  const [showDealer, setShowDealer] = useState(true)
+  const [duoMode, setDuoMode] = useState(
+    typeof window !== 'undefined' && window.innerWidth >= 768 ? true : false
+  )
+  const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX')
+  const [showFlowGEX, setShowFlowGEX] = useState(false)
+  const [showHistoricalGEX, setShowHistoricalGEX] = useState(true) // Historical GEX Timeline - always on
+  const [historicalTimestamp, setHistoricalTimestamp] = useState<number | null>(null) // Selected historical timestamp
+  const [historicalPrice, setHistoricalPrice] = useState<number>(0) // Price at selected timestamp
+  const [historicalGEXData, setHistoricalGEXData] = useState<{
+    [expiration: string]: {
+      [strike: number]: {
+        call: number
+        put: number
+        callOI: number
+        putOI: number
+        callGamma?: number
+        putGamma?: number
+      }
+    }
+  }>({})
 
-  const [showOI, setShowOI] = useState(false);
-  const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
-  const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
-  const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
-  const [flowTradesData, setFlowTradesData] = useState<any[]>([]); // Store all trades with premiums
-  const [liveOILoading, setLiveOILoading] = useState(false);
-  const [liveOIProgress, setLiveOIProgress] = useState(0);
-  const [showVEX, setShowVEX] = useState(false);
-  const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
-  const [useBloombergTheme, setUseBloombergTheme] = useState(true); // Bloomberg Terminal theme - default ON
-  const [showODTRIO, setShowODTRIO] = useState(false); // ODTRIO mode for SPX, QQQ, SPY
-  const [odtrioData, setOdtrioData] = useState<{ [key: string]: { data: any[], loading: boolean, currentPrice?: number, odteExpiry?: string, timestamp?: number } }>({
+  const [showOI, setShowOI] = useState(false)
+  const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false)
+  const [liveMode, setLiveMode] = useState(false) // Single live mode toggle for all metrics
+  const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map())
+  const [flowTradesData, setFlowTradesData] = useState<any[]>([]) // Store all trades with premiums
+  const [liveOILoading, setLiveOILoading] = useState(false)
+  const [liveOIProgress, setLiveOIProgress] = useState(0)
+  const [showVEX, setShowVEX] = useState(false)
+  const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX')
+  const [useBloombergTheme, setUseBloombergTheme] = useState(true) // Bloomberg Terminal theme - default ON
+  const [showODTRIO, setShowODTRIO] = useState(false) // ODTRIO mode for SPX, QQQ, SPY
+  const [odtrioData, setOdtrioData] = useState<{
+    [key: string]: {
+      data: any[]
+      loading: boolean
+      currentPrice?: number
+      odteExpiry?: string
+      timestamp?: number
+    }
+  }>({
     SPX: { data: [], loading: false },
     QQQ: { data: [], loading: false },
-    SPY: { data: [], loading: false }
-  });
-  const [baseOdtrioData, setBaseOdtrioData] = useState<{ [key: string]: { data: any[], loading: boolean, currentPrice?: number, odteExpiry?: string, timestamp?: number } }>({
+    SPY: { data: [], loading: false },
+  })
+  const [baseOdtrioData, setBaseOdtrioData] = useState<{
+    [key: string]: {
+      data: any[]
+      loading: boolean
+      currentPrice?: number
+      odteExpiry?: string
+      timestamp?: number
+    }
+  }>({
     SPX: { data: [], loading: false },
     QQQ: { data: [], loading: false },
-    SPY: { data: [], loading: false }
-  });
-  const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'SI'>('MM');
+    SPY: { data: [], loading: false },
+  })
+  const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION')
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'SI'>('MM')
 
-  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
 
   // Calculate number of active tables and update parent container width
-  const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
+  const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length
 
   // Dynamic strike column width for workbench tables based on data
   const workbenchStrikeWidth = useMemo(() => {
-    const allStrikes = data.map(d => d.strike);
-    const maxStrike = allStrikes.length > 0 ? Math.max(...allStrikes) : 0;
-    const strikeLength = Math.floor(maxStrike).toString().length;
+    const allStrikes = data.map((d) => d.strike)
+    const maxStrike = allStrikes.length > 0 ? Math.max(...allStrikes) : 0
+    const strikeLength = Math.floor(maxStrike).toString().length
     // Tight calculation: 20px base + (6px per digit) + 8px for decimal
-    const calculatedWidth = 20 + (strikeLength * 6) + 8;
-    return Math.max(50, Math.min(calculatedWidth, 70)); // Min 50px, max 70px
-  }, [data]);
+    const calculatedWidth = 20 + strikeLength * 6 + 8
+    return Math.max(50, Math.min(calculatedWidth, 70)) // Min 50px, max 70px
+  }, [data])
 
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
-    const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement;
+    const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement
     if (sidebarPanel) {
       // Count total items: OI chart (if enabled) + tables
-      const oiCount = showOI ? 1 : 0;
-      const totalItems = oiCount + activeTableCount;
+      const oiCount = showOI ? 1 : 0
+      const totalItems = oiCount + activeTableCount
 
       if (totalItems === 0 || totalItems === 1) {
         // 0 items OR 1 item (OI only OR 1 table only) - 1200px
-        sidebarPanel.style.width = '1200px';
+        sidebarPanel.style.width = '1200px'
       } else if (totalItems === 2) {
         if (showOI && activeTableCount === 1) {
           // OI + 1 table: 1200px + 900px = 2100px
-          sidebarPanel.style.width = '2100px';
+          sidebarPanel.style.width = '2100px'
         } else {
           // 2 tables (no OI) - 1775px
-          sidebarPanel.style.width = '1775px';
+          sidebarPanel.style.width = '1775px'
         }
       } else if (totalItems === 3) {
         if (showOI && activeTableCount === 2) {
           // OI + 2 tables: 1100px + 895px + 895px + gaps = 2940px
-          sidebarPanel.style.width = '2940px';
+          sidebarPanel.style.width = '2940px'
         } else {
           // 3 tables (no OI) - 2662px
-          sidebarPanel.style.width = '2662px';
+          sidebarPanel.style.width = '2662px'
         }
       } else if (totalItems >= 4) {
         // OI + 3 tables - full width
-        sidebarPanel.style.width = 'calc(100vw - 4.0625rem)';
+        sidebarPanel.style.width = 'calc(100vw - 4.0625rem)'
       }
     }
-  }, [activeTableCount, showOI]);
+  }, [activeTableCount, showOI])
 
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
     // Use whatever ticker is typed in the search bar
-    const tickerToScan = (tickerInput.trim() || selectedTicker).toUpperCase();
+    const tickerToScan = (tickerInput.trim() || selectedTicker).toUpperCase()
 
-    setLiveOILoading(true);
-    setLiveOIProgress(0);
+    setLiveOILoading(true)
+    setLiveOIProgress(0)
 
-    const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerToScan}`);
-    let allTrades: any[] = [];
-    let scanComplete = false;
+    const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerToScan}`)
+    let allTrades: any[] = []
+    let scanComplete = false
 
     eventSource.onmessage = async (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(event.data)
 
         // Accumulate trades from ticker_complete events (API streams trades here, not in 'complete')
         if (data.type === 'ticker_complete' && data.trades?.length > 0) {
-          allTrades.push(...data.trades);
-          return;
+          allTrades.push(...data.trades)
+          return
         }
 
         if (data.type === 'complete') {
           // If API still populates complete.trades (legacy), use them; otherwise use accumulated
-          if (data.trades?.length > 0) allTrades = data.trades;
+          if (data.trades?.length > 0) allTrades = data.trades
           if (allTrades.length === 0) {
-            console.warn('⚠️ No trades received from stream');
-            eventSource.close();
-            setLiveOILoading(false);
-            setLiveOIProgress(0);
-            return;
+            console.warn('⚠️ No trades received from stream')
+            eventSource.close()
+            setLiveOILoading(false)
+            setLiveOIProgress(0)
+            return
           }
 
-          scanComplete = true;
-          eventSource.close();
-          setLiveOIProgress(20); // 20% - trades received
+          scanComplete = true
+          eventSource.close()
+          setLiveOIProgress(20) // 20% - trades received
 
           // Step 1: Fetch volume and OI data for all trades using Polygon API
-          const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
+          const uniqueExpirations = [...new Set(allTrades.map((t) => t.expiry))]
 
-
-          const allContracts = new Map();
+          const allContracts = new Map()
 
           // Fetch data for each expiration
           for (let i = 0; i < uniqueExpirations.length; i++) {
-            const expiry = uniqueExpirations[i];
-            const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
+            const expiry = uniqueExpirations[i]
+            const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
 
             try {
               const response = await fetch(
                 `https://api.polygon.io/v3/snapshot/options/${tickerToScan}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
-              );
+              )
 
               if (response.ok) {
-                const chainData = await response.json();
+                const chainData = await response.json()
                 if (chainData.results) {
                   chainData.results.forEach((contract: any) => {
                     if (contract.details && contract.details.ticker) {
                       allContracts.set(contract.details.ticker, {
                         volume: contract.day?.volume || 0,
-                        open_interest: contract.open_interest || 0
-                      });
+                        open_interest: contract.open_interest || 0,
+                      })
                     }
-                  });
-
+                  })
                 }
               }
 
               // Update progress: 20% to 60% during contract fetching
-              setLiveOIProgress(20 + Math.round((i + 1) / uniqueExpirations.length * 40));
+              setLiveOIProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
             } catch (error) {
-              console.error(`  ❌ Error fetching ${expiryParam}:`, error);
+              console.error(`  ❌ Error fetching ${expiryParam}:`, error)
             }
           }
 
-
-          setLiveOIProgress(60); // 60% - contracts fetched
+          setLiveOIProgress(60) // 60% - contracts fetched
 
           // Step 2: Enrich trades with volume/OI
-          const enrichedTrades = allTrades.map(trade => {
-            const contractData = allContracts.get(trade.ticker);
+          const enrichedTrades = allTrades.map((trade) => {
+            const contractData = allContracts.get(trade.ticker)
             return {
               ...trade,
               volume: contractData?.volume || 0,
               open_interest: contractData?.open_interest || 0,
-              underlying_ticker: trade.underlying_ticker || tickerToScan
-            };
-          });
-          setLiveOIProgress(70); // 70% - trades enriched
+              underlying_ticker: trade.underlying_ticker || tickerToScan,
+            }
+          })
+          setLiveOIProgress(70) // 70% - trades enriched
 
           // Step 3: Detect fill styles using REAL bid/ask analysis (exact AlgoFlowScreener logic)
 
-          const BATCH_SIZE = 20;
-          const tradesWithFillStyle: any[] = [];
+          const BATCH_SIZE = 20
+          const tradesWithFillStyle: any[] = []
 
           const normalizeTickerForOptions = (ticker: string) => {
             const specialCases: Record<string, string> = {
               'BRK.B': 'BRK',
-              'BF.B': 'BF'
-            };
-            return specialCases[ticker] || ticker;
-          };
+              'BF.B': 'BF',
+            }
+            return specialCases[ticker] || ticker
+          }
 
           for (let i = 0; i < enrichedTrades.length; i += BATCH_SIZE) {
-            const batch = enrichedTrades.slice(i, i + BATCH_SIZE);
+            const batch = enrichedTrades.slice(i, i + BATCH_SIZE)
 
             const batchPromises = batch.map(async (trade) => {
               try {
-                const expiry = trade.expiry.replace(/-/g, '').slice(2);
-                const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-                const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-                const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
+                const expiry = trade.expiry.replace(/-/g, '').slice(2)
+                const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+                const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+                const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
 
-                const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+                const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
 
-                const response = await fetch(snapshotUrl);
-                const data = await response.json();
+                const response = await fetch(snapshotUrl)
+                const data = await response.json()
 
                 if (data.results && data.results.last_quote) {
-                  const bid = data.results.last_quote.bid;
-                  const ask = data.results.last_quote.ask;
-                  const fillPrice = trade.premium_per_contract;
+                  const bid = data.results.last_quote.bid
+                  const ask = data.results.last_quote.ask
+                  const fillPrice = trade.premium_per_contract
 
                   if (bid && ask && fillPrice) {
-                    let fillStyle = 'N/A';
-                    const midpoint = (bid + ask) / 2;
+                    let fillStyle = 'N/A'
+                    const midpoint = (bid + ask) / 2
 
                     if (fillPrice >= ask + 0.01) {
-                      fillStyle = 'AA';
+                      fillStyle = 'AA'
                     } else if (fillPrice <= bid - 0.01) {
-                      fillStyle = 'BB';
+                      fillStyle = 'BB'
                     } else if (fillPrice === ask) {
-                      fillStyle = 'A';
+                      fillStyle = 'A'
                     } else if (fillPrice === bid) {
-                      fillStyle = 'B';
+                      fillStyle = 'B'
                     } else if (fillPrice >= midpoint) {
-                      fillStyle = 'A';
+                      fillStyle = 'A'
                     } else {
-                      fillStyle = 'B';
+                      fillStyle = 'B'
                     }
 
-                    return { ...trade, fill_style: fillStyle };
+                    return { ...trade, fill_style: fillStyle }
                   }
                 }
 
-                return { ...trade, fill_style: 'N/A' };
+                return { ...trade, fill_style: 'N/A' }
               } catch (error) {
-                return { ...trade, fill_style: 'N/A' };
+                return { ...trade, fill_style: 'N/A' }
               }
-            });
+            })
 
-            const batchResults = await Promise.all(batchPromises);
-            tradesWithFillStyle.push(...batchResults);
+            const batchResults = await Promise.all(batchPromises)
+            tradesWithFillStyle.push(...batchResults)
 
             // Update progress during fill style analysis
-            const progressPercent = Math.round((i + BATCH_SIZE) / enrichedTrades.length * 10);
-            setLiveOIProgress(70 + progressPercent);
+            const progressPercent = Math.round(((i + BATCH_SIZE) / enrichedTrades.length) * 10)
+            setLiveOIProgress(70 + progressPercent)
 
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 100))
           }
 
-
-          setLiveOIProgress(80); // 80% - fill styles calculated
+          setLiveOIProgress(80) // 80% - fill styles calculated
 
           // Store trades data for Flow Map
-          setFlowTradesData(tradesWithFillStyle);
-
+          setFlowTradesData(tradesWithFillStyle)
 
           // Step 4: Calculate Live OI for each unique contract
-          const liveOIMap = new Map<string, number>();
-          const uniqueContracts = new Set<string>();
+          const liveOIMap = new Map<string, number>()
+          const uniqueContracts = new Set<string>()
 
-          tradesWithFillStyle.forEach(trade => {
-            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-            uniqueContracts.add(contractKey);
-          });
+          tradesWithFillStyle.forEach((trade) => {
+            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+            uniqueContracts.add(contractKey)
+          })
 
-          uniqueContracts.forEach(contractKey => {
-            const matchingTrade = tradesWithFillStyle.find(t =>
-              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-            );
+          uniqueContracts.forEach((contractKey) => {
+            const matchingTrade = tradesWithFillStyle.find(
+              (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            )
 
-            const originalOI = matchingTrade?.open_interest || 0;
+            const originalOI = matchingTrade?.open_interest || 0
 
             // Calculate Live OI using the trades
-            const contractTrades = tradesWithFillStyle.filter(t =>
-              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-            );
+            const contractTrades = tradesWithFillStyle.filter(
+              (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            )
 
-            let liveOI = originalOI;
-            const processedTradeIds = new Set<string>();
+            let liveOI = originalOI
+            const processedTradeIds = new Set<string>()
 
             // Sort trades chronologically
-            const sortedTrades = [...contractTrades].sort((a, b) =>
-              new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-            );
+            const sortedTrades = [...contractTrades].sort(
+              (a, b) =>
+                new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+            )
 
-            sortedTrades.forEach(trade => {
-              const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`;
+            sortedTrades.forEach((trade) => {
+              const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`
 
-              if (processedTradeIds.has(tradeId)) return;
-              processedTradeIds.add(tradeId);
+              if (processedTradeIds.has(tradeId)) return
+              processedTradeIds.add(tradeId)
 
-              const contracts = trade.trade_size || 0;
-              const fillStyle = trade.fill_style;
+              const contracts = trade.trade_size || 0
+              const fillStyle = trade.fill_style
 
               switch (fillStyle) {
                 case 'A':
                 case 'AA':
                 case 'BB':
-                  liveOI += contracts;
-                  break;
+                  liveOI += contracts
+                  break
                 case 'B':
                   if (contracts > originalOI) {
-                    liveOI += contracts;
+                    liveOI += contracts
                   } else {
-                    liveOI -= contracts;
+                    liveOI -= contracts
                   }
-                  break;
+                  break
               }
-            });
+            })
 
-            liveOI = Math.max(0, liveOI);
-            liveOIMap.set(contractKey, liveOI);
+            liveOI = Math.max(0, liveOI)
+            liveOIMap.set(contractKey, liveOI)
+          })
 
-
-          });
-
-          setLiveOIData(liveOIMap);
-          setLiveOIProgress(100); // 100% - complete
+          setLiveOIData(liveOIMap)
+          setLiveOIProgress(100) // 100% - complete
           // console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
 
           // Step 5: Calculate simple premium-based flow (no GEX, no Greeks)
@@ -4122,832 +5000,877 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
           // Check if base options data exists, if not fetch it first
           if (Object.keys(gexByStrikeByExpiration).length === 0) {
-            console.log(`⚠️ Base options data not loaded yet. Fetching now...`);
-            setLiveOILoading(false);
-            setLiveOIProgress(100);
+            console.log(`⚠️ Base options data not loaded yet. Fetching now...`)
+            setLiveOILoading(false)
+            setLiveOIProgress(100)
             // Fetch base data with the live OI and trades
-            await fetchOptionsData(liveOIMap, tradesWithFillStyle);
+            await fetchOptionsData(liveOIMap, tradesWithFillStyle)
           } else {
             // Base data exists, just trigger recalculation
 
-            setLiveOILoading(false);
-            setLiveOIProgress(100);
+            setLiveOILoading(false)
+            setLiveOIProgress(100)
             // Force a recalculation by calling fetchOptionsData with the live data
-            await fetchOptionsData(liveOIMap, tradesWithFillStyle);
+            await fetchOptionsData(liveOIMap, tradesWithFillStyle)
           }
         }
       } catch (error) {
-        console.error('❌ Error in Live OI update:', error);
-        setLiveOILoading(false);
-        setLiveOIProgress(0);
+        console.error('❌ Error in Live OI update:', error)
+        setLiveOILoading(false)
+        setLiveOIProgress(0)
       }
-    };
+    }
 
     eventSource.onerror = (error) => {
       if (scanComplete) {
         // Stream closed normally after completion — not a real error
-        eventSource.close();
-        return;
+        eventSource.close()
+        return
       }
-      console.error('❌ EventSource error:', error);
-      eventSource.close();
-      setLiveOILoading(false);
-      setLiveOIProgress(0);
-    };
-  };
+      console.error('❌ EventSource error:', error)
+      eventSource.close()
+      setLiveOILoading(false)
+      setLiveOIProgress(0)
+    }
+  }
 
   // ODTRIO Live OI Update - Only scan for ODTE expiration and strike range
   const updateOdtrioLiveOI = async () => {
-    setLiveOILoading(true);
-    setLiveOIProgress(0);
+    setLiveOILoading(true)
+    setLiveOIProgress(0)
 
-    const tickers = ['SPX', 'QQQ', 'SPY'];
-    const liveOIMap = new Map<string, number>();
-    let totalTrades = 0;
+    const tickers = ['SPX', 'QQQ', 'SPY']
+    const liveOIMap = new Map<string, number>()
+    let totalTrades = 0
 
     for (const ticker of tickers) {
-      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${ticker}`);
-      let allTrades: any[] = [];
+      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${ticker}`)
+      let allTrades: any[] = []
 
       await new Promise<void>((resolve) => {
-        let odtrioScanComplete = false;
+        let odtrioScanComplete = false
 
         eventSource.onmessage = async (event) => {
           try {
-            const data = JSON.parse(event.data);
+            const data = JSON.parse(event.data)
 
             // Accumulate trades from ticker_complete events (API streams trades here, not in 'complete')
             if (data.type === 'ticker_complete' && data.trades?.length > 0) {
-              allTrades.push(...data.trades);
-              return;
+              allTrades.push(...data.trades)
+              return
             }
 
             if (data.type === 'complete') {
               // If API still populates complete.trades (legacy), use them; otherwise use accumulated
-              if (data.trades?.length > 0) allTrades = data.trades;
-              totalTrades += allTrades.length;
-              odtrioScanComplete = true;
-              eventSource.close();
-              resolve();
+              if (data.trades?.length > 0) allTrades = data.trades
+              totalTrades += allTrades.length
+              odtrioScanComplete = true
+              eventSource.close()
+              resolve()
             }
           } catch (error) {
-            console.error(`❌ ${ticker} Error:`, error);
-            eventSource.close();
-            resolve();
+            console.error(`❌ ${ticker} Error:`, error)
+            eventSource.close()
+            resolve()
           }
-        };
+        }
 
         eventSource.onerror = (error) => {
           if (odtrioScanComplete) {
             // Stream closed normally after completion — not a real error
-            eventSource.close();
-            resolve();
-            return;
+            eventSource.close()
+            resolve()
+            return
           }
-          console.error(`❌ ${ticker} EventSource error:`, error);
-          eventSource.close();
-          resolve();
-        };
-      });
+          console.error(`❌ ${ticker} EventSource error:`, error)
+          eventSource.close()
+          resolve()
+        }
+      })
 
       if (allTrades.length === 0) {
-        continue;
+        continue
       }
 
       // Get current ODTRIO data to determine expiration and strike range
-      const tickerData = odtrioData[ticker];
+      const tickerData = odtrioData[ticker]
       if (!tickerData || !tickerData.odteExpiry || !tickerData.currentPrice) {
-        continue;
+        continue
       }
 
-      const odteExpiry = tickerData.odteExpiry;
-      const currentPrice = tickerData.currentPrice;
+      const odteExpiry = tickerData.odteExpiry
+      const currentPrice = tickerData.currentPrice
 
-      let minStrike, maxStrike;
+      let minStrike, maxStrike
 
       // For SPX: Get exactly 50 calls and 50 puts (100 total contracts)
       if (ticker === 'SPX') {
         // Get all available strikes from ODTRIO data to find closest ones
-        const allStrikes = tickerData.data.map(row => row.strike).sort((a, b) => a - b);
+        const allStrikes = tickerData.data.map((row) => row.strike).sort((a, b) => a - b)
 
         // Find strikes closest to current price
-        const callStrikes = allStrikes.filter(s => s >= currentPrice).slice(0, 50); // 50 calls at/above price
-        const putStrikes = allStrikes.filter(s => s <= currentPrice).slice(-50); // 50 puts at/below price
+        const callStrikes = allStrikes.filter((s) => s >= currentPrice).slice(0, 50) // 50 calls at/above price
+        const putStrikes = allStrikes.filter((s) => s <= currentPrice).slice(-50) // 50 puts at/below price
 
-        minStrike = Math.min(...putStrikes, ...callStrikes);
-        maxStrike = Math.max(...putStrikes, ...callStrikes);
+        minStrike = Math.min(...putStrikes, ...callStrikes)
+        maxStrike = Math.max(...putStrikes, ...callStrikes)
       } else {
         // For QQQ/SPY: Use percentage-based range
-        let minStrikePercent = 0.95, maxStrikePercent = 1.08;
+        let minStrikePercent = 0.95,
+          maxStrikePercent = 1.08
         if (ticker === 'SPY') {
-          minStrikePercent = 0.97; maxStrikePercent = 1.04;
+          minStrikePercent = 0.97
+          maxStrikePercent = 1.04
         }
 
-        minStrike = currentPrice * minStrikePercent;
-        maxStrike = currentPrice * maxStrikePercent;
+        minStrike = currentPrice * minStrikePercent
+        maxStrike = currentPrice * maxStrikePercent
       }
 
       // Filter trades to only ODTE expiration and strike range
-      const filteredTrades = allTrades.filter(trade => {
-        const tradeExpiry = trade.expiry.includes('T') ? trade.expiry.split('T')[0] : trade.expiry;
-        const strike = trade.strike;
-        return tradeExpiry === odteExpiry && strike >= minStrike && strike <= maxStrike;
-      });
+      const filteredTrades = allTrades.filter((trade) => {
+        const tradeExpiry = trade.expiry.includes('T') ? trade.expiry.split('T')[0] : trade.expiry
+        const strike = trade.strike
+        return tradeExpiry === odteExpiry && strike >= minStrike && strike <= maxStrike
+      })
 
       if (filteredTrades.length === 0) {
-        continue;
+        continue
       }
 
       // Fetch volume/OI for ONLY the ODTE expiration
-      const expiryParam = odteExpiry;
-      const allContracts = new Map();
+      const expiryParam = odteExpiry
+      const allContracts = new Map()
 
       try {
         const response = await fetch(
           `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
-        );
+        )
 
         if (response.ok) {
-          const chainData = await response.json();
+          const chainData = await response.json()
           if (chainData.results) {
             chainData.results.forEach((contract: any) => {
               if (contract.details && contract.details.ticker) {
-                const contractStrike = contract.details.strike_price;
+                const contractStrike = contract.details.strike_price
                 // Only store contracts within our strike range
                 if (contractStrike >= minStrike && contractStrike <= maxStrike) {
                   allContracts.set(contract.details.ticker, {
                     volume: contract.day?.volume || 0,
-                    open_interest: contract.open_interest || 0
-                  });
+                    open_interest: contract.open_interest || 0,
+                  })
                 }
               }
-            });
+            })
           }
         }
       } catch (error) {
-        console.error(`  ❌ ${ticker} Error fetching ${expiryParam}:`, error);
+        console.error(`  ❌ ${ticker} Error fetching ${expiryParam}:`, error)
       }
 
       // Enrich trades with volume/OI
-      const enrichedTrades = filteredTrades.map(trade => {
-        const contractData = allContracts.get(trade.ticker);
+      const enrichedTrades = filteredTrades.map((trade) => {
+        const contractData = allContracts.get(trade.ticker)
         return {
           ...trade,
           volume: contractData?.volume || 0,
           open_interest: contractData?.open_interest || 0,
-          underlying_ticker: ticker
-        };
-      });
+          underlying_ticker: ticker,
+        }
+      })
 
       // Calculate fill styles
-      const tradesWithFillStyle = enrichedTrades.map(trade => {
-        const volume = trade.volume || 0;
-        const tradeSize = trade.trade_size || 0;
-        const oi = trade.open_interest || 0;
+      const tradesWithFillStyle = enrichedTrades.map((trade) => {
+        const volume = trade.volume || 0
+        const tradeSize = trade.trade_size || 0
+        const oi = trade.open_interest || 0
 
-        let fillStyle = 'N/A';
+        let fillStyle = 'N/A'
         if (tradeSize > oi * 0.5) {
-          fillStyle = 'AA';
+          fillStyle = 'AA'
         } else if (tradeSize > volume * 0.3) {
-          fillStyle = 'A';
+          fillStyle = 'A'
         } else if (tradeSize > oi * 0.1) {
-          fillStyle = 'BB';
+          fillStyle = 'BB'
         } else {
-          fillStyle = 'B';
+          fillStyle = 'B'
         }
 
-        return { ...trade, fill_style: fillStyle };
-      });
+        return { ...trade, fill_style: fillStyle }
+      })
 
       // Calculate Live OI for each unique contract
-      const uniqueContracts = new Set<string>();
-      tradesWithFillStyle.forEach(trade => {
-        const contractKey = `${ticker}_${trade.strike}_${trade.type}_${odteExpiry}`;
-        uniqueContracts.add(contractKey);
-      });
+      const uniqueContracts = new Set<string>()
+      tradesWithFillStyle.forEach((trade) => {
+        const contractKey = `${ticker}_${trade.strike}_${trade.type}_${odteExpiry}`
+        uniqueContracts.add(contractKey)
+      })
 
-      uniqueContracts.forEach(contractKey => {
-        const matchingTrade = tradesWithFillStyle.find(t =>
-          `${ticker}_${t.strike}_${t.type}_${odteExpiry}` === contractKey
-        );
+      uniqueContracts.forEach((contractKey) => {
+        const matchingTrade = tradesWithFillStyle.find(
+          (t) => `${ticker}_${t.strike}_${t.type}_${odteExpiry}` === contractKey
+        )
 
-        const originalOI = matchingTrade?.open_interest || 0;
+        const originalOI = matchingTrade?.open_interest || 0
 
-        const contractTrades = tradesWithFillStyle.filter(t =>
-          `${ticker}_${t.strike}_${t.type}_${odteExpiry}` === contractKey
-        );
+        const contractTrades = tradesWithFillStyle.filter(
+          (t) => `${ticker}_${t.strike}_${t.type}_${odteExpiry}` === contractKey
+        )
 
-        let liveOI = originalOI;
-        const processedTradeIds = new Set<string>();
+        let liveOI = originalOI
+        const processedTradeIds = new Set<string>()
 
-        const sortedTrades = [...contractTrades].sort((a, b) =>
-          new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-        );
+        const sortedTrades = [...contractTrades].sort(
+          (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+        )
 
-        sortedTrades.forEach(trade => {
-          const tradeId = `${ticker}_${trade.strike}_${trade.type}_${odteExpiry}_${trade.trade_timestamp}_${trade.trade_size}`;
+        sortedTrades.forEach((trade) => {
+          const tradeId = `${ticker}_${trade.strike}_${trade.type}_${odteExpiry}_${trade.trade_timestamp}_${trade.trade_size}`
 
-          if (processedTradeIds.has(tradeId)) return;
-          processedTradeIds.add(tradeId);
+          if (processedTradeIds.has(tradeId)) return
+          processedTradeIds.add(tradeId)
 
-          const contracts = trade.trade_size || 0;
-          const fillStyle = trade.fill_style;
+          const contracts = trade.trade_size || 0
+          const fillStyle = trade.fill_style
 
           switch (fillStyle) {
             case 'A':
             case 'AA':
             case 'BB':
-              liveOI += contracts;
-              break;
+              liveOI += contracts
+              break
             case 'B':
               if (contracts > originalOI) {
-                liveOI += contracts;
+                liveOI += contracts
               } else {
-                liveOI -= contracts;
+                liveOI -= contracts
               }
-              break;
+              break
           }
-        });
+        })
 
-        liveOI = Math.max(0, liveOI);
-        liveOIMap.set(contractKey, liveOI);
-      });
+        liveOI = Math.max(0, liveOI)
+        liveOIMap.set(contractKey, liveOI)
+      })
     }
-    setLiveOIData(liveOIMap);
-    setLiveOIProgress(100);
-    setLiveOILoading(false);
+    setLiveOIData(liveOIMap)
+    setLiveOIProgress(100)
+    setLiveOILoading(false)
 
     // Save current ODTRIO data as backup before applying live OI
-    setBaseOdtrioData(JSON.parse(JSON.stringify(odtrioData)));
+    setBaseOdtrioData(JSON.parse(JSON.stringify(odtrioData)))
 
     // Trigger ODTRIO recalculation with live OI
-    await fetchODTRIODataWithLiveOI(liveOIMap);
-  };
+    await fetchODTRIODataWithLiveOI(liveOIMap)
+  }
 
   // Helper function to filter expirations to 3 months max
   const filterTo3Months = (expirations: string[]) => {
-    const threeMonthsFromNow = new Date();
-    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+    const threeMonthsFromNow = new Date()
+    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3)
 
-    return expirations.filter(exp => {
-      const expDate = new Date(exp + 'T00:00:00Z');
-      return expDate <= threeMonthsFromNow;
-    });
-  };
+    return expirations.filter((exp) => {
+      const expDate = new Date(exp + 'T00:00:00Z')
+      return expDate <= threeMonthsFromNow
+    })
+  }
 
-
-
-  const [otmFilter, setOtmFilter] = useState<'1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%'>('2%');
-  const [progress, setProgress] = useState(0);
+  const [otmFilter, setOtmFilter] = useState<
+    '1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%'
+  >('2%')
+  const [progress, setProgress] = useState(0)
 
   // Update OTM filter based on selected ticker
   useEffect(() => {
     if (selectedTicker) {
-      const ticker = selectedTicker.toUpperCase();
+      const ticker = selectedTicker.toUpperCase()
       // For SPY and QQQ, use 2% default; for all others use 20%
       if (ticker === 'SPY' || ticker === 'QQQ') {
-        setOtmFilter('2%');
+        setOtmFilter('2%')
       } else {
-        setOtmFilter('20%');
+        setOtmFilter('20%')
       }
     }
-  }, [selectedTicker]);
+  }, [selectedTicker])
 
   // Helper function to get strike range based on OTM filter
   const getStrikeRange = (price: number) => {
-    const percentage = parseFloat(otmFilter.replace('%', '')) / 100;
-    const range = price * percentage;
+    const percentage = parseFloat(otmFilter.replace('%', '')) / 100
+    const range = price * percentage
     return {
       min: price - range,
-      max: price + range
-    };
-  };
+      max: price + range,
+    }
+  }
 
   // Fetch ODTRIO data for SPX, QQQ, SPY
   const fetchODTRIOData = async () => {
-    const tickers = ['SPX', 'QQQ', 'SPY'];
+    const tickers = ['SPX', 'QQQ', 'SPY']
 
     // Set loading state for all tickers
-    tickers.forEach(ticker => {
-      setOdtrioData(prev => ({
+    tickers.forEach((ticker) => {
+      setOdtrioData((prev) => ({
         ...prev,
-        [ticker]: { ...prev[ticker], loading: true }
-      }));
-    });
+        [ticker]: { ...prev[ticker], loading: true },
+      }))
+    })
 
     for (const ticker of tickers) {
       try {
-
-
         // Check cache first (5 minute expiry)
-        const now = Date.now();
-        const cached = odtrioData[ticker];
-        if (cached && cached.timestamp && (now - cached.timestamp) < 5 * 60 * 1000) {
-          console.log(`✨ Using cached ${ticker} data`);
-          setOdtrioData(prev => ({
+        const now = Date.now()
+        const cached = odtrioData[ticker]
+        if (cached && cached.timestamp && now - cached.timestamp < 5 * 60 * 1000) {
+          console.log(`✨ Using cached ${ticker} data`)
+          setOdtrioData((prev) => ({
             ...prev,
-            [ticker]: { ...cached, loading: false }
-          }));
-          continue;
+            [ticker]: { ...cached, loading: false },
+          }))
+          continue
         }
 
         // Special handling for SPX with strike range filtering
         if (ticker === 'SPX') {
-          console.time(`${ticker} total fetch time`);
+          console.time(`${ticker} total fetch time`)
 
           // STEP 1: Get all available expirations first (use same endpoint as QQQ/SPY)
-          const allExpirationsResponse = await fetch(`/api/options-chain?ticker=SPX`);
-          const allExpirationsResult = await allExpirationsResponse.json();
+          const allExpirationsResponse = await fetch(`/api/options-chain?ticker=SPX`)
+          const allExpirationsResult = await allExpirationsResponse.json()
 
           if (!allExpirationsResult.success || !allExpirationsResult.data) {
-            console.error(`❌ ${ticker} Failed to fetch available expirations`);
-            setOdtrioData(prev => ({
+            console.error(`❌ ${ticker} Failed to fetch available expirations`)
+            setOdtrioData((prev) => ({
               ...prev,
-              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-            }));
-            continue;
+              [ticker]: {
+                data: [],
+                loading: false,
+                currentPrice: 0,
+                odteExpiry: '',
+                timestamp: now,
+              },
+            }))
+            continue
           }
 
-          const currentPrice = allExpirationsResult.currentPrice;
-          const allExpirations = Object.keys(allExpirationsResult.data).sort();
+          const currentPrice = allExpirationsResult.currentPrice
+          const allExpirations = Object.keys(allExpirationsResult.data).sort()
 
           // Get current time in Eastern Time
-          const currentTimeET = new Date();
-          const nowET = new Date(currentTimeET.toLocaleString("en-US", { timeZone: "America/New_York" }));
-          const currentHour = nowET.getHours();
-          const currentMinute = nowET.getMinutes();
+          const currentTimeET = new Date()
+          const nowET = new Date(
+            currentTimeET.toLocaleString('en-US', { timeZone: 'America/New_York' })
+          )
+          const currentHour = nowET.getHours()
+          const currentMinute = nowET.getMinutes()
 
-          console.log(`🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+          console.log(
+            `🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
+          )
 
           // After 4:15 PM ET, look for next trading day (same logic as QQQ/SPY)
-          let targetDate = new Date();
-          targetDate.setHours(0, 0, 0, 0);
+          const targetDate = new Date()
+          targetDate.setHours(0, 0, 0, 0)
           if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
-            targetDate.setDate(targetDate.getDate() + 1);
-            console.log(`⏰ ${ticker} After 4:15 PM ET, targeting next day's expiration`);
+            targetDate.setDate(targetDate.getDate() + 1)
+            console.log(`⏰ ${ticker} After 4:15 PM ET, targeting next day's expiration`)
           }
 
           // Find next available expiration (handles weekends automatically)
-          let odteExpiry = allExpirations.find(exp => {
-            const expDate = new Date(exp);
-            expDate.setHours(0, 0, 0, 0);
-            const daysDiff = Math.ceil((expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-            return daysDiff >= 0 && daysDiff <= 1;
-          });
+          let odteExpiry = allExpirations.find((exp) => {
+            const expDate = new Date(exp)
+            expDate.setHours(0, 0, 0, 0)
+            const daysDiff = Math.ceil(
+              (expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24)
+            )
+            return daysDiff >= 0 && daysDiff <= 1
+          })
 
           if (!odteExpiry && allExpirations.length > 0) {
-            odteExpiry = allExpirations[0];
+            odteExpiry = allExpirations[0]
           }
 
           if (!odteExpiry) {
-            console.error(`❌ ${ticker} No expiry available`);
-            setOdtrioData(prev => ({
+            console.error(`❌ ${ticker} No expiry available`)
+            setOdtrioData((prev) => ({
               ...prev,
-              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-            }));
-            continue;
+              [ticker]: {
+                data: [],
+                loading: false,
+                currentPrice: 0,
+                odteExpiry: '',
+                timestamp: now,
+              },
+            }))
+            continue
           }
-
-
 
           // STEP 2: Now fetch filtered data for that specific expiration
-          const minStrike = currentPrice * 0.99;
-          const maxStrike = currentPrice * 1.02;
+          const minStrike = currentPrice * 0.99
+          const maxStrike = currentPrice * 1.02
 
-
-
-          const odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`);
-          const result = await odteResponse.json();
+          const odteResponse = await fetch(
+            `/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`
+          )
+          const result = await odteResponse.json()
 
           if (!result.success || !result.data) {
-            console.error(`❌ ${ticker} ODTE fetch failed for ${odteExpiry}`);
-            setOdtrioData(prev => ({
+            console.error(`❌ ${ticker} ODTE fetch failed for ${odteExpiry}`)
+            setOdtrioData((prev) => ({
               ...prev,
-              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-            }));
-            continue;
+              [ticker]: {
+                data: [],
+                loading: false,
+                currentPrice: 0,
+                odteExpiry: '',
+                timestamp: now,
+              },
+            }))
+            continue
           }
 
-
-
           // Process filtered data (already filtered by API)
-          const expData = result.data[odteExpiry];
-          const gexByStrike: { [strike: number]: any } = {};
+          const expData = result.data[odteExpiry]
+          const gexByStrike: { [strike: number]: any } = {}
 
-          const totalCallContracts = Object.keys(expData.calls || {}).length;
-          const totalPutContracts = Object.keys(expData.puts || {}).length;
-
-
+          const totalCallContracts = Object.keys(expData.calls || {}).length
+          const totalPutContracts = Object.keys(expData.puts || {}).length
 
           // Process calls
-          let callsWithGamma = 0;
-          let callsWithOI = 0;
-          let totalCallOI = 0;
-          let totalCallGEX = 0;
-          let totalCallDealer = 0;
+          let callsWithGamma = 0
+          let callsWithOI = 0
+          let totalCallOI = 0
+          let totalCallGEX = 0
+          let totalCallDealer = 0
 
-          const expirationDate = new Date(odteExpiry);
-          const today = new Date();
-          const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001);
-          const wT = 1 / Math.sqrt(T);
-          const beta = 0.25;
-          const rho_S_sigma = -0.7;
-          const contractMult = 100;
+          const expirationDate = new Date(odteExpiry)
+          const today = new Date()
+          const T = Math.max(
+            (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+            0.001
+          )
+          const wT = 1 / Math.sqrt(T)
+          const beta = 0.25
+          const rho_S_sigma = -0.7
+          const contractMult = 100
 
           Object.keys(expData.calls || {}).forEach((strikeStr) => {
-            const strike = parseFloat(strikeStr);
-            const callData = expData.calls[strikeStr];
-            const gamma = callData.greeks?.gamma || 0;
-            const delta = callData.greeks?.delta || 0;
-            const vanna = callData.greeks?.vanna || 0;
-            const oi = callData.open_interest || 0;
+            const strike = parseFloat(strikeStr)
+            const callData = expData.calls[strikeStr]
+            const gamma = callData.greeks?.gamma || 0
+            const delta = callData.greeks?.delta || 0
+            const vanna = callData.greeks?.vanna || 0
+            const oi = callData.open_interest || 0
 
-            if (!gexByStrike[strike]) gexByStrike[strike] = {};
+            if (!gexByStrike[strike]) gexByStrike[strike] = {}
 
             // Normal GEX
-            const callGex = gamma * oi * (currentPrice * currentPrice) * 100;
-            gexByStrike[strike].call_gex = callGex;
-            gexByStrike[strike].callOI = oi;
+            const callGex = gamma * oi * (currentPrice * currentPrice) * 100
+            gexByStrike[strike].call_gex = callGex
+            gexByStrike[strike].callOI = oi
 
             // Dealer formula
-            const gammaEff = gamma + beta * vanna * rho_S_sigma;
-            const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-            const callDealer = oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-            gexByStrike[strike].call_dealer = callDealer;
+            const gammaEff = gamma + beta * vanna * rho_S_sigma
+            const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+            const callDealer = oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+            gexByStrike[strike].call_dealer = callDealer
 
-            if (gamma !== 0) callsWithGamma++;
+            if (gamma !== 0) callsWithGamma++
             if (oi > 0) {
-              callsWithOI++;
-              totalCallOI += oi;
+              callsWithOI++
+              totalCallOI += oi
             }
-            if (callGex !== 0) totalCallGEX += callGex;
-            if (callDealer !== 0) totalCallDealer += callDealer;
-          });
+            if (callGex !== 0) totalCallGEX += callGex
+            if (callDealer !== 0) totalCallDealer += callDealer
+          })
 
-          console.log(`📞 ${ticker} Calls: ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`);
+          console.log(
+            `📞 ${ticker} Calls: ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`
+          )
 
           // Process puts
-          let putsWithGamma = 0;
-          let putsWithOI = 0;
-          let totalPutOI = 0;
-          let totalPutGEX = 0;
-          let totalPutDealer = 0;
+          let putsWithGamma = 0
+          let putsWithOI = 0
+          let totalPutOI = 0
+          let totalPutGEX = 0
+          let totalPutDealer = 0
 
           Object.keys(expData.puts || {}).forEach((strikeStr) => {
-            const strike = parseFloat(strikeStr);
-            const putData = expData.puts[strikeStr];
-            const gamma = putData.greeks?.gamma || 0;
-            const delta = putData.greeks?.delta || 0;
-            const vanna = putData.greeks?.vanna || 0;
-            const oi = putData.open_interest || 0;
+            const strike = parseFloat(strikeStr)
+            const putData = expData.puts[strikeStr]
+            const gamma = putData.greeks?.gamma || 0
+            const delta = putData.greeks?.delta || 0
+            const vanna = putData.greeks?.vanna || 0
+            const oi = putData.open_interest || 0
 
-            if (!gexByStrike[strike]) gexByStrike[strike] = {};
+            if (!gexByStrike[strike]) gexByStrike[strike] = {}
 
             // Normal GEX
-            const putGex = -gamma * oi * (currentPrice * currentPrice) * 100;
-            gexByStrike[strike].put_gex = putGex;
-            gexByStrike[strike].putOI = oi;
+            const putGex = -gamma * oi * (currentPrice * currentPrice) * 100
+            gexByStrike[strike].put_gex = putGex
+            gexByStrike[strike].putOI = oi
 
             // Dealer formula
-            const gammaEff = gamma + beta * vanna * rho_S_sigma;
-            const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-            const putDealer = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-            gexByStrike[strike].put_dealer = putDealer;
+            const gammaEff = gamma + beta * vanna * rho_S_sigma
+            const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+            const putDealer = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+            gexByStrike[strike].put_dealer = putDealer
 
-            if (gamma !== 0) putsWithGamma++;
+            if (gamma !== 0) putsWithGamma++
             if (oi > 0) {
-              putsWithOI++;
-              totalPutOI += oi;
+              putsWithOI++
+              totalPutOI += oi
             }
-            if (putGex !== 0) totalPutGEX += putGex;
-            if (putDealer !== 0) totalPutDealer += putDealer;
-          });
+            if (putGex !== 0) totalPutGEX += putGex
+            if (putDealer !== 0) totalPutDealer += putDealer
+          })
 
-          console.log(`📉 ${ticker} Puts: ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`);
+          console.log(
+            `📉 ${ticker} Puts: ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`
+          )
 
           // Convert to array format
-          const dataArray = Object.keys(gexByStrike).map(strikeStr => {
-            const strike = parseFloat(strikeStr);
-            return {
-              strike,
-              expirations: {
-                [odteExpiry]: gexByStrike[strike]
+          const dataArray = Object.keys(gexByStrike)
+            .map((strikeStr) => {
+              const strike = parseFloat(strikeStr)
+              return {
+                strike,
+                expirations: {
+                  [odteExpiry]: gexByStrike[strike],
+                },
               }
-            };
-          }).sort((a, b) => b.strike - a.strike);
+            })
+            .sort((a, b) => b.strike - a.strike)
 
-          const netGEX = totalCallGEX + totalPutGEX;
+          const netGEX = totalCallGEX + totalPutGEX
 
-          console.timeEnd(`${ticker} total fetch time`);
+          console.timeEnd(`${ticker} total fetch time`)
 
-          console.log(`   Current Price: $${currentPrice.toFixed(2)}`);
+          console.log(`   Current Price: $${currentPrice.toFixed(2)}`)
 
-          console.log(`   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`);
+          console.log(
+            `   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`
+          )
 
-          setOdtrioData(prev => ({
+          setOdtrioData((prev) => ({
             ...prev,
             [ticker]: {
               data: dataArray,
               loading: false,
               currentPrice,
               odteExpiry,
-              timestamp: now
-            }
-          }));
+              timestamp: now,
+            },
+          }))
 
-
-          continue;
+          continue
         }
 
         // QQQ and SPY handling (existing logic)
-        const apiEndpoint = ticker === 'SPX'
-          ? `/api/spx-fix?ticker=${ticker}`
-          : `/api/options-chain?ticker=${ticker}`;
+        const apiEndpoint =
+          ticker === 'SPX' ? `/api/spx-fix?ticker=${ticker}` : `/api/options-chain?ticker=${ticker}`
 
-        const response = await fetch(apiEndpoint);
-        const result = await response.json();
+        const response = await fetch(apiEndpoint)
+        const result = await response.json()
 
         if (!result.success || !result.data) {
-          console.error(`❌ ${ticker} API failed`);
-          setOdtrioData(prev => ({
+          console.error(`❌ ${ticker} API failed`)
+          setOdtrioData((prev) => ({
             ...prev,
-            [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-          }));
-          continue;
+            [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now },
+          }))
+          continue
         }
 
-        const currentPrice = result.currentPrice;
-        const allExpirations = Object.keys(result.data).sort();
+        const currentPrice = result.currentPrice
+        const allExpirations = Object.keys(result.data).sort()
 
         // Find ODTE expiry using ET timezone
-        const currentTimeET = new Date();
-        const nowET = new Date(currentTimeET.toLocaleString("en-US", { timeZone: "America/New_York" }));
-        const currentHour = nowET.getHours();
-        const currentMinute = nowET.getMinutes();
+        const currentTimeET = new Date()
+        const nowET = new Date(
+          currentTimeET.toLocaleString('en-US', { timeZone: 'America/New_York' })
+        )
+        const currentHour = nowET.getHours()
+        const currentMinute = nowET.getMinutes()
 
-        console.log(`🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+        console.log(
+          `🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
+        )
 
         // After 4:15 PM ET, look for next trading day
-        let targetDate = new Date();
-        targetDate.setHours(0, 0, 0, 0);
+        const targetDate = new Date()
+        targetDate.setHours(0, 0, 0, 0)
         if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
-          targetDate.setDate(targetDate.getDate() + 1);
-          console.log(`⏰ ${ticker} After 4:15 PM ET, targeting next day's expiration`);
+          targetDate.setDate(targetDate.getDate() + 1)
+          console.log(`⏰ ${ticker} After 4:15 PM ET, targeting next day's expiration`)
         }
 
-        let odteExpiry = allExpirations.find(exp => {
-          const expDate = new Date(exp);
-          expDate.setHours(0, 0, 0, 0);
-          const daysDiff = Math.ceil((expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-          return daysDiff >= 0 && daysDiff <= 1;
-        });
+        let odteExpiry = allExpirations.find((exp) => {
+          const expDate = new Date(exp)
+          expDate.setHours(0, 0, 0, 0)
+          const daysDiff = Math.ceil(
+            (expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24)
+          )
+          return daysDiff >= 0 && daysDiff <= 1
+        })
 
         if (!odteExpiry && allExpirations.length > 0) {
-          odteExpiry = allExpirations[0];
+          odteExpiry = allExpirations[0]
         }
 
         if (!odteExpiry) {
-          console.error(`❌ ${ticker} No expiry available`);
-          setOdtrioData(prev => ({
+          console.error(`❌ ${ticker} No expiry available`)
+          setOdtrioData((prev) => ({
             ...prev,
-            [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-          }));
-          continue;
+            [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now },
+          }))
+          continue
         }
-
-
 
         // Define strike range based on ticker (for QQQ/SPY)
-        let minStrikePercent = 0.95;  // Default for QQQ
-        let maxStrikePercent = 1.08;  // Default for QQQ
+        let minStrikePercent = 0.95 // Default for QQQ
+        let maxStrikePercent = 1.08 // Default for QQQ
 
         if (ticker === 'SPY') {
-          minStrikePercent = 0.97;  // 3% ITM
-          maxStrikePercent = 1.04;  // 4% OTM
+          minStrikePercent = 0.97 // 3% ITM
+          maxStrikePercent = 1.04 // 4% OTM
         } else if (ticker === 'QQQ') {
-          minStrikePercent = 0.95;  // 5% ITM
-          maxStrikePercent = 1.08;  // 8% OTM
+          minStrikePercent = 0.95 // 5% ITM
+          maxStrikePercent = 1.08 // 8% OTM
         }
 
-        const minStrike = currentPrice * minStrikePercent;
-        const maxStrike = currentPrice * maxStrikePercent;
-
-
+        const minStrike = currentPrice * minStrikePercent
+        const maxStrike = currentPrice * maxStrikePercent
 
         // Calculate GEX for ODTE
-        const expData = result.data[odteExpiry];
-        const gexByStrike: { [strike: number]: any } = {};
+        const expData = result.data[odteExpiry]
+        const gexByStrike: { [strike: number]: any } = {}
 
-        const totalCallContracts = Object.keys(expData.calls || {}).length;
-        const totalPutContracts = Object.keys(expData.puts || {}).length;
-
-
+        const totalCallContracts = Object.keys(expData.calls || {}).length
+        const totalPutContracts = Object.keys(expData.puts || {}).length
 
         // Calculate time-related variables for dealer formula
-        const expirationDate = new Date(odteExpiry);
-        const today = new Date();
-        const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001);
-        const wT = 1 / Math.sqrt(T);
-        const beta = 0.25;
-        const rho_S_sigma = -0.7;
-        const contractMult = 100;
+        const expirationDate = new Date(odteExpiry)
+        const today = new Date()
+        const T = Math.max(
+          (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+          0.001
+        )
+        const wT = 1 / Math.sqrt(T)
+        const beta = 0.25
+        const rho_S_sigma = -0.7
+        const contractMult = 100
 
         // Process calls (filter by strike range)
-        let callsScanned = 0;
-        let callsWithGamma = 0;
-        let callsWithOI = 0;
-        let totalCallOI = 0;
-        let totalCallGEX = 0;
-        let totalCallDealer = 0;
+        let callsScanned = 0
+        let callsWithGamma = 0
+        let callsWithOI = 0
+        let totalCallOI = 0
+        let totalCallGEX = 0
+        let totalCallDealer = 0
 
         Object.keys(expData.calls || {}).forEach((strikeStr) => {
-          const strike = parseFloat(strikeStr);
+          const strike = parseFloat(strikeStr)
 
           // Only process strikes within range
-          if (strike < minStrike || strike > maxStrike) return;
+          if (strike < minStrike || strike > maxStrike) return
 
-          callsScanned++;
-          const callData = expData.calls[strikeStr];
-          const gamma = callData.greeks?.gamma || 0;
-          const delta = callData.greeks?.delta || 0;
-          const vanna = callData.greeks?.vanna || 0;
-          const oi = callData.open_interest || 0;
+          callsScanned++
+          const callData = expData.calls[strikeStr]
+          const gamma = callData.greeks?.gamma || 0
+          const delta = callData.greeks?.delta || 0
+          const vanna = callData.greeks?.vanna || 0
+          const oi = callData.open_interest || 0
 
-          if (!gexByStrike[strike]) gexByStrike[strike] = {};
+          if (!gexByStrike[strike]) gexByStrike[strike] = {}
 
           // Normal GEX
-          const callGex = gamma * oi * (currentPrice * currentPrice) * 100;
-          gexByStrike[strike].call_gex = callGex;
-          gexByStrike[strike].callOI = oi;
+          const callGex = gamma * oi * (currentPrice * currentPrice) * 100
+          gexByStrike[strike].call_gex = callGex
+          gexByStrike[strike].callOI = oi
 
           // Dealer formula
-          const gammaEff = gamma + beta * vanna * rho_S_sigma;
-          const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-          const callDealer = oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-          gexByStrike[strike].call_dealer = callDealer;
+          const gammaEff = gamma + beta * vanna * rho_S_sigma
+          const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+          const callDealer = oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+          gexByStrike[strike].call_dealer = callDealer
 
-          if (gamma !== 0) callsWithGamma++;
+          if (gamma !== 0) callsWithGamma++
           if (oi > 0) {
-            callsWithOI++;
-            totalCallOI += oi;
+            callsWithOI++
+            totalCallOI += oi
           }
-          if (callGex !== 0) totalCallGEX += callGex;
-          if (callDealer !== 0) totalCallDealer += callDealer;
-        });
+          if (callGex !== 0) totalCallGEX += callGex
+          if (callDealer !== 0) totalCallDealer += callDealer
+        })
 
-        console.log(`📞 ${ticker} Calls: Scanned ${callsScanned}/${totalCallContracts}, ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`);
+        console.log(
+          `📞 ${ticker} Calls: Scanned ${callsScanned}/${totalCallContracts}, ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`
+        )
 
         // Process puts (filter by strike range)
-        let putsScanned = 0;
-        let putsWithGamma = 0;
-        let putsWithOI = 0;
-        let totalPutOI = 0;
-        let totalPutGEX = 0;
-        let totalPutDealer = 0;
+        let putsScanned = 0
+        let putsWithGamma = 0
+        let putsWithOI = 0
+        let totalPutOI = 0
+        let totalPutGEX = 0
+        let totalPutDealer = 0
 
         Object.keys(expData.puts || {}).forEach((strikeStr) => {
-          const strike = parseFloat(strikeStr);
+          const strike = parseFloat(strikeStr)
 
           // Only process strikes within range
-          if (strike < minStrike || strike > maxStrike) return;
+          if (strike < minStrike || strike > maxStrike) return
 
-          putsScanned++;
-          const putData = expData.puts[strikeStr];
-          const gamma = putData.greeks?.gamma || 0;
-          const delta = putData.greeks?.delta || 0;
-          const vanna = putData.greeks?.vanna || 0;
-          const oi = putData.open_interest || 0;
+          putsScanned++
+          const putData = expData.puts[strikeStr]
+          const gamma = putData.greeks?.gamma || 0
+          const delta = putData.greeks?.delta || 0
+          const vanna = putData.greeks?.vanna || 0
+          const oi = putData.open_interest || 0
 
-          if (!gexByStrike[strike]) gexByStrike[strike] = {};
+          if (!gexByStrike[strike]) gexByStrike[strike] = {}
 
           // Normal GEX
-          const putGex = -gamma * oi * (currentPrice * currentPrice) * 100;
-          gexByStrike[strike].put_gex = putGex;
-          gexByStrike[strike].putOI = oi;
+          const putGex = -gamma * oi * (currentPrice * currentPrice) * 100
+          gexByStrike[strike].put_gex = putGex
+          gexByStrike[strike].putOI = oi
 
           // Dealer formula
-          const gammaEff = gamma + beta * vanna * rho_S_sigma;
-          const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-          const putDealer = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-          gexByStrike[strike].put_dealer = putDealer;
+          const gammaEff = gamma + beta * vanna * rho_S_sigma
+          const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+          const putDealer = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+          gexByStrike[strike].put_dealer = putDealer
 
-          if (gamma !== 0) putsWithGamma++;
+          if (gamma !== 0) putsWithGamma++
           if (oi > 0) {
-            putsWithOI++;
-            totalPutOI += oi;
+            putsWithOI++
+            totalPutOI += oi
           }
-          if (putGex !== 0) totalPutGEX += putGex;
-          if (putDealer !== 0) totalPutDealer += putDealer;
-        });
+          if (putGex !== 0) totalPutGEX += putGex
+          if (putDealer !== 0) totalPutDealer += putDealer
+        })
 
-        console.log(`📉 ${ticker} Puts: Scanned ${putsScanned}/${totalPutContracts}, ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`);
+        console.log(
+          `📉 ${ticker} Puts: Scanned ${putsScanned}/${totalPutContracts}, ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`
+        )
 
         // Convert to array format
-        const dataArray = Object.keys(gexByStrike).map(strikeStr => {
-          const strike = parseFloat(strikeStr);
-          return {
-            strike,
-            expirations: {
-              [odteExpiry]: gexByStrike[strike]
+        const dataArray = Object.keys(gexByStrike)
+          .map((strikeStr) => {
+            const strike = parseFloat(strikeStr)
+            return {
+              strike,
+              expirations: {
+                [odteExpiry]: gexByStrike[strike],
+              },
             }
-          };
-        }).sort((a, b) => b.strike - a.strike);
+          })
+          .sort((a, b) => b.strike - a.strike)
 
-        const netGEX = totalCallGEX + totalPutGEX;
+        const netGEX = totalCallGEX + totalPutGEX
 
+        console.log(`   Current Price: $${currentPrice.toFixed(2)}`)
 
-        console.log(`   Current Price: $${currentPrice.toFixed(2)}`);
+        console.log(
+          `   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`
+        )
 
-        console.log(`   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`);
-
-        setOdtrioData(prev => ({
+        setOdtrioData((prev) => ({
           ...prev,
           [ticker]: {
             data: dataArray,
             loading: false,
             currentPrice,
             odteExpiry,
-            timestamp: now
-          }
-        }));
-
-
-
+            timestamp: now,
+          },
+        }))
       } catch (error) {
-        console.error(`❌ ${ticker} Error:`, error);
-        setOdtrioData(prev => ({
+        console.error(`❌ ${ticker} Error:`, error)
+        setOdtrioData((prev) => ({
           ...prev,
-          [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '' }
-        }));
+          [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '' },
+        }))
       }
     }
-  };
+  }
 
   // Fetch ODTRIO data with Live OI - Recalculate with live OI from filtered trades
   const fetchODTRIODataWithLiveOI = async (liveOIMap: Map<string, number>) => {
-    const tickers = ['SPX', 'QQQ', 'SPY'];
+    const tickers = ['SPX', 'QQQ', 'SPY']
 
     for (const ticker of tickers) {
       try {
-        const existingData = odtrioData[ticker];
+        const existingData = odtrioData[ticker]
         if (!existingData || !existingData.odteExpiry || existingData.data.length === 0) {
-          continue;
+          continue
         }
 
-        const odteExpiry = existingData.odteExpiry;
-        const currentPrice = existingData.currentPrice || 0;
+        const odteExpiry = existingData.odteExpiry
+        const currentPrice = existingData.currentPrice || 0
 
         if (!currentPrice) {
-          continue;
+          continue
         }
 
         // Recalculate GEX and Dealer values with live OI
-        const updatedData = existingData.data.map(row => {
-          const strike = row.strike;
-          const gexData = row.expirations[odteExpiry];
+        const updatedData = existingData.data.map((row) => {
+          const strike = row.strike
+          const gexData = row.expirations[odteExpiry]
 
-          if (!gexData) return row;
+          if (!gexData) return row
 
           // Check for live OI
-          const callKey = `${ticker}_${strike}_call_${odteExpiry}`;
-          const putKey = `${ticker}_${strike}_put_${odteExpiry}`;
+          const callKey = `${ticker}_${strike}_call_${odteExpiry}`
+          const putKey = `${ticker}_${strike}_put_${odteExpiry}`
 
-          const callOI = liveOIMap.has(callKey) ? liveOIMap.get(callKey)! : gexData.callOI || 0;
-          const putOI = liveOIMap.has(putKey) ? liveOIMap.get(putKey)! : gexData.putOI || 0;
+          const callOI = liveOIMap.has(callKey) ? liveOIMap.get(callKey)! : gexData.callOI || 0
+          const putOI = liveOIMap.has(putKey) ? liveOIMap.get(putKey)! : gexData.putOI || 0
 
           // Need to fetch greeks from API since we only stored OI
           // For now, use the existing gamma/delta/vanna values but recalculate with new OI
           // This is a simplification - ideally we'd fetch fresh greeks too
 
           // Get time decay factor
-          const expirationDate = new Date(odteExpiry);
-          const today = new Date();
-          const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001);
-          const wT = 1 / Math.sqrt(T);
-          const beta = 0.25;
-          const rho_S_sigma = -0.7;
-          const contractMult = 100;
+          const expirationDate = new Date(odteExpiry)
+          const today = new Date()
+          const T = Math.max(
+            (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+            0.001
+          )
+          const wT = 1 / Math.sqrt(T)
+          const beta = 0.25
+          const rho_S_sigma = -0.7
+          const contractMult = 100
 
           // Recalculate using stored gamma/delta/vanna but with live OI
           // For calls
-          const callGamma = gexData.call_gex ? gexData.call_gex / ((gexData.callOI || 1) * (currentPrice * currentPrice) * 100) : 0;
-          const callDelta = 0.5; // Approximation since we don't store delta
-          const callVanna = 0; // Approximation since we don't store vanna
+          const callGamma = gexData.call_gex
+            ? gexData.call_gex / ((gexData.callOI || 1) * (currentPrice * currentPrice) * 100)
+            : 0
+          const callDelta = 0.5 // Approximation since we don't store delta
+          const callVanna = 0 // Approximation since we don't store vanna
 
-          const newCallGex = callGamma * callOI * (currentPrice * currentPrice) * 100;
-          const callGammaEff = callGamma + beta * callVanna * rho_S_sigma;
-          const callLiveWeight = Math.abs(callDelta) * (1 - Math.abs(callDelta));
-          const newCallDealer = callOI * callGammaEff * callLiveWeight * wT * currentPrice * contractMult;
+          const newCallGex = callGamma * callOI * (currentPrice * currentPrice) * 100
+          const callGammaEff = callGamma + beta * callVanna * rho_S_sigma
+          const callLiveWeight = Math.abs(callDelta) * (1 - Math.abs(callDelta))
+          const newCallDealer =
+            callOI * callGammaEff * callLiveWeight * wT * currentPrice * contractMult
 
           // For puts
-          const putGamma = gexData.put_gex ? Math.abs(gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)) : 0;
-          const putDelta = -0.5; // Approximation
-          const putVanna = 0; // Approximation
+          const putGamma = gexData.put_gex
+            ? Math.abs(
+                gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
+              )
+            : 0
+          const putDelta = -0.5 // Approximation
+          const putVanna = 0 // Approximation
 
-          const newPutGex = -putGamma * putOI * (currentPrice * currentPrice) * 100;
-          const putGammaEff = putGamma + beta * putVanna * rho_S_sigma;
-          const putLiveWeight = Math.abs(putDelta) * (1 - Math.abs(putDelta));
-          const newPutDealer = -putOI * putGammaEff * putLiveWeight * wT * currentPrice * contractMult;
+          const newPutGex = -putGamma * putOI * (currentPrice * currentPrice) * 100
+          const putGammaEff = putGamma + beta * putVanna * rho_S_sigma
+          const putLiveWeight = Math.abs(putDelta) * (1 - Math.abs(putDelta))
+          const newPutDealer =
+            -putOI * putGammaEff * putLiveWeight * wT * currentPrice * contractMult
 
           return {
             ...row,
@@ -4960,235 +5883,350 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 call_gex: newCallGex,
                 put_gex: newPutGex,
                 call_dealer: newCallDealer,
-                put_dealer: newPutDealer
-              }
-            }
-          };
-        });
+                put_dealer: newPutDealer,
+              },
+            },
+          }
+        })
 
         // Update state
-        setOdtrioData(prev => ({
+        setOdtrioData((prev) => ({
           ...prev,
           [ticker]: {
             ...existingData,
             data: updatedData,
-            timestamp: Date.now()
-          }
-        }));
+            timestamp: Date.now(),
+          },
+        }))
       } catch (error) {
-        console.error(`❌ ${ticker} Error recalculating:`, error);
+        console.error(`❌ ${ticker} Error recalculating:`, error)
       }
     }
-  };
-
-
-
+  }
 
   // Fetch detailed GEX data using Web Worker for parallel processing
-  const fetchOptionsData = async (liveOIMapOverride?: Map<string, number>, tradesDataOverride?: any[]) => {
-    const totalStartTime = performance.now();
-    setLoading(true);
-    setError(null);
-    setProgress(0);
-
-
+  const fetchOptionsData = async (
+    liveOIMapOverride?: Map<string, number>,
+    tradesDataOverride?: any[]
+  ) => {
+    const totalStartTime = performance.now()
+    setLoading(true)
+    setError(null)
+    setProgress(0)
 
     try {
       // Get options chain data
-      const apiStartTime = performance.now();
-      setProgress(10);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      const apiStartTime = performance.now()
+      setProgress(10)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
       // Use working endpoints for indices, regular endpoint for stocks
-      const tickerUpper = selectedTicker.toUpperCase();
-      const apiEndpoint = tickerUpper === 'SPX'
-        ? `/api/spx-fix?ticker=${selectedTicker}`
-        : tickerUpper === 'VIX'
-          ? `/api/vix-fix?ticker=${selectedTicker}`
-          : `/api/options-chain?ticker=${selectedTicker}`;
-      const optionsResponse = await fetch(apiEndpoint);
-      const optionsResult = await optionsResponse.json();
+      const tickerUpper = selectedTicker.toUpperCase()
+      const apiEndpoint =
+        tickerUpper === 'SPX'
+          ? `/api/spx-fix?ticker=${selectedTicker}`
+          : tickerUpper === 'VIX'
+            ? `/api/vix-fix?ticker=${selectedTicker}`
+            : `/api/options-chain?ticker=${selectedTicker}`
+      const optionsResponse = await fetch(apiEndpoint)
+      const optionsResult = await optionsResponse.json()
 
-      setProgress(20);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      setProgress(20)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
       if (!optionsResult.success || !optionsResult.data) {
-        throw new Error(optionsResult.error || 'Failed to fetch options data');
+        throw new Error(optionsResult.error || 'Failed to fetch options data')
       }
 
       // DEBUG: Log what we received from SPX API for Nov 10
       if (selectedTicker === 'SPX' && optionsResult.data['2025-11-10']) {
-        const nov10Data = optionsResult.data['2025-11-10'];
+        const nov10Data = optionsResult.data['2025-11-10']
 
-        console.log(`  Calls: ${Object.keys(nov10Data.calls || {}).length}`);
-        console.log(`  Puts: ${Object.keys(nov10Data.puts || {}).length}`);
-        console.log(`  6700 PUT from API: ${nov10Data.puts?.['6700']?.open_interest || 'NOT FOUND'}`);
-        console.log(`  6750 PUT from API: ${nov10Data.puts?.['6750']?.open_interest || 'NOT FOUND'}`);
-        console.log(`  6850 PUT from API: ${nov10Data.puts?.['6850']?.open_interest || 'NOT FOUND'}`);
-        console.log(`  6900 PUT from API: ${nov10Data.puts?.['6900']?.open_interest || 'NOT FOUND'}`);
+        console.log(`  Calls: ${Object.keys(nov10Data.calls || {}).length}`)
+        console.log(`  Puts: ${Object.keys(nov10Data.puts || {}).length}`)
+        console.log(
+          `  6700 PUT from API: ${nov10Data.puts?.['6700']?.open_interest || 'NOT FOUND'}`
+        )
+        console.log(
+          `  6750 PUT from API: ${nov10Data.puts?.['6750']?.open_interest || 'NOT FOUND'}`
+        )
+        console.log(
+          `  6850 PUT from API: ${nov10Data.puts?.['6850']?.open_interest || 'NOT FOUND'}`
+        )
+        console.log(
+          `  6900 PUT from API: ${nov10Data.puts?.['6900']?.open_interest || 'NOT FOUND'}`
+        )
       }
 
-      const currentPrice = optionsResult.currentPrice;
-      setCurrentPrice(currentPrice);
-
-
+      const currentPrice = optionsResult.currentPrice
+      setCurrentPrice(currentPrice)
 
       // Get all available expiration dates, sorted
-      const allExpirations = Object.keys(optionsResult.data).sort();
+      const allExpirations = Object.keys(optionsResult.data).sort()
 
       // Filter to only 3 months max for performance
-      const allAvailableExpirations = filterTo3Months(allExpirations);
+      const allAvailableExpirations = filterTo3Months(allExpirations)
 
-
-
-      setExpirations(allAvailableExpirations);
+      setExpirations(allAvailableExpirations)
 
       // Calculate OI, GEX, VEX for all expiration dates with organized processing order
-      const calcStartTime = performance.now();
-      setProgress(25);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      const calcStartTime = performance.now()
+      setProgress(25)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
       // Initialize data structures - CALCULATE BOTH Net GEX and Net Dealer
-      const oiByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } } = {};
-      const gexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } } = {};
-      const dealerByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } } = {};
-      const vexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } } = {};
-      const flowGexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } } = {};
-      const allStrikes = new Set<number>();
+      const oiByStrikeByExp: {
+        [expiration: string]: {
+          [strike: number]: { call: number; put: number; callOI: number; putOI: number }
+        }
+      } = {}
+      const gexByStrikeByExp: {
+        [expiration: string]: {
+          [strike: number]: {
+            call: number
+            put: number
+            callOI: number
+            putOI: number
+            callGamma?: number
+            putGamma?: number
+            callDelta?: number
+            putDelta?: number
+            callVanna?: number
+            putVanna?: number
+            callVega?: number
+            putVega?: number
+            callTheta?: number
+            putTheta?: number
+          }
+        }
+      } = {}
+      const dealerByStrikeByExp: {
+        [expiration: string]: {
+          [strike: number]: {
+            call: number
+            put: number
+            callOI: number
+            putOI: number
+            callGamma?: number
+            putGamma?: number
+            callDelta?: number
+            putDelta?: number
+            callVanna?: number
+            putVanna?: number
+            callVega?: number
+            putVega?: number
+            callTheta?: number
+            putTheta?: number
+          }
+        }
+      } = {}
+      const vexByStrikeByExp: {
+        [expiration: string]: {
+          [strike: number]: {
+            call: number
+            put: number
+            callOI: number
+            putOI: number
+            callVega?: number
+            putVega?: number
+          }
+        }
+      } = {}
+      const flowGexByStrikeByExp: {
+        [expiration: string]: {
+          [strike: number]: {
+            call: number
+            put: number
+            callOI: number
+            putOI: number
+            callVolume: number
+            putVolume: number
+          }
+        }
+      } = {}
+      const allStrikes = new Set<number>()
 
       // Get Live OI data from parameter (if passed) or React state
-      const liveOIDataFromState = liveOIMapOverride || liveOIData;
-      const tradesData = tradesDataOverride || flowTradesData;
+      const liveOIDataFromState = liveOIMapOverride || liveOIData
+      const tradesData = tradesDataOverride || flowTradesData
 
       // Calculate premium values by strike from flow trades (AA, A, BB only)
-      const flowPremiumByStrike: { [expiration: string]: { [strike: number]: { callPremium: number, putPremium: number, callContracts: number, putContracts: number } } } = {};
+      const flowPremiumByStrike: {
+        [expiration: string]: {
+          [strike: number]: {
+            callPremium: number
+            putPremium: number
+            callContracts: number
+            putContracts: number
+          }
+        }
+      } = {}
 
-      let openingTradesCount = 0;
-      let totalPremiumSum = 0;
-
+      let openingTradesCount = 0
+      let totalPremiumSum = 0
 
       tradesData.forEach((trade: any) => {
         // Only count opening trades (AA, A, BB)
         if (['AA', 'A', 'BB'].includes(trade.fill_style)) {
-          openingTradesCount++;
+          openingTradesCount++
 
-          const expiry = trade.expiry;
-          const strike = trade.strike;
-          const contracts = trade.trade_size || 0;
+          const expiry = trade.expiry
+          const strike = trade.strike
+          const contracts = trade.trade_size || 0
 
           // Calculate premium - the total_premium should already be the full notional value
-          const premiumPerContract = trade.premium_per_contract || 0;
-          const totalCost = trade.total_premium || (premiumPerContract * contracts * 100);
+          const premiumPerContract = trade.premium_per_contract || 0
+          const totalCost = trade.total_premium || premiumPerContract * contracts * 100
 
-          totalPremiumSum += totalCost;
+          totalPremiumSum += totalCost
 
           // DEBUG: Log if premium is zero
           if (totalCost === 0) {
-            console.warn(`⚠️ ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`);
+            console.warn(
+              `⚠️ ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`
+            )
           }
 
-          if (!flowPremiumByStrike[expiry]) flowPremiumByStrike[expiry] = {};
+          if (!flowPremiumByStrike[expiry]) flowPremiumByStrike[expiry] = {}
           if (!flowPremiumByStrike[expiry][strike]) {
-            flowPremiumByStrike[expiry][strike] = { callPremium: 0, putPremium: 0, callContracts: 0, putContracts: 0 };
+            flowPremiumByStrike[expiry][strike] = {
+              callPremium: 0,
+              putPremium: 0,
+              callContracts: 0,
+              putContracts: 0,
+            }
           }
 
           if (trade.type === 'call') {
-            flowPremiumByStrike[expiry][strike].callPremium += totalCost;
-            flowPremiumByStrike[expiry][strike].callContracts += contracts;
+            flowPremiumByStrike[expiry][strike].callPremium += totalCost
+            flowPremiumByStrike[expiry][strike].callContracts += contracts
             if (totalCost > 0) {
-
             }
           } else {
-            flowPremiumByStrike[expiry][strike].putPremium += totalCost;
-            flowPremiumByStrike[expiry][strike].putContracts += contracts;
+            flowPremiumByStrike[expiry][strike].putPremium += totalCost
+            flowPremiumByStrike[expiry][strike].putContracts += contracts
             if (totalCost > 0) {
-
             }
           }
         }
-      });
+      })
 
       // DEBUG: Show sample of premiums by expiration
-      Object.keys(flowPremiumByStrike).slice(0, 2).forEach(exp => {
-        const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3);
+      Object.keys(flowPremiumByStrike)
+        .slice(0, 2)
+        .forEach((exp) => {
+          const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3)
 
-        strikes.forEach(strike => {
-          const data = flowPremiumByStrike[exp][parseFloat(strike)];
-          if (data.callPremium > 0 || data.putPremium > 0) {
-
-          }
-        });
-      });
+          strikes.forEach((strike) => {
+            const data = flowPremiumByStrike[exp][parseFloat(strike)]
+            if (data.callPremium > 0 || data.putPremium > 0) {
+            }
+          })
+        })
 
       // Smart batching: larger batches for more expirations
-      const batchSize = allAvailableExpirations.length <= 10 ? allAvailableExpirations.length :
-        allAvailableExpirations.length <= 30 ? 10 : 20;
+      const batchSize =
+        allAvailableExpirations.length <= 10
+          ? allAvailableExpirations.length
+          : allAvailableExpirations.length <= 30
+            ? 10
+            : 20
 
-      for (let batchStart = 0; batchStart < allAvailableExpirations.length; batchStart += batchSize) {
-        const batchEnd = Math.min(batchStart + batchSize, allAvailableExpirations.length);
-        const batch = allAvailableExpirations.slice(batchStart, batchEnd);
+      for (
+        let batchStart = 0;
+        batchStart < allAvailableExpirations.length;
+        batchStart += batchSize
+      ) {
+        const batchEnd = Math.min(batchStart + batchSize, allAvailableExpirations.length)
+        const batch = allAvailableExpirations.slice(batchStart, batchEnd)
 
         // Process this batch - calculate BOTH Net GEX and Net Dealer simultaneously
         batch.forEach((expDate: string) => {
-          const { calls, puts } = optionsResult.data[expDate];
+          const { calls, puts } = optionsResult.data[expDate]
 
           // Initialize all data structures for this expiration
-          oiByStrikeByExp[expDate] = {};
-          gexByStrikeByExp[expDate] = {};
-          dealerByStrikeByExp[expDate] = {}; // Initialize dealer data structure
-          vexByStrikeByExp[expDate] = {};
+          oiByStrikeByExp[expDate] = {}
+          gexByStrikeByExp[expDate] = {}
+          dealerByStrikeByExp[expDate] = {} // Initialize dealer data structure
+          vexByStrikeByExp[expDate] = {}
 
           // STEP 1: Process calls - Calculate OI first, then build other metrics from it
           Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-            const strikeNum = parseFloat(strike);
-            let oi = data.open_interest || 0;
+            const strikeNum = parseFloat(strike)
+            let oi = data.open_interest || 0
 
             // 🔥 USE LIVE OI IF AVAILABLE
-            const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`;
+            const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
-              const liveOI = liveOIDataFromState.get(contractKey) || 0;
+              const liveOI = liveOIDataFromState.get(contractKey) || 0
               // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
-              oi = liveOI;
+              oi = liveOI
             }
 
             if (oi > 0) {
               // STEP 1A: Calculate OI (Open Interest) - Foundation for all other calculations
-              oiByStrikeByExp[expDate][strikeNum] = { call: oi, put: 0, callOI: oi, putOI: 0 };
+              oiByStrikeByExp[expDate][strikeNum] = { call: oi, put: 0, callOI: oi, putOI: 0 }
 
               // STEP 1B: Calculate GEX and get all Greeks from API
-              const gamma = data.greeks?.gamma || 0;
-              const delta = data.greeks?.delta || 0;
-              const vega = data.greeks?.vega || 0;
-              const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
-              let vanna = data.greeks?.vanna || 0;
+              const gamma = data.greeks?.gamma || 0
+              const delta = data.greeks?.delta || 0
+              const vega = data.greeks?.vega || 0
+              const theta = data.greeks?.theta || 0 // Use Polygon's theta directly
+              let vanna = data.greeks?.vanna || 0
 
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
               if (vanna === 0 && gamma !== 0) {
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-                const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
-                vanna = calculateVanna(strikeNum, currentPrice, T, iv);
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
+                const iv = data.implied_volatility || 0.3 // Use API IV or default to 30%
+                vanna = calculateVanna(strikeNum, currentPrice, T, iv)
               }
 
-              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0, callTheta: theta, putTheta: 0, callVega: vega, putVega: 0 };
-              dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
-
-              // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
-              if (!flowGexByStrikeByExp[expDate]) flowGexByStrikeByExp[expDate] = {};
-
-              const flowData = flowPremiumByStrike[expDate]?.[strikeNum];
-              const callPremium = flowData?.callPremium || 0;
-              const callContracts = flowData?.callContracts || 0;
-
-              flowGexByStrikeByExp[expDate][strikeNum] = {
-                call: callPremium,  // Store premium directly
+              gexByStrikeByExp[expDate][strikeNum] = {
+                call: 0,
                 put: 0,
                 callOI: oi,
                 putOI: 0,
-                callVolume: callContracts,  // Store contract count
-                putVolume: 0
-              };
+                callGamma: gamma,
+                putGamma: 0,
+                callDelta: delta,
+                putDelta: 0,
+                callVanna: vanna,
+                putVanna: 0,
+                callTheta: theta,
+                putTheta: 0,
+                callVega: vega,
+                putVega: 0,
+              }
+              dealerByStrikeByExp[expDate][strikeNum] = {
+                call: 0,
+                put: 0,
+                callOI: oi,
+                putOI: 0,
+                callGamma: gamma,
+                putGamma: 0,
+                callDelta: delta,
+                putDelta: 0,
+                callVanna: vanna,
+                putVanna: 0,
+              }
+
+              // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
+              if (!flowGexByStrikeByExp[expDate]) flowGexByStrikeByExp[expDate] = {}
+
+              const flowData = flowPremiumByStrike[expDate]?.[strikeNum]
+              const callPremium = flowData?.callPremium || 0
+              const callContracts = flowData?.callContracts || 0
+
+              flowGexByStrikeByExp[expDate][strikeNum] = {
+                call: callPremium, // Store premium directly
+                put: 0,
+                callOI: oi,
+                putOI: 0,
+                callVolume: callContracts, // Store contract count
+                putVolume: 0,
+              }
 
               if (callPremium > 0) {
                 // console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
@@ -5197,148 +6235,188 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               if (gamma) {
-                const gex = gamma * oi * (currentPrice * currentPrice) * 100;
-                gexByStrikeByExp[expDate][strikeNum].call = gex;
+                const gex = gamma * oi * (currentPrice * currentPrice) * 100
+                gexByStrikeByExp[expDate][strikeNum].call = gex
               }
 
               // 2. NET DEALER - Enhanced formula
               if (gamma && delta !== undefined && vanna !== undefined) {
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = Math.max(
+                  (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+                  0.001
+                ) // Min 0.001 to avoid division by zero
 
                 if (T >= 0) {
-                  const beta = 0.25;
-                  const rho_S_sigma = -0.7;
-                  const contractMult = 100;
-                  const wT = 1 / Math.sqrt(T);
-                  const gammaEff = gamma + beta * vanna * rho_S_sigma;
-                  const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-                  const dealerValue = oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-                  dealerByStrikeByExp[expDate][strikeNum].call = dealerValue;
+                  const beta = 0.25
+                  const rho_S_sigma = -0.7
+                  const contractMult = 100
+                  const wT = 1 / Math.sqrt(T)
+                  const gammaEff = gamma + beta * vanna * rho_S_sigma
+                  const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+                  const dealerValue = oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+                  dealerByStrikeByExp[expDate][strikeNum].call = dealerValue
                 }
               }
 
               // STEP 1C: Calculate VEX using the OI we already have
               if (!vexByStrikeByExp[expDate][strikeNum]) {
-                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
+                vexByStrikeByExp[expDate][strikeNum] = {
+                  call: 0,
+                  put: 0,
+                  callOI: 0,
+                  putOI: 0,
+                  callVega: 0,
+                  putVega: 0,
+                }
               }
-              vexByStrikeByExp[expDate][strikeNum].callOI = oi;
-              vexByStrikeByExp[expDate][strikeNum].callVega = vega; // Store vega for recalculation
+              vexByStrikeByExp[expDate][strikeNum].callOI = oi
+              vexByStrikeByExp[expDate][strikeNum].callVega = vega // Store vega for recalculation
               if (vega && vega !== 0) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
 
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
 
                 // Moneyness weight: ATM options have highest vega sensitivity
                 // Weight peaks at ATM and decays for OTM/ITM
-                const moneyness = strikeNum / currentPrice;
-                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
+                const moneyness = strikeNum / currentPrice
+                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5) // Gaussian centered at ATM
 
                 // Time weight: Vega is highest for longer-dated options
                 // But also weight by near-term expiration impact (dealers more sensitive)
-                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
+                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0
 
                 // Professional VEX with proper notional scaling
-                const vex = vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
+                const vex = vega * oi * currentPrice * 100 * moneynessWeight * timeWeight
 
-                vexByStrikeByExp[expDate][strikeNum].call = vex;
+                vexByStrikeByExp[expDate][strikeNum].call = vex
               }
 
-
-
-              allStrikes.add(strikeNum);
+              allStrikes.add(strikeNum)
             }
-          });
+          })
 
           // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium with Theta calculation
 
           // Special debugging for Nov 10
           if (expDate === '2025-11-10') {
-            console.log(`🚨 NOV 10 PUT PROCESSING DEBUG:`);
-            console.log(`  Raw puts object keys: ${Object.keys(puts).slice(0, 10).join(', ')}...`);
-            console.log(`  6700 in puts: ${puts.hasOwnProperty('6700')}`);
-            console.log(`  6750 in puts: ${puts.hasOwnProperty('6750')}`);
-            console.log(`  6850 in puts: ${puts.hasOwnProperty('6850')}`);
-            console.log(`  6900 in puts: ${puts.hasOwnProperty('6900')}`);
+            console.log(`🚨 NOV 10 PUT PROCESSING DEBUG:`)
+            console.log(`  Raw puts object keys: ${Object.keys(puts).slice(0, 10).join(', ')}...`)
+            console.log(`  6700 in puts: ${puts.hasOwnProperty('6700')}`)
+            console.log(`  6750 in puts: ${puts.hasOwnProperty('6750')}`)
+            console.log(`  6850 in puts: ${puts.hasOwnProperty('6850')}`)
+            console.log(`  6900 in puts: ${puts.hasOwnProperty('6900')}`)
           }
 
           Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-            const strikeNum = parseFloat(strike);
-            let oi = data.open_interest || 0;
+            const strikeNum = parseFloat(strike)
+            let oi = data.open_interest || 0
 
             // 🔥 USE LIVE OI IF AVAILABLE
-            const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`;
+            const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
-              const liveOI = liveOIDataFromState.get(contractKey) || 0;
+              const liveOI = liveOIDataFromState.get(contractKey) || 0
               // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
-              oi = liveOI;
+              oi = liveOI
             }
 
             // Log high OI puts for Nov 10
             if (expDate === '2025-11-10' && oi > 100) {
-
             }
 
             if (oi > 0) {
               // STEP 2A: Update OI with put data (initialize if not exists from calls)
               if (!oiByStrikeByExp[expDate][strikeNum]) {
-                oiByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                oiByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
               }
-              oiByStrikeByExp[expDate][strikeNum].put = oi;
-              oiByStrikeByExp[expDate][strikeNum].putOI = oi;
+              oiByStrikeByExp[expDate][strikeNum].put = oi
+              oiByStrikeByExp[expDate][strikeNum].putOI = oi
 
               // STEP 2B: Update GEX with put data and get all Greeks from API
               if (!gexByStrikeByExp[expDate][strikeNum]) {
-                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0, callTheta: 0, putTheta: 0, callVega: 0, putVega: 0 };
+                gexByStrikeByExp[expDate][strikeNum] = {
+                  call: 0,
+                  put: 0,
+                  callOI: 0,
+                  putOI: 0,
+                  callGamma: 0,
+                  putGamma: 0,
+                  callDelta: 0,
+                  putDelta: 0,
+                  callVanna: 0,
+                  putVanna: 0,
+                  callTheta: 0,
+                  putTheta: 0,
+                  callVega: 0,
+                  putVega: 0,
+                }
               }
               // Initialize dealer data if not exists
               if (!dealerByStrikeByExp[expDate][strikeNum]) {
-                dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0 };
+                dealerByStrikeByExp[expDate][strikeNum] = {
+                  call: 0,
+                  put: 0,
+                  callOI: 0,
+                  putOI: 0,
+                  callGamma: 0,
+                  putGamma: 0,
+                  callDelta: 0,
+                  putDelta: 0,
+                  callVanna: 0,
+                  putVanna: 0,
+                }
               }
 
-              const gamma = data.greeks?.gamma || 0;
-              const delta = data.greeks?.delta || 0;
-              const vega = data.greeks?.vega || 0;
-              const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
-              let vanna = data.greeks?.vanna || 0;
+              const gamma = data.greeks?.gamma || 0
+              const delta = data.greeks?.delta || 0
+              const vega = data.greeks?.vega || 0
+              const theta = data.greeks?.theta || 0 // Use Polygon's theta directly
+              let vanna = data.greeks?.vanna || 0
 
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
               if (vanna === 0 && gamma !== 0) {
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-                const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
-                vanna = calculateVanna(strikeNum, currentPrice, T, iv);
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
+                const iv = data.implied_volatility || 0.3 // Use API IV or default to 30%
+                vanna = calculateVanna(strikeNum, currentPrice, T, iv)
               }
 
-              gexByStrikeByExp[expDate][strikeNum].putOI = oi;
-              gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
-              gexByStrikeByExp[expDate][strikeNum].putDelta = delta;
-              gexByStrikeByExp[expDate][strikeNum].putVanna = vanna;
-              gexByStrikeByExp[expDate][strikeNum].putTheta = theta;
-              gexByStrikeByExp[expDate][strikeNum].putVega = vega;
+              gexByStrikeByExp[expDate][strikeNum].putOI = oi
+              gexByStrikeByExp[expDate][strikeNum].putGamma = gamma
+              gexByStrikeByExp[expDate][strikeNum].putDelta = delta
+              gexByStrikeByExp[expDate][strikeNum].putVanna = vanna
+              gexByStrikeByExp[expDate][strikeNum].putTheta = theta
+              gexByStrikeByExp[expDate][strikeNum].putVega = vega
 
-              dealerByStrikeByExp[expDate][strikeNum].putOI = oi;
-              dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma;
-              dealerByStrikeByExp[expDate][strikeNum].putDelta = delta;
-              dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna;
+              dealerByStrikeByExp[expDate][strikeNum].putOI = oi
+              dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma
+              dealerByStrikeByExp[expDate][strikeNum].putDelta = delta
+              dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna
 
               // Flow Map: Simple premium-based calculation for puts (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate][strikeNum]) {
-                flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: oi, callVolume: 0, putVolume: 0 };
+                flowGexByStrikeByExp[expDate][strikeNum] = {
+                  call: 0,
+                  put: 0,
+                  callOI: 0,
+                  putOI: oi,
+                  callVolume: 0,
+                  putVolume: 0,
+                }
               }
 
-              const putFlowData = flowPremiumByStrike[expDate]?.[strikeNum];
-              const putPremium = putFlowData?.putPremium || 0;
-              const putContracts = putFlowData?.putContracts || 0;
+              const putFlowData = flowPremiumByStrike[expDate]?.[strikeNum]
+              const putPremium = putFlowData?.putPremium || 0
+              const putContracts = putFlowData?.putContracts || 0
 
-              flowGexByStrikeByExp[expDate][strikeNum].put = putPremium;  // Store premium directly
-              flowGexByStrikeByExp[expDate][strikeNum].putOI = oi;
-              flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts;  // Store contract count
+              flowGexByStrikeByExp[expDate][strikeNum].put = putPremium // Store premium directly
+              flowGexByStrikeByExp[expDate][strikeNum].putOI = oi
+              flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts // Store contract count
 
               if (putPremium > 0) {
                 // console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
@@ -5347,114 +6425,128 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               if (gamma) {
-                const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
-                gexByStrikeByExp[expDate][strikeNum].put = gex;
+                const gex = -gamma * oi * (currentPrice * currentPrice) * 100 // Negative for puts
+                gexByStrikeByExp[expDate][strikeNum].put = gex
               }
 
               // 2. NET DEALER - Enhanced formula
               if (gamma && delta !== undefined && vanna !== undefined) {
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = Math.max(
+                  (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+                  0.001
+                ) // Min 0.001 to avoid division by zero
 
                 if (T >= 0) {
-                  const beta = 0.25;
-                  const rho_S_sigma = -0.7;
-                  const contractMult = 100;
-                  const wT = 1 / Math.sqrt(T);
-                  const gammaEff = gamma + beta * vanna * rho_S_sigma;
-                  const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
-                  const dealerValue = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
-                  dealerByStrikeByExp[expDate][strikeNum].put = dealerValue;
+                  const beta = 0.25
+                  const rho_S_sigma = -0.7
+                  const contractMult = 100
+                  const wT = 1 / Math.sqrt(T)
+                  const gammaEff = gamma + beta * vanna * rho_S_sigma
+                  const liveWeight = Math.abs(delta) * (1 - Math.abs(delta))
+                  const dealerValue = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult
+                  dealerByStrikeByExp[expDate][strikeNum].put = dealerValue
                 }
               }
 
-
-
               // STEP 2C: Update VEX with put data
               if (!vexByStrikeByExp[expDate][strikeNum]) {
-                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
+                vexByStrikeByExp[expDate][strikeNum] = {
+                  call: 0,
+                  put: 0,
+                  callOI: 0,
+                  putOI: 0,
+                  callVega: 0,
+                  putVega: 0,
+                }
               }
-              vexByStrikeByExp[expDate][strikeNum].putOI = oi;
-              vexByStrikeByExp[expDate][strikeNum].putVega = vega; // Store vega for recalculation
+              vexByStrikeByExp[expDate][strikeNum].putOI = oi
+              vexByStrikeByExp[expDate][strikeNum].putVega = vega // Store vega for recalculation
               if (vega) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = -Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
 
-                const expirationDate = new Date(expDate);
-                const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const expirationDate = new Date(expDate)
+                const today = new Date()
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
 
                 // Moneyness weight: ATM options have highest vega sensitivity
-                const moneyness = strikeNum / currentPrice;
-                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
+                const moneyness = strikeNum / currentPrice
+                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5) // Gaussian centered at ATM
 
                 // Time weight: Vega is highest for longer-dated options
-                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
+                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0
 
                 // Professional VEX with proper notional scaling (negative for puts)
-                const vex = -vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
+                const vex = -vega * oi * currentPrice * 100 * moneynessWeight * timeWeight
 
-                vexByStrikeByExp[expDate][strikeNum].put = vex;
+                vexByStrikeByExp[expDate][strikeNum].put = vex
               }
 
-
-
-              allStrikes.add(strikeNum);
+              allStrikes.add(strikeNum)
             }
-          });
-        });
+          })
+        })
 
         // Update progress and yield to browser - FORCE UI UPDATE EVERY BATCH
-        const prog = 25 + Math.round((batchEnd / allAvailableExpirations.length) * 65);
-        setProgress(prog);
+        const prog = 25 + Math.round((batchEnd / allAvailableExpirations.length) * 65)
+        setProgress(prog)
 
         // Always yield to UI for progress updates
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0))
       }
 
-
-
-      setProgress(92);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      setProgress(92)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
       // ALWAYS store ALL calculations - we calculated both formulas simultaneously
 
       // Store both calculations - they were computed in parallel
-      setGexByStrikeByExpiration(gexByStrikeByExp);
-      setDealerByStrikeByExpiration(dealerByStrikeByExp);
+      setGexByStrikeByExpiration(gexByStrikeByExp)
+      setDealerByStrikeByExpiration(dealerByStrikeByExp)
 
       // If NOT in live mode, also save as base (original) data
       if (!liveOIMapOverride) {
-        setBaseGexByStrikeByExpiration(gexByStrikeByExp);
-        setBaseDealerByStrikeByExpiration(dealerByStrikeByExp);
+        setBaseGexByStrikeByExpiration(gexByStrikeByExp)
+        setBaseDealerByStrikeByExpiration(dealerByStrikeByExp)
       }
 
-      setFlowGexByStrikeByExpiration(flowGexByStrikeByExp);
-      setProgress(87);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      setFlowGexByStrikeByExpiration(flowGexByStrikeByExp)
+      setProgress(87)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
-      setVexByStrikeByExpiration(vexByStrikeByExp);
-      setProgress(90);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      setVexByStrikeByExpiration(vexByStrikeByExp)
+      setProgress(90)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
-      setProgress(95);
-      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      setProgress(95)
+      await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
       // Format and display data - store ALL strikes, filter at render time
-      const relevantStrikes = Array.from(allStrikes)
-        .sort((a, b) => b - a);
+      const relevantStrikes = Array.from(allStrikes).sort((a, b) => b - a)
 
-      const formattedData = relevantStrikes.map(strike => {
-        const row: GEXData = { strike };
-        allAvailableExpirations.forEach(exp => {
-          const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
-          const flowData = flowGexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVolume: 0, putVolume: 0 };
-          const vexData = vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
+      const formattedData = relevantStrikes.map((strike) => {
+        const row: GEXData = { strike }
+        allAvailableExpirations.forEach((exp) => {
+          const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 }
+          const flowData = flowGexByStrikeByExp[exp]?.[strike] || {
+            call: 0,
+            put: 0,
+            callOI: 0,
+            putOI: 0,
+            callVolume: 0,
+            putVolume: 0,
+          }
+          const vexData = vexByStrikeByExp[exp]?.[strike] || {
+            call: 0,
+            put: 0,
+            callOI: 0,
+            putOI: 0,
+          }
 
           // DEBUG: Log flow data for first few strikes
           if (relevantStrikes.indexOf(strike) < 3 && (flowData.call !== 0 || flowData.put !== 0)) {
-
           }
 
           row[exp] = {
@@ -5465,88 +6557,94 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             putOI: data.putOI,
             flowCall: flowData.call,
             flowPut: flowData.put,
-            flowNet: flowData.call - flowData.put,  // Net = Calls premium - Puts premium (positive = bullish)
+            flowNet: flowData.call - flowData.put, // Net = Calls premium - Puts premium (positive = bullish)
             callVex: vexData.call,
-            putVex: vexData.put
-          };
-        });
-        return row;
-      });
+            putVex: vexData.put,
+          }
+        })
+        return row
+      })
 
-      setData(formattedData);
-      setProgress(100);
-      setLoading(false);
+      setData(formattedData)
+      setProgress(100)
+      setLoading(false)
 
       // If this was triggered by Live OI, hide that loading state too
       if (liveOIMapOverride) {
-
-        setLiveOILoading(false);
-        setLiveOIProgress(100);
+        setLiveOILoading(false)
+        setLiveOIProgress(100)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setLoading(false);
+      setError(err instanceof Error ? err.message : 'An error occurred')
+      setLoading(false)
 
       // Also hide Live OI loading on error
       if (liveOIMapOverride) {
-        setLiveOILoading(false);
-        setLiveOIProgress(0);
+        setLiveOILoading(false)
+        setLiveOIProgress(0)
       }
     }
-  };
+  }
 
   // Auto-trigger Live OI scan when Flow GEX is enabled (only if not already in live mode)
   useEffect(() => {
     if (selectedTicker && showFlowGEX && !liveMode) {
       // Flow Map enabled and not in live mode yet - trigger live scan
-      setLiveMode(true);
-      updateLiveOI();
+      setLiveMode(true)
+      updateLiveOI()
     } else if (selectedTicker && !showFlowGEX && !liveMode) {
       // Flow GEX disabled and not in live mode - fetch normally
-      fetchOptionsData();
+      fetchOptionsData()
     }
     // If already in live mode, do nothing - data is already live
-  }, [selectedTicker, showFlowGEX]);
+  }, [selectedTicker, showFlowGEX])
 
   // Memoize GEX calculated data (always uses Net GEX formula)
   const allGEXCalculatedData = useMemo(() => {
-    const gexData = gexByStrikeByExpiration;
-    const willUseLiveData = liveMode && liveOIData.size > 0;
+    const gexData = gexByStrikeByExpiration
+    const willUseLiveData = liveMode && liveOIData.size > 0
 
     if (!gexData || Object.keys(gexData).length === 0) {
-      return [];
+      return []
     }
 
-    const allStrikes = Array.from(new Set([
-      ...Object.values(gexData).flatMap(exp => Object.keys(exp).map(Number))
-    ])).sort((a, b) => b - a);
+    const allStrikes = Array.from(
+      new Set([...Object.values(gexData).flatMap((exp) => Object.keys(exp).map(Number))])
+    ).sort((a, b) => b - a)
 
-    return allStrikes.map(strike => {
-      const row: GEXData = { strike };
-      expirations.forEach(exp => {
-        const greeksData = gexData[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined };
+    return allStrikes.map((strike) => {
+      const row: GEXData = { strike }
+      expirations.forEach((exp) => {
+        const greeksData = gexData[exp]?.[strike] || {
+          call: 0,
+          put: 0,
+          callOI: 0,
+          putOI: 0,
+          callGamma: undefined,
+          putGamma: undefined,
+        }
 
-        let callGEX = greeksData.call;
-        let putGEX = greeksData.put;
-        let callOI = greeksData.callOI;
-        let putOI = greeksData.putOI;
+        let callGEX = greeksData.call
+        let putGEX = greeksData.put
+        let callOI = greeksData.callOI
+        let putOI = greeksData.putOI
 
         // Apply Live OI recalculations if active (Net GEX formula)
         if (liveMode && liveOIData.size > 0) {
-          const callKey = `${selectedTicker}_${strike}_call_${exp}`;
-          const putKey = `${selectedTicker}_${strike}_put_${exp}`;
+          const callKey = `${selectedTicker}_${strike}_call_${exp}`
+          const putKey = `${selectedTicker}_${strike}_put_${exp}`
 
-          const liveCallOI = liveOIData.get(callKey);
-          const livePutOI = liveOIData.get(putKey);
+          const liveCallOI = liveOIData.get(callKey)
+          const livePutOI = liveOIData.get(putKey)
 
           if (liveCallOI !== undefined && greeksData.callGamma) {
-            callOI = liveCallOI;
-            callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+            callOI = liveCallOI
+            callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100
           }
 
           if (livePutOI !== undefined && greeksData.putGamma) {
-            putOI = livePutOI;
-            putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+            putOI = livePutOI
+            putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100
           }
         }
 
@@ -5555,68 +6653,91 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           put: putGEX,
           net: callGEX + putGEX,
           callOI: callOI,
-          putOI: putOI
-        };
-      });
-      return row;
-    });
-  }, [gexByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData]);
+          putOI: putOI,
+        }
+      })
+      return row
+    })
+  }, [gexByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData])
 
   // Memoize Dealer calculated data (always uses Net Dealer formula)
   const allDealerCalculatedData = useMemo(() => {
-    const dealerData = dealerByStrikeByExpiration;
-    const willUseLiveData = liveMode && liveOIData.size > 0;
+    const dealerData = dealerByStrikeByExpiration
+    const willUseLiveData = liveMode && liveOIData.size > 0
 
     if (!dealerData || Object.keys(dealerData).length === 0) {
-      return [];
+      return []
     }
 
-    const allStrikes = Array.from(new Set([
-      ...Object.values(dealerData).flatMap(exp => Object.keys(exp).map(Number))
-    ])).sort((a, b) => b - a);
+    const allStrikes = Array.from(
+      new Set([...Object.values(dealerData).flatMap((exp) => Object.keys(exp).map(Number))])
+    ).sort((a, b) => b - a)
 
-    return allStrikes.map(strike => {
-      const row: GEXData = { strike };
-      expirations.forEach(exp => {
-        const greeksData = dealerData[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined };
+    return allStrikes.map((strike) => {
+      const row: GEXData = { strike }
+      expirations.forEach((exp) => {
+        const greeksData = dealerData[exp]?.[strike] || {
+          call: 0,
+          put: 0,
+          callOI: 0,
+          putOI: 0,
+          callGamma: undefined,
+          putGamma: undefined,
+          callDelta: undefined,
+          putDelta: undefined,
+          callVanna: undefined,
+          putVanna: undefined,
+        }
 
-        let callDealer = greeksData.call;
-        let putDealer = greeksData.put;
-        let callOI = greeksData.callOI;
-        let putOI = greeksData.putOI;
+        let callDealer = greeksData.call
+        let putDealer = greeksData.put
+        let callOI = greeksData.callOI
+        let putOI = greeksData.putOI
 
         // Apply Live OI recalculations if active (Net Dealer formula)
         if (liveMode && liveOIData.size > 0) {
-          const callKey = `${selectedTicker}_${strike}_call_${exp}`;
-          const putKey = `${selectedTicker}_${strike}_put_${exp}`;
+          const callKey = `${selectedTicker}_${strike}_call_${exp}`
+          const putKey = `${selectedTicker}_${strike}_put_${exp}`
 
-          const liveCallOI = liveOIData.get(callKey);
-          const livePutOI = liveOIData.get(putKey);
+          const liveCallOI = liveOIData.get(callKey)
+          const livePutOI = liveOIData.get(putKey)
 
-          const expirationDate = new Date(exp + 'T00:00:00Z');
-          const today = new Date();
-          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+          const expirationDate = new Date(exp + 'T00:00:00Z')
+          const today = new Date()
+          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
 
-          if (liveCallOI !== undefined && greeksData.callGamma && greeksData.callDelta !== undefined && greeksData.callVanna !== undefined && T > 0) {
-            callOI = liveCallOI;
-            const beta = 0.25;
-            const rho_S_sigma = -0.7;
-            const contractMult = 100;
-            const wT = 1 / Math.sqrt(T);
-            const gammaEff = greeksData.callGamma + beta * greeksData.callVanna * rho_S_sigma;
-            const liveWeight = Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta));
-            callDealer = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+          if (
+            liveCallOI !== undefined &&
+            greeksData.callGamma &&
+            greeksData.callDelta !== undefined &&
+            greeksData.callVanna !== undefined &&
+            T > 0
+          ) {
+            callOI = liveCallOI
+            const beta = 0.25
+            const rho_S_sigma = -0.7
+            const contractMult = 100
+            const wT = 1 / Math.sqrt(T)
+            const gammaEff = greeksData.callGamma + beta * greeksData.callVanna * rho_S_sigma
+            const liveWeight = Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta))
+            callDealer = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult
           }
 
-          if (livePutOI !== undefined && greeksData.putGamma && greeksData.putDelta !== undefined && greeksData.putVanna !== undefined && T > 0) {
-            putOI = livePutOI;
-            const beta = 0.25;
-            const rho_S_sigma = -0.7;
-            const contractMult = 100;
-            const wT = 1 / Math.sqrt(T);
-            const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma;
-            const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta));
-            putDealer = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+          if (
+            livePutOI !== undefined &&
+            greeksData.putGamma &&
+            greeksData.putDelta !== undefined &&
+            greeksData.putVanna !== undefined &&
+            T > 0
+          ) {
+            putOI = livePutOI
+            const beta = 0.25
+            const rho_S_sigma = -0.7
+            const contractMult = 100
+            const wT = 1 / Math.sqrt(T)
+            const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma
+            const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta))
+            putDealer = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult
           }
         }
 
@@ -5625,108 +6746,165 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           put: putDealer,
           net: callDealer + putDealer,
           callOI: callOI,
-          putOI: putOI
-        };
-      });
-      return row;
-    });
-  }, [dealerByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData]);
+          putOI: putOI,
+        }
+      })
+      return row
+    })
+  }, [dealerByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData])
 
   // Keep original allCalculatedData for backwards compatibility (uses gexMode to switch)
   const allCalculatedData = useMemo(() => {
     // Choose data source based on current mode
-    const dealerData = dealerByStrikeByExpiration;
-    const gexData = gexByStrikeByExpiration;
+    const dealerData = dealerByStrikeByExpiration
+    const gexData = gexByStrikeByExpiration
 
     // Use the correct data source based on gexMode
-    const baseDataSource = (gexMode === 'Net Dealer') ? dealerData : gexData;
+    const baseDataSource = gexMode === 'Net Dealer' ? dealerData : gexData
 
-    const willUseLiveData = liveMode && liveOIData.size > 0;
+    const willUseLiveData = liveMode && liveOIData.size > 0
 
     if (!baseDataSource || Object.keys(baseDataSource).length === 0) {
-      return [];
+      return []
     }
 
-    const allStrikes = Array.from(new Set([
-      ...Object.values(baseDataSource).flatMap(exp => Object.keys(exp).map(Number))
-    ])).sort((a, b) => b - a);
+    const allStrikes = Array.from(
+      new Set([...Object.values(baseDataSource).flatMap((exp) => Object.keys(exp).map(Number))])
+    ).sort((a, b) => b - a)
 
-    return allStrikes.map(strike => {
-      const row: GEXData = { strike };
-      expirations.forEach(exp => {
-        const greeksData: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } = baseDataSource[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined, callVega: undefined, putVega: undefined, callTheta: undefined, putTheta: undefined };
-        const vexData: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
+    return allStrikes.map((strike) => {
+      const row: GEXData = { strike }
+      expirations.forEach((exp) => {
+        const greeksData: {
+          call: number
+          put: number
+          callOI: number
+          putOI: number
+          callGamma?: number
+          putGamma?: number
+          callDelta?: number
+          putDelta?: number
+          callVanna?: number
+          putVanna?: number
+          callVega?: number
+          putVega?: number
+          callTheta?: number
+          putTheta?: number
+        } = baseDataSource[exp]?.[strike] || {
+          call: 0,
+          put: 0,
+          callOI: 0,
+          putOI: 0,
+          callGamma: undefined,
+          putGamma: undefined,
+          callDelta: undefined,
+          putDelta: undefined,
+          callVanna: undefined,
+          putVanna: undefined,
+          callVega: undefined,
+          putVega: undefined,
+          callTheta: undefined,
+          putTheta: undefined,
+        }
+        const vexData: {
+          call: number
+          put: number
+          callOI: number
+          putOI: number
+          callVega?: number
+          putVega?: number
+        } = vexByStrikeByExpiration[exp]?.[strike] || {
+          call: 0,
+          put: 0,
+          callOI: 0,
+          putOI: 0,
+          callVega: undefined,
+          putVega: undefined,
+        }
 
         // Start with base calculated values
-        let callGEX = greeksData.call;
-        let putGEX = greeksData.put;
-        let callOI = greeksData.callOI;
-        let putOI = greeksData.putOI;
-        let callVEX = vexData.call;
-        let putVEX = vexData.put;
+        let callGEX = greeksData.call
+        let putGEX = greeksData.put
+        let callOI = greeksData.callOI
+        let putOI = greeksData.putOI
+        let callVEX = vexData.call
+        let putVEX = vexData.put
 
         // Apply Live OI recalculations if active
         if (liveMode && liveOIData.size > 0) {
-          const callKey = `${selectedTicker}_${strike}_call_${exp}`;
-          const putKey = `${selectedTicker}_${strike}_put_${exp}`;
+          const callKey = `${selectedTicker}_${strike}_call_${exp}`
+          const putKey = `${selectedTicker}_${strike}_put_${exp}`
 
-          const liveCallOI = liveOIData.get(callKey);
-          const livePutOI = liveOIData.get(putKey);
+          const liveCallOI = liveOIData.get(callKey)
+          const livePutOI = liveOIData.get(putKey)
 
-          const expirationDate = new Date(exp + 'T00:00:00Z');
-          const today = new Date();
-          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+          const expirationDate = new Date(exp + 'T00:00:00Z')
+          const today = new Date()
+          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000)
 
           // Recalculate based on the current mode
           if (gexMode === 'Net Dealer') {
             // Use dealer formula for live recalc
             // console.log(`🔄 LIVE OI RECALC - NET DEALER MODE: Strike ${strike}, Exp ${exp}`);
-            if (liveCallOI !== undefined && greeksData.callGamma && greeksData.callDelta !== undefined && greeksData.callVanna !== undefined && T > 0) {
-              callOI = liveCallOI;
-              const beta = 0.25;
-              const rho_S_sigma = -0.7;
-              const contractMult = 100;
-              const wT = 1 / Math.sqrt(T);
-              const gammaEff = greeksData.callGamma + beta * greeksData.callVanna * rho_S_sigma;
-              const liveWeight = Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta));
-              callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            if (
+              liveCallOI !== undefined &&
+              greeksData.callGamma &&
+              greeksData.callDelta !== undefined &&
+              greeksData.callVanna !== undefined &&
+              T > 0
+            ) {
+              callOI = liveCallOI
+              const beta = 0.25
+              const rho_S_sigma = -0.7
+              const contractMult = 100
+              const wT = 1 / Math.sqrt(T)
+              const gammaEff = greeksData.callGamma + beta * greeksData.callVanna * rho_S_sigma
+              const liveWeight =
+                Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta))
+              callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult
               // console.log(`  📈 Call: LiveOI ${liveCallOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
             }
 
-            if (livePutOI !== undefined && greeksData.putGamma && greeksData.putDelta !== undefined && greeksData.putVanna !== undefined && T > 0) {
-              putOI = livePutOI;
-              const beta = 0.25;
-              const rho_S_sigma = -0.7;
-              const contractMult = 100;
-              const wT = 1 / Math.sqrt(T);
-              const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma;
-              const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta));
-              putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            if (
+              livePutOI !== undefined &&
+              greeksData.putGamma &&
+              greeksData.putDelta !== undefined &&
+              greeksData.putVanna !== undefined &&
+              T > 0
+            ) {
+              putOI = livePutOI
+              const beta = 0.25
+              const rho_S_sigma = -0.7
+              const contractMult = 100
+              const wT = 1 / Math.sqrt(T)
+              const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma
+              const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta))
+              putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult
               // console.log(`  📉 Put: LiveOI ${livePutOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
             }
           } else {
             // Use standard GEX formula for live recalc
             // console.log(`🔄 LIVE OI RECALC - NET GEX MODE: Strike ${strike}, Exp ${exp}`);
             if (liveCallOI !== undefined && greeksData.callGamma) {
-              callOI = liveCallOI;
-              callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+              callOI = liveCallOI
+              callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100
               // console.log(`  📈 Call: ${greeksData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX.toFixed(2)}`);
             }
 
             if (livePutOI !== undefined && greeksData.putGamma) {
-              putOI = livePutOI;
-              putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+              putOI = livePutOI
+              putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100
               // console.log(`  📉 Put: -${greeksData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX.toFixed(2)}`);
             }
           }
 
           // Recalculate VEX with Live OI (same for both modes)
           if (liveCallOI !== undefined && vexData.callVega) {
-            callVEX = vexData.callVega * liveCallOI * 100;
+            callVEX = vexData.callVega * liveCallOI * 100
           }
 
           if (livePutOI !== undefined && vexData.putVega) {
-            putVEX = -vexData.putVega * livePutOI * 100;
+            putVEX = -vexData.putVega * livePutOI * 100
           }
         }
 
@@ -5737,286 +6915,321 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           callOI: callOI,
           putOI: putOI,
           callVex: callVEX,
-          putVex: putVEX
-        };
-      });
-      return row;
-    });
-  }, [gexByStrikeByExpiration, dealerByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, gexMode, liveMode, selectedTicker, liveOIData]);
+          putVex: putVEX,
+        }
+      })
+      return row
+    })
+  }, [
+    gexByStrikeByExpiration,
+    dealerByStrikeByExpiration,
+    vexByStrikeByExpiration,
+    currentPrice,
+    expirations,
+    gexMode,
+    liveMode,
+    selectedTicker,
+    liveOIData,
+  ])
 
   const handleTickerSubmit = () => {
-    const newTicker = tickerInput.trim().toUpperCase();
+    const newTicker = tickerInput.trim().toUpperCase()
     if (newTicker && newTicker !== selectedTicker) {
-      setSelectedTicker(newTicker);
-      setTickerInput(newTicker); // Ensure input stays synchronized
+      setSelectedTicker(newTicker)
+      setTickerInput(newTicker) // Ensure input stays synchronized
     }
-  };
+  }
 
   // Sync tickerInput with selectedTicker when selectedTicker changes
   useEffect(() => {
-    setTickerInput(selectedTicker);
-  }, [selectedTicker]);
+    setTickerInput(selectedTicker)
+  }, [selectedTicker])
 
   // Recalculate GEX when historical timestamp changes
   useEffect(() => {
     // Only run if we have a valid historical timestamp
-    if (!showHistoricalGEX) return;
-    if (!historicalTimestamp || !selectedTicker) return;
-    if (expirations.length === 0) return;
-    if (Object.keys(baseGexByStrikeByExpiration).length === 0) return; // Need base data first
+    if (!showHistoricalGEX) return
+    if (!historicalTimestamp || !selectedTicker) return
+    if (expirations.length === 0) return
+    if (Object.keys(baseGexByStrikeByExpiration).length === 0) return // Need base data first
 
     const recalculateHistoricalGEX = async () => {
       try {
-        const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+        const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
 
         // Fetch ALL options contracts (increase limit to get all expirations)
-        let allContracts: any[] = [];
-        let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/${selectedTicker}?limit=250&apikey=${apiKey}`;
+        const allContracts: any[] = []
+        let nextUrl: string | null =
+          `https://api.polygon.io/v3/snapshot/options/${selectedTicker}?limit=250&apikey=${apiKey}`
 
         // Paginate to get all contracts
         while (nextUrl && allContracts.length < 5000) {
-          const response: Response = await fetch(nextUrl);
-          const data: any = await response.json();
+          const response: Response = await fetch(nextUrl)
+          const data: any = await response.json()
 
-          if (data.status !== 'OK') break;
-          if (data.results) allContracts.push(...data.results);
+          if (data.status !== 'OK') break
+          if (data.results) allContracts.push(...data.results)
 
-          nextUrl = data.next_url;
+          nextUrl = data.next_url
           if (nextUrl && !nextUrl.includes('apikey=')) {
-            nextUrl += `&apikey=${apiKey}`;
+            nextUrl += `&apikey=${apiKey}`
           }
 
           // Small delay to avoid rate limits
-          if (nextUrl) await new Promise(resolve => setTimeout(resolve, 100));
+          if (nextUrl) await new Promise((resolve) => setTimeout(resolve, 100))
         }
 
         // Filter contracts by our expirations
         const contracts = allContracts.filter((c: any) =>
           expirations.includes(c.details?.expiration_date)
-        );
+        )
 
         // Build live OI map up to the historical timestamp (only for live mode)
-        let liveOIAtTimestamp = new Map<string, number>();
+        const liveOIAtTimestamp = new Map<string, number>()
         if (liveMode && flowTradesData.length > 0) {
           // Start with base OI from snapshot
           contracts.forEach((contract: any) => {
-            const strike = contract.details?.strike_price;
-            const expiration = contract.details?.expiration_date;
-            const isCall = contract.details?.contract_type === 'call';
-            if (!strike || !expiration) return;
+            const strike = contract.details?.strike_price
+            const expiration = contract.details?.expiration_date
+            const isCall = contract.details?.contract_type === 'call'
+            if (!strike || !expiration) return
 
-            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`;
-            liveOIAtTimestamp.set(contractKey, contract.open_interest || 0);
-          });
+            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`
+            liveOIAtTimestamp.set(contractKey, contract.open_interest || 0)
+          })
 
           // Apply trades that occurred at or before the historical timestamp
-          const sortedTrades = [...flowTradesData].sort((a, b) =>
-            new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-          );
+          const sortedTrades = [...flowTradesData].sort(
+            (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+          )
 
-          sortedTrades.forEach(trade => {
-            const tradeTime = new Date(trade.trade_timestamp).getTime();
-            if (tradeTime > historicalTimestamp) return; // Skip future trades
+          sortedTrades.forEach((trade) => {
+            const tradeTime = new Date(trade.trade_timestamp).getTime()
+            if (tradeTime > historicalTimestamp) return // Skip future trades
 
-            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-            const currentOI = liveOIAtTimestamp.get(contractKey) || 0;
-            const contracts = trade.trade_size || 0;
+            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+            const currentOI = liveOIAtTimestamp.get(contractKey) || 0
+            const contracts = trade.trade_size || 0
 
             // Aggressive opening (AA, A, BB) adds to OI, closing (B) subtracts
-            if (trade.fill_style === 'AA' || trade.fill_style === 'A' || trade.fill_style === 'BB') {
-              liveOIAtTimestamp.set(contractKey, currentOI + contracts);
+            if (
+              trade.fill_style === 'AA' ||
+              trade.fill_style === 'A' ||
+              trade.fill_style === 'BB'
+            ) {
+              liveOIAtTimestamp.set(contractKey, currentOI + contracts)
             } else if (trade.fill_style === 'B') {
-              liveOIAtTimestamp.set(contractKey, Math.max(0, currentOI - contracts));
+              liveOIAtTimestamp.set(contractKey, Math.max(0, currentOI - contracts))
             }
-          });
+          })
         }
 
         // Recalculate GEX at historical price using Black-Scholes
-        const newGEXData: typeof gexByStrikeByExpiration = {};
-        const newDealerData: typeof dealerByStrikeByExpiration = {};
+        const newGEXData: typeof gexByStrikeByExpiration = {}
+        const newDealerData: typeof dealerByStrikeByExpiration = {}
 
-        expirations.forEach(exp => {
-          newGEXData[exp] = {};
-          newDealerData[exp] = {};
-        });
+        expirations.forEach((exp) => {
+          newGEXData[exp] = {}
+          newDealerData[exp] = {}
+        })
 
-        const today = new Date();
+        const today = new Date()
 
         contracts.forEach((contract: any) => {
-          const strike = contract.details?.strike_price;
-          const expiration = contract.details?.expiration_date;
-          const isCall = contract.details?.contract_type === 'call';
+          const strike = contract.details?.strike_price
+          const expiration = contract.details?.expiration_date
+          const isCall = contract.details?.contract_type === 'call'
 
-          if (!strike || !expiration || !expirations.includes(expiration)) return;
+          if (!strike || !expiration || !expirations.includes(expiration)) return
 
           // Use live OI if in live mode, otherwise use snapshot OI
-          let OI = contract.open_interest || 0;
+          let OI = contract.open_interest || 0
           if (liveMode && flowTradesData.length > 0) {
-            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`;
-            OI = liveOIAtTimestamp.get(contractKey) || OI;
+            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`
+            OI = liveOIAtTimestamp.get(contractKey) || OI
           }
 
-          const IV = (contract.implied_volatility || 0.3); // Default 30% if missing
+          const IV = contract.implied_volatility || 0.3 // Default 30% if missing
 
           // Calculate time to expiration for THIS specific expiration
-          const expirationDate = new Date(expiration);
-          const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001);
+          const expirationDate = new Date(expiration)
+          const T = Math.max(
+            (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000),
+            0.001
+          )
 
           // Black-Scholes Gamma calculation
-          const S = historicalPrice;
-          const K = strike;
-          const r = 0.05;
+          const S = historicalPrice
+          const K = strike
+          const r = 0.05
 
-          const d1 = (Math.log(S / K) + (r + 0.5 * IV * IV) * T) / (IV * Math.sqrt(T));
-          const nPrimeD1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
-          const gamma = nPrimeD1 / (S * IV * Math.sqrt(T));
+          const d1 = (Math.log(S / K) + (r + 0.5 * IV * IV) * T) / (IV * Math.sqrt(T))
+          const nPrimeD1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1)
+          const gamma = nPrimeD1 / (S * IV * Math.sqrt(T))
 
           // Calculate Delta
           const normalCDF = (x: number) => {
-            const t = 1 / (1 + 0.2316419 * Math.abs(x));
-            const d = 0.3989423 * Math.exp(-x * x / 2);
-            const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-            return x > 0 ? 1 - p : p;
-          };
-          const delta = isCall ? normalCDF(d1) : normalCDF(d1) - 1;
+            const t = 1 / (1 + 0.2316419 * Math.abs(x))
+            const d = 0.3989423 * Math.exp((-x * x) / 2)
+            const p =
+              d *
+              t *
+              (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
+            return x > 0 ? 1 - p : p
+          }
+          const delta = isCall ? normalCDF(d1) : normalCDF(d1) - 1
 
           // Net GEX formula
-          const spotGEX = gamma * OI * S * S * 100 * (isCall ? 1 : -1);
+          const spotGEX = gamma * OI * S * S * 100 * (isCall ? 1 : -1)
 
           // Dealer GEX formula
-          const gamma_eff = gamma * (isCall ? delta : (1 - Math.abs(delta)));
-          const dealerGEX = OI * gamma_eff * 1 * 1 * S * 100;
+          const gamma_eff = gamma * (isCall ? delta : 1 - Math.abs(delta))
+          const dealerGEX = OI * gamma_eff * 1 * 1 * S * 100
 
           if (!newGEXData[expiration][strike]) {
-            newGEXData[expiration][strike] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
-            newDealerData[expiration][strike] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
+            newGEXData[expiration][strike] = {
+              call: 0,
+              put: 0,
+              callOI: 0,
+              putOI: 0,
+              callGamma: 0,
+              putGamma: 0,
+            }
+            newDealerData[expiration][strike] = {
+              call: 0,
+              put: 0,
+              callOI: 0,
+              putOI: 0,
+              callGamma: 0,
+              putGamma: 0,
+            }
           }
 
           if (isCall) {
-            newGEXData[expiration][strike].call = spotGEX;
-            newGEXData[expiration][strike].callOI = OI;
-            newGEXData[expiration][strike].callGamma = gamma;
-            newDealerData[expiration][strike].call = dealerGEX;
-            newDealerData[expiration][strike].callOI = OI;
-            newDealerData[expiration][strike].callGamma = gamma;
+            newGEXData[expiration][strike].call = spotGEX
+            newGEXData[expiration][strike].callOI = OI
+            newGEXData[expiration][strike].callGamma = gamma
+            newDealerData[expiration][strike].call = dealerGEX
+            newDealerData[expiration][strike].callOI = OI
+            newDealerData[expiration][strike].callGamma = gamma
           } else {
-            newGEXData[expiration][strike].put = spotGEX;
-            newGEXData[expiration][strike].putOI = OI;
-            newGEXData[expiration][strike].putGamma = gamma;
-            newDealerData[expiration][strike].put = dealerGEX;
-            newDealerData[expiration][strike].putOI = OI;
-            newDealerData[expiration][strike].putGamma = gamma;
+            newGEXData[expiration][strike].put = spotGEX
+            newGEXData[expiration][strike].putOI = OI
+            newGEXData[expiration][strike].putGamma = gamma
+            newDealerData[expiration][strike].put = dealerGEX
+            newDealerData[expiration][strike].putOI = OI
+            newDealerData[expiration][strike].putGamma = gamma
           }
-        });
+        })
 
-        setGexByStrikeByExpiration(newGEXData);
-        setDealerByStrikeByExpiration(newDealerData);
+        setGexByStrikeByExpiration(newGEXData)
+        setDealerByStrikeByExpiration(newDealerData)
       } catch (error) {
-        console.error('Failed to recalculate historical GEX:', error);
+        console.error('Failed to recalculate historical GEX:', error)
       }
-    };
+    }
 
-    recalculateHistoricalGEX();
-  }, [historicalTimestamp, historicalPrice, liveMode, flowTradesData]);
+    recalculateHistoricalGEX()
+  }, [historicalTimestamp, historicalPrice, liveMode, flowTradesData])
 
   // Reset to base data when HIST GEX is turned off or timestamp is null
   useEffect(() => {
     if (!showHistoricalGEX || historicalTimestamp === null) {
       if (Object.keys(baseGexByStrikeByExpiration).length > 0) {
-        setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
-        setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
+        setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+        setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
       }
     }
-  }, [showHistoricalGEX, historicalTimestamp]);
-
-
+  }, [showHistoricalGEX, historicalTimestamp])
 
   const formatCurrency = (value: number) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? '-' : value > 0 ? '+' : '';
+    const absValue = Math.abs(value)
+    const sign = value < 0 ? '-' : value > 0 ? '+' : ''
 
     // Original GEX formatting (always used for middle line)
     if (absValue >= 1e9) {
-      return `${sign}${(absValue / 1e9).toFixed(2)}B`;
+      return `${sign}${(absValue / 1e9).toFixed(2)}B`
     } else if (absValue >= 1e6) {
-      return `${sign}${(absValue / 1e6).toFixed(1)}M`;
+      return `${sign}${(absValue / 1e6).toFixed(1)}M`
     } else if (absValue >= 1000) {
-      return `${sign}${(absValue / 1000).toFixed(1)}K`;
+      return `${sign}${(absValue / 1000).toFixed(1)}K`
     } else if (absValue > 0) {
-      return `${sign}${absValue.toFixed(0)}`;
+      return `${sign}${absValue.toFixed(0)}`
     }
-    return '0';
-  };
+    return '0'
+  }
 
   const formatPremium = (value: number) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? '-' : value > 0 ? '+' : '';
+    const absValue = Math.abs(value)
+    const sign = value < 0 ? '-' : value > 0 ? '+' : ''
 
     // Smart premium formatting with $ prefix
     if (absValue >= 1e9) {
       // Billions: $1B, $4.32B
-      const billions = absValue / 1e9;
+      const billions = absValue / 1e9
       if (billions >= 10) {
-        return `${sign}$${billions.toFixed(2)}B`;
+        return `${sign}$${billions.toFixed(2)}B`
       } else {
-        return `${sign}$${billions % 1 === 0 ? billions.toFixed(0) : billions.toFixed(2)}B`;
+        return `${sign}$${billions % 1 === 0 ? billions.toFixed(0) : billions.toFixed(2)}B`
       }
     } else if (absValue >= 1e6) {
       // Millions: $1M, $1.34M, $12.32M, $124.42M
-      const millions = absValue / 1e6;
+      const millions = absValue / 1e6
       if (millions >= 100) {
-        return `${sign}$${millions.toFixed(2)}M`;
+        return `${sign}$${millions.toFixed(2)}M`
       } else if (millions >= 10) {
-        return `${sign}$${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(2)}M`;
+        return `${sign}$${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(2)}M`
       } else {
-        return `${sign}$${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(2)}M`;
+        return `${sign}$${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(2)}M`
       }
     } else if (absValue >= 1000) {
       // Thousands: $1K, $1.2K, $13.4K, $104.4K
-      const thousands = absValue / 1000;
+      const thousands = absValue / 1000
       if (thousands >= 100) {
-        return `${sign}$${thousands.toFixed(1)}K`;
+        return `${sign}$${thousands.toFixed(1)}K`
       } else if (thousands >= 10) {
-        return `${sign}$${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}K`;
+        return `${sign}$${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}K`
       } else {
-        return `${sign}$${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}K`;
+        return `${sign}$${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}K`
       }
     } else if (absValue >= 500) {
       // 500-999: $0.5K
-      return `${sign}$${(absValue / 1000).toFixed(1)}K`;
+      return `${sign}$${(absValue / 1000).toFixed(1)}K`
     } else if (absValue > 0) {
-      return `${sign}$${absValue.toFixed(0)}`;
+      return `${sign}$${absValue.toFixed(0)}`
     }
-    return '$0';
-  };
+    return '$0'
+  }
 
   const formatOI = (value: number) => {
-    return value.toLocaleString('en-US');
-  };
+    return value.toLocaleString('en-US')
+  }
 
   // MEMOIZED: Top values calculated from ALL strikes (unfiltered by OTM range)
   // This ensures highlighting is based on absolute highest values across complete chain
   // Helper function to calculate top values from strike/expiration map
-  const calculateTopValuesFromMap = (dataMap: { [exp: string]: { [strike: number]: { call: number, put: number } } }) => {
-    const positiveValues: number[] = [];
-    const negativeValues: number[] = [];
+  const calculateTopValuesFromMap = (dataMap: {
+    [exp: string]: { [strike: number]: { call: number; put: number } }
+  }) => {
+    const positiveValues: number[] = []
+    const negativeValues: number[] = []
 
-    Object.keys(dataMap).forEach(exp => {
-      Object.keys(dataMap[exp]).forEach(strikeStr => {
-        const strikeData = dataMap[exp][parseFloat(strikeStr)];
+    Object.keys(dataMap).forEach((exp) => {
+      Object.keys(dataMap[exp]).forEach((strikeStr) => {
+        const strikeData = dataMap[exp][parseFloat(strikeStr)]
         if (strikeData) {
-          const displayValue = (strikeData.call || 0) + (strikeData.put || 0);
+          const displayValue = (strikeData.call || 0) + (strikeData.put || 0)
           if (displayValue > 0) {
-            positiveValues.push(displayValue);
+            positiveValues.push(displayValue)
           } else if (displayValue < 0) {
-            negativeValues.push(Math.abs(displayValue));
+            negativeValues.push(Math.abs(displayValue))
           }
         }
-      });
-    });
+      })
+    })
 
-    const sortedPositive = positiveValues.sort((a, b) => b - a);
-    const sortedNegative = negativeValues.sort((a, b) => b - a);
+    const sortedPositive = positiveValues.sort((a, b) => b - a)
+    const sortedNegative = negativeValues.sort((a, b) => b - a)
 
     return {
       highestPositive: sortedPositive[0] || 0,
@@ -6027,12 +7240,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       fourth: sortedPositive[3] || 0,
       top10: sortedPositive.slice(0, 10),
       top5Positive: sortedPositive.slice(0, 10),
-      top5Negative: sortedNegative.slice(0, 5)
-    };
-  };
+      top5Negative: sortedNegative.slice(0, 5),
+    }
+  }
 
   // Helper function to calculate top values for a specific data set
-  const calculateTopValues = (sourceData: any[], mode: 'gex' | 'dealer' | 'flow' | 'vex', currentGexMode?: string, currentVexMode?: string) => {
+  const calculateTopValues = (
+    sourceData: any[],
+    mode: 'gex' | 'dealer' | 'flow' | 'vex',
+    currentGexMode?: string,
+    currentVexMode?: string
+  ) => {
     if (sourceData.length === 0) {
       return {
         highestPositive: 0,
@@ -6043,63 +7261,63 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         fourth: 0,
         top10: [],
         top5Positive: [],
-        top5Negative: []
-      };
+        top5Negative: [],
+      }
     }
 
-    const positiveValues: number[] = [];
-    const negativeValues: number[] = [];
+    const positiveValues: number[] = []
+    const negativeValues: number[] = []
 
     // Read from sourceData and collect positive and negative values separately
-    sourceData.forEach(row => {
-      Object.keys(row).forEach(key => {
-        if (key === 'strike') return;
+    sourceData.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (key === 'strike') return
 
-        const cellData = row[key];
-        if (!cellData || typeof cellData === 'number') return;
+        const cellData = row[key]
+        if (!cellData || typeof cellData === 'number') return
 
         // Collect Flow GEX values
         if (mode === 'flow') {
-          const flowNet = cellData.flowNet || 0;
-          if (flowNet > 0) positiveValues.push(flowNet);
-          else if (flowNet < 0) negativeValues.push(Math.abs(flowNet));
+          const flowNet = cellData.flowNet || 0
+          if (flowNet > 0) positiveValues.push(flowNet)
+          else if (flowNet < 0) negativeValues.push(Math.abs(flowNet))
         }
         // Collect GEX/Dealer values
         else if (mode === 'gex' || mode === 'dealer') {
           if (currentGexMode === 'Net GEX' || currentGexMode === 'Net Dealer') {
-            const netGex = cellData.net || 0;
-            if (netGex > 0) positiveValues.push(netGex);
-            else if (netGex < 0) negativeValues.push(Math.abs(netGex));
+            const netGex = cellData.net || 0
+            if (netGex > 0) positiveValues.push(netGex)
+            else if (netGex < 0) negativeValues.push(Math.abs(netGex))
           } else {
-            const callGex = cellData.call || 0;
-            const putGex = cellData.put || 0;
-            if (callGex > 0) positiveValues.push(callGex);
-            else if (callGex < 0) negativeValues.push(Math.abs(callGex));
-            if (putGex > 0) positiveValues.push(putGex);
-            else if (putGex < 0) negativeValues.push(Math.abs(putGex));
+            const callGex = cellData.call || 0
+            const putGex = cellData.put || 0
+            if (callGex > 0) positiveValues.push(callGex)
+            else if (callGex < 0) negativeValues.push(Math.abs(callGex))
+            if (putGex > 0) positiveValues.push(putGex)
+            else if (putGex < 0) negativeValues.push(Math.abs(putGex))
           }
         }
         // Collect VEX values
         else if (mode === 'vex') {
           if (currentVexMode === 'Net VEX') {
-            const netVex = (cellData.callVex || 0) + (cellData.putVex || 0);
-            if (netVex > 0) positiveValues.push(netVex);
-            else if (netVex < 0) negativeValues.push(Math.abs(netVex));
+            const netVex = (cellData.callVex || 0) + (cellData.putVex || 0)
+            if (netVex > 0) positiveValues.push(netVex)
+            else if (netVex < 0) negativeValues.push(Math.abs(netVex))
           } else {
-            const callVex = cellData.callVex || 0;
-            const putVex = cellData.putVex || 0;
-            if (callVex > 0) positiveValues.push(callVex);
-            else if (callVex < 0) negativeValues.push(Math.abs(callVex));
-            if (putVex > 0) positiveValues.push(putVex);
-            else if (putVex < 0) negativeValues.push(Math.abs(putVex));
+            const callVex = cellData.callVex || 0
+            const putVex = cellData.putVex || 0
+            if (callVex > 0) positiveValues.push(callVex)
+            else if (callVex < 0) negativeValues.push(Math.abs(callVex))
+            if (putVex > 0) positiveValues.push(putVex)
+            else if (putVex < 0) negativeValues.push(Math.abs(putVex))
           }
         }
-      });
-    });
+      })
+    })
 
     // Sort positive and negative values separately (highest to lowest)
-    const sortedPositive = positiveValues.sort((a, b) => b - a);
-    const sortedNegative = negativeValues.sort((a, b) => b - a);
+    const sortedPositive = positiveValues.sort((a, b) => b - a)
+    const sortedNegative = negativeValues.sort((a, b) => b - a)
 
     return {
       highestPositive: sortedPositive[0] || 0,
@@ -6110,104 +7328,128 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       fourth: sortedPositive[3] || 0,
       top10: sortedPositive.slice(0, 10),
       top5Positive: sortedPositive.slice(0, 10),
-      top5Negative: sortedNegative.slice(0, 5)
-    };
-  };
+      top5Negative: sortedNegative.slice(0, 5),
+    }
+  }
 
   // Calculate separate top values for each mode
   // Always use allCalculatedData since the tables always render from these arrays
   // (they already have live OI applied when liveMode is active)
   const gexTopValues = useMemo(() => {
-    return calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX');
-  }, [allGEXCalculatedData]);
+    return calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX')
+  }, [allGEXCalculatedData])
 
   const dealerTopValues = useMemo(() => {
-    return calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer');
-  }, [allDealerCalculatedData]);
+    return calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer')
+  }, [allDealerCalculatedData])
 
-  const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data]);
-  const vexTopValues = useMemo(() => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode), [allCalculatedData, gexMode, vexMode]);
+  const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data])
+  const vexTopValues = useMemo(
+    () => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode),
+    [allCalculatedData, gexMode, vexMode]
+  )
 
   // Legacy topValues for backward compatibility (uses first active mode)
   const topValues = useMemo(() => {
-    if (showFlowGEX) return flowTopValues;
-    if (showDealer) return dealerTopValues;
-    if (showGEX) return gexTopValues;
-    if (showVEX) return vexTopValues;
-    return gexTopValues;
-  }, [showFlowGEX, showDealer, showGEX, showVEX, flowTopValues, dealerTopValues, gexTopValues, vexTopValues]);
+    if (showFlowGEX) return flowTopValues
+    if (showDealer) return dealerTopValues
+    if (showGEX) return gexTopValues
+    if (showVEX) return vexTopValues
+    return gexTopValues
+  }, [
+    showFlowGEX,
+    showDealer,
+    showGEX,
+    showVEX,
+    flowTopValues,
+    dealerTopValues,
+    gexTopValues,
+    vexTopValues,
+  ])
 
   // Detect clusters of high GEX values (top 3 if in same column AND consecutive strikes)
   const detectGEXClusters = useMemo(() => {
-    const gexClusters = new Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>();
-    const dealerClusters = new Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>();
+    const gexClusters = new Map<
+      string,
+      { color: 'green' | 'red'; cells: { strike: number; exp: string }[] }
+    >()
+    const dealerClusters = new Map<
+      string,
+      { color: 'green' | 'red'; cells: { strike: number; exp: string }[] }
+    >()
 
     // Function to detect clusters in a dataset
-    const findClusters = (calculatedData: any[], clusterMap: Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>) => {
-      if (!calculatedData || calculatedData.length === 0) return;
+    const findClusters = (
+      calculatedData: any[],
+      clusterMap: Map<string, { color: 'green' | 'red'; cells: { strike: number; exp: string }[] }>
+    ) => {
+      if (!calculatedData || calculatedData.length === 0) return
 
       // Collect ALL values across ALL expirations with their strike and expiration
-      const allPositiveValues: { strike: number; exp: string; value: number }[] = [];
-      const allNegativeValues: { strike: number; exp: string; value: number }[] = [];
+      const allPositiveValues: { strike: number; exp: string; value: number }[] = []
+      const allNegativeValues: { strike: number; exp: string; value: number }[] = []
 
-      calculatedData.forEach(row => {
-        Object.keys(row).forEach(key => {
+      calculatedData.forEach((row) => {
+        Object.keys(row).forEach((key) => {
           if (key !== 'strike') {
-            const exp = key;
-            const expData = row[exp] as any;
+            const exp = key
+            const expData = row[exp] as any
             if (expData) {
-              const value = (expData.call || 0) + (expData.put || 0);
+              const value = (expData.call || 0) + (expData.put || 0)
               if (value > 0) {
-                allPositiveValues.push({ strike: row.strike, exp, value });
+                allPositiveValues.push({ strike: row.strike, exp, value })
               } else if (value < 0) {
-                allNegativeValues.push({ strike: row.strike, exp, value });
+                allNegativeValues.push({ strike: row.strike, exp, value })
               }
             }
           }
-        });
-      });
+        })
+      })
 
       // Get ONLY the top 3 positive and negative (sorted by absolute highest values)
-      const sortedPositive = allPositiveValues.sort((a, b) => b.value - a.value);
-      const sortedNegative = allNegativeValues.sort((a, b) => a.value - b.value);
+      const sortedPositive = allPositiveValues.sort((a, b) => b.value - a.value)
+      const sortedNegative = allNegativeValues.sort((a, b) => a.value - b.value)
 
       // Take EXACTLY the top 3 - no more, no less
-      const top3Positive = sortedPositive.slice(0, 3);
-      const top3Negative = sortedNegative.slice(0, 3);
+      const top3Positive = sortedPositive.slice(0, 3)
+      const top3Negative = sortedNegative.slice(0, 3)
 
       // POSITIVE: Check if the absolute top 3 highest positive GEX values are in same column AND consecutive strikes
       if (top3Positive.length === 3) {
-        const expirations = top3Positive.map(v => v.exp);
-        const uniqueExps = new Set(expirations);
+        const expirations = top3Positive.map((v) => v.exp)
+        const uniqueExps = new Set(expirations)
 
         if (uniqueExps.size === 1) {
           // All in same column - now check if strikes are ACTUALLY consecutive in the strike ladder
-          const targetExp = top3Positive[0].exp;
-          const strikes = top3Positive.map(v => v.strike).sort((a, b) => b - a); // Sort descending
+          const targetExp = top3Positive[0].exp
+          const strikes = top3Positive.map((v) => v.strike).sort((a, b) => b - a) // Sort descending
 
           // Get ALL strikes available in this expiration from the dataset (include ALL strikes)
-          const allStrikesInExp: number[] = [];
-          calculatedData.forEach(row => {
-            const expData = row[targetExp] as any;
+          const allStrikesInExp: number[] = []
+          calculatedData.forEach((row) => {
+            const expData = row[targetExp] as any
             if (expData) {
               // Include ALL strikes in the ladder, even those with zero GEX
-              allStrikesInExp.push(row.strike);
+              allStrikesInExp.push(row.strike)
             }
-          });
-          allStrikesInExp.sort((a, b) => b - a); // Sort descending
+          })
+          allStrikesInExp.sort((a, b) => b - a) // Sort descending
 
           // Find indices of our top 3 strikes in the full strike ladder
-          const indices = strikes.map(s => allStrikesInExp.indexOf(s));
+          const indices = strikes.map((s) => allStrikesInExp.indexOf(s))
 
           // Check if they are consecutive indices (0,1,2 or 5,6,7, etc.)
-          if (indices.length === 3 && indices.every(i => i !== -1)) {
-            indices.sort((a, b) => a - b);
+          if (indices.length === 3 && indices.every((i) => i !== -1)) {
+            indices.sort((a, b) => a - b)
             if (indices[1] === indices[0] + 1 && indices[2] === indices[1] + 1) {
               // Consecutive strikes! Mark all 3 for blue border
-              top3Positive.forEach(v => {
-                const key = `${v.strike}-${v.exp}`;
-                clusterMap.set(key, { color: 'green', cells: top3Positive.map(p => ({ strike: p.strike, exp: p.exp })) });
-              });
+              top3Positive.forEach((v) => {
+                const key = `${v.strike}-${v.exp}`
+                clusterMap.set(key, {
+                  color: 'green',
+                  cells: top3Positive.map((p) => ({ strike: p.strike, exp: p.exp })),
+                })
+              })
             }
           }
         }
@@ -6215,149 +7457,190 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
       // NEGATIVE: Check if the absolute top 3 highest negative GEX values are in same column AND consecutive strikes
       if (top3Negative.length === 3) {
-        const expirations = top3Negative.map(v => v.exp);
-        const uniqueExps = new Set(expirations);
+        const expirations = top3Negative.map((v) => v.exp)
+        const uniqueExps = new Set(expirations)
 
         if (uniqueExps.size === 1) {
           // All in same column - now check if strikes are ACTUALLY consecutive in the strike ladder
-          const targetExp = top3Negative[0].exp;
-          const strikes = top3Negative.map(v => v.strike).sort((a, b) => b - a); // Sort descending
+          const targetExp = top3Negative[0].exp
+          const strikes = top3Negative.map((v) => v.strike).sort((a, b) => b - a) // Sort descending
 
           // Get ALL strikes available in this expiration from the dataset (include ALL strikes)
-          const allStrikesInExp: number[] = [];
-          calculatedData.forEach(row => {
-            const expData = row[targetExp] as any;
+          const allStrikesInExp: number[] = []
+          calculatedData.forEach((row) => {
+            const expData = row[targetExp] as any
             if (expData) {
               // Include ALL strikes in the ladder, even those with zero GEX
-              allStrikesInExp.push(row.strike);
+              allStrikesInExp.push(row.strike)
             }
-          });
-          allStrikesInExp.sort((a, b) => b - a); // Sort descending
+          })
+          allStrikesInExp.sort((a, b) => b - a) // Sort descending
 
           // Find indices of our top 3 strikes in the full strike ladder
-          const indices = strikes.map(s => allStrikesInExp.indexOf(s));
+          const indices = strikes.map((s) => allStrikesInExp.indexOf(s))
 
           // Check if they are consecutive indices (0,1,2 or 5,6,7, etc.)
-          if (indices.length === 3 && indices.every(i => i !== -1)) {
-            indices.sort((a, b) => a - b);
+          if (indices.length === 3 && indices.every((i) => i !== -1)) {
+            indices.sort((a, b) => a - b)
             if (indices[1] === indices[0] + 1 && indices[2] === indices[1] + 1) {
               // Consecutive strikes! Mark all 3 for blue border
-              top3Negative.forEach(v => {
-                const key = `${v.strike}-${v.exp}`;
-                clusterMap.set(key, { color: 'red', cells: top3Negative.map(n => ({ strike: n.strike, exp: n.exp })) });
-              });
+              top3Negative.forEach((v) => {
+                const key = `${v.strike}-${v.exp}`
+                clusterMap.set(key, {
+                  color: 'red',
+                  cells: top3Negative.map((n) => ({ strike: n.strike, exp: n.exp })),
+                })
+              })
             }
           }
         }
       }
-    };
+    }
 
     // Detect clusters in GEX (NORMAL) data
-    findClusters(allGEXCalculatedData, gexClusters);
+    findClusters(allGEXCalculatedData, gexClusters)
 
     // Detect clusters in Dealer data
-    findClusters(allDealerCalculatedData, dealerClusters);
+    findClusters(allDealerCalculatedData, dealerClusters)
 
-    return { gex: gexClusters, dealer: dealerClusters };
-  }, [allGEXCalculatedData, allDealerCalculatedData]);
+    return { gex: gexClusters, dealer: dealerClusters }
+  }, [allGEXCalculatedData, allDealerCalculatedData])
 
-  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any, tableType?: 'gex' | 'dealer'): { bg: string; ring: string; text: string; clusterPosition?: 'top' | 'middle' | 'bottom' | 'single'; clusterColor?: 'green' | 'red' } => {
-    let bgColor = '';
-    let ringColor = '';
-    let textColor = 'text-white'; // Default text color
-    let clusterPosition: 'top' | 'middle' | 'bottom' | 'single' | undefined = undefined;
-    let clusterColor: 'green' | 'red' | undefined = undefined;
+  const getCellStyle = (
+    value: number,
+    isVexValue: boolean = false,
+    strike?: number,
+    exp?: string,
+    customTopValues?: any,
+    tableType?: 'gex' | 'dealer'
+  ): {
+    bg: string
+    ring: string
+    text: string
+    clusterPosition?: 'top' | 'middle' | 'bottom' | 'single'
+    clusterColor?: 'green' | 'red'
+  } => {
+    let bgColor = ''
+    const ringColor = ''
+    const textColor = 'text-white' // Default text color
+    let clusterPosition: 'top' | 'middle' | 'bottom' | 'single' | undefined = undefined
+    let clusterColor: 'green' | 'red' | undefined = undefined
 
     // Determine which top values to use
-    const topVals = customTopValues || topValues;
+    const topVals = customTopValues || topValues
 
     // Check if this is the highest positive or highest negative value (with small tolerance for floating point)
-    const relativeEpsilon = 0.001;
-    const isHighestPositive = value > 0 && Math.abs(value - topVals.highestPositive) < Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01);
-    const isHighestNegative = value < 0 && Math.abs(Math.abs(value) - topVals.highestNegative) < Math.max(topVals.highestNegative * relativeEpsilon, 0.01);
+    const relativeEpsilon = 0.001
+    const isHighestPositive =
+      value > 0 &&
+      Math.abs(value - topVals.highestPositive) <
+        Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
+    const isHighestNegative =
+      value < 0 &&
+      Math.abs(Math.abs(value) - topVals.highestNegative) <
+        Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
 
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
       if (isHighestPositive) {
         // Highest positive value - golden box
-        bgColor = 'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 shadow-lg shadow-amber-500/50';
+        bgColor =
+          'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 shadow-lg shadow-amber-500/50'
       } else if (isHighestNegative) {
         // Highest negative value - purple box
-        bgColor = 'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 shadow-lg shadow-purple-500/50';
+        bgColor =
+          'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 shadow-lg shadow-purple-500/50'
       } else if (value > 0) {
         // Positive values - green intensity based on value
-        const intensity = Math.min(Math.abs(value) / (topVals.highestPositive || 1), 1);
+        const intensity = Math.min(Math.abs(value) / (topVals.highestPositive || 1), 1)
         if (intensity > 0.7) {
-          bgColor = 'text-white border border-emerald-500/60 bg-gradient-to-br from-emerald-900 to-emerald-800';
+          bgColor =
+            'text-white border border-emerald-500/60 bg-gradient-to-br from-emerald-900 to-emerald-800'
         } else if (intensity > 0.4) {
-          bgColor = 'text-emerald-300 border border-emerald-600/40 bg-gradient-to-br from-emerald-950 to-black';
+          bgColor =
+            'text-emerald-300 border border-emerald-600/40 bg-gradient-to-br from-emerald-950 to-black'
         } else {
-          bgColor = 'text-emerald-400/80 border border-emerald-700/30 bg-black';
+          bgColor = 'text-emerald-400/80 border border-emerald-700/30 bg-black'
         }
       } else if (value < 0) {
         // Negative values - red intensity based on value
-        const intensity = Math.min(Math.abs(value) / (topVals.highestNegative || 1), 1);
+        const intensity = Math.min(Math.abs(value) / (topVals.highestNegative || 1), 1)
         if (intensity > 0.7) {
-          bgColor = 'text-white border border-red-500/60 bg-gradient-to-br from-red-900 to-red-800';
+          bgColor = 'text-white border border-red-500/60 bg-gradient-to-br from-red-900 to-red-800'
         } else if (intensity > 0.4) {
-          bgColor = 'text-red-300 border border-red-600/40 bg-gradient-to-br from-red-950 to-black';
+          bgColor = 'text-red-300 border border-red-600/40 bg-gradient-to-br from-red-950 to-black'
         } else {
-          bgColor = 'text-red-400/80 border border-red-700/30 bg-black';
+          bgColor = 'text-red-400/80 border border-red-700/30 bg-black'
         }
       } else {
-        bgColor = 'text-gray-600 border border-gray-800/50 bg-black';
+        bgColor = 'text-gray-600 border border-gray-800/50 bg-black'
       }
     } else {
       // Original Theme (Default)
       if (isHighestPositive) {
         // Highest positive value - golden box
-        bgColor = 'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600';
+        bgColor =
+          'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600'
       } else if (isHighestNegative) {
         // Highest negative value - purple box
-        bgColor = 'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800';
+        bgColor =
+          'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800'
       } else if (value !== 0) {
-        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
+        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30'
       } else {
-        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
+        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30'
       }
     }
 
     // Check if this cell is part of a GEX cluster and determine position in cluster
     if (strike !== undefined && exp !== undefined && tableType) {
-      const clusterKey = `${strike}-${exp}`;
-      const clusterMap = tableType === 'gex' ? detectGEXClusters.gex : detectGEXClusters.dealer;
-      const clusterInfo = clusterMap.get(clusterKey);
+      const clusterKey = `${strike}-${exp}`
+      const clusterMap = tableType === 'gex' ? detectGEXClusters.gex : detectGEXClusters.dealer
+      const clusterInfo = clusterMap.get(clusterKey)
 
       if (clusterInfo && clusterInfo.cells.length === 3) {
         // Sort cells by strike descending to determine top/middle/bottom
-        const sortedCells = [...clusterInfo.cells].sort((a, b) => b.strike - a.strike);
-        const currentIndex = sortedCells.findIndex(c => c.strike === strike);
+        const sortedCells = [...clusterInfo.cells].sort((a, b) => b.strike - a.strike)
+        const currentIndex = sortedCells.findIndex((c) => c.strike === strike)
 
-        if (currentIndex === 0) clusterPosition = 'top';
-        else if (currentIndex === 1) clusterPosition = 'middle';
+        if (currentIndex === 0) clusterPosition = 'top'
+        else if (currentIndex === 1) clusterPosition = 'middle'
 
-        clusterColor = clusterInfo.color;
+        clusterColor = clusterInfo.color
       }
     }
 
-    return { bg: bgColor, ring: ringColor, text: textColor, clusterPosition, clusterColor };
-  };
+    return { bg: bgColor, ring: ringColor, text: textColor, clusterPosition, clusterColor }
+  }
 
   const formatDate = (dateStr: string) => {
     // Parse the date string (YYYY-MM-DD format)
-    const [year, month, day] = dateStr.split('-');
+    const [year, month, day] = dateStr.split('-')
 
     // Create a Date object at noon UTC to avoid timezone shifting
-    const date = new Date(`${dateStr}T12:00:00Z`);
+    const date = new Date(`${dateStr}T12:00:00Z`)
 
     // Format the date (removed +1 day offset)
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthName = monthNames[date.getUTCMonth()];
-    const dayNum = date.getUTCDate();
-    const yearShort = date.getUTCFullYear().toString().slice(-2);
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ]
+    const monthName = monthNames[date.getUTCMonth()]
+    const dayNum = date.getUTCDate()
+    const yearShort = date.getUTCFullYear().toString().slice(-2)
 
-    return `${monthName} ${dayNum}, ${yearShort}`;
-  };
+    return `${monthName} ${dayNum}, ${yearShort}`
+  }
 
   if (error) {
     return (
@@ -6380,13 +7663,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           </div>
         </div>
       </div>
-    );
+    )
   }
 
   // Dynamic border colors for Bloomberg theme
-  const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-  const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
-  const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
+  const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700'
+  const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800'
+  const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
@@ -6468,7 +7751,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         }
       `}</style>
       <div className="dealer-attraction-container">
-        <div className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[95vw]'} px-4 mx-auto`}>
+        <div
+          className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[95vw]'} px-4 mx-auto`}
+        >
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40">
             {/* Control Panel */}
@@ -6478,25 +7763,47 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 <div className="flex gap-0 w-full mb-2 md:mb-4 relative">
                   <button
                     onClick={() => setActiveTab('WORKBENCH')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'WORKBENCH'
-                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                      }`}
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
+                      activeTab === 'WORKBENCH'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                    }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
-                    {activeTab === 'WORKBENCH' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
-                    <span className="relative" style={activeTab === 'WORKBENCH' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>WORKBENCH</span>
+                    {activeTab === 'WORKBENCH' && (
+                      <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>
+                    )}
+                    <span
+                      className="relative"
+                      style={
+                        activeTab === 'WORKBENCH' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}
+                      }
+                    >
+                      WORKBENCH
+                    </span>
                   </button>
                   <button
                     onClick={() => setActiveTab('ATTRACTION')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'ATTRACTION'
-                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                      }`}
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
+                      activeTab === 'ATTRACTION'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                    }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
-                    {activeTab === 'ATTRACTION' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
-                    <span className="relative" style={activeTab === 'ATTRACTION' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>GREEK SUITE</span>
+                    {activeTab === 'ATTRACTION' && (
+                      <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>
+                    )}
+                    <span
+                      className="relative"
+                      style={
+                        activeTab === 'ATTRACTION'
+                          ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' }
+                          : {}
+                      }
+                    >
+                      GREEK SUITE
+                    </span>
                   </button>
 
                   {/* Close Button - Only show when onClose prop exists */}
@@ -6519,8 +7826,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       {/* Row 1: Search + LIVE + Range + REFRESH */}
                       <div className="flex items-center gap-2">
                         {/* Search Bar */}
-                        <div className="search-bar-premium flex items-center space-x-1 px-2 rounded-md flex-shrink-0" style={{ width: '40px', height: '36px' }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
+                        <div
+                          className="search-bar-premium flex items-center space-x-1 px-2 rounded-md flex-shrink-0"
+                          style={{ width: '40px', height: '36px' }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            style={{ color: 'rgba(128, 128, 128, 0.5)' }}
+                          >
                             <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
                             <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                           </svg>
@@ -6530,19 +7846,26 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
-                                handleTickerSubmit();
+                                handleTickerSubmit()
                               }
                             }}
                             className="bg-transparent border-0 outline-none flex-1 text-sm font-bold uppercase"
                             style={{
                               color: '#ffffff',
-                              textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                              textShadow:
+                                '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
                               fontFamily: 'system-ui, -apple-system, sans-serif',
-                              letterSpacing: '0.5px'
+                              letterSpacing: '0.5px',
                             }}
                             placeholder="Ticker"
                           />
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            style={{ color: '#666' }}
+                          >
                             <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                           </svg>
                         </div>
@@ -6550,30 +7873,34 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {/* LIVE Button */}
                         <button
                           onClick={() => {
-                            const currentTicker = tickerInput.trim() || selectedTicker;
+                            const currentTicker = tickerInput.trim() || selectedTicker
                             if (!currentTicker || currentTicker.trim() === '') {
-                              alert('Please type a ticker in the search bar first before enabling Live OI');
-                              return;
+                              alert(
+                                'Please type a ticker in the search bar first before enabling Live OI'
+                              )
+                              return
                             }
                             if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
-                              const newTicker = tickerInput.trim().toUpperCase();
-                              setSelectedTicker(newTicker);
-                              setTickerInput(newTicker);
+                              const newTicker = tickerInput.trim().toUpperCase()
+                              setSelectedTicker(newTicker)
+                              setTickerInput(newTicker)
                             }
                             if (!liveMode) {
-                              setLiveMode(true);
-                              updateLiveOI();
+                              setLiveMode(true)
+                              updateLiveOI()
                             } else {
-                              console.log('🔴 TURNING OFF LIVE MODE');
-                              setLiveMode(false);
-                              setLiveOIData(new Map());
-                              console.log('🔴 LIVE MODE OFF - liveMode now false, liveOIData cleared to empty Map');
-                              console.log('🔴 Restoring base (original) data...');
+                              console.log('🔴 TURNING OFF LIVE MODE')
+                              setLiveMode(false)
+                              setLiveOIData(new Map())
+                              console.log(
+                                '🔴 LIVE MODE OFF - liveMode now false, liveOIData cleared to empty Map'
+                              )
+                              console.log('🔴 Restoring base (original) data...')
 
                               // Restore original base data
-                              setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
-                              setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
-                              console.log('✅ Base data restored from backup');
+                              setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                              setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                              console.log('✅ Base data restored from backup')
                             }
                           }}
                           disabled={liveOILoading}
@@ -6586,7 +7913,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             height: '36px',
                             minWidth: '60px',
                             opacity: liveOILoading ? 0.5 : 1,
-                            cursor: liveOILoading ? 'not-allowed' : 'pointer'
+                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
                           }}
                         >
                           <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
@@ -6595,15 +7922,35 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         </button>
 
                         {/* Range Selector */}
-                        <div className="flex items-center gap-1" style={{ height: '36px', width: '70px' }}>
+                        <div
+                          className="flex items-center gap-1"
+                          style={{ height: '36px', width: '70px' }}
+                        >
                           <select
                             value={otmFilter}
-                            onChange={(e) => setOtmFilter(e.target.value as '1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%')}
+                            onChange={(e) =>
+                              setOtmFilter(
+                                e.target.value as
+                                  | '1%'
+                                  | '2%'
+                                  | '3%'
+                                  | '5%'
+                                  | '8%'
+                                  | '10%'
+                                  | '15%'
+                                  | '20%'
+                                  | '25%'
+                                  | '40%'
+                                  | '50%'
+                                  | '100%'
+                              )
+                            }
                             className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-2 text-white text-xs font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap w-full"
                             style={{
                               background: '#000000',
-                              boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
-                              height: '36px'
+                              boxShadow:
+                                'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
+                              height: '36px',
                             }}
                           >
                             <option value="1%">±1% OTM</option>
@@ -6625,21 +7972,25 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <select
                           className="md:hidden"
                           value={
-                            showGEX && !showDealer && !showFlowGEX && !showODTRIO ? 'normal' :
-                              !showGEX && showDealer && !showFlowGEX && !showODTRIO ? 'dealer' :
-                                !showGEX && !showDealer && showFlowGEX && !showODTRIO ? 'flowmap' :
-                                  !showGEX && !showDealer && !showFlowGEX && showODTRIO ? 'odtrio' :
-                                    'normal'
+                            showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                              ? 'normal'
+                              : !showGEX && showDealer && !showFlowGEX && !showODTRIO
+                                ? 'dealer'
+                                : !showGEX && !showDealer && showFlowGEX && !showODTRIO
+                                  ? 'flowmap'
+                                  : !showGEX && !showDealer && !showFlowGEX && showODTRIO
+                                    ? 'odtrio'
+                                    : 'normal'
                           }
                           onChange={(e) => {
-                            const value = e.target.value;
-                            setShowGEX(value === 'normal');
-                            setShowDealer(value === 'dealer');
-                            setShowFlowGEX(value === 'flowmap');
-                            setShowODTRIO(value === 'odtrio');
-                            if (value === 'normal') setGexMode('Net GEX');
-                            if (value === 'dealer') setGexMode('Net Dealer');
-                            if (value === 'odtrio') fetchODTRIOData();
+                            const value = e.target.value
+                            setShowGEX(value === 'normal')
+                            setShowDealer(value === 'dealer')
+                            setShowFlowGEX(value === 'flowmap')
+                            setShowODTRIO(value === 'odtrio')
+                            if (value === 'normal') setGexMode('Net GEX')
+                            if (value === 'dealer') setGexMode('Net Dealer')
+                            if (value === 'odtrio') fetchODTRIOData()
                           }}
                           style={{
                             height: '36px',
@@ -6653,13 +8004,22 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             textTransform: 'uppercase',
                             outline: 'none',
                             cursor: 'pointer',
-                            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8)'
+                            boxShadow:
+                              'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8)',
                           }}
                         >
-                          <option value="normal" style={{ background: '#000', color: '#22c55e' }}>Normal</option>
-                          <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>Dealer</option>
-                          <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>Flow Map</option>
-                          <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>ODTRIO</option>
+                          <option value="normal" style={{ background: '#000', color: '#22c55e' }}>
+                            Normal
+                          </option>
+                          <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>
+                            Dealer
+                          </option>
+                          <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>
+                            Flow Map
+                          </option>
+                          <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>
+                            ODTRIO
+                          </option>
                         </select>
 
                         {/* MOBILE ONLY: OI Button - After Mode Dropdown */}
@@ -6667,23 +8027,35 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="md:hidden flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showOI ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'transparent',
-                            border: showOI ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
-                            boxShadow: showOI ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)' : 'none'
+                            background: showOI
+                              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)'
+                              : 'transparent',
+                            border: showOI
+                              ? '1px solid rgba(59, 130, 246, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showOI
+                              ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => setShowOI(!showOI)}
                         >
                           <input
                             type="checkbox"
                             checked={showOI}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#3b82f6',
-                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none'
+                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff', textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showOI ? '#3b82f6' : '#ffffff',
+                              textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
+                            }}
+                          >
                             OI
                           </span>
                         </div>
@@ -6691,14 +8063,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
-                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                            }`}
+                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
+                            useBloombergTheme
+                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
+                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                          }`}
                           style={{
                             height: '36px',
                             width: '36px',
-                            boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
+                            boxShadow: useBloombergTheme
+                              ? '0 0 10px rgba(245, 158, 11, 0.5)'
+                              : 'none',
                           }}
                           title="Toggle Bloomberg Terminal Theme"
                         >
@@ -6709,14 +8084,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {!showODTRIO && (
                           <button
                             onClick={() => setShowHistoricalGEX(!showHistoricalGEX)}
-                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
-                              ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
-                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
-                              }`}
+                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
+                              showHistoricalGEX
+                                ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
+                                : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
+                            }`}
                             style={{
                               height: '36px',
                               minWidth: '90px',
-                              boxShadow: showHistoricalGEX ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'
+                              boxShadow: showHistoricalGEX
+                                ? '0 0 10px rgba(59, 130, 246, 0.5)'
+                                : 'none',
                             }}
                             title="Toggle Historical GEX Scrubber"
                           >
@@ -6727,9 +8105,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {/* ODTRIO Button - Flow Map style with blue text - Desktop only */}
                         <button
                           onClick={() => {
-                            setShowODTRIO(!showODTRIO);
+                            setShowODTRIO(!showODTRIO)
                             if (!showODTRIO) {
-                              fetchODTRIOData();
+                              fetchODTRIOData()
                             }
                           }}
                           className="hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded border-2 border-gray-800 hover:border-gray-600"
@@ -6740,7 +8118,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             borderColor: '#444',
                             color: '#3b82f6',
                             fontWeight: '900',
-                            letterSpacing: '0.05em'
+                            letterSpacing: '0.05em',
                           }}
                           title="ODTE Trio: SPX, QQQ, SPY"
                         >
@@ -6752,12 +8130,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <button
                             onClick={() => {
                               if (!liveMode) {
-                                setLiveMode(true);
-                                updateOdtrioLiveOI();
+                                setLiveMode(true)
+                                updateOdtrioLiveOI()
                               } else {
-                                setLiveMode(false);
-                                setLiveOIData(new Map());
-                                setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)));
+                                setLiveMode(false)
+                                setLiveOIData(new Map())
+                                setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
                               }
                             }}
                             disabled={liveOILoading}
@@ -6769,13 +8147,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               height: '36px',
                               minWidth: '75px',
                               opacity: liveOILoading ? 0.5 : 1,
-                              cursor: liveOILoading ? 'not-allowed' : 'pointer'
+                              cursor: liveOILoading ? 'not-allowed' : 'pointer',
                             }}
                             title="ODTRIO Live OI - Scan flow for ODTE strikes only"
                           >
-                            <span>
-                              {liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}
-                            </span>
+                            <span>{liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}</span>
                           </button>
                         )}
 
@@ -6786,9 +8162,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center justify-center px-2 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded"
                           style={{
                             background: '#000000',
-                            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
+                            boxShadow:
+                              'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
                             height: '36px',
-                            width: '36px'
+                            width: '36px',
                           }}
                         >
                           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -6802,27 +8179,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showGEX ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)' : 'transparent',
-                            border: showGEX ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
-                            boxShadow: showGEX ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)' : 'none'
+                            background: showGEX
+                              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)'
+                              : 'transparent',
+                            border: showGEX
+                              ? '1px solid rgba(34, 197, 94, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showGEX
+                              ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => {
-                            const newValue = !showGEX;
-                            setShowGEX(newValue);
-                            if (newValue) setGexMode('Net GEX');
+                            const newValue = !showGEX
+                            setShowGEX(newValue)
+                            if (newValue) setGexMode('Net GEX')
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={showGEX}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#22c55e',
-                              boxShadow: showGEX ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none'
+                              boxShadow: showGEX ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showGEX ? '#22c55e' : '#ffffff', textShadow: showGEX ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showGEX ? '#22c55e' : '#ffffff',
+                              textShadow: showGEX ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none',
+                            }}
+                          >
                             NORMAL
                           </span>
                         </div>
@@ -6832,27 +8221,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showDealer ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%)' : 'transparent',
-                            border: showDealer ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
-                            boxShadow: showDealer ? 'inset 0 1px 2px rgba(168, 85, 247, 0.1), 0 2px 4px rgba(168, 85, 247, 0.2)' : 'none'
+                            background: showDealer
+                              ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%)'
+                              : 'transparent',
+                            border: showDealer
+                              ? '1px solid rgba(168, 85, 247, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showDealer
+                              ? 'inset 0 1px 2px rgba(168, 85, 247, 0.1), 0 2px 4px rgba(168, 85, 247, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => {
-                            const newValue = !showDealer;
-                            setShowDealer(newValue);
-                            if (newValue) setGexMode('Net Dealer');
+                            const newValue = !showDealer
+                            setShowDealer(newValue)
+                            if (newValue) setGexMode('Net Dealer')
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={showDealer}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#a855f7',
-                              boxShadow: showDealer ? '0 0 6px rgba(168, 85, 247, 0.5)' : 'none'
+                              boxShadow: showDealer ? '0 0 6px rgba(168, 85, 247, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showDealer ? '#a855f7' : '#facc15', textShadow: showDealer ? '0 0 8px rgba(168, 85, 247, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showDealer ? '#a855f7' : '#facc15',
+                              textShadow: showDealer ? '0 0 8px rgba(168, 85, 247, 0.5)' : 'none',
+                            }}
+                          >
                             DEALER
                           </span>
                         </div>
@@ -6862,23 +8263,35 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showFlowGEX ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(249, 115, 22, 0.05) 100%)' : 'transparent',
-                            border: showFlowGEX ? '1px solid rgba(249, 115, 22, 0.3)' : '1px solid transparent',
-                            boxShadow: showFlowGEX ? 'inset 0 1px 2px rgba(249, 115, 22, 0.1), 0 2px 4px rgba(249, 115, 22, 0.2)' : 'none'
+                            background: showFlowGEX
+                              ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(249, 115, 22, 0.05) 100%)'
+                              : 'transparent',
+                            border: showFlowGEX
+                              ? '1px solid rgba(249, 115, 22, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showFlowGEX
+                              ? 'inset 0 1px 2px rgba(249, 115, 22, 0.1), 0 2px 4px rgba(249, 115, 22, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => setShowFlowGEX(!showFlowGEX)}
                         >
                           <input
                             type="checkbox"
                             checked={showFlowGEX}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#f97316',
-                              boxShadow: showFlowGEX ? '0 0 6px rgba(249, 115, 22, 0.5)' : 'none'
+                              boxShadow: showFlowGEX ? '0 0 6px rgba(249, 115, 22, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showFlowGEX ? '#f97316' : '#fb923c', textShadow: showFlowGEX ? '0 0 8px rgba(249, 115, 22, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showFlowGEX ? '#f97316' : '#fb923c',
+                              textShadow: showFlowGEX ? '0 0 8px rgba(249, 115, 22, 0.5)' : 'none',
+                            }}
+                          >
                             FLOW MAP
                           </span>
                         </div>
@@ -6887,27 +8300,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="hidden md:flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showVEX ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%)' : 'transparent',
-                            border: showVEX ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid transparent',
-                            boxShadow: showVEX ? 'inset 0 1px 2px rgba(234, 179, 8, 0.1), 0 2px 4px rgba(234, 179, 8, 0.2)' : 'none'
+                            background: showVEX
+                              ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%)'
+                              : 'transparent',
+                            border: showVEX
+                              ? '1px solid rgba(234, 179, 8, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showVEX
+                              ? 'inset 0 1px 2px rgba(234, 179, 8, 0.1), 0 2px 4px rgba(234, 179, 8, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => {
-                            const newValue = !showVEX;
-                            setShowVEX(newValue);
-                            if (newValue) setVexMode('Net VEX');
+                            const newValue = !showVEX
+                            setShowVEX(newValue)
+                            if (newValue) setVexMode('Net VEX')
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={showVEX}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#eab308',
-                              boxShadow: showVEX ? '0 0 6px rgba(234, 179, 8, 0.5)' : 'none'
+                              boxShadow: showVEX ? '0 0 6px rgba(234, 179, 8, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showVEX ? '#eab308' : '#c084fc', textShadow: showVEX ? '0 0 8px rgba(234, 179, 8, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showVEX ? '#eab308' : '#c084fc',
+                              textShadow: showVEX ? '0 0 8px rgba(234, 179, 8, 0.5)' : 'none',
+                            }}
+                          >
                             <span className="hidden md:inline">VOLATILITY</span>
                             <span className="md:hidden">VEX</span>
                           </span>
@@ -6917,9 +8342,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <div className="md:hidden">
                           <button
                             onClick={() => {
-                              setShowODTRIO(!showODTRIO);
+                              setShowODTRIO(!showODTRIO)
                               if (!showODTRIO) {
-                                fetchODTRIOData();
+                                fetchODTRIOData()
                               }
                             }}
                             className="flex items-center justify-center px-2 font-black text-xs transition-all rounded border-2 border-gray-800 hover:border-gray-600"
@@ -6930,7 +8355,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               borderColor: '#444',
                               color: '#3b82f6',
                               fontWeight: '900',
-                              letterSpacing: '0.05em'
+                              letterSpacing: '0.05em',
                             }}
                             title="ODTE Trio: SPX, QQQ, SPY"
                           >
@@ -6943,23 +8368,35 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{
                             height: '36px',
-                            background: showOI ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'transparent',
-                            border: showOI ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
-                            boxShadow: showOI ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)' : 'none'
+                            background: showOI
+                              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)'
+                              : 'transparent',
+                            border: showOI
+                              ? '1px solid rgba(59, 130, 246, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: showOI
+                              ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)'
+                              : 'none',
                           }}
                           onClick={() => setShowOI(!showOI)}
                         >
                           <input
                             type="checkbox"
                             checked={showOI}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#3b82f6',
-                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none'
+                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none',
                             }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff', textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none' }}>
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: showOI ? '#3b82f6' : '#ffffff',
+                              textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
+                            }}
+                          >
                             OI
                           </span>
                         </div>
@@ -6973,8 +8410,20 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <div className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
                           <div className="relative flex items-center">
                             <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-                                <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                style={{ color: 'rgba(128, 128, 128, 0.5)' }}
+                              >
+                                <circle
+                                  cx="11"
+                                  cy="11"
+                                  r="8"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                />
                                 <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                               </svg>
                               <input
@@ -6983,19 +8432,26 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
-                                    handleTickerSubmit();
+                                    handleTickerSubmit()
                                   }
                                 }}
                                 className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
                                 style={{
                                   color: '#ffffff',
-                                  textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                                  textShadow:
+                                    '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
                                   fontFamily: 'system-ui, -apple-system, sans-serif',
-                                  letterSpacing: '0.8px'
+                                  letterSpacing: '0.8px',
                                 }}
                                 placeholder="Search..."
                               />
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                style={{ color: '#666' }}
+                              >
                                 <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                               </svg>
                             </div>
@@ -7010,108 +8466,155 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               {/* DUO Button - Desktop Only */}
                               <button
                                 onClick={() => {
-                                  const newDuoMode = !duoMode;
-                                  setDuoMode(newDuoMode);
+                                  const newDuoMode = !duoMode
+                                  setDuoMode(newDuoMode)
                                   if (newDuoMode) {
-                                    setShowGEX(true);
-                                    setShowDealer(true);
+                                    setShowGEX(true)
+                                    setShowDealer(true)
                                   } else {
-                                    setShowGEX(false);
-                                    setShowDealer(false);
+                                    setShowGEX(false)
+                                    setShowDealer(false)
                                   }
                                 }}
-                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
-                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'}`}
+                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  duoMode
+                                    ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
-                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}>DUO</span>
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}
+                                >
+                                  DUO
+                                </span>
                               </button>
 
                               {/* NORMAL (GEX) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
-                                ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'}`}>
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showGEX
+                                    ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                }`}
+                              >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showGEX}
                                   onChange={(e) => {
-                                    const isChecked = e.target.checked;
-                                    setShowGEX(isChecked);
+                                    const isChecked = e.target.checked
+                                    setShowGEX(isChecked)
                                     if (isChecked) {
-                                      setGexMode('Net GEX');
+                                      setGexMode('Net GEX')
                                     }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-emerald-500 border-emerald-500/60 focus:ring-emerald-500 accent-emerald-500"
                                 />
-                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}>NORMAL</span>
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}
+                                >
+                                  NORMAL
+                                </span>
                               </div>
 
                               {/* MM ACTIVITY (Dealer) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer
-                                ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'}`}>
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showDealer
+                                    ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                }`}
+                              >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showDealer}
                                   onChange={(e) => {
-                                    const isChecked = e.target.checked;
-                                    setShowDealer(isChecked);
+                                    const isChecked = e.target.checked
+                                    setShowDealer(isChecked)
                                     if (isChecked) {
-                                      setGexMode('Net Dealer');
+                                      setGexMode('Net Dealer')
                                     }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-amber-500 border-amber-500/60 focus:ring-amber-500 accent-amber-500"
                                 />
-                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}>DEALER</span>
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}
+                                >
+                                  DEALER
+                                </span>
                               </div>
 
                               {/* FLOW MAP Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX
-                                ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'}`}>
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showFlowGEX
+                                    ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
+                                }`}
+                              >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   id="flowgex-checkbox-desktop"
                                   type="checkbox"
                                   checked={showFlowGEX}
                                   onClick={(e) => {
-                                    console.log(`🔥 FLOW GEX CHECKBOX CLICKED (desktop) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`);
+                                    console.log(
+                                      `🔥 FLOW GEX CHECKBOX CLICKED (desktop) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`
+                                    )
                                   }}
                                   onChange={(e) => {
-                                    console.log(`🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`);
-                                    setShowFlowGEX(e.target.checked);
+                                    console.log(
+                                      `🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`
+                                    )
+                                    setShowFlowGEX(e.target.checked)
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-orange-500 border-orange-500/60 focus:ring-orange-500 accent-orange-500"
                                 />
-                                <label htmlFor="flowgex-checkbox-desktop" className={`relative z-10 text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}>FLOW MAP</label>
+                                <label
+                                  htmlFor="flowgex-checkbox-desktop"
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}
+                                >
+                                  FLOW MAP
+                                </label>
                               </div>
 
                               {/* VOLATILITY (VEX) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showVEX
-                                ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-purple-500/40 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]'}`}>
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showVEX
+                                    ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-purple-500/40 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
+                                }`}
+                              >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showVEX}
                                   onChange={(e) => {
-                                    setShowVEX(e.target.checked);
+                                    setShowVEX(e.target.checked)
                                     if (e.target.checked) {
-                                      setVexMode('Net VEX');
+                                      setVexMode('Net VEX')
                                     }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-purple-500 border-purple-500/60 focus:ring-purple-500 accent-purple-500"
                                 />
-                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showVEX ? 'text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]' : 'text-purple-400'}`}>VOLATILITY</span>
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showVEX ? 'text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]' : 'text-purple-400'}`}
+                                >
+                                  VOLATILITY
+                                </span>
                               </div>
 
                               {/* OI Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
-                                ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'}`}>
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showOI
+                                    ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                }`}
+                              >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
@@ -7119,7 +8622,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   onChange={(e) => setShowOI(e.target.checked)}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-blue-500 border-blue-500/60 focus:ring-blue-500 accent-blue-500"
                                 />
-                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}>OI</span>
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}
+                                >
+                                  OI
+                                </span>
                               </div>
 
                               {/* LIVE Button */}
@@ -7127,41 +8634,49 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 <button
                                   onClick={() => {
                                     // Check if ticker is typed in search bar (even without clicking enter)
-                                    const currentTicker = tickerInput.trim() || selectedTicker;
+                                    const currentTicker = tickerInput.trim() || selectedTicker
                                     if (!currentTicker || currentTicker.trim() === '') {
-                                      alert('Please type a ticker in the search bar first before enabling Live OI');
-                                      return;
+                                      alert(
+                                        'Please type a ticker in the search bar first before enabling Live OI'
+                                      )
+                                      return
                                     }
 
                                     // If ticker is typed but not searched yet, trigger search first
-                                    if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
-                                      const newTicker = tickerInput.trim().toUpperCase();
-                                      setSelectedTicker(newTicker);
-                                      setTickerInput(newTicker);
+                                    if (
+                                      tickerInput.trim() &&
+                                      tickerInput.trim() !== selectedTicker
+                                    ) {
+                                      const newTicker = tickerInput.trim().toUpperCase()
+                                      setSelectedTicker(newTicker)
+                                      setTickerInput(newTicker)
                                     }
 
                                     if (!liveMode) {
-                                      setLiveMode(true);
-                                      updateLiveOI();
+                                      setLiveMode(true)
+                                      updateLiveOI()
                                     } else {
-                                      console.log('🔴 TURNING OFF LIVE MODE (second button)');
-                                      setLiveMode(false);
-                                      setLiveOIData(new Map());
+                                      console.log('🔴 TURNING OFF LIVE MODE (second button)')
+                                      setLiveMode(false)
+                                      setLiveOIData(new Map())
 
                                       // Restore original base data
-                                      setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
-                                      setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
-                                      console.log('✅ Base data restored from backup');
+                                      setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                                      setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                                      console.log('✅ Base data restored from backup')
                                     }
                                   }}
                                   disabled={liveOILoading}
-                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${liveMode
-                                    ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
-                                    } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${
+                                    liveMode
+                                      ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
+                                  } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                 >
                                   <span className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></span>
-                                  <span className="relative z-10">{liveOILoading ? 'LOADING...' : liveMode ? '● LIVE' : 'LIVE'}</span>
+                                  <span className="relative z-10">
+                                    {liveOILoading ? 'LOADING...' : liveMode ? '● LIVE' : 'LIVE'}
+                                  </span>
                                 </button>
                                 {liveOILoading && (
                                   <div className="flex items-center gap-2">
@@ -7171,21 +8686,40 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                         style={{ width: `${liveOIProgress}%` }}
                                       />
                                     </div>
-                                    <span className="text-xs text-green-400 font-bold">{liveOIProgress}%</span>
+                                    <span className="text-xs text-green-400 font-bold">
+                                      {liveOIProgress}%
+                                    </span>
                                   </div>
                                 )}
                               </div>
                             </div>
                           </div>
 
-
                           {/* OTM Filter Dropdown */}
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">RANGE</span>
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">
+                              RANGE
+                            </span>
                             <div className="relative">
                               <select
                                 value={otmFilter}
-                                onChange={(e) => setOtmFilter(e.target.value as '1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%')}
+                                onChange={(e) =>
+                                  setOtmFilter(
+                                    e.target.value as
+                                      | '1%'
+                                      | '2%'
+                                      | '3%'
+                                      | '5%'
+                                      | '8%'
+                                      | '10%'
+                                      | '15%'
+                                      | '20%'
+                                      | '25%'
+                                      | '40%'
+                                      | '50%'
+                                      | '100%'
+                                  )
+                                }
                                 className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
                               >
                                 <option value="1%">±1%</option>
@@ -7202,8 +8736,16 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 <option value="100%">±100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                                <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                <svg
+                                  className="w-4 h-4 text-orange-500"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                    clipRule="evenodd"
+                                  />
                                 </svg>
                               </div>
                             </div>
@@ -7214,12 +8756,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                       <button
                         onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                        className={`hidden flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
-                          ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                          : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                          }`}
+                        className={`hidden flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${
+                          useBloombergTheme
+                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
+                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                        }`}
                         style={{
-                          boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
+                          boxShadow: useBloombergTheme
+                            ? '0 0 10px rgba(245, 158, 11, 0.5)'
+                            : 'none',
                         }}
                         title="Toggle Bloomberg Terminal Theme"
                       >
@@ -7229,10 +8774,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       {/* ODTRIO Button - Flow Map style with blue text */}
                       <button
                         onClick={() => {
-                          const newState = !showODTRIO;
-                          setShowODTRIO(newState);
+                          const newState = !showODTRIO
+                          setShowODTRIO(newState)
                           if (newState) {
-                            fetchODTRIOData();
+                            fetchODTRIOData()
                           }
                         }}
                         className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2 border-gray-800 hover:border-gray-600"
@@ -7241,7 +8786,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           borderColor: '#444',
                           color: '#3b82f6',
                           fontWeight: '900',
-                          letterSpacing: '0.05em'
+                          letterSpacing: '0.05em',
                         }}
                         title="ODTE Trio: SPX, QQQ, SPY"
                       >
@@ -7253,12 +8798,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <button
                           onClick={() => {
                             if (!liveMode) {
-                              setLiveMode(true);
-                              updateOdtrioLiveOI();
+                              setLiveMode(true)
+                              updateOdtrioLiveOI()
                             } else {
-                              setLiveMode(false);
-                              setLiveOIData(new Map());
-                              setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)));
+                              setLiveMode(false)
+                              setLiveOIData(new Map())
+                              setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
                             }
                           }}
                           disabled={liveOILoading}
@@ -7268,13 +8813,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             borderColor: '#444',
                             color: liveMode ? '#22c55e' : '#ef4444',
                             opacity: liveOILoading ? 0.5 : 1,
-                            cursor: liveOILoading ? 'not-allowed' : 'pointer'
+                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
                           }}
                           title="ODTRIO Live OI - Scan flow for ODTE strikes only"
                         >
-                          <span>
-                            {liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}
-                          </span>
+                          <span>{liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}</span>
                         </button>
                       )}
 
@@ -7299,7 +8842,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       <div className="flex items-center gap-4">
                         <div className="relative flex items-center">
                           <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              style={{ color: 'rgba(128, 128, 128, 0.5)' }}
+                            >
                               <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
                               <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                             </svg>
@@ -7309,19 +8858,26 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                  handleTickerSubmit();
+                                  handleTickerSubmit()
                                 }
                               }}
                               className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
                               style={{
                                 color: '#ffffff',
-                                textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                                textShadow:
+                                  '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
                                 fontFamily: 'system-ui, -apple-system, sans-serif',
-                                letterSpacing: '0.8px'
+                                letterSpacing: '0.8px',
                               }}
                               placeholder="Search..."
                             />
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              style={{ color: '#666' }}
+                            >
                               <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                             </svg>
                           </div>
@@ -7333,19 +8889,21 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <div className="flex gap-4">
                           <button
                             onClick={() => setActiveWorkbenchTab('MM')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MM'
-                              ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
-                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                              }`}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'MM'
+                                ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
                           >
                             Market Maker
                           </button>
                           <button
                             onClick={() => setActiveWorkbenchTab('SI')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'SI'
-                              ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
-                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                              }`}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'SI'
+                                ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
                           >
                             Stability Index
                           </button>
@@ -7362,8 +8920,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       </div>
                     </div>
 
-                    <div className="text-center py-8">
-                    </div>
+                    <div className="text-center py-8"></div>
                   </div>
                 )}
               </div>
@@ -7374,7 +8931,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             <div className="text-center py-32 bg-gradient-to-r from-gray-900/50 to-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50">
               <RefreshCw size={48} className="animate-spin mx-auto mb-6 text-blue-400" />
               <p className="text-xl font-semibold text-gray-300">Loading Real Market Data</p>
-              <p className="text-sm text-gray-500 mt-2">Fetching options chains and calculating dealer attraction levels...</p>
+              <p className="text-sm text-gray-500 mt-2">
+                Fetching options chains and calculating dealer attraction levels...
+              </p>
 
               {/* Web Worker Progress Bar */}
               {progress > 0 && (
@@ -7397,17 +8956,28 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               </div>
 
               {/* Live OI Recalculation Overlay */}
-              <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50" style={{ marginTop: '80px' }}>
+              <div
+                className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50"
+                style={{ marginTop: '80px' }}
+              >
                 <div className="text-center py-16 px-8">
-                  <RefreshCw size={64} className="animate-spin mx-auto mb-6" style={{ color: '#FFD700' }} />
+                  <RefreshCw
+                    size={64}
+                    className="animate-spin mx-auto mb-6"
+                    style={{ color: '#FFD700' }}
+                  />
                   <p className="text-2xl font-bold text-orange-500 mb-2">LIVE MODE ACTIVE</p>
                   <p className="text-xl font-semibold text-white">Recalculating with Live Data</p>
                   <p className="text-sm text-gray-400 mt-2">
-                    {liveOIProgress < 20 ? 'Scanning options flow...' :
-                      liveOIProgress < 60 ? 'Fetching contract data...' :
-                        liveOIProgress < 80 ? 'Enriching trades...' :
-                          liveOIProgress < 90 ? 'Calculating Live OI...' :
-                            'Recalculating all metrics...'}
+                    {liveOIProgress < 20
+                      ? 'Scanning options flow...'
+                      : liveOIProgress < 60
+                        ? 'Fetching contract data...'
+                        : liveOIProgress < 80
+                          ? 'Enriching trades...'
+                          : liveOIProgress < 90
+                            ? 'Calculating Live OI...'
+                            : 'Recalculating all metrics...'}
                   </p>
 
                   {/* Live OI Progress Bar */}
@@ -7435,7 +9005,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     ticker={selectedTicker}
                     date={(() => {
                       // Get current time in ET
-                      const now = new Date();
+                      const now = new Date()
 
                       // Get ET time components
                       const etFormatter = new Intl.DateTimeFormat('en-US', {
@@ -7445,42 +9015,46 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
-                      });
+                        hour12: false,
+                      })
 
-                      const parts = etFormatter.formatToParts(now);
-                      let year = parts.find(p => p.type === 'year')!.value;
-                      let month = parts.find(p => p.type === 'month')!.value;
-                      let day = parts.find(p => p.type === 'day')!.value;
-                      const hour = parseInt(parts.find(p => p.type === 'hour')!.value);
+                      const parts = etFormatter.formatToParts(now)
+                      let year = parts.find((p) => p.type === 'year')!.value
+                      let month = parts.find((p) => p.type === 'month')!.value
+                      let day = parts.find((p) => p.type === 'day')!.value
+                      const hour = parseInt(parts.find((p) => p.type === 'hour')!.value)
 
                       // If it's before 9:30 AM ET, use previous day's data (since market hasn't opened yet)
-                      if (hour < 9 || (hour === 9 && parseInt(parts.find(p => p.type === 'minute')!.value) < 30)) {
-                        const yesterday = new Date(`${year}-${month}-${day}`);
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        year = yesterday.getFullYear().toString();
-                        month = String(yesterday.getMonth() + 1).padStart(2, '0');
-                        day = String(yesterday.getDate()).padStart(2, '0');
+                      if (
+                        hour < 9 ||
+                        (hour === 9 && parseInt(parts.find((p) => p.type === 'minute')!.value) < 30)
+                      ) {
+                        const yesterday = new Date(`${year}-${month}-${day}`)
+                        yesterday.setDate(yesterday.getDate() - 1)
+                        year = yesterday.getFullYear().toString()
+                        month = String(yesterday.getMonth() + 1).padStart(2, '0')
+                        day = String(yesterday.getDate()).padStart(2, '0')
                       }
 
                       // Create date object using the ET date components
-                      const today = new Date(`${year}-${month}-${day}T12:00:00`);
-                      const dayOfWeek = today.getDay();
+                      const today = new Date(`${year}-${month}-${day}T12:00:00`)
+                      const dayOfWeek = today.getDay()
 
                       // If Saturday (6), go back 1 day. If Sunday (0), go back 2 days.
-                      if (dayOfWeek === 0) today.setDate(today.getDate() - 2); // Sunday -> Friday
-                      else if (dayOfWeek === 6) today.setDate(today.getDate() - 1); // Saturday -> Friday
+                      if (dayOfWeek === 0)
+                        today.setDate(today.getDate() - 2) // Sunday -> Friday
+                      else if (dayOfWeek === 6) today.setDate(today.getDate() - 1) // Saturday -> Friday
 
                       // Format as YYYY-MM-DD
-                      const finalYear = today.getFullYear();
-                      const finalMonth = String(today.getMonth() + 1).padStart(2, '0');
-                      const finalDay = String(today.getDate()).padStart(2, '0');
-                      return `${finalYear}-${finalMonth}-${finalDay}`;
+                      const finalYear = today.getFullYear()
+                      const finalMonth = String(today.getMonth() + 1).padStart(2, '0')
+                      const finalDay = String(today.getDate()).padStart(2, '0')
+                      return `${finalYear}-${finalMonth}-${finalDay}`
                     })()}
                     currentPrice={currentPrice}
                     onTimeChange={(timestamp, price) => {
-                      setHistoricalTimestamp(timestamp);
-                      setHistoricalPrice(price);
+                      setHistoricalTimestamp(timestamp)
+                      setHistoricalPrice(price)
                     }}
                   />
                 </div>
@@ -7492,162 +9066,206 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   <div className="flex gap-1 w-full">
                     {(() => {
                       // Count how many tickers have golden zones above current price
-                      const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {};
-                      ['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
-                        const tickerData = odtrioData[ticker];
-                        const tickerDataArray = tickerData?.data || [];
-                        const odteExpiry = tickerData?.odteExpiry;
-                        const currentPrice = tickerData?.currentPrice || 0;
+                      const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {}
+                      ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
+                        const tickerData = odtrioData[ticker]
+                        const tickerDataArray = tickerData?.data || []
+                        const odteExpiry = tickerData?.odteExpiry
+                        const currentPrice = tickerData?.currentPrice || 0
 
                         if (odteExpiry && tickerDataArray.length > 0) {
                           const normalGEXValues = tickerDataArray
-                            .filter(row => row.expirations && row.expirations[odteExpiry])
-                            .map(row => {
-                              const gexData = row.expirations![odteExpiry];
-                              return (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                            });
+                            .filter((row) => row.expirations && row.expirations[odteExpiry])
+                            .map((row) => {
+                              const gexData = row.expirations![odteExpiry]
+                              return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                            })
                           const dealerGEXValues = tickerDataArray
-                            .filter(row => row.expirations && row.expirations[odteExpiry])
-                            .map(row => {
-                              const gexData = row.expirations![odteExpiry];
-                              return (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                            });
+                            .filter((row) => row.expirations && row.expirations[odteExpiry])
+                            .map((row) => {
+                              const gexData = row.expirations![odteExpiry]
+                              return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                            })
 
-                          const highestGEX = Math.max(...normalGEXValues);
-                          const highestDealer = Math.max(...dealerGEXValues);
+                          const highestGEX = Math.max(...normalGEXValues)
+                          const highestDealer = Math.max(...dealerGEXValues)
 
                           // Find golden zone row (highest GEX for both columns)
-                          const goldenRow = tickerDataArray.find(row => {
-                            const gexData = row.expirations?.[odteExpiry];
-                            if (!gexData) return false;
-                            const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                            const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                            return netGEX === highestGEX && netDealer === highestDealer && netGEX > 0 && netDealer > 0;
-                          });
+                          const goldenRow = tickerDataArray.find((row) => {
+                            const gexData = row.expirations?.[odteExpiry]
+                            if (!gexData) return false
+                            const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                            const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                            return (
+                              netGEX === highestGEX &&
+                              netDealer === highestDealer &&
+                              netGEX > 0 &&
+                              netDealer > 0
+                            )
+                          })
 
                           if (goldenRow) {
-                            tickerGoldenPositions[ticker] = goldenRow.strike > currentPrice ? 'above' : 'below';
+                            tickerGoldenPositions[ticker] =
+                              goldenRow.strike > currentPrice ? 'above' : 'below'
                           }
                         }
-                      });
+                      })
 
-                      const goldensAbove = Object.values(tickerGoldenPositions).filter(pos => pos === 'above').length;
-                      const isTurboMode = goldensAbove >= 2; // 2 or more tickers have golden zones above
+                      const goldensAbove = Object.values(tickerGoldenPositions).filter(
+                        (pos) => pos === 'above'
+                      ).length
+                      const isTurboMode = goldensAbove >= 2 // 2 or more tickers have golden zones above
 
                       return ['SPX', 'QQQ', 'SPY'].map((tricoTicker) => {
-                        const isGoldenAbove = tickerGoldenPositions[tricoTicker] === 'above';
-                        const tickerData = odtrioData[tricoTicker];
-                        const tickerDataArray = tickerData?.data || [];
-                        const odteExpiry = tickerData?.odteExpiry;
-                        const currentPrice = tickerData?.currentPrice || 0;
-                        const isLoading = tickerData?.loading;
+                        const isGoldenAbove = tickerGoldenPositions[tricoTicker] === 'above'
+                        const tickerData = odtrioData[tricoTicker]
+                        const tickerDataArray = tickerData?.data || []
+                        const odteExpiry = tickerData?.odteExpiry
+                        const currentPrice = tickerData?.currentPrice || 0
+                        const isLoading = tickerData?.loading
 
                         if (isLoading) {
                           return (
-                            <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
+                            <div
+                              key={tricoTicker}
+                              className="flex-1 flex items-center justify-center"
+                              style={{ minWidth: 0, minHeight: '400px' }}
+                            >
                               <div className="text-center">
                                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
-                                <div className="text-emerald-400 text-lg font-bold">Loading {tricoTicker}...</div>
+                                <div className="text-emerald-400 text-lg font-bold">
+                                  Loading {tricoTicker}...
+                                </div>
                               </div>
                             </div>
-                          );
+                          )
                         }
 
                         if (!odteExpiry || tickerDataArray.length === 0) {
                           return (
-                            <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
-                              <div className="text-gray-400 text-sm">No ODTE data for {tricoTicker}</div>
+                            <div
+                              key={tricoTicker}
+                              className="flex-1 flex items-center justify-center"
+                              style={{ minWidth: 0, minHeight: '400px' }}
+                            >
+                              <div className="text-gray-400 text-sm">
+                                No ODTE data for {tricoTicker}
+                              </div>
                             </div>
-                          );
+                          )
                         }
 
                         // Find current price strike and center the display
                         const allStrikes = tickerDataArray
-                          .filter(row => row.expirations && row.expirations[odteExpiry])
-                          .map(r => r.strike)
-                          .sort((a, b) => a - b);
+                          .filter((row) => row.expirations && row.expirations[odteExpiry])
+                          .map((r) => r.strike)
+                          .sort((a, b) => a - b)
 
-                        const closestStrike = allStrikes.reduce((prev, curr) =>
-                          Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev, allStrikes[0]
-                        );
+                        const closestStrike = allStrikes.reduce(
+                          (prev, curr) =>
+                            Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice)
+                              ? curr
+                              : prev,
+                          allStrikes[0]
+                        )
 
-                        const currentIndex = allStrikes.indexOf(closestStrike);
-                        const strikesToShow = 50; // Show 50 strikes total (24 above, current at row 25, 25 below)
-                        const strikesAbove = 24; // Current price will be at row 25
+                        const currentIndex = allStrikes.indexOf(closestStrike)
+                        const strikesToShow = 50 // Show 50 strikes total (24 above, current at row 25, 25 below)
+                        const strikesAbove = 24 // Current price will be at row 25
 
                         // Calculate start and end indices to center around current price
-                        let startIndex = Math.max(0, currentIndex - strikesAbove);
-                        let endIndex = Math.min(allStrikes.length, startIndex + strikesToShow);
+                        let startIndex = Math.max(0, currentIndex - strikesAbove)
+                        const endIndex = Math.min(allStrikes.length, startIndex + strikesToShow)
 
                         // Adjust if we hit the end
                         if (endIndex - startIndex < strikesToShow) {
-                          startIndex = Math.max(0, endIndex - strikesToShow);
+                          startIndex = Math.max(0, endIndex - strikesToShow)
                         }
 
-                        const displayStrikes = allStrikes.slice(startIndex, endIndex);
-                        const minStrike = displayStrikes[0];
-                        const maxStrike = displayStrikes[displayStrikes.length - 1];
+                        const displayStrikes = allStrikes.slice(startIndex, endIndex)
+                        const minStrike = displayStrikes[0]
+                        const maxStrike = displayStrikes[displayStrikes.length - 1]
 
-                        const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-                        const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
-                        const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                        const mobileStrikeWidth = isMobile ? 38 : 60;
-                        const mobileExpWidth = isMobile ? 48 : 90;
+                        const borderColor = useBloombergTheme
+                          ? 'border-white/20'
+                          : 'border-gray-700'
+                        const borderColorDivider = useBloombergTheme
+                          ? 'border-white/15'
+                          : 'border-gray-800'
+                        const tableBorderColor = useBloombergTheme
+                          ? 'border-white/20'
+                          : 'border-gray-700'
+                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                        const mobileStrikeWidth = isMobile ? 38 : 60
+                        const mobileExpWidth = isMobile ? 48 : 90
 
                         // Calculate GEX ranges for both Normal and Dealer
                         const normalGEXValues = tickerDataArray
-                          .filter(row => row.expirations && row.expirations[odteExpiry])
-                          .map(row => {
-                            const gexData = row.expirations![odteExpiry];
-                            return (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                          });
+                          .filter((row) => row.expirations && row.expirations[odteExpiry])
+                          .map((row) => {
+                            const gexData = row.expirations![odteExpiry]
+                            return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                          })
                         const dealerGEXValues = tickerDataArray
-                          .filter(row => row.expirations && row.expirations[odteExpiry])
-                          .map(row => {
-                            const gexData = row.expirations![odteExpiry];
-                            return (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                          });
+                          .filter((row) => row.expirations && row.expirations[odteExpiry])
+                          .map((row) => {
+                            const gexData = row.expirations![odteExpiry]
+                            return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                          })
 
-                        const highestGEX = Math.max(...normalGEXValues);
-                        const lowestGEX = Math.min(...normalGEXValues);
-                        const highestDealer = Math.max(...dealerGEXValues);
-                        const lowestDealer = Math.min(...dealerGEXValues);
+                        const highestGEX = Math.max(...normalGEXValues)
+                        const lowestGEX = Math.min(...normalGEXValues)
+                        const highestDealer = Math.max(...dealerGEXValues)
+                        const lowestDealer = Math.min(...dealerGEXValues)
 
                         // Calculate top values for proper gradient opacity
                         const normalTopValues = {
-                          highestPositive: Math.max(...normalGEXValues.filter(v => v > 0)),
-                          highestNegative: Math.abs(Math.min(...normalGEXValues.filter(v => v < 0)))
-                        };
+                          highestPositive: Math.max(...normalGEXValues.filter((v) => v > 0)),
+                          highestNegative: Math.abs(
+                            Math.min(...normalGEXValues.filter((v) => v < 0))
+                          ),
+                        }
                         const dealerTopValues = {
-                          highestPositive: Math.max(...dealerGEXValues.filter(v => v > 0)),
-                          highestNegative: Math.abs(Math.min(...dealerGEXValues.filter(v => v < 0)))
-                        };
+                          highestPositive: Math.max(...dealerGEXValues.filter((v) => v > 0)),
+                          highestNegative: Math.abs(
+                            Math.min(...dealerGEXValues.filter((v) => v < 0))
+                          ),
+                        }
 
                         // Show both columns on mobile and desktop
-                        const showNormalColumn = true;
-                        const showDealerColumn = true;
-                        const columnCount = 2;
+                        const showNormalColumn = true
+                        const showDealerColumn = true
+                        const columnCount = 2
 
                         return (
                           <div key={tricoTicker} className="flex-1" style={{ minWidth: 0 }}>
                             <div
                               className="border border-b-0 px-4 py-3 relative overflow-hidden"
                               style={{
-                                background: 'linear-gradient(180deg, #0a1929 0%, #051120 50%, #020a15 100%)',
+                                background:
+                                  'linear-gradient(180deg, #0a1929 0%, #051120 50%, #020a15 100%)',
                                 borderColor: '#1e3a5f',
-                                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8), inset 0 -2px 6px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.6)'
+                                boxShadow:
+                                  'inset 0 2px 4px rgba(0,0,0,0.8), inset 0 -2px 6px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.6)',
                               }}
                             >
-                              <div className="absolute inset-0" style={{
-                                background: 'radial-gradient(ellipse at top, rgba(30,58,95,0.3) 0%, transparent 70%)',
-                                pointerEvents: 'none'
-                              }}></div>
+                              <div
+                                className="absolute inset-0"
+                                style={{
+                                  background:
+                                    'radial-gradient(ellipse at top, rgba(30,58,95,0.3) 0%, transparent 70%)',
+                                  pointerEvents: 'none',
+                                }}
+                              ></div>
                               <div className="flex items-center justify-center gap-3 relative z-10">
-                                <div className="w-1.5 h-1.5 rounded-full" style={{
-                                  background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
-                                  boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
-                                }}></div>
+                                <div
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{
+                                    background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                    boxShadow:
+                                      '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)',
+                                  }}
+                                ></div>
                                 <h3
                                   className="text-lg font-black uppercase tracking-widest text-center"
                                   style={{
@@ -7655,157 +9273,284 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     color: '#ffffff',
                                     WebkitTextStroke: '1.5px #ff8c00',
                                     paintOrder: 'stroke fill',
-                                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(255,140,0,0.5))',
-                                    textShadow: '0 0 8px rgba(0,0,0,1)'
+                                    filter:
+                                      'drop-shadow(0 2px 4px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(255,140,0,0.5))',
+                                    textShadow: '0 0 8px rgba(0,0,0,1)',
                                   }}
                                 >
                                   • {tricoTicker} •
                                 </h3>
-                                <div className="w-1.5 h-1.5 rounded-full" style={{
-                                  background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
-                                  boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
-                                }}></div>
+                                <div
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{
+                                    background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                    boxShadow:
+                                      '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)',
+                                  }}
+                                ></div>
                               </div>
                             </div>
-                            <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`} style={{ maxHeight: 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                              <table style={{ minWidth: `${mobileStrikeWidth + (mobileExpWidth * columnCount)}px`, width: '100%' }}>
-                                <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                                  <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                                    <th className={`px-2 py-3 text-center sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                      <div className={useBloombergTheme ? 'bb-header text-orange-500 font-bold' : 'font-bold text-orange-500 uppercase'} style={{ fontSize: isMobile ? '0.45rem' : '1.35rem' }}>Strike</div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`}
+                              style={{ maxHeight: 'calc(100vh - 300px)', overflowX: 'auto' }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + mobileExpWidth * columnCount}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
+                                  >
+                                    <th
+                                      className={`px-2 py-3 text-center sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
+                                    >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-orange-500 font-bold'
+                                            : 'font-bold text-orange-500 uppercase'
+                                        }
+                                        style={{ fontSize: isMobile ? '0.45rem' : '1.35rem' }}
+                                      >
+                                        Strike
+                                      </div>
                                     </th>
                                     {showNormalColumn && (
-                                      <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                        <div className="font-bold text-blue-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Normal</div>
+                                      <th
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div
+                                          className="font-bold text-blue-400 uppercase whitespace-nowrap"
+                                          style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}
+                                        >
+                                          Normal
+                                        </div>
                                       </th>
                                     )}
                                     {showDealerColumn && (
-                                      <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                        <div className="font-bold text-purple-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Dealer</div>
+                                      <th
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div
+                                          className="font-bold text-purple-400 uppercase whitespace-nowrap"
+                                          style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}
+                                        >
+                                          Dealer
+                                        </div>
                                       </th>
                                     )}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {(() => {
-                                    const filteredRows = tickerDataArray.filter(row => {
-                                      const isInStrikeRange = row.strike >= minStrike && row.strike <= maxStrike;
-                                      const hasGEXData = row.expirations && row.expirations[odteExpiry];
-                                      return isInStrikeRange && hasGEXData;
-                                    });
+                                    const filteredRows = tickerDataArray.filter((row) => {
+                                      const isInStrikeRange =
+                                        row.strike >= minStrike && row.strike <= maxStrike
+                                      const hasGEXData =
+                                        row.expirations && row.expirations[odteExpiry]
+                                      return isInStrikeRange && hasGEXData
+                                    })
 
                                     // Find purple pivot row index
-                                    const purplePivotIndex = filteredRows.findIndex(row => {
-                                      const gexData = row.expirations?.[odteExpiry];
-                                      if (!gexData) return false;
-                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
-                                      const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
-                                      return showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
-                                    });
+                                    const purplePivotIndex = filteredRows.findIndex((row) => {
+                                      const gexData = row.expirations?.[odteExpiry]
+                                      if (!gexData) return false
+                                      const netGEX =
+                                        (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                      const netDealer =
+                                        (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0
+                                      const isLowestDealer =
+                                        netDealer === lowestDealer && netDealer < 0
+                                      return (
+                                        showNormalColumn &&
+                                        showDealerColumn &&
+                                        isLowestGEX &&
+                                        isLowestDealer
+                                      )
+                                    })
 
                                     // Find golden zone row index
-                                    const goldenRowIndex = filteredRows.findIndex(row => {
-                                      const gexData = row.expirations?.[odteExpiry];
-                                      if (!gexData) return false;
-                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0;
-                                      const isHighestDealer = netDealer === highestDealer && netDealer > 0;
-                                      return showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
-                                    });
+                                    const goldenRowIndex = filteredRows.findIndex((row) => {
+                                      const gexData = row.expirations?.[odteExpiry]
+                                      if (!gexData) return false
+                                      const netGEX =
+                                        (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                      const netDealer =
+                                        (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0
+                                      const isHighestDealer =
+                                        netDealer === highestDealer && netDealer > 0
+                                      return (
+                                        showNormalColumn &&
+                                        showDealerColumn &&
+                                        isHighestGEX &&
+                                        isHighestDealer
+                                      )
+                                    })
 
                                     // Find current price row index
-                                    const currentPriceRowIndex = filteredRows.findIndex(row => row.strike === closestStrike);
+                                    const currentPriceRowIndex = filteredRows.findIndex(
+                                      (row) => row.strike === closestStrike
+                                    )
 
                                     return filteredRows.map((row, rowIndex) => {
-                                      const gexData = row.expirations?.[odteExpiry];
-                                      if (!gexData) return null;
+                                      const gexData = row.expirations?.[odteExpiry]
+                                      if (!gexData) return null
 
-                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                      const netGEX =
+                                        (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                      const netDealer =
+                                        (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
 
                                       // Check if this is highest or lowest GEX
-                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0;
-                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
-                                      const isHighestDealer = netDealer === highestDealer && netDealer > 0;
-                                      const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
+                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0
+                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0
+                                      const isHighestDealer =
+                                        netDealer === highestDealer && netDealer > 0
+                                      const isLowestDealer =
+                                        netDealer === lowestDealer && netDealer < 0
 
                                       // Cell styles for Normal column
-                                      let normalCellStyle;
+                                      let normalCellStyle
                                       if (isHighestGEX) {
                                         normalCellStyle = {
                                           bg: 'bg-yellow-500',
                                           ring: 'ring-2 ring-yellow-400',
-                                          text: 'text-black'
-                                        };
+                                          text: 'text-black',
+                                        }
                                       } else if (isLowestGEX) {
                                         normalCellStyle = {
                                           bg: 'bg-purple-600',
                                           ring: 'ring-2 ring-purple-400',
-                                          text: 'text-white'
-                                        };
+                                          text: 'text-white',
+                                        }
                                       } else {
-                                        normalCellStyle = getCellStyle(netGEX, false, row.strike, odteExpiry, normalTopValues);
+                                        normalCellStyle = getCellStyle(
+                                          netGEX,
+                                          false,
+                                          row.strike,
+                                          odteExpiry,
+                                          normalTopValues
+                                        )
                                       }
 
                                       // Cell styles for Dealer column
-                                      let dealerCellStyle;
+                                      let dealerCellStyle
                                       if (isHighestDealer) {
                                         dealerCellStyle = {
                                           bg: 'bg-yellow-500',
                                           ring: 'ring-2 ring-yellow-400',
-                                          text: 'text-black'
-                                        };
+                                          text: 'text-black',
+                                        }
                                       } else if (isLowestDealer) {
                                         dealerCellStyle = {
                                           bg: 'bg-purple-600',
                                           ring: 'ring-2 ring-purple-400',
-                                          text: 'text-white'
-                                        };
+                                          text: 'text-white',
+                                        }
                                       } else {
-                                        dealerCellStyle = getCellStyle(netDealer, false, row.strike, odteExpiry, dealerTopValues);
+                                        dealerCellStyle = getCellStyle(
+                                          netDealer,
+                                          false,
+                                          row.strike,
+                                          odteExpiry,
+                                          dealerTopValues
+                                        )
                                       }
 
                                       // Check if this is the current price row
-                                      const isCurrentPriceRow = row.strike === closestStrike;
+                                      const isCurrentPriceRow = row.strike === closestStrike
 
                                       // Check if both columns are purple (pivot)
-                                      const bothPurple = showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
+                                      const bothPurple =
+                                        showNormalColumn &&
+                                        showDealerColumn &&
+                                        isLowestGEX &&
+                                        isLowestDealer
 
                                       // Check if both columns are golden (highest positive GEX)
-                                      const bothGolden = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                      const bothGolden =
+                                        showNormalColumn &&
+                                        showDealerColumn &&
+                                        isHighestGEX &&
+                                        isHighestDealer
 
                                       // Show arrows ON the purple pivot row itself
-                                      const isPurplePivot = bothPurple;
+                                      const isPurplePivot = bothPurple
 
                                       // Conditional arrow display based on current price position relative to pivot
                                       // When current price is BELOW pivot (currentPriceRowIndex > purplePivotIndex): show RED only
                                       // When current price is ABOVE pivot (currentPriceRowIndex < purplePivotIndex): show GREEN only
                                       // When current price is AT pivot (currentPriceRowIndex === purplePivotIndex): show BOTH
-                                      const showGreenUpFromPurple = isPurplePivot && (currentPriceRowIndex < purplePivotIndex || rowIndex === currentPriceRowIndex);
-                                      const showRedDownFromPurple = isPurplePivot && (currentPriceRowIndex > purplePivotIndex || rowIndex === currentPriceRowIndex);
+                                      const showGreenUpFromPurple =
+                                        isPurplePivot &&
+                                        (currentPriceRowIndex < purplePivotIndex ||
+                                          rowIndex === currentPriceRowIndex)
+                                      const showRedDownFromPurple =
+                                        isPurplePivot &&
+                                        (currentPriceRowIndex > purplePivotIndex ||
+                                          rowIndex === currentPriceRowIndex)
 
                                       // Show flowing pipe connecting current price to golden zone
-                                      const showGoldenPipe = isCurrentPriceRow && goldenRowIndex !== -1;
-                                      const pipeDirection = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
-                                      const pipeHeight = Math.abs(goldenRowIndex - currentPriceRowIndex);
+                                      const showGoldenPipe =
+                                        isCurrentPriceRow && goldenRowIndex !== -1
+                                      const pipeDirection =
+                                        goldenRowIndex > currentPriceRowIndex ? 'down' : 'up'
+                                      const pipeHeight = Math.abs(
+                                        goldenRowIndex - currentPriceRowIndex
+                                      )
 
                                       // Show spinning pulley at golden zone
-                                      const isGoldenZone = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                      const isGoldenZone =
+                                        showNormalColumn &&
+                                        showDealerColumn &&
+                                        isHighestGEX &&
+                                        isHighestDealer
 
                                       return (
                                         <tr
                                           key={`${tricoTicker}-${row.strike}`}
                                           className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`}`}
                                         >
-                                          <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`
-                                          }}>
-                                            <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX && isHighestDealer) ? 'text-yellow-400' : (isLowestGEX && isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : isHighestGEX && isHighestDealer ? 'text-yellow-400' : isLowestGEX && isLowestDealer ? 'text-purple-400' : 'text-white'}`}
+                                              style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}
+                                            >
                                               {Math.round(row.strike)}
                                             </div>
 
@@ -7814,16 +9559,64 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               <>
                                                 {/* Green arrows UP - from purple box top */}
                                                 {showGreenUpFromPurple && (
-                                                  <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`, bottom: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                  <svg
+                                                    style={{
+                                                      position: 'absolute',
+                                                      left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`,
+                                                      bottom: '100%',
+                                                      width: '70px',
+                                                      height: '150px',
+                                                      pointerEvents: 'none',
+                                                      zIndex: 100,
+                                                      overflow: 'visible',
+                                                    }}
+                                                  >
                                                     <defs>
-                                                      <path id={`greenUp-${row.strike}`} d="M 25 150 Q 50 130 45 90 L 45 10" fill="none" />
-                                                      <linearGradient id={`greenGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                                        <stop offset="0%" style={{ stopColor: '#00ffaa', stopOpacity: 1 }} />
-                                                        <stop offset="50%" style={{ stopColor: '#00ff88', stopOpacity: 1 }} />
-                                                        <stop offset="100%" style={{ stopColor: '#00cc66', stopOpacity: 1 }} />
+                                                      <path
+                                                        id={`greenUp-${row.strike}`}
+                                                        d="M 25 150 Q 50 130 45 90 L 45 10"
+                                                        fill="none"
+                                                      />
+                                                      <linearGradient
+                                                        id={`greenGrad-${row.strike}`}
+                                                        x1="0%"
+                                                        y1="0%"
+                                                        x2="100%"
+                                                        y2="100%"
+                                                      >
+                                                        <stop
+                                                          offset="0%"
+                                                          style={{
+                                                            stopColor: '#00ffaa',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
+                                                        <stop
+                                                          offset="50%"
+                                                          style={{
+                                                            stopColor: '#00ff88',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
+                                                        <stop
+                                                          offset="100%"
+                                                          style={{
+                                                            stopColor: '#00cc66',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
                                                       </linearGradient>
-                                                      <filter id="greenGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
-                                                        <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                      <filter
+                                                        id="greenGlow-${row.strike}"
+                                                        x="-50%"
+                                                        y="-50%"
+                                                        width="200%"
+                                                        height="200%"
+                                                      >
+                                                        <feGaussianBlur
+                                                          stdDeviation="4"
+                                                          result="coloredBlur"
+                                                        />
                                                         <feMerge>
                                                           <feMergeNode in="coloredBlur" />
                                                           <feMergeNode in="SourceGraphic" />
@@ -7833,7 +9626,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                     {/* 3D depth shadow layer */}
                                                     {[0, 1, 2].map((i) => (
                                                       <g key={`shadow-${i}`}>
-                                                        <text fontSize="42" fill="#003322" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="#003322"
+                                                          opacity="0.6"
+                                                          style={{ fontWeight: 'bold' }}
+                                                        >
                                                           ↑
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7841,7 +9639,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 23 152 Q 48 132 43 92 L 43 12"
                                                           />
-                                                          <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.2;0.6;0.6;0.6;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
                                                         </text>
                                                       </g>
                                                     ))}
@@ -7849,7 +9653,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                     {[0, 1, 2].map((i) => (
                                                       <g key={i}>
                                                         {/* Stroke outline for depth */}
-                                                        <text fontSize="42" fill="none" stroke="#00ffaa" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="none"
+                                                          stroke="#00ffaa"
+                                                          strokeWidth="3"
+                                                          style={{ fontWeight: 'bold' }}
+                                                        >
                                                           ↑
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7857,12 +9667,27 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 25 150 Q 50 130 45 90 L 45 10"
                                                           >
-                                                            <mpath href={`#greenUp-${row.strike}`} />
+                                                            <mpath
+                                                              href={`#greenUp-${row.strike}`}
+                                                            />
                                                           </animateMotion>
-                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.3;1;1;1;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
                                                         </text>
                                                         {/* Inner fill with gradient */}
-                                                        <text fontSize="42" fill="url(#greenGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="url(#greenGrad-${row.strike})"
+                                                          style={{
+                                                            filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`,
+                                                            fontWeight: 'bold',
+                                                          }}
+                                                        >
                                                           ↑
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7870,29 +9695,103 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 25 150 Q 50 130 45 90 L 45 10"
                                                           >
-                                                            <mpath href={`#greenUp-${row.strike}`} />
+                                                            <mpath
+                                                              href={`#greenUp-${row.strike}`}
+                                                            />
                                                           </animateMotion>
-                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                          <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.3;1;1;1;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
+                                                          <animateTransform
+                                                            attributeName="transform"
+                                                            type="scale"
+                                                            values="0.9;1.05;1;1;0.9"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            additive="sum"
+                                                          />
                                                         </text>
                                                       </g>
                                                     ))}
-                                                    <path d="M 45 150 Q 60 130 55 90 L 55 10" stroke="url(#greenGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #00ff88)' }} />
+                                                    <path
+                                                      d="M 45 150 Q 60 130 55 90 L 55 10"
+                                                      stroke="url(#greenGrad-${row.strike})"
+                                                      strokeWidth="4"
+                                                      strokeDasharray="10,5"
+                                                      fill="none"
+                                                      opacity="0.8"
+                                                      style={{
+                                                        filter: 'drop-shadow(0 0 8px #00ff88)',
+                                                      }}
+                                                    />
                                                   </svg>
                                                 )}
 
                                                 {/* Red arrows DOWN - from purple box bottom */}
                                                 {showRedDownFromPurple && (
-                                                  <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                  <svg
+                                                    style={{
+                                                      position: 'absolute',
+                                                      left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
+                                                      top: '100%',
+                                                      width: '70px',
+                                                      height: '150px',
+                                                      pointerEvents: 'none',
+                                                      zIndex: 100,
+                                                      overflow: 'visible',
+                                                    }}
+                                                  >
                                                     <defs>
-                                                      <path id={`redDown-${row.strike}`} d="M 25 0 Q 0 20 5 60 L 5 140" fill="none" />
-                                                      <linearGradient id={`redGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                                        <stop offset="0%" style={{ stopColor: '#ff3366', stopOpacity: 1 }} />
-                                                        <stop offset="50%" style={{ stopColor: '#ff1744', stopOpacity: 1 }} />
-                                                        <stop offset="100%" style={{ stopColor: '#cc0022', stopOpacity: 1 }} />
+                                                      <path
+                                                        id={`redDown-${row.strike}`}
+                                                        d="M 25 0 Q 0 20 5 60 L 5 140"
+                                                        fill="none"
+                                                      />
+                                                      <linearGradient
+                                                        id={`redGrad-${row.strike}`}
+                                                        x1="0%"
+                                                        y1="0%"
+                                                        x2="100%"
+                                                        y2="100%"
+                                                      >
+                                                        <stop
+                                                          offset="0%"
+                                                          style={{
+                                                            stopColor: '#ff3366',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
+                                                        <stop
+                                                          offset="50%"
+                                                          style={{
+                                                            stopColor: '#ff1744',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
+                                                        <stop
+                                                          offset="100%"
+                                                          style={{
+                                                            stopColor: '#cc0022',
+                                                            stopOpacity: 1,
+                                                          }}
+                                                        />
                                                       </linearGradient>
-                                                      <filter id="redGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
-                                                        <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                      <filter
+                                                        id="redGlow-${row.strike}"
+                                                        x="-50%"
+                                                        y="-50%"
+                                                        width="200%"
+                                                        height="200%"
+                                                      >
+                                                        <feGaussianBlur
+                                                          stdDeviation="4"
+                                                          result="coloredBlur"
+                                                        />
                                                         <feMerge>
                                                           <feMergeNode in="coloredBlur" />
                                                           <feMergeNode in="SourceGraphic" />
@@ -7902,7 +9801,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                     {/* 3D depth shadow layer */}
                                                     {[0, 1, 2].map((i) => (
                                                       <g key={`shadow-${i}`}>
-                                                        <text fontSize="42" fill="#330011" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="#330011"
+                                                          opacity="0.6"
+                                                          style={{ fontWeight: 'bold' }}
+                                                        >
                                                           ↓
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7910,7 +9814,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 23 -2 Q -2 18 3 58 L 3 138"
                                                           />
-                                                          <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.2;0.6;0.6;0.6;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
                                                         </text>
                                                       </g>
                                                     ))}
@@ -7918,7 +9828,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                     {[0, 1, 2].map((i) => (
                                                       <g key={i}>
                                                         {/* Stroke outline for depth */}
-                                                        <text fontSize="42" fill="none" stroke="#ff3366" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="none"
+                                                          stroke="#ff3366"
+                                                          strokeWidth="3"
+                                                          style={{ fontWeight: 'bold' }}
+                                                        >
                                                           ↓
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7926,12 +9842,27 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 25 0 Q 0 20 5 60 L 5 140"
                                                           >
-                                                            <mpath href={`#redDown-${row.strike}`} />
+                                                            <mpath
+                                                              href={`#redDown-${row.strike}`}
+                                                            />
                                                           </animateMotion>
-                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.3;1;1;1;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
                                                         </text>
                                                         {/* Inner fill with gradient */}
-                                                        <text fontSize="42" fill="url(#redGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                        <text
+                                                          fontSize="42"
+                                                          fill="url(#redGrad-${row.strike})"
+                                                          style={{
+                                                            filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`,
+                                                            fontWeight: 'bold',
+                                                          }}
+                                                        >
                                                           ↓
                                                           <animateMotion
                                                             dur="2.2s"
@@ -7939,649 +9870,1257 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                             repeatCount="indefinite"
                                                             path="M 25 0 Q 0 20 5 60 L 5 140"
                                                           >
-                                                            <mpath href={`#redDown-${row.strike}`} />
+                                                            <mpath
+                                                              href={`#redDown-${row.strike}`}
+                                                            />
                                                           </animateMotion>
-                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                          <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                          <animate
+                                                            attributeName="opacity"
+                                                            values="0;0.3;1;1;1;0"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                          />
+                                                          <animateTransform
+                                                            attributeName="transform"
+                                                            type="scale"
+                                                            values="0.9;1.05;1;1;0.9"
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            additive="sum"
+                                                          />
                                                         </text>
                                                       </g>
                                                     ))}
-                                                    <path d="M 35 0 Q 15 20 15 60 L 15 140" stroke="url(#redGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #ff1744)' }} />
+                                                    <path
+                                                      d="M 35 0 Q 15 20 15 60 L 15 140"
+                                                      stroke="url(#redGrad-${row.strike})"
+                                                      strokeWidth="4"
+                                                      strokeDasharray="10,5"
+                                                      fill="none"
+                                                      opacity="0.8"
+                                                      style={{
+                                                        filter: 'drop-shadow(0 0 8px #ff1744)',
+                                                      }}
+                                                    />
                                                   </svg>
                                                 )}
 
                                                 {/* Horizontal rope at golden zone + Spinning pulley wheel */}
-                                                {!isMobile && isGoldenZone && (() => {
-                                                  const wheelColor = goldenRowIndex > currentPriceRowIndex ? '#ff0000' : '#00ff00';
-                                                  const wheelDuration = isTurboMode ? '0.5s' : '2s'; // Faster spin in turbo mode
-                                                  return (
-                                                    <>
-                                                      {/* Spinning pulley wheel at golden zone */}
-                                                      <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '50%', width: '60px', height: '60px', pointerEvents: 'none', zIndex: 100, overflow: 'visible', transform: 'translateY(-50%)' }}>
-                                                        <defs>
-                                                          <filter id={`pulleyGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
-                                                            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                                                            <feMerge>
-                                                              <feMergeNode in="coloredBlur" />
-                                                              <feMergeNode in="SourceGraphic" />
-                                                            </feMerge>
-                                                          </filter>
-                                                        </defs>
+                                                {!isMobile &&
+                                                  isGoldenZone &&
+                                                  (() => {
+                                                    const wheelColor =
+                                                      goldenRowIndex > currentPriceRowIndex
+                                                        ? '#ff0000'
+                                                        : '#00ff00'
+                                                    const wheelDuration = isTurboMode
+                                                      ? '0.5s'
+                                                      : '2s' // Faster spin in turbo mode
+                                                    return (
+                                                      <>
+                                                        {/* Spinning pulley wheel at golden zone */}
+                                                        <svg
+                                                          style={{
+                                                            position: 'absolute',
+                                                            left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
+                                                            top: '50%',
+                                                            width: '60px',
+                                                            height: '60px',
+                                                            pointerEvents: 'none',
+                                                            zIndex: 100,
+                                                            overflow: 'visible',
+                                                            transform: 'translateY(-50%)',
+                                                          }}
+                                                        >
+                                                          <defs>
+                                                            <filter
+                                                              id={`pulleyGlow-${row.strike}`}
+                                                              x="-50%"
+                                                              y="-50%"
+                                                              width="200%"
+                                                              height="200%"
+                                                            >
+                                                              <feGaussianBlur
+                                                                stdDeviation="3"
+                                                                result="coloredBlur"
+                                                              />
+                                                              <feMerge>
+                                                                <feMergeNode in="coloredBlur" />
+                                                                <feMergeNode in="SourceGraphic" />
+                                                              </feMerge>
+                                                            </filter>
+                                                          </defs>
 
-                                                        {/* Smoke animation - only in turbo mode */}
-                                                        {isTurboMode && (
-                                                          <>
-                                                            {[...Array(5)].map((_, i) => (
-                                                              <circle
-                                                                key={i}
-                                                                cx="30"
-                                                                cy="30"
-                                                                r="3"
-                                                                fill="#888"
-                                                                opacity="0"
-                                                              >
-                                                                <animate
-                                                                  attributeName="cy"
-                                                                  from="30"
-                                                                  to="0"
-                                                                  dur="2s"
-                                                                  begin={`${i * 0.4}s`}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                                <animate
-                                                                  attributeName="cx"
-                                                                  from="30"
-                                                                  to={30 + (Math.random() - 0.5) * 20}
-                                                                  dur="2s"
-                                                                  begin={`${i * 0.4}s`}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                                <animate
-                                                                  attributeName="r"
-                                                                  from="2"
-                                                                  to="8"
-                                                                  dur="2s"
-                                                                  begin={`${i * 0.4}s`}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                                <animate
-                                                                  attributeName="opacity"
-                                                                  values="0;0.6;0.3;0"
-                                                                  dur="2s"
-                                                                  begin={`${i * 0.4}s`}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </circle>
-                                                            ))}
-                                                          </>
-                                                        )}
+                                                          {/* Smoke animation - only in turbo mode */}
+                                                          {isTurboMode && (
+                                                            <>
+                                                              {[...Array(5)].map((_, i) => (
+                                                                <circle
+                                                                  key={i}
+                                                                  cx="30"
+                                                                  cy="30"
+                                                                  r="3"
+                                                                  fill="#888"
+                                                                  opacity="0"
+                                                                >
+                                                                  <animate
+                                                                    attributeName="cy"
+                                                                    from="30"
+                                                                    to="0"
+                                                                    dur="2s"
+                                                                    begin={`${i * 0.4}s`}
+                                                                    repeatCount="indefinite"
+                                                                  />
+                                                                  <animate
+                                                                    attributeName="cx"
+                                                                    from="30"
+                                                                    to={
+                                                                      30 +
+                                                                      (Math.random() - 0.5) * 20
+                                                                    }
+                                                                    dur="2s"
+                                                                    begin={`${i * 0.4}s`}
+                                                                    repeatCount="indefinite"
+                                                                  />
+                                                                  <animate
+                                                                    attributeName="r"
+                                                                    from="2"
+                                                                    to="8"
+                                                                    dur="2s"
+                                                                    begin={`${i * 0.4}s`}
+                                                                    repeatCount="indefinite"
+                                                                  />
+                                                                  <animate
+                                                                    attributeName="opacity"
+                                                                    values="0;0.6;0.3;0"
+                                                                    dur="2s"
+                                                                    begin={`${i * 0.4}s`}
+                                                                    repeatCount="indefinite"
+                                                                  />
+                                                                </circle>
+                                                              ))}
+                                                            </>
+                                                          )}
 
-                                                        <g transform="translate(30, 30)">
-                                                          {/* Pulley shadow */}
-                                                          <circle cx="0" cy="0" r="22" fill="#333" opacity="0.5" style={{ filter: 'blur(4px)' }} />
-                                                          {/* Pulley outer ring - golden color with conditional outline */}
-                                                          <circle cx="0" cy="0" r="20" fill="#ffd700" stroke={wheelColor} strokeWidth="3" style={{ filter: `url(#pulleyGlow-${row.strike})` }} />
-                                                          {/* Inner dark ring */}
-                                                          <circle cx="0" cy="0" r="15" fill="#444" />
-                                                          {/* Spinning spokes - golden */}
-                                                          <g>
-                                                            <line x1="0" y1="-15" x2="0" y2="15" stroke="#ffd700" strokeWidth="3" />
-                                                            <line x1="-15" y1="0" x2="15" y2="0" stroke="#ffd700" strokeWidth="3" />
-                                                            <line x1="-10.5" y1="-10.5" x2="10.5" y2="10.5" stroke="#ffd700" strokeWidth="3" />
-                                                            <line x1="-10.5" y1="10.5" x2="10.5" y2="-10.5" stroke="#ffd700" strokeWidth="3" />
-                                                            <animateTransform
-                                                              attributeName="transform"
-                                                              type="rotate"
-                                                              from="0"
-                                                              to="360"
-                                                              dur={wheelDuration}
-                                                              repeatCount="indefinite"
+                                                          <g transform="translate(30, 30)">
+                                                            {/* Pulley shadow */}
+                                                            <circle
+                                                              cx="0"
+                                                              cy="0"
+                                                              r="22"
+                                                              fill="#333"
+                                                              opacity="0.5"
+                                                              style={{ filter: 'blur(4px)' }}
+                                                            />
+                                                            {/* Pulley outer ring - golden color with conditional outline */}
+                                                            <circle
+                                                              cx="0"
+                                                              cy="0"
+                                                              r="20"
+                                                              fill="#ffd700"
+                                                              stroke={wheelColor}
+                                                              strokeWidth="3"
+                                                              style={{
+                                                                filter: `url(#pulleyGlow-${row.strike})`,
+                                                              }}
+                                                            />
+                                                            {/* Inner dark ring */}
+                                                            <circle
+                                                              cx="0"
+                                                              cy="0"
+                                                              r="15"
+                                                              fill="#444"
+                                                            />
+                                                            {/* Spinning spokes - golden */}
+                                                            <g>
+                                                              <line
+                                                                x1="0"
+                                                                y1="-15"
+                                                                x2="0"
+                                                                y2="15"
+                                                                stroke="#ffd700"
+                                                                strokeWidth="3"
+                                                              />
+                                                              <line
+                                                                x1="-15"
+                                                                y1="0"
+                                                                x2="15"
+                                                                y2="0"
+                                                                stroke="#ffd700"
+                                                                strokeWidth="3"
+                                                              />
+                                                              <line
+                                                                x1="-10.5"
+                                                                y1="-10.5"
+                                                                x2="10.5"
+                                                                y2="10.5"
+                                                                stroke="#ffd700"
+                                                                strokeWidth="3"
+                                                              />
+                                                              <line
+                                                                x1="-10.5"
+                                                                y1="10.5"
+                                                                x2="10.5"
+                                                                y2="-10.5"
+                                                                stroke="#ffd700"
+                                                                strokeWidth="3"
+                                                              />
+                                                              <animateTransform
+                                                                attributeName="transform"
+                                                                type="rotate"
+                                                                from="0"
+                                                                to="360"
+                                                                dur={wheelDuration}
+                                                                repeatCount="indefinite"
+                                                              />
+                                                            </g>
+                                                            {/* Center bolt - golden */}
+                                                            <circle
+                                                              cx="0"
+                                                              cy="0"
+                                                              r="5"
+                                                              fill="#b8860b"
+                                                              stroke="#ffd700"
+                                                              strokeWidth="2"
+                                                            />
+                                                            {/* Metallic shine */}
+                                                            <circle
+                                                              cx="-5"
+                                                              cy="-5"
+                                                              r="8"
+                                                              fill="#fff"
+                                                              opacity="0.4"
                                                             />
                                                           </g>
-                                                          {/* Center bolt - golden */}
-                                                          <circle cx="0" cy="0" r="5" fill="#b8860b" stroke="#ffd700" strokeWidth="2" />
-                                                          {/* Metallic shine */}
-                                                          <circle cx="-5" cy="-5" r="8" fill="#fff" opacity="0.4" />
-                                                        </g>
-                                                      </svg>
-                                                    </>
-                                                  );
-                                                })()}
+                                                        </svg>
+                                                      </>
+                                                    )
+                                                  })()}
                                               </>
                                             )}
                                           </td>
                                           {showNormalColumn && (
                                             <td
                                               className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                              style={{
+                                                width: `${mobileExpWidth}px`,
+                                                minWidth: `${mobileExpWidth}px`,
+                                                maxWidth: `${mobileExpWidth}px`,
+                                              }}
                                             >
-                                              <div className={`${normalCellStyle.bg} ${normalCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                <div className={`font-bold mb-1 ${normalCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netGEX)}</div>
+                                              <div
+                                                className={`${normalCellStyle.bg} ${normalCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                              >
+                                                <div
+                                                  className={`font-bold mb-1 ${normalCellStyle.text}`}
+                                                  style={{
+                                                    fontSize: isMobile ? '0.65rem' : '1.5rem',
+                                                  }}
+                                                >
+                                                  {formatCurrency(netGEX)}
+                                                </div>
                                               </div>
                                             </td>
                                           )}
                                           {showDealerColumn && (
                                             <td
                                               className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                              style={{
+                                                width: `${mobileExpWidth}px`,
+                                                minWidth: `${mobileExpWidth}px`,
+                                                maxWidth: `${mobileExpWidth}px`,
+                                              }}
                                             >
-                                              <div className={`${dealerCellStyle.bg} ${dealerCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                <div className={`font-bold mb-1 ${dealerCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netDealer)}</div>
+                                              <div
+                                                className={`${dealerCellStyle.bg} ${dealerCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                              >
+                                                <div
+                                                  className={`font-bold mb-1 ${dealerCellStyle.text}`}
+                                                  style={{
+                                                    fontSize: isMobile ? '0.65rem' : '1.5rem',
+                                                  }}
+                                                >
+                                                  {formatCurrency(netDealer)}
+                                                </div>
                                               </div>
                                             </td>
                                           )}
                                         </tr>
-                                      );
-                                    });
+                                      )
+                                    })
                                   })()}
                                 </tbody>
                               </table>
                             </div>
                           </div>
-                        );
-                      });
+                        )
+                      })
                     })()}
                   </div>
                 </div>
-              ) : (
-
-                /* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */
-                showOI || (showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
-                  <div className="flex overflow-x-auto" style={{ gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px' }}>
-                    {/* OI/GEX Charts - Show when OI checkbox is active */}
-                    {showOI && (
-                      <div className="flex-shrink-0" style={{
+              ) : /* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */
+              showOI ||
+                (showGEX && showDealer) ||
+                (showGEX && showFlowGEX) ||
+                (showDealer && showFlowGEX) ||
+                (showGEX && showDealer && showFlowGEX) ? (
+                <div
+                  className="flex overflow-x-auto"
+                  style={{
+                    gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
+                  }}
+                >
+                  {/* OI/GEX Charts - Show when OI checkbox is active */}
+                  {showOI && (
+                    <div
+                      className="flex-shrink-0"
+                      style={{
                         width: activeTableCount === 2 ? '1100px' : '1200px',
-                        minWidth: activeTableCount === 2 ? '1100px' : '1200px'
-                      }}>
-                        <OIGEXTab selectedTicker={selectedTicker} />
-                      </div>
-                    )}
-                    {(() => {
-                      // Calculate table width based on context
-                      const tableWidths: string[] = [];
+                        minWidth: activeTableCount === 2 ? '1100px' : '1200px',
+                      }}
+                    >
+                      <OIGEXTab selectedTicker={selectedTicker} />
+                    </div>
+                  )}
+                  {(() => {
+                    // Calculate table width based on context
+                    const tableWidths: string[] = []
 
-                      if (showOI && activeTableCount === 1) {
-                        // OI + 1 table: table gets 900px
-                        tableWidths.push('900px');
-                      } else if (showOI && activeTableCount === 2) {
-                        // OI + 2 tables: each table gets 895px
-                        tableWidths.push('895px', '895px');
-                      } else if (!showOI && activeTableCount === 2 && duoMode) {
-                        // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
-                        tableWidths.push('540px', '540px');
-                      } else if (!showOI && activeTableCount === 2) {
-                        // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
-                        tableWidths.push('887px', '887px');
-                      } else if (!showOI && activeTableCount === 3) {
-                        // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
-                        tableWidths.push('887px', '887px', '886px');
-                      }
+                    if (showOI && activeTableCount === 1) {
+                      // OI + 1 table: table gets 900px
+                      tableWidths.push('900px')
+                    } else if (showOI && activeTableCount === 2) {
+                      // OI + 2 tables: each table gets 895px
+                      tableWidths.push('895px', '895px')
+                    } else if (!showOI && activeTableCount === 2 && duoMode) {
+                      // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
+                      tableWidths.push('540px', '540px')
+                    } else if (!showOI && activeTableCount === 2) {
+                      // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
+                      tableWidths.push('887px', '887px')
+                    } else if (!showOI && activeTableCount === 3) {
+                      // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
+                      tableWidths.push('887px', '887px', '886px')
+                    }
 
-                      // Mobile detection - needed for getTableWidth function
-                      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+                    // Mobile detection - needed for getTableWidth function
+                    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-                      let currentTableIndex = 0;
-                      const getTableWidth = () => {
-                        // On mobile, don't use fixed widths - let tables size naturally based on content
-                        if (isMobile) {
-                          return undefined;
-                        }
-                        if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
-                          return { width: tableWidths[currentTableIndex], minWidth: tableWidths[currentTableIndex++] };
-                        }
-                        return undefined;
-                      };
-
-                      // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
-                      const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth;
-                      let mobileExpWidth = isMobile ? 82 : 90;
-
-                      // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
-                      if (duoMode && showGEX && showDealer && !isMobile) {
-                        mobileExpWidth = 70;
-                      }
-
-                      let table1Expirations = expirations;
-                      let table2Expirations = expirations;
-                      let table3Expirations = expirations;
-
-                      // Duo mode on desktop: limit to 6 expirations per table to fit side-by-side
-                      if (duoMode && showGEX && showDealer && !isMobile) {
-                        table1Expirations = expirations.slice(0, 6);
-                        table2Expirations = expirations.slice(0, 6);
-                      }
-
+                    let currentTableIndex = 0
+                    const getTableWidth = () => {
+                      // On mobile, don't use fixed widths - let tables size naturally based on content
                       if (isMobile) {
-                        if (activeTableCount === 3) {
-                          // 3 tables on mobile: each gets 1 expiration
-                          table1Expirations = expirations.slice(0, 1);
-                          table2Expirations = expirations.slice(0, 1);
-                          table3Expirations = expirations.slice(0, 1);
-                        } else if (activeTableCount === 2) {
-                          // 2 tables on mobile: each gets 2 expirations
-                          table1Expirations = expirations.slice(0, 2);
-                          table2Expirations = expirations.slice(0, 2);
-                          table3Expirations = expirations.slice(0, 2);
+                        return undefined
+                      }
+                      if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
+                        return {
+                          width: tableWidths[currentTableIndex],
+                          minWidth: tableWidths[currentTableIndex++],
                         }
                       }
+                      return undefined
+                    }
 
-                      return (
-                        <>
-                          {/* GEX/NORMAL TABLE */}
-                          {showGEX && (
-                            <div className="flex-shrink-0" style={getTableWidth()}>
-                              <div className={`${useBloombergTheme
-                                ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
-                                : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                    // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
+                    const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth
+                    let mobileExpWidth = isMobile ? 82 : 90
+
+                    // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
+                    if (duoMode && showGEX && showDealer && !isMobile) {
+                      mobileExpWidth = 70
+                    }
+
+                    let table1Expirations = expirations
+                    let table2Expirations = expirations
+                    let table3Expirations = expirations
+
+                    // Duo mode on desktop: limit to 6 expirations per table to fit side-by-side
+                    if (duoMode && showGEX && showDealer && !isMobile) {
+                      table1Expirations = expirations.slice(0, 6)
+                      table2Expirations = expirations.slice(0, 6)
+                    }
+
+                    if (isMobile) {
+                      if (activeTableCount === 3) {
+                        // 3 tables on mobile: each gets 1 expiration
+                        table1Expirations = expirations.slice(0, 1)
+                        table2Expirations = expirations.slice(0, 1)
+                        table3Expirations = expirations.slice(0, 1)
+                      } else if (activeTableCount === 2) {
+                        // 2 tables on mobile: each gets 2 expirations
+                        table1Expirations = expirations.slice(0, 2)
+                        table2Expirations = expirations.slice(0, 2)
+                        table3Expirations = expirations.slice(0, 2)
+                      }
+                    }
+
+                    return (
+                      <>
+                        {/* GEX/NORMAL TABLE */}
+                        {showGEX && (
+                          <div className="flex-shrink-0" style={getTableWidth()}>
+                            <div
+                              className={`${
+                                useBloombergTheme
+                                  ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                                  : 'bg-black border-gray-700'
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
                                 {useBloombergTheme && (
-                                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
                                 )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
-                                  <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(52,211,153,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
-                                </div>
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
+                                  style={{
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(52,211,153,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
+                                  }}
+                                >
+                                  NORMAL
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                )}
                               </div>
-                              <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                                <table style={{ minWidth: `${mobileStrikeWidth + (table1Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                                  <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                                    <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                                      <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                        <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                            </div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
+                                  >
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
+                                    >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs text-gray-400'
+                                            : 'text-xs font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table1Expirations.map((exp) => (
+                                      <th
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
                                       </th>
-                                      {table1Expirations.map(exp => (
-                                        <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                          <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {allCalculatedData.filter(row => {
-                                      const strikeRange = getStrikeRange(currentPrice);
-                                      return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                                    }).map((row, idx) => {
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
                                       // Use historical price when scrubbing, otherwise current price
-                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
-                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
-                                      ).strike : 0;
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
+                                              Math.abs(current.strike - priceForRow) <
+                                              Math.abs(closest.strike - priceForRow)
+                                                ? current
+                                                : closest
+                                            ).strike
+                                          : 0
 
-                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
 
                                       return (
                                         <tr
                                           key={idx}
-                                          className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                            }`}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
+                                              ? 'border-2 border-orange-500'
+                                              : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
                                         >
-                                          <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`
-                                          }}>
-                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                            >
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
-                                          {table1Expirations.map(exp => {
+                                          {table1Expirations.map((exp) => {
                                             // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
-                                            const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
-                                            const gexValue = calculatedRow?.[exp] as any;
-                                            const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
-                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues, 'gex');
+                                            const calculatedRow = allGEXCalculatedData.find(
+                                              (r) => r.strike === row.strike
+                                            )
+                                            const gexValue = calculatedRow?.[exp] as any
+                                            const displayValue =
+                                              (gexValue?.call || 0) + (gexValue?.put || 0)
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              gexTopValues,
+                                              'gex'
+                                            )
 
                                             return (
                                               <td
                                                 key={exp}
                                                 className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
                                               >
-                                                <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                                >
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
+                                                  </div>
                                                 </div>
                                               </td>
-                                            );
+                                            )
                                           })}
                                         </tr>
-                                      );
+                                      )
                                     })}
-                                  </tbody>
-                                </table>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                        {showDealer && (
+                          <div
+                            key={`dealer-${liveMode}-${liveOIData.size}`}
+                            className="flex-shrink-0"
+                            style={
+                              showOI && activeTableCount === 1
+                                ? { width: '900px', minWidth: '900px' }
+                                : getTableWidth()
+                            }
+                          >
+                            <div
+                              className={`${
+                                useBloombergTheme
+                                  ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                                  : 'bg-black border-gray-700'
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                )}
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
+                                  style={{
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(251,191,36,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
+                                  }}
+                                >
+                                  DEALER
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                )}
                               </div>
                             </div>
-                          )}
-
-                          {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
-                          {showDealer && (
-                            <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
-                              <div className={`${useBloombergTheme
-                                ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                                : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
-                                {useBloombergTheme && (
-                                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
-                                )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
-                                  <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,191,36,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>DEALER</h3>
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
-                                </div>
-                              </div>
-                              <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                                <table style={{ minWidth: `${mobileStrikeWidth + (table2Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                                  <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                                    <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                                      <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                        <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
+                                  >
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
+                                    >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs md:text-sm text-gray-400'
+                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table2Expirations.map((exp) => (
+                                      <th
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
                                       </th>
-                                      {table2Expirations.map(exp => (
-                                        <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                          <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {allCalculatedData.filter(row => {
-                                      const strikeRange = getStrikeRange(currentPrice);
-                                      return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                                    }).map((row, idx) => {
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
                                       // Use historical price when scrubbing, otherwise current price
-                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
-                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
-                                      ).strike : 0;
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
+                                              Math.abs(current.strike - priceForRow) <
+                                              Math.abs(closest.strike - priceForRow)
+                                                ? current
+                                                : closest
+                                            ).strike
+                                          : 0
 
-                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
 
                                       return (
                                         <tr
                                           key={idx}
-                                          className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                            }`}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
+                                              ? 'border-2 border-orange-500'
+                                              : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
                                         >
-                                          <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`
-                                          }}>
-                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                            >
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
-                                          {table2Expirations.map(exp => {
+                                          {table2Expirations.map((exp) => {
                                             // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
-                                            const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
-                                            const dealerValue = calculatedRow?.[exp] as any;
-                                            const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
-                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues, 'dealer');
+                                            const calculatedRow = allDealerCalculatedData.find(
+                                              (r) => r.strike === row.strike
+                                            )
+                                            const dealerValue = calculatedRow?.[exp] as any
+                                            const displayValue =
+                                              (dealerValue?.call || 0) + (dealerValue?.put || 0)
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              dealerTopValues,
+                                              'dealer'
+                                            )
 
                                             return (
                                               <td
                                                 key={exp}
                                                 className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
                                               >
-                                                <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top' ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
-                                                  cellStyle.clusterPosition === 'middle' ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
-                                                    cellStyle.clusterPosition === 'bottom' ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` : ''
-                                                  }`}>
-                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${
+                                                    cellStyle.clusterPosition === 'top'
+                                                      ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                                      : cellStyle.clusterPosition === 'middle'
+                                                        ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                                        : cellStyle.clusterPosition === 'bottom'
+                                                          ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                                          : ''
+                                                  }`}
+                                                >
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
+                                                  </div>
                                                 </div>
                                               </td>
-                                            );
+                                            )
                                           })}
                                         </tr>
-                                      );
+                                      )
                                     })}
-                                  </tbody>
-                                </table>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* FLOW MAP Table - conditionally rendered */}
+                        {showFlowGEX && (
+                          <div
+                            key={`flowmap-${liveMode}-${liveOIData.size}`}
+                            className="flex-shrink-0"
+                            style={
+                              showOI && activeTableCount === 1
+                                ? { width: '900px', minWidth: '900px' }
+                                : getTableWidth()
+                            }
+                          >
+                            <div
+                              className={`${
+                                useBloombergTheme
+                                  ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                                  : 'bg-black border-gray-700'
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                )}
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
+                                  style={{
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(251,146,60,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
+                                  }}
+                                >
+                                  FLOW MAP
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                )}
                               </div>
                             </div>
-                          )}
-
-                          {/* FLOW MAP Table - conditionally rendered */}
-                          {showFlowGEX && (
-                            <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
-                              <div className={`${useBloombergTheme
-                                ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-                                : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
-                                {useBloombergTheme && (
-                                  <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
-                                )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
-                                  <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,146,60,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
-                                  {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
-                                </div>
-                              </div>
-                              <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                                <table style={{ minWidth: `${mobileStrikeWidth + (table3Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                                  <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                                    <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                                      <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                        <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
+                                  >
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
+                                    >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs md:text-sm text-gray-400'
+                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table3Expirations.map((exp) => (
+                                      <th
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
                                       </th>
-                                      {table3Expirations.map(exp => (
-                                        <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                          <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {data.filter(row => {
-                                      const strikeRange = getStrikeRange(currentPrice);
-                                      return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                                    }).map((row, idx) => {
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {data
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
                                       // Use historical price when scrubbing, otherwise current price
-                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
-                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
-                                      ).strike : 0;
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
+                                              Math.abs(current.strike - priceForRow) <
+                                              Math.abs(closest.strike - priceForRow)
+                                                ? current
+                                                : closest
+                                            ).strike
+                                          : 0
 
-                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
 
                                       return (
                                         <tr
                                           key={idx}
-                                          className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                            }`}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
+                                              ? 'border-2 border-orange-500'
+                                              : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
                                         >
-                                          <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`
-                                          }}>
-                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                            >
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
-                                          {table3Expirations.map(exp => {
-                                            const value = row[exp] as any;
-                                            const displayValue = (value?.flowNet || 0);
-                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, flowTopValues);
+                                          {table3Expirations.map((exp) => {
+                                            const value = row[exp] as any
+                                            const displayValue = value?.flowNet || 0
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              flowTopValues
+                                            )
 
                                             return (
                                               <td
                                                 key={exp}
                                                 className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
                                               >
-                                                <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                                >
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
+                                                  </div>
                                                 </div>
                                               </td>
-                                            );
+                                            )
                                           })}
                                         </tr>
-                                      );
+                                      )
                                     })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                </tbody>
+                              </table>
                             </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  /* Original single table when only one mode is active */
-                  <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                    <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
-                      <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
-                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
-                            <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              ) : (
+                /* Original single table when only one mode is active */
+                <div
+                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                  style={{
+                    maxHeight:
+                      typeof window !== 'undefined' && window.innerWidth < 768
+                        ? 'calc(100vh - 250px)'
+                        : 'calc(100vh - 300px)',
+                    overflowX: 'auto',
+                  }}
+                >
+                  <table
+                    style={{
+                      minWidth: `${workbenchStrikeWidth + expirations.length * 90}px`,
+                      width: '100%',
+                    }}
+                  >
+                    <thead
+                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
+                    >
+                      <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                        <th
+                          className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
+                          style={{
+                            width: `${workbenchStrikeWidth}px`,
+                            minWidth: `${workbenchStrikeWidth}px`,
+                            maxWidth: `${workbenchStrikeWidth}px`,
+                          }}
+                        >
+                          <div
+                            className={
+                              useBloombergTheme
+                                ? 'bb-header text-xs md:text-sm text-gray-400'
+                                : 'text-xs md:text-sm font-bold text-white uppercase'
+                            }
+                          >
+                            Strike
+                          </div>
+                        </th>
+                        {expirations.map((exp) => (
+                          <th
+                            key={exp}
+                            className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`}
+                            style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                          >
+                            <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                              {formatDate(exp)}
+                            </div>
                           </th>
-                          {expirations.map(exp => (
-                            <th key={exp} className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
-                              <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                {formatDate(exp)}
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(showFlowGEX ? data : (showGEX || showDealer || showVEX ? allCalculatedData : data)).filter(row => {
-                          const strikeRange = getStrikeRange(currentPrice);
-                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                        }).map((row, idx) => {
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(showFlowGEX
+                        ? data
+                        : showGEX || showDealer || showVEX
+                          ? allCalculatedData
+                          : data
+                      )
+                        .filter((row) => {
+                          const strikeRange = getStrikeRange(currentPrice)
+                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max
+                        })
+                        .map((row, idx) => {
                           // Find the single closest strike to current price (use historical when scrubbing)
-                          const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
-                          const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
-                            Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
-                          ).strike : 0;
+                          const priceForRow = historicalTimestamp ? historicalPrice : currentPrice
+                          const closestStrike =
+                            priceForRow > 0
+                              ? data.reduce((closest, current) =>
+                                  Math.abs(current.strike - priceForRow) <
+                                  Math.abs(closest.strike - priceForRow)
+                                    ? current
+                                    : closest
+                                ).strike
+                              : 0
 
                           // Find the strike with the highest GEX value using the same logic as cell highlighting
                           // This ensures purple row highlight is always on the same strike as the gold cell
-                          const tolerance = 1;
-                          const largestValueStrike = allCalculatedData.length > 0 && topValues.highest > 0
-                            ? (allCalculatedData.find(row => {
-                              return expirations.some(exp => {
-                                const value = row[exp] as { call: number, put: number, net: number };
+                          const tolerance = 1
+                          const largestValueStrike =
+                            allCalculatedData.length > 0 && topValues.highest > 0
+                              ? (allCalculatedData.find((row) => {
+                                  return expirations.some((exp) => {
+                                    const value = row[exp] as {
+                                      call: number
+                                      put: number
+                                      net: number
+                                    }
 
-                                // For Net modes, check the net value
-                                if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
-                                  const netAbs = Math.abs(value?.net || 0);
-                                  return Math.abs(netAbs - topValues.highest) < tolerance;
-                                }
+                                    // For Net modes, check the net value
+                                    if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
+                                      const netAbs = Math.abs(value?.net || 0)
+                                      return Math.abs(netAbs - topValues.highest) < tolerance
+                                    }
 
-                                // For split modes, check call and put separately
-                                const callAbs = Math.abs(value?.call || 0);
-                                const putAbs = Math.abs(value?.put || 0);
-                                return Math.abs(callAbs - topValues.highest) < tolerance ||
-                                  Math.abs(putAbs - topValues.highest) < tolerance;
-                              });
-                            })?.strike ?? 0)
-                            : 0;
-
-
+                                    // For split modes, check call and put separately
+                                    const callAbs = Math.abs(value?.call || 0)
+                                    const putAbs = Math.abs(value?.put || 0)
+                                    return (
+                                      Math.abs(callAbs - topValues.highest) < tolerance ||
+                                      Math.abs(putAbs - topValues.highest) < tolerance
+                                    )
+                                  })
+                                })?.strike ?? 0)
+                              : 0
 
                           // Find the cell with largest VEX value (only when VEX is enabled)
-                          let largestVexCell: { strike: number | null, exp: string | null, type: string | null, value: number } = { strike: null, exp: null, type: null, value: 0 };
+                          let largestVexCell: {
+                            strike: number | null
+                            exp: string | null
+                            type: string | null
+                            value: number
+                          } = { strike: null, exp: null, type: null, value: 0 }
                           if (showVEX) {
-                            data.forEach(row => {
-                              expirations.forEach(exp => {
-                                const value = row[exp] as any;
+                            data.forEach((row) => {
+                              expirations.forEach((exp) => {
+                                const value = row[exp] as any
                                 if (Math.abs(value?.callVex || 0) > largestVexCell.value) {
-                                  largestVexCell = { strike: row.strike, exp, type: 'call', value: Math.abs(value?.callVex || 0) };
+                                  largestVexCell = {
+                                    strike: row.strike,
+                                    exp,
+                                    type: 'call',
+                                    value: Math.abs(value?.callVex || 0),
+                                  }
                                 }
                                 if (Math.abs(value?.putVex || 0) > largestVexCell.value) {
-                                  largestVexCell = { strike: row.strike, exp, type: 'put', value: Math.abs(value?.putVex || 0) };
+                                  largestVexCell = {
+                                    strike: row.strike,
+                                    exp,
+                                    type: 'put',
+                                    value: Math.abs(value?.putVex || 0),
+                                  }
                                 }
-                              });
-                            });
+                              })
+                            })
                           }
 
-                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
-                          const isLargestValueRow = row.strike === largestValueStrike;
+                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike
+                          const isLargestValueRow = row.strike === largestValueStrike
 
                           return (
                             <tr
                               key={idx}
-                              className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                }`}
+                              className={`hover:bg-gray-800/20 transition-colors ${
+                                isCurrentPriceRow
+                                  ? 'border-2 border-orange-500'
+                                  : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                              }`}
                             >
-                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${workbenchStrikeWidth}px`,
-                                minWidth: `${workbenchStrikeWidth}px`,
-                                maxWidth: `${workbenchStrikeWidth}px`
-                              }}>
-                                <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                              <td
+                                className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                style={{
+                                  width: `${workbenchStrikeWidth}px`,
+                                  minWidth: `${workbenchStrikeWidth}px`,
+                                  maxWidth: `${workbenchStrikeWidth}px`,
+                                }}
+                              >
+                                <div
+                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                >
                                   {row.strike.toFixed(1)}
                                 </div>
                               </td>
-                              {expirations.map(exp => {
-                                const value = row[exp] as { call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number };
-                                const callValue = value?.call || 0;
-                                const putValue = value?.put || 0;
-                                const netValue = value?.net || 0;
-                                let callOI = value?.callOI || 0;
-                                let putOI = value?.putOI || 0;
+                              {expirations.map((exp) => {
+                                const value = row[exp] as {
+                                  call: number
+                                  put: number
+                                  net: number
+                                  callOI: number
+                                  putOI: number
+                                  callPremium?: number
+                                  putPremium?: number
+                                  callVex?: number
+                                  putVex?: number
+                                }
+                                const callValue = value?.call || 0
+                                const putValue = value?.put || 0
+                                const netValue = value?.net || 0
+                                let callOI = value?.callOI || 0
+                                let putOI = value?.putOI || 0
 
                                 // Use Live OI if mode is selected
                                 if (liveMode && liveOIData.size > 0) {
-                                  const callKey = `${selectedTicker}_${row.strike}_call_${exp}`;
-                                  const putKey = `${selectedTicker}_${row.strike}_put_${exp}`;
+                                  const callKey = `${selectedTicker}_${row.strike}_call_${exp}`
+                                  const putKey = `${selectedTicker}_${row.strike}_put_${exp}`
 
-                                  const liveCallOI = liveOIData.get(callKey);
-                                  const livePutOI = liveOIData.get(putKey);
+                                  const liveCallOI = liveOIData.get(callKey)
+                                  const livePutOI = liveOIData.get(putKey)
 
-                                  if (liveCallOI !== undefined) callOI = liveCallOI;
-                                  if (livePutOI !== undefined) putOI = livePutOI;
+                                  if (liveCallOI !== undefined) callOI = liveCallOI
+                                  if (livePutOI !== undefined) putOI = livePutOI
                                 }
 
-                                const callPremium = value?.callPremium || 0;
-                                const putPremium = value?.putPremium || 0;
-                                const callVex = value?.callVex || 0;
-                                const putVex = value?.putVex || 0;
+                                const callPremium = value?.callPremium || 0
+                                const putPremium = value?.putPremium || 0
+                                const callVex = value?.callVex || 0
+                                const putVex = value?.putVex || 0
 
                                 // Check if this is the largest VEX cell
-                                const isLargestVexCall = showVEX &&
+                                const isLargestVexCall =
+                                  showVEX &&
                                   largestVexCell.strike === row.strike &&
                                   largestVexCell.exp === exp &&
-                                  largestVexCell.type === 'call';
-                                const isLargestVexPut = showVEX &&
+                                  largestVexCell.type === 'call'
+                                const isLargestVexPut =
+                                  showVEX &&
                                   largestVexCell.strike === row.strike &&
                                   largestVexCell.exp === exp &&
-                                  largestVexCell.type === 'put';
+                                  largestVexCell.type === 'put'
 
                                 // Dealer attraction identification (when Live OI is active)
-                                const tops = topValues;
-                                const absCallValue = Math.abs(callValue);
-                                const absPutValue = Math.abs(putValue);
-                                const netValueCalculated = callValue + putValue; // Calculate net from actual call+put values
-                                const absNetValue = Math.abs(netValueCalculated);
+                                const tops = topValues
+                                const absCallValue = Math.abs(callValue)
+                                const absPutValue = Math.abs(putValue)
+                                const netValueCalculated = callValue + putValue // Calculate net from actual call+put values
+                                const absNetValue = Math.abs(netValueCalculated)
 
                                 // Check if this cell is an Attraction or Reversal level
                                 // For split mode (separate call/put cells)
-                                const isAttractionCall = liveMode && (showGEX || showDealer) && absCallValue === tops.highest && absCallValue > 0;
-                                const isAttractionPut = liveMode && (showGEX || showDealer) && absPutValue === tops.highest && absPutValue > 0;
-                                const isReversalCall = liveMode && (showGEX || showDealer) && (absCallValue === tops.second || absCallValue === tops.third) && absCallValue > 0;
-                                const isReversalPut = liveMode && (showGEX || showDealer) && (absPutValue === tops.second || absPutValue === tops.third) && absPutValue > 0;
+                                const isAttractionCall =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  absCallValue === tops.highest &&
+                                  absCallValue > 0
+                                const isAttractionPut =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  absPutValue === tops.highest &&
+                                  absPutValue > 0
+                                const isReversalCall =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  (absCallValue === tops.second || absCallValue === tops.third) &&
+                                  absCallValue > 0
+                                const isReversalPut =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  (absPutValue === tops.second || absPutValue === tops.third) &&
+                                  absPutValue > 0
 
                                 // For Net GEX/Net Dealer mode (single cell with net value)
-                                const isAttractionNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && absNetValue === tops.highest && absNetValue > 0;
-                                const isReversalNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
+                                const isAttractionNet =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  (gexMode === 'Net GEX' || gexMode === 'Net Dealer') &&
+                                  absNetValue === tops.highest &&
+                                  absNetValue > 0
+                                const isReversalNet =
+                                  liveMode &&
+                                  (showGEX || showDealer) &&
+                                  (gexMode === 'Net GEX' || gexMode === 'Net Dealer') &&
+                                  (absNetValue === tops.second || absNetValue === tops.third) &&
+                                  absNetValue > 0
 
                                 // VEX Action Labels - Determine what to display in VEX cells
-                                const getVexActionLabel = (vexValue: number, strike: number): string | null => {
-                                  return null;
-                                };
+                                const getVexActionLabel = (
+                                  vexValue: number,
+                                  strike: number
+                                ): string | null => {
+                                  return null
+                                }
 
-                                const netVexAction = getVexActionLabel(callVex + putVex, row.strike);
-                                const callVexAction = getVexActionLabel(callVex, row.strike);
-                                const putVexAction = getVexActionLabel(putVex, row.strike);
+                                const netVexAction = getVexActionLabel(callVex + putVex, row.strike)
+                                const callVexAction = getVexActionLabel(callVex, row.strike)
+                                const putVexAction = getVexActionLabel(putVex, row.strike)
 
                                 return (
                                   <td
@@ -8592,49 +11131,63 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     {/* Always display net value in a single cell */}
                                     {(() => {
                                       // Calculate net value based on active mode
-                                      let displayValue = 0;
+                                      let displayValue = 0
                                       if (showFlowGEX) {
-                                        displayValue = (value as any)?.flowNet || 0;
+                                        displayValue = (value as any)?.flowNet || 0
                                       } else if (showVEX) {
-                                        displayValue = callVex + putVex;
+                                        displayValue = callVex + putVex
                                       } else if (showGEX || showDealer) {
-                                        displayValue = callValue + putValue;
+                                        displayValue = callValue + putValue
                                       }
 
                                       // Determine which top values to use for this mode
-                                      const modeTopValues = showFlowGEX ? flowTopValues :
-                                        showVEX ? vexTopValues :
-                                          showDealer ? dealerTopValues :
-                                            gexTopValues;
+                                      const modeTopValues = showFlowGEX
+                                        ? flowTopValues
+                                        : showVEX
+                                          ? vexTopValues
+                                          : showDealer
+                                            ? dealerTopValues
+                                            : gexTopValues
 
-                                      const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp, modeTopValues);
+                                      const cellStyle = getCellStyle(
+                                        displayValue,
+                                        showVEX,
+                                        row.strike,
+                                        exp,
+                                        modeTopValues
+                                      )
                                       return (
-                                        <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}>
-
+                                        <div
+                                          className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}
+                                        >
                                           {/* Display the net value */}
-                                          <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                          <div className="text-sm md:text-base font-bold mb-1">
+                                            {formatCurrency(displayValue)}
+                                          </div>
 
                                           {/* Show VEX action label if applicable */}
                                           {showVEX && netVexAction && (
-                                            <div className="text-[9px] font-black tracking-wider text-white/90" style={{
-                                              textShadow: '0 1px 2px rgba(0,0,0,0.9)'
-                                            }}>
+                                            <div
+                                              className="text-[9px] font-black tracking-wider text-white/90"
+                                              style={{
+                                                textShadow: '0 1px 2px rgba(0,0,0,0.9)',
+                                              }}
+                                            >
                                               {netVexAction}
                                             </div>
                                           )}
                                         </div>
-                                      );
+                                      )
                                     })()}
                                   </td>
-                                );
+                                )
                               })}
                             </tr>
-                          );
+                          )
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
+                    </tbody>
+                  </table>
+                </div>
               )}
             </>
           ) : activeTab === 'WORKBENCH' ? (
@@ -8660,7 +11213,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     expirations={expirations}
                   />
                 </div>
-
               </div>
             </div>
           ) : (
@@ -8675,14 +11227,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 <p className="text-lg text-gray-300 max-w-2xl mx-auto mb-8">
                   Premium analytics and advanced market data visualization tools
                 </p>
-
               </div>
             </div>
           )}
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default DealerAttraction;
+export default DealerAttraction
