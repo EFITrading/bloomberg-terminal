@@ -1763,7 +1763,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       }
     }
 
-    const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+    const rawPercentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+    // B/BB = sold to open: profit when contract loses value, loss when it gains (infinite loss side)
+    const tradeFillStyle = trade.fill_style || ''
+    const isSoldToOpen = tradeFillStyle === 'B' || tradeFillStyle === 'BB'
+    const percentChange = isSoldToOpen ? -rawPercentChange : rawPercentChange
 
     if (percentChange <= -40) scores.contractPrice = 15
     else if (percentChange <= -20) scores.contractPrice = 12
@@ -7315,12 +7319,21 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                               const entryValue = trade.total_premium
 
-                              const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+                              const rawPercentChange =
+                                ((currentPrice - entryPrice) / entryPrice) * 100
 
-                              const priceHigher = currentPrice > entryPrice
+                              // B/BB = sold to open: profit when contract LOSES value, loss when it gains
+                              const displayFillStyle = trade.fill_style || ''
+                              const isSoldToOpenDisplay =
+                                displayFillStyle === 'B' || displayFillStyle === 'BB'
+                              const percentChange = isSoldToOpenDisplay
+                                ? -rawPercentChange
+                                : rawPercentChange
 
-                              // Simple color logic: green if option price went up, red if down
+                              // For sold-to-open: profitable when contract price dropped (priceHigher=false = green)
+                              const priceHigher = percentChange > 0
 
+                              // Simple color logic: green if position is in profit, red if in loss
                               const color = priceHigher ? '#00ff00' : '#ff0000'
 
                               // Smart formatting for value
@@ -8287,7 +8300,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   // Down 60%+ filter
 
                   if (flowTrackingFilters.showDownSixtyPlus && currentPrice && currentPrice > 0) {
-                    const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+                    const rawPct = ((currentPrice - entryPrice) / entryPrice) * 100
+                    const flowFill = flow.fill_style || ''
+                    const flowSoldToOpen = flowFill === 'B' || flowFill === 'BB'
+                    const percentChange = flowSoldToOpen ? -rawPct : rawPct
 
                     if (percentChange > -60) return false
                   }
@@ -8347,24 +8363,25 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   let priceHigher = false
 
-                  if (currentPrice && currentPrice > 0) {
-                    percentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+                  const fillStyle = flow.fill_style || ''
 
-                    priceHigher = currentPrice > entryPrice
+                  const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
+
+                  if (currentPrice && currentPrice > 0) {
+                    const rawPercentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+
+                    // B/BB = sold to open: profit when contract LOSES value (flip the sign)
+                    percentChange = isSoldToOpen ? -rawPercentChange : rawPercentChange
+
+                    priceHigher = percentChange > 0
                   }
 
-                  // Determine P&L color based on fill_style
+                  // Determine P&L color based on actual P&L direction
 
                   let plColor = '#9ca3af' // default gray
 
-                  const fillStyle = flow.fill_style || ''
-
                   if (currentPrice && currentPrice > 0) {
-                    if (fillStyle === 'A' || fillStyle === 'AA') {
-                      plColor = priceHigher ? '#00ff00' : '#ff0000'
-                    } else if (fillStyle === 'B' || fillStyle === 'BB') {
-                      plColor = priceHigher ? '#ff0000' : '#00ff00'
-                    }
+                    plColor = priceHigher ? '#00ff00' : '#ff0000'
                   }
 
                   // Generate flow ID for tracking timeframes

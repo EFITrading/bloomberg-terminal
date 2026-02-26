@@ -7038,7 +7038,11 @@ export default function TradingViewChart({
       )
     }
 
-    const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+    const rawPercentChange = ((currentPrice - entryPrice) / entryPrice) * 100
+    // B/BB = sold to open: profit when contract loses value, loss when it gains (infinite loss side)
+    const tradeFillStyle = trade.fill_style || ''
+    const isSoldToOpen = tradeFillStyle === 'B' || tradeFillStyle === 'BB'
+    const percentChange = isSoldToOpen ? -rawPercentChange : rawPercentChange
 
     if (percentChange <= -40) scores.contractPrice = 25
     else if (percentChange <= -20) scores.contractPrice = 20
@@ -13226,7 +13230,6 @@ export default function TradingViewChart({
     ctx.lineWidth = 1
     ctx.font = '10px monospace'
     ctx.textAlign = 'right'
-
     ;[30, 50, 70].forEach((level) => {
       const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
       ctx.beginPath()
@@ -14704,7 +14707,6 @@ export default function TradingViewChart({
         startPriceRange: manualPriceRange || lastRenderedPriceRangeRef.current,
         startTimestamp: performance.now(),
       }
-
       ;(e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
     },
     [
