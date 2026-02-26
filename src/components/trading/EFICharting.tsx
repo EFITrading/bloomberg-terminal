@@ -3661,6 +3661,13 @@ const FlowPanel = React.memo(
       })
     }, [setFlowData, setFlowSummary])
 
+    // Auto-fetch on mount if no data loaded yet
+    useEffect(() => {
+      if (flowData.length === 0 && !flowLoading) {
+        fetchOptionsFlowStreaming(0)
+      }
+    }, [])
+
     return (
       <div className="h-full flex flex-col bg-black text-white">
         {/* Bloomberg-style Header */}
