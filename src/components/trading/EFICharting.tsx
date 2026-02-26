@@ -3728,7 +3728,7 @@ const FlowPanel = React.memo(
           </div>
         </div>
 
-        <div className="p-6 flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto">
           <OptionsFlowTable
             data={flowData}
             summary={flowSummary}
@@ -3744,6 +3744,7 @@ const FlowPanel = React.memo(
             useDropdowns={true}
             hideFlowTracking={flowPanelTab === 'flow'}
             showFlowTrackingInline={flowPanelTab === 'tracking'}
+            isSidebarPanel={true}
           />
         </div>
       </div>

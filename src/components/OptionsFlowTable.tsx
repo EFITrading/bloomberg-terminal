@@ -584,6 +584,8 @@ interface OptionsFlowTableProps {
   hideFlowTracking?: boolean
 
   showFlowTrackingInline?: boolean
+
+  isSidebarPanel?: boolean
 }
 
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
@@ -616,6 +618,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   hideFlowTracking = false,
 
   showFlowTrackingInline = false,
+
+  isSidebarPanel = false,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade'>(
     'trade_timestamp'
@@ -4521,7 +4525,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         style={{
           minHeight: showFlowTrackingInline ? 'auto' : '100vh',
 
-          width: '74%',
+          width: isSidebarPanel ? '100%' : '74%',
 
           marginRight: '0',
 
@@ -4541,7 +4545,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
             overflow: 'visible',
 
-            marginTop: '-52px',
+            marginTop: isSidebarPanel ? '0' : '-52px',
           }}
         >
           {/* Mobile Layout - 2 Rows */}
