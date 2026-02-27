@@ -1,24 +1,33 @@
-'use client';
+'use client'
 
-import '../seasonax.css';
-import '../seasonality.css';
-import '../seasonal-cards.css';
-import '../almanac.css';
-import SeasonalityChart from '@/components/analytics/SeasonalityChart';
-import AlmanacDailyChart from '@/components/analytics/AlmanacDailyChart';
-import SeasonaxLanding from '@/components/seasonax/SeasonaxLanding';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import AlmanacDailyChart from '@/components/analytics/AlmanacDailyChart'
+import SeasonalityChart from '@/components/analytics/SeasonalityChart'
+import SeasonaxLanding from '@/components/seasonax/SeasonaxLanding'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+import '../almanac.css'
+import '../seasonal-cards.css'
+import '../seasonality.css'
+import '../seasonax.css'
 
 export default function DataDriven() {
   return (
     <div className="data-driven-container">
       {/* Desktop view - shows all components side by side */}
       <div className="desktop-view">
-        <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '12px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '50.3% 48%',
+            gap: '1%',
+            width: '100%',
+            marginTop: '12px',
+          }}
+        >
           <div style={{ minWidth: 0, width: '100%' }}>
             <SeasonalityChart autoStart={true} hideScreener={true} />
           </div>
-          <div style={{ minWidth: 0, marginTop: '-60px' }}>
+          <div style={{ minWidth: 0 }}>
             <SeasonaxLanding />
           </div>
         </div>
@@ -46,11 +55,7 @@ export default function DataDriven() {
           </TabsContent>
 
           <TabsContent value="monthly" className="mobile-tab-content">
-            <AlmanacDailyChart
-              month={new Date().getMonth()}
-              showPostElection={true}
-              symbol="SPY"
-            />
+            <AlmanacDailyChart month={new Date().getMonth()} showPostElection={true} symbol="SPY" />
           </TabsContent>
 
           <TabsContent value="screener" className="mobile-tab-content">
@@ -59,5 +64,5 @@ export default function DataDriven() {
         </Tabs>
       </div>
     </div>
-  );
+  )
 }

@@ -669,6 +669,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [savingFlow, setSavingFlow] = useState<boolean>(false)
 
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string>('')
+
   const [loadingFlowDate, setLoadingFlowDate] = useState<string | null>(null)
 
   const [currentPage, setCurrentPage] = useState<number>(1)
@@ -1219,13 +1223,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         })
       )
 
-      // Update progress and UI after each batch
-
+      // Update progress only (no state update per batch to avoid re-renders)
       processedCount += batch.length
 
       setGradingProgress({ current: processedCount, total: trades.length })
-
-      setCurrentOptionPrices((prev) => ({ ...prev, ...pricesUpdate }))
     }
 
     // Process batches with sliding window concurrency
@@ -1241,6 +1242,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         await new Promise((resolve) => setTimeout(resolve, 150))
       }
     }
+
+    // Single state update after ALL batches complete - prevents per-batch re-renders
+    setCurrentOptionPrices((prev) => ({ ...prev, ...pricesUpdate }))
 
     setOptionPricesFetching(false)
 
@@ -2122,6 +2126,8 @@ Stock Reaction: ${scores.stockReaction}/15`
   const handleSaveFlow = async () => {
     try {
       setSavingFlow(true)
+      setSaveStatus('idle')
+      setSaveErrorMsg('')
 
       const today = new Date().toISOString().split('T')[0]
 
@@ -2134,10 +2140,17 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
 
       if (!response.ok) {
-        throw new Error('Failed to save flow')
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || `HTTP ${response.status}`)
       }
+
+      setSaveStatus('success')
+      setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
       console.error('Error saving flow:', error)
+      setSaveErrorMsg(error instanceof Error ? error.message : 'Unknown error')
+      setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 4000)
     } finally {
       setSavingFlow(false)
     }
@@ -4947,8 +4960,37 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </svg>
                   )}
 
-                  <span>{savingFlow ? 'SAVING...' : 'SAVE'}</span>
+                  <span
+                    style={{
+                      color:
+                        saveStatus === 'success'
+                          ? '#22c55e'
+                          : saveStatus === 'error'
+                            ? '#ef4444'
+                            : undefined,
+                    }}
+                  >
+                    {savingFlow
+                      ? 'SAVING...'
+                      : saveStatus === 'success'
+                        ? 'SAVED ✓'
+                        : saveStatus === 'error'
+                          ? 'ERROR ✗'
+                          : 'SAVE'}
+                  </span>
                 </button>
+                {saveStatus === 'error' && saveErrorMsg && (
+                  <span
+                    style={{
+                      fontSize: '9px',
+                      color: '#ef4444',
+                      maxWidth: '120px',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {saveErrorMsg}
+                  </span>
+                )}
 
                 {/* History Button */}
 
@@ -5136,40 +5178,44 @@ Stock Reaction: ${scores.stockReaction}/15`
                           setSelectedOptionTypes([e.target.value])
                         }
                       }}
-                      className="px-4 font-bold uppercase transition-all duration-200"
+                      className="font-black uppercase transition-all duration-200 cursor-pointer"
                       style={{
-                        height: '48px',
-
-                        background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                        border: '2px solid #2a2a2a',
-
-                        borderRadius: '4px',
-
-                        fontSize: '15px',
-
-                        letterSpacing: '1.2px',
-
+                        height: '40px',
+                        padding: '0 34px 0 14px',
+                        background: '#000000',
+                        border: '1px solid #383838',
+                        borderRadius: '7px',
+                        fontSize: '16px',
+                        letterSpacing: '1.5px',
                         fontWeight: '900',
-
-                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
                         outline: 'none',
-
                         color: '#ffffff',
-
                         cursor: 'pointer',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        boxShadow:
+                          '0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 11px center',
                       }}
                     >
-                      <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+                      <option
+                        value="both"
+                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
+                      >
                         BOTH
                       </option>
-
-                      <option value="call" style={{ background: '#000000', color: '#84cc16' }}>
+                      <option
+                        value="call"
+                        style={{ background: '#000000', color: '#84cc16', fontWeight: '900' }}
+                      >
                         CALLS
                       </option>
-
-                      <option value="put" style={{ background: '#000000', color: '#dc2626' }}>
+                      <option
+                        value="put"
+                        style={{ background: '#000000', color: '#dc2626', fontWeight: '900' }}
+                      >
                         PUTS
                       </option>
                     </select>
@@ -5247,50 +5293,54 @@ Stock Reaction: ${scores.stockReaction}/15`
                       onChange={(e) => {
                         if (e.target.value) {
                           setInputTicker(e.target.value)
-
                           onTickerChange(e.target.value)
-
                           onRefresh?.(e.target.value)
                         }
                       }}
-                      className="px-4 font-bold uppercase transition-all duration-200"
+                      className="font-black uppercase transition-all duration-200 cursor-pointer"
                       style={{
-                        height: '48px',
-
-                        background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                        border: '2px solid #2a2a2a',
-
-                        borderRadius: '4px',
-
-                        fontSize: '15px',
-
-                        letterSpacing: '1.2px',
-
+                        height: '40px',
+                        padding: '0 34px 0 14px',
+                        background: '#000000',
+                        border: '1px solid #383838',
+                        borderRadius: '7px',
+                        fontSize: '16px',
+                        letterSpacing: '1.5px',
                         fontWeight: '900',
-
-                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
                         outline: 'none',
-
                         color: '#ffffff',
-
                         cursor: 'pointer',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        boxShadow:
+                          '0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 11px center',
                       }}
                     >
-                      <option value="" style={{ background: '#000000', color: '#ffffff' }}>
+                      <option
+                        value=""
+                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
+                      >
                         PRESETS
                       </option>
-
-                      <option value="ETF" style={{ background: '#000000', color: '#ff8500' }}>
+                      <option
+                        value="ETF"
+                        style={{ background: '#000000', color: '#ff8500', fontWeight: '900' }}
+                      >
                         ETF
                       </option>
-
-                      <option value="MAG7" style={{ background: '#000000', color: '#a855f7' }}>
+                      <option
+                        value="MAG7"
+                        style={{ background: '#000000', color: '#a855f7', fontWeight: '900' }}
+                      >
                         MAG7
                       </option>
-
-                      <option value="ALL" style={{ background: '#000000', color: '#ffffff' }}>
+                      <option
+                        value="ALL"
+                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
+                      >
                         ALL
                       </option>
                     </select>
@@ -5403,10 +5453,12 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Divider */}
 
-                <div
-                  className="hidden md:block"
-                  style={{ width: '1px', height: '48px', background: '#2a2a2a' }}
-                ></div>
+                {!isSidebarPanel && (
+                  <div
+                    className="hidden md:block"
+                    style={{ width: '1px', height: '48px', background: '#2a2a2a' }}
+                  ></div>
+                )}
 
                 {/* Quick Filters */}
 
@@ -5428,68 +5480,80 @@ Stock Reaction: ${scores.stockReaction}/15`
                       }
                       onChange={(e) => {
                         const value = e.target.value
-
                         setQuickFilters({
                           otm: value === 'otm',
-
                           premium100k: value === 'premium100k',
-
                           weekly: value === 'weekly',
-
                           sweep: value === 'sweep',
-
                           block: value === 'block',
                         })
                       }}
-                      className="px-4 font-bold uppercase"
+                      className="font-black uppercase cursor-pointer transition-all duration-200"
                       style={{
-                        height: '48px',
-
-                        background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                        border: '2px solid #2a2a2a',
-
-                        borderRadius: '4px',
-
-                        fontSize: '12px',
-
-                        letterSpacing: '1px',
-
+                        height: '40px',
+                        padding: '0 34px 0 14px',
+                        background: '#000000',
+                        border: '1px solid #383838',
+                        borderRadius: '7px',
+                        fontSize: '16px',
+                        letterSpacing: '1.5px',
                         fontWeight: '900',
-
-                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
                         outline: 'none',
-
-                        color: '#ffffff',
-
+                        color: quickFilters.otm
+                          ? '#3b82f6'
+                          : quickFilters.premium100k
+                            ? '#22c55e'
+                            : quickFilters.weekly
+                              ? '#ef4444'
+                              : quickFilters.sweep
+                                ? '#fbbf24'
+                                : quickFilters.block
+                                  ? '#a855f7'
+                                  : '#ffffff',
                         cursor: 'pointer',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        boxShadow:
+                          '0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 11px center',
                       }}
                     >
-                      <option value="" style={{ background: '#000000', color: '#ffffff' }}>
+                      <option
+                        value=""
+                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
+                      >
                         FILTERS
                       </option>
-
-                      <option value="otm" style={{ background: '#000000', color: '#3b82f6' }}>
+                      <option
+                        value="otm"
+                        style={{ background: '#000000', color: '#3b82f6', fontWeight: '900' }}
+                      >
                         OTM
                       </option>
-
                       <option
                         value="premium100k"
-                        style={{ background: '#000000', color: '#22c55e' }}
+                        style={{ background: '#000000', color: '#22c55e', fontWeight: '900' }}
                       >
                         100K+
                       </option>
-
-                      <option value="weekly" style={{ background: '#000000', color: '#ef4444' }}>
+                      <option
+                        value="weekly"
+                        style={{ background: '#000000', color: '#ef4444', fontWeight: '900' }}
+                      >
                         WKLYs
                       </option>
-
-                      <option value="sweep" style={{ background: '#000000', color: '#fbbf24' }}>
+                      <option
+                        value="sweep"
+                        style={{ background: '#000000', color: '#fbbf24', fontWeight: '900' }}
+                      >
                         SWEEP
                       </option>
-
-                      <option value="block" style={{ background: '#000000', color: '#a855f7' }}>
+                      <option
+                        value="block"
+                        style={{ background: '#000000', color: '#a855f7', fontWeight: '900' }}
+                      >
                         BLOCK
                       </option>
                     </select>
@@ -5915,92 +5979,95 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {/* Premium Action Buttons */}
 
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => onRefresh?.()}
-                    disabled={loading}
-                    className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${
-                      loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
-                    style={{
-                      height: '48px',
+                  {!isSidebarPanel && (
+                    <button
+                      onClick={() => onRefresh?.()}
+                      disabled={loading}
+                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${
+                        loading
+                          ? 'cursor-not-allowed opacity-40'
+                          : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
+                      style={{
+                        height: '48px',
 
-                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                        background:
+                          'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
 
-                      border: '2px solid #0ea5e9',
+                        border: '2px solid #0ea5e9',
 
-                      borderRadius: '4px',
+                        borderRadius: '4px',
 
-                      fontSize: '14px',
+                        fontSize: '14px',
 
-                      letterSpacing: '1.5px',
+                        letterSpacing: '1.5px',
 
-                      fontWeight: '900',
+                        fontWeight: '900',
 
-                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!loading) {
-                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!loading) {
+                          e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
 
-                        e.currentTarget.style.border = '2px solid #38bdf8'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!loading) {
-                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                          e.currentTarget.style.border = '2px solid #38bdf8'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!loading) {
+                          e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
 
-                        e.currentTarget.style.border = '2px solid #0ea5e9'
-                      }
-                    }}
-                  >
-                    {loading ? (
-                      <>
-                        <svg
-                          className="animate-spin h-5 w-5 text-cyan-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={2.5}
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
+                          e.currentTarget.style.border = '2px solid #0ea5e9'
+                        }
+                      }}
+                    >
+                      {loading ? (
+                        <>
+                          <svg
+                            className="animate-spin h-5 w-5 text-cyan-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2.5}
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            ></circle>
+
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                          </svg>
+
+                          <span>{streamingStatus || 'SCANNING...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="w-5 h-5 text-cyan-400"
+                            fill="none"
                             stroke="currentColor"
-                            strokeWidth="4"
-                          ></circle>
+                            viewBox="0 0 24 24"
+                            strokeWidth={2.5}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </svg>
 
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                          ></path>
-                        </svg>
-
-                        <span>{streamingStatus || 'SCANNING...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="w-5 h-5 text-cyan-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          strokeWidth={2.5}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-
-                        <span>REFRESH</span>
-                      </>
-                    )}
-                  </button>
+                          <span>REFRESH</span>
+                        </>
+                      )}
+                    </button>
+                  )}
 
                   {/* Clear Data Button - Desktop Only */}
 
@@ -6258,8 +6325,37 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </svg>
                     )}
 
-                    <span>{savingFlow ? 'SAVING...' : 'SAVE'}</span>
+                    <span
+                      style={{
+                        color:
+                          saveStatus === 'success'
+                            ? '#22c55e'
+                            : saveStatus === 'error'
+                              ? '#ef4444'
+                              : undefined,
+                      }}
+                    >
+                      {savingFlow
+                        ? 'SAVING...'
+                        : saveStatus === 'success'
+                          ? 'SAVED ✓'
+                          : saveStatus === 'error'
+                            ? 'ERROR ✗'
+                            : 'SAVE'}
+                    </span>
                   </button>
+                  {saveStatus === 'error' && saveErrorMsg && (
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        color: '#ef4444',
+                        maxWidth: '120px',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {saveErrorMsg}
+                    </span>
+                  )}
 
                   {/* History Button - Desktop Only */}
 

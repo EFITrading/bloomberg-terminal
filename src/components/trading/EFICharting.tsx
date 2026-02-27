@@ -49,6 +49,8 @@ import {
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { enrichTradeDataCombined } from '@/lib/enrichTradeData'
+
 import { useMarketRegime } from '../../contexts/MarketRegimeContext'
 import { useGEXData } from '../../hooks/useGEXData'
 import { createApiUrl } from '../../lib/apiConfig'
@@ -3505,10 +3507,14 @@ const FlowPanel = React.memo(
     const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
     const isStreamCompleteRef = useRef<boolean>(false)
     const [flowPanelTab, setFlowPanelTab] = useState<'flow' | 'tracking'>('flow')
+    const accumulatedTradesRef = useRef<any[]>([])
+    const completeReceivedRef = useRef<boolean>(false)
 
     const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
       setFlowLoading(true)
       setFlowStreamError('')
+      accumulatedTradesRef.current = []
+      completeReceivedRef.current = false
 
       try {
         let tickerParam = tickerOverride || flowSelectedTicker
@@ -3552,12 +3558,23 @@ const FlowPanel = React.memo(
                 }
                 break
 
+              case 'ticker_complete':
+                if (streamData.trades && streamData.trades.length > 0) {
+                  accumulatedTradesRef.current = [
+                    ...accumulatedTradesRef.current,
+                    ...streamData.trades,
+                  ]
+                }
+                setFlowStreamingStatus(`Loaded ${accumulatedTradesRef.current.length} trades...`)
+                break
+
               case 'complete':
                 isStreamCompleteRef.current = true
+                completeReceivedRef.current = true
                 setIsStreamComplete(true)
                 eventSource.close()
 
-                const completeTrades = streamData.trades || []
+                const completeTrades = accumulatedTradesRef.current
 
                 setFlowSummary(streamData.summary)
                 if (streamData.market_info) {
@@ -3570,6 +3587,13 @@ const FlowPanel = React.memo(
                 setFlowStreamingStatus('')
 
                 setFlowData(completeTrades)
+                setFlowStreamingStatus('Enriching vol/OI & fill style...')
+                enrichTradeDataCombined(completeTrades)
+                  .then((enriched) => {
+                    setFlowData(enriched)
+                    setFlowStreamingStatus('')
+                  })
+                  .catch(() => setFlowStreamingStatus(''))
 
                 break
 
@@ -3583,6 +3607,20 @@ const FlowPanel = React.memo(
                 isStreamCompleteRef.current = true
                 setIsStreamComplete(true)
                 eventSource.close()
+                // If complete event never arrived (e.g. worker crash), still show accumulated trades
+                if (!completeReceivedRef.current && accumulatedTradesRef.current.length > 0) {
+                  const fallbackTrades = accumulatedTradesRef.current
+                  setFlowData(fallbackTrades)
+                  setFlowStreamingStatus('Enriching vol/OI & fill style...')
+                  enrichTradeDataCombined(fallbackTrades)
+                    .then((enriched) => {
+                      setFlowData(enriched)
+                      setFlowStreamingStatus('')
+                    })
+                    .catch(() => setFlowStreamingStatus(''))
+                }
+                setFlowLoading(false)
+                setFlowStreamingStatus('')
                 break
 
               case 'heartbeat':
@@ -3644,6 +3682,7 @@ const FlowPanel = React.memo(
         setRetryCount(0)
         setIsStreamComplete(false)
         isStreamCompleteRef.current = false
+        completeReceivedRef.current = false
         fetchOptionsFlowStreaming(0, tickerOverride)
       },
       [flowSelectedTicker]
@@ -3660,13 +3699,6 @@ const FlowPanel = React.memo(
         processing_time_ms: 0,
       })
     }, [setFlowData, setFlowSummary])
-
-    // Auto-fetch on mount if no data loaded yet
-    useEffect(() => {
-      if (flowData.length === 0 && !flowLoading) {
-        fetchOptionsFlowStreaming(0)
-      }
-    }, [])
 
     return (
       <div className="h-full flex flex-col bg-black text-white">
@@ -3743,6 +3775,7 @@ const FlowPanel = React.memo(
             loading={flowLoading}
             onRefresh={handleRefresh}
             onClearData={handleClearData}
+            onDataUpdate={setFlowData}
             selectedTicker={flowSelectedTicker}
             onTickerChange={setFlowSelectedTicker}
             streamingStatus={flowStreamingStatus}
@@ -4005,12 +4038,12 @@ export default function TradingViewChart({
 
   // Lightweight Charts drawing tools state
   const [isLWChartDrawingActive, setIsLWChartDrawingActive] = useState<boolean>(false)
-  const [lwChartDrawings, setLwChartDrawings] = useState<any[]>(() => {
+  const [lwChartDrawings, setLwChartDrawings] = useState<Record<string, any[]>>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('lwChartDrawings')
-      return saved ? JSON.parse(saved) : []
+      const saved = localStorage.getItem('lwChartDrawingsPerSymbol')
+      return saved ? JSON.parse(saved) : {}
     }
-    return []
+    return {}
   })
   const [currentDrawingTool, setCurrentDrawingTool] = useState<
     | 'select'
@@ -4028,9 +4061,9 @@ export default function TradingViewChart({
   >('select')
   const [isDrawingToolLocked, setIsDrawingToolLocked] = useState(false)
 
-  // Undo/Redo history state
-  const [drawingHistory, setDrawingHistory] = useState<any[][]>([[]])
-  const [historyIndex, setHistoryIndex] = useState(0)
+  // Undo/Redo history state — keyed per symbol
+  const [drawingHistory, setDrawingHistory] = useState<Record<string, any[][]>>({})
+  const [historyIndex, setHistoryIndex] = useState<Record<string, number>>({})
   const [isBackgroundVisible, setIsBackgroundVisible] = useState(true)
 
   // Enhanced Market Regime Analysis state
@@ -4042,24 +4075,34 @@ export default function TradingViewChart({
   // Save drawings to localStorage whenever they change
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('lwChartDrawings', JSON.stringify(lwChartDrawings))
+      localStorage.setItem('lwChartDrawingsPerSymbol', JSON.stringify(lwChartDrawings))
     }
   }, [lwChartDrawings])
 
-  // Function to update drawings with history tracking
+  // Per-symbol derived values
+  const currentSymbol = config.symbol
+  const currentSymbolDrawings = lwChartDrawings[currentSymbol] || []
+  const currentHistory = drawingHistory[currentSymbol] || [[]]
+  const currentHistoryIndex = historyIndex[currentSymbol] ?? 0
+
+  // Function to update drawings with history tracking (per-symbol)
   const updateDrawingsWithHistory = (newDrawings: any[]) => {
+    const sym = currentSymbol
+    const symHistory = drawingHistory[sym] || [[]]
+    const symIndex = historyIndex[sym] ?? 0
     // Remove any future history if we're not at the end
-    const newHistory = drawingHistory.slice(0, historyIndex + 1)
+    const newHistory = symHistory.slice(0, symIndex + 1)
     // Add the new state
     newHistory.push(newDrawings)
     // Limit history to last 50 states to prevent memory issues
+    let newIndex = symIndex + 1
     if (newHistory.length > 50) {
       newHistory.shift()
-    } else {
-      setHistoryIndex(historyIndex + 1)
+      newIndex = newHistory.length - 1
     }
-    setDrawingHistory(newHistory)
-    setLwChartDrawings(newDrawings)
+    setDrawingHistory((prev) => ({ ...prev, [sym]: newHistory }))
+    setHistoryIndex((prev) => ({ ...prev, [sym]: newIndex }))
+    setLwChartDrawings((prev) => ({ ...prev, [sym]: newDrawings }))
   }
 
   const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false)
@@ -11635,7 +11678,9 @@ export default function TradingViewChart({
     }
 
     // Expand price range to include Expected Range levels if active
-    if (isExpectedRangeActive && expectedRangeLevels) {
+    // Only auto-fit when user has NOT manually set a price range (i.e. hasn't dragged the chart)
+    // If manualPriceRange is set, respect it so dragging isn't overridden every render
+    if (isExpectedRangeActive && expectedRangeLevels && !manualPriceRange) {
       const allLevels = [
         expectedRangeLevels.weekly80Call,
         expectedRangeLevels.weekly90Call,
@@ -14150,25 +14195,28 @@ export default function TradingViewChart({
         timestamp = visibleData[boundedIndex]?.timestamp || Date.now()
       }
 
-      // Convert screen Y to actual price using EXACT same logic as crosshair calculation
-      // (visibleData already calculated above)
+      // Convert screen Y to actual price using EXACT same formula as drawPriceScale
+      // so the crosshair Y label always matches the Y-axis price labels.
+      // Use lastRenderedPriceRangeRef which holds the EXACT adjustedMin/adjustedMax
+      // that renderChart passed to drawPriceScale (including zoom, expected-range expansions, etc.)
 
       if (visibleData.length === 0) return { timestamp, price: 0 }
 
-      // Use current price range (manual or auto) - CRITICAL for correct Y-axis values
-      const currentRange = manualPriceRange || getCurrentPriceRange(visibleData)
-      const adjustedMin = currentRange.min
-      const adjustedMax = currentRange.max
+      // Use the EXACT same price range that was used when the last frame was rendered
+      const renderedRange = lastRenderedPriceRangeRef.current
+      const adjustedMin = renderedRange.min
+      const adjustedMax = renderedRange.max
 
-      // Use EXACT same formula as candle drawing priceToY for perfect alignment
-      // Candle priceToY: const chartArea = height - 25; return Math.floor(chartArea - (ratio * (chartArea - 20)) - 10);
-      // Reverse this calculation to get price from Y coordinate:
-      const chartArea = priceChartHeight - 25 // Same as candle drawing
-      const adjustedY = screenY + 10 // Reverse the -10 offset
-      const effectiveHeight = chartArea - 20 // Same as (chartArea - 20) in candle drawing
-      const ratio = (chartArea - adjustedY) / effectiveHeight // Reverse: chartArea - y = ratio * effectiveHeight
+      // Match drawPriceScale formula exactly:
+      //   y        = topPadding + (usableHeight / steps) * i   where ratio = i/steps
+      //   price    = minPrice + (maxPrice - minPrice) * (1 - ratio)
+      // Inverse (given screenY → price):
+      const topPadding = 20
+      const bottomPadding = 100
+      const usableHeight = priceChartHeight - topPadding - bottomPadding
+      const ratio = 1 - (screenY - topPadding) / usableHeight
 
-      // Calculate price from ratio: ratio = (price - minPrice) / (maxPrice - minPrice)
+      // Calculate price from ratio
       const price = adjustedMin + ratio * (adjustedMax - adjustedMin)
 
       return { timestamp, price }
@@ -14180,8 +14228,6 @@ export default function TradingViewChart({
       scrollOffset,
       data,
       seasonalProjectionData,
-      manualPriceRange,
-      getCurrentPriceRange,
     ]
   )
 
@@ -26651,25 +26697,28 @@ export default function TradingViewChart({
                 {/* Undo Button */}
                 <button
                   onClick={() => {
-                    if (historyIndex > 0) {
-                      const newIndex = historyIndex - 1
-                      setHistoryIndex(newIndex)
-                      setLwChartDrawings(drawingHistory[newIndex])
+                    if (currentHistoryIndex > 0) {
+                      const newIndex = currentHistoryIndex - 1
+                      setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                      setLwChartDrawings((prev) => ({
+                        ...prev,
+                        [currentSymbol]: currentHistory[newIndex],
+                      }))
                     }
                   }}
-                  disabled={historyIndex <= 0}
+                  disabled={currentHistoryIndex <= 0}
                   className="btn-3d-carved"
                   style={{
                     padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
-                    background: historyIndex <= 0 ? '#1e293b' : 'transparent',
-                    cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer',
+                    background: currentHistoryIndex <= 0 ? '#1e293b' : 'transparent',
+                    cursor: currentHistoryIndex <= 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    opacity: historyIndex <= 0 ? 0.5 : 1,
+                    opacity: currentHistoryIndex <= 0 ? 0.5 : 1,
                   }}
                   title="Undo"
                 >
@@ -26700,13 +26749,16 @@ export default function TradingViewChart({
                 {/* Redo Button */}
                 <button
                   onClick={() => {
-                    if (historyIndex < drawingHistory.length - 1) {
-                      const newIndex = historyIndex + 1
-                      setHistoryIndex(newIndex)
-                      setLwChartDrawings(drawingHistory[newIndex])
+                    if (currentHistoryIndex < currentHistory.length - 1) {
+                      const newIndex = currentHistoryIndex + 1
+                      setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                      setLwChartDrawings((prev) => ({
+                        ...prev,
+                        [currentSymbol]: currentHistory[newIndex],
+                      }))
                     }
                   }}
-                  disabled={historyIndex >= drawingHistory.length - 1}
+                  disabled={currentHistoryIndex >= currentHistory.length - 1}
                   className="btn-3d-carved"
                   style={{
                     padding: '8px',
@@ -26714,12 +26766,13 @@ export default function TradingViewChart({
                     fontSize: '14px',
                     borderRadius: '4px',
                     background:
-                      historyIndex >= drawingHistory.length - 1 ? '#1e293b' : 'transparent',
-                    cursor: historyIndex >= drawingHistory.length - 1 ? 'not-allowed' : 'pointer',
+                      currentHistoryIndex >= currentHistory.length - 1 ? '#1e293b' : 'transparent',
+                    cursor:
+                      currentHistoryIndex >= currentHistory.length - 1 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    opacity: historyIndex >= drawingHistory.length - 1 ? 0.5 : 1,
+                    opacity: currentHistoryIndex >= currentHistory.length - 1 ? 0.5 : 1,
                   }}
                   title="Redo"
                 >
@@ -26823,11 +26876,12 @@ export default function TradingViewChart({
 
                 <button
                   onClick={() => {
-                    updateDrawingsWithHistory([])
+                    const sym = currentSymbol
+                    // Clear only the current symbol's drawings
+                    setLwChartDrawings((prev) => ({ ...prev, [sym]: [] }))
+                    setDrawingHistory((prev) => ({ ...prev, [sym]: [[]] }))
+                    setHistoryIndex((prev) => ({ ...prev, [sym]: 0 }))
                     setCurrentDrawingTool('select')
-                    if (typeof window !== 'undefined') {
-                      localStorage.removeItem('lwChartDrawings')
-                    }
                   }}
                   className="btn-3d-carved"
                   style={{
@@ -27842,13 +27896,16 @@ export default function TradingViewChart({
                       height={dimensions.height}
                       isActive={true}
                       onClose={() => setCurrentDrawingTool('select')}
-                      drawings={lwChartDrawings}
+                      drawings={currentSymbolDrawings}
                       setDrawings={updateDrawingsWithHistory}
                       currentTool={currentDrawingTool}
                       setCurrentTool={setCurrentDrawingTool}
                       isToolLocked={isDrawingToolLocked}
                       priceToScreen={priceToScreen}
                       screenToPrice={screenToPrice}
+                      onMouseMove={(e) =>
+                        handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
+                      }
                       timeToScreen={(index) => {
                         const candleWidth = (dimensions.width - 100) / visibleCandleCount
                         const startIndex = Math.max(0, Math.floor(scrollOffset))
@@ -28252,7 +28309,12 @@ export default function TradingViewChart({
             <div
               className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
               style={{
-                maxWidth: activeSidebarPanel === 'liquid' ? 'fit-content' : '1200px',
+                maxWidth:
+                  activeSidebarPanel === 'liquid'
+                    ? 'fit-content'
+                    : activeSidebarPanel === 'flow'
+                      ? '1500px'
+                      : '1200px',
                 top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : '180px',
                 bottom: '16px',
               }}

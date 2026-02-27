@@ -1,18 +1,22 @@
-'use client';
+'use client'
 
-import React, { useState } from 'react';
+import React, { useState } from 'react'
 
 interface HeroSectionProps {
-  onScreenerStart?: (market: string) => void;
-  timePeriod?: string;
-  onTimePeriodChange?: (period: string) => void;
-  progressStats?: { processed: number; total: number; found: number };
-  opportunitiesCount?: number;
-  loading?: boolean;
-  timePeriodOptions?: Array<{ id: string; name: string; years: number; description: string }>;
-  onFilterChange?: (filters: { highWinRate: boolean; startingSoon: boolean; fiftyTwoWeek: boolean }) => void;
-  onSeasonedScan?: (market: string) => void;
-  onBestScan?: (market: string) => void;
+  onScreenerStart?: (market: string) => void
+  timePeriod?: string
+  onTimePeriodChange?: (period: string) => void
+  progressStats?: { processed: number; total: number; found: number }
+  opportunitiesCount?: number
+  loading?: boolean
+  timePeriodOptions?: Array<{ id: string; name: string; years: number; description: string }>
+  onFilterChange?: (filters: {
+    highWinRate: boolean
+    startingSoon: boolean
+    fiftyTwoWeek: boolean
+  }) => void
+  onSeasonedScan?: (market: string) => void
+  onBestScan?: (market: string) => void
 }
 
 const HeroSection: React.FC<HeroSectionProps> = ({
@@ -25,47 +29,57 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   timePeriodOptions = [],
   onFilterChange,
   onSeasonedScan,
-  onBestScan
+  onBestScan,
 }) => {
-  const [selectedMarket, setSelectedMarket] = useState('S&P 500');
-  const [highWinRateFilter, setHighWinRateFilter] = useState(false);
-  const [startingSoonFilter, setStartingSoonFilter] = useState(false);
-  const [fiftyTwoWeekFilter, setFiftyTwoWeekFilter] = useState(false);
+  const [selectedMarket, setSelectedMarket] = useState('S&P 500')
+  const [highWinRateFilter, setHighWinRateFilter] = useState(false)
+  const [startingSoonFilter, setStartingSoonFilter] = useState(false)
+  const [fiftyTwoWeekFilter, setFiftyTwoWeekFilter] = useState(false)
 
   const handleFilterToggle = (filterType: 'highWinRate' | 'startingSoon' | 'fiftyTwoWeek') => {
     if (filterType === 'highWinRate') {
-      const newValue = !highWinRateFilter;
-      setHighWinRateFilter(newValue);
-      onFilterChange?.({ highWinRate: newValue, startingSoon: startingSoonFilter, fiftyTwoWeek: fiftyTwoWeekFilter });
+      const newValue = !highWinRateFilter
+      setHighWinRateFilter(newValue)
+      onFilterChange?.({
+        highWinRate: newValue,
+        startingSoon: startingSoonFilter,
+        fiftyTwoWeek: fiftyTwoWeekFilter,
+      })
     } else if (filterType === 'startingSoon') {
-      const newValue = !startingSoonFilter;
-      setStartingSoonFilter(newValue);
-      onFilterChange?.({ highWinRate: highWinRateFilter, startingSoon: newValue, fiftyTwoWeek: fiftyTwoWeekFilter });
+      const newValue = !startingSoonFilter
+      setStartingSoonFilter(newValue)
+      onFilterChange?.({
+        highWinRate: highWinRateFilter,
+        startingSoon: newValue,
+        fiftyTwoWeek: fiftyTwoWeekFilter,
+      })
     } else {
-      const newValue = !fiftyTwoWeekFilter;
-      setFiftyTwoWeekFilter(newValue);
-      onFilterChange?.({ highWinRate: highWinRateFilter, startingSoon: startingSoonFilter, fiftyTwoWeek: newValue });
+      const newValue = !fiftyTwoWeekFilter
+      setFiftyTwoWeekFilter(newValue)
+      onFilterChange?.({
+        highWinRate: highWinRateFilter,
+        startingSoon: startingSoonFilter,
+        fiftyTwoWeek: newValue,
+      })
     }
-  };
+  }
 
-  const markets = [
-    'S&P 500',
-    'NASDAQ 100',
-    'DOW JONES'
-  ];
+  const markets = ['S&P 500', 'NASDAQ 100', 'DOW JONES']
 
   const handleStartScreener = () => {
     if (onScreenerStart) {
-      onScreenerStart(selectedMarket);
+      onScreenerStart(selectedMarket)
     }
-  };
+  }
 
   return (
-    <div className="pro-hero">
+    <div className="pro-hero" style={{ position: 'relative', top: '-45px', marginBottom: '-45px' }}>
       <div className="hero-container">
         <div className="hero-header" style={{ marginTop: '15px' }}>
           <h1 className="hero-title">SEASONAL PATTERNS</h1>
-          <div style={{ display: 'flex', gap: '12px', marginTop: '12px', justifyContent: 'center' }}>
+          <div
+            style={{ display: 'flex', gap: '12px', marginTop: '12px', justifyContent: 'center' }}
+          >
             <button
               onClick={() => handleFilterToggle('highWinRate')}
               style={{
@@ -81,7 +95,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
                 outline: 'none',
                 fontFamily: 'monospace',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
               }}
             >
               {highWinRateFilter ? '✓ ' : ''}60%+ Win Rate
@@ -101,7 +115,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
                 outline: 'none',
                 fontFamily: 'monospace',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
               }}
             >
               {startingSoonFilter ? '✓ ' : ''}Starting in 1-3 Days
@@ -121,7 +135,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
                 outline: 'none',
                 fontFamily: 'monospace',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
               }}
             >
               {fiftyTwoWeekFilter ? '✓ ' : ''}52WK H/L
@@ -155,10 +169,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             ))}
           </select>
 
-          <button
-            className="pro-scan-btn"
-            onClick={handleStartScreener}
-          >
+          <button className="pro-scan-btn" onClick={handleStartScreener}>
             SCAN
           </button>
 
@@ -178,18 +189,18 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               marginLeft: '12px',
               outline: 'none',
               textDecoration: 'none',
-              opacity: loading ? 0.5 : 1
+              opacity: loading ? 0.5 : 1,
             }}
             onMouseEnter={(e) => {
               if (!loading) {
-                e.currentTarget.style.backgroundColor = '#ff6600';
-                e.currentTarget.style.color = '#000000';
+                e.currentTarget.style.backgroundColor = '#ff6600'
+                e.currentTarget.style.color = '#000000'
               }
             }}
             onMouseLeave={(e) => {
               if (!loading) {
-                e.currentTarget.style.backgroundColor = '#000000';
-                e.currentTarget.style.color = '#ff6600';
+                e.currentTarget.style.backgroundColor = '#000000'
+                e.currentTarget.style.color = '#ff6600'
               }
             }}
           >
@@ -212,18 +223,18 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               marginLeft: '12px',
               outline: 'none',
               textDecoration: 'none',
-              opacity: loading ? 0.5 : 1
+              opacity: loading ? 0.5 : 1,
             }}
             onMouseEnter={(e) => {
               if (!loading) {
-                e.currentTarget.style.backgroundColor = '#00d4ff';
-                e.currentTarget.style.color = '#000000';
+                e.currentTarget.style.backgroundColor = '#00d4ff'
+                e.currentTarget.style.color = '#000000'
               }
             }}
             onMouseLeave={(e) => {
               if (!loading) {
-                e.currentTarget.style.backgroundColor = '#000000';
-                e.currentTarget.style.color = '#00d4ff';
+                e.currentTarget.style.backgroundColor = '#000000'
+                e.currentTarget.style.color = '#00d4ff'
               }
             }}
           >
@@ -232,7 +243,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default HeroSection;
+export default HeroSection
