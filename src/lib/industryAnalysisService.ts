@@ -969,12 +969,12 @@ export class IndustryAnalysisService {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
               if (error instanceof Error && error.name === 'AbortError') {
-                console.error(`⏱ Timeout fetching data for ${symbol}`)
+                console.warn(`⏱ Timeout fetching data for ${symbol}`)
               } else if (
                 errorMessage.includes('Failed to fetch') ||
                 errorMessage.includes('CONNECTION_REFUSED')
               ) {
-                console.error(
+                console.warn(
                   ` Connection error for ${symbol}: Server may not be running on expected port`
                 )
               } else {

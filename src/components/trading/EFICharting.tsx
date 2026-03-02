@@ -71,6 +71,7 @@ import {
 import PolygonService from '../../lib/polygonService'
 import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
+import FlowTrackingPanel from '../FlowTrackingPanel'
 import { GEXChartOverlay } from '../GEXChartOverlay'
 import HVScreener from '../HVScreener'
 import LeadershipScan from '../LeadershipScan'
@@ -3506,7 +3507,7 @@ const FlowPanel = React.memo(
     const [retryCount, setRetryCount] = useState<number>(0)
     const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
     const isStreamCompleteRef = useRef<boolean>(false)
-    const [flowPanelTab, setFlowPanelTab] = useState<'flow' | 'tracking'>('flow')
+
     const accumulatedTradesRef = useRef<any[]>([])
     const completeReceivedRef = useRef<boolean>(false)
 
@@ -3724,46 +3725,19 @@ const FlowPanel = React.memo(
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
-          {/* Tab Navigation */}
-          <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
-            {[
-              { id: 'flow', label: 'Options Flow' },
-              { id: 'tracking', label: 'Flow Tracking' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setFlowPanelTab(tab.id as 'flow' | 'tracking')}
-                style={{
-                  flex: 1,
-                  padding: '12px 24px',
-                  fontSize: '20px',
-                  fontWeight: '900',
-                  fontFamily: 'monospace',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  border: 'none',
-                  borderRight: flowPanelTab === tab.id ? 'none' : '1px solid #333',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s',
-                  background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                  color: flowPanelTab === tab.id ? '#ff8844' : '#ffffff',
-                  boxShadow:
-                    'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                  opacity: 1,
-                  filter: 'contrast(1.1) brightness(1.1)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background =
-                    'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background =
-                    'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)'
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div
+            style={{
+              padding: '4px 0',
+              textAlign: 'center',
+              fontSize: '20px',
+              fontWeight: '900',
+              fontFamily: 'monospace',
+              letterSpacing: '2px',
+              color: '#ff8844',
+              textTransform: 'uppercase',
+            }}
+          >
+            OPTIONS FLOW
           </div>
         </div>
 
@@ -3782,8 +3756,7 @@ const FlowPanel = React.memo(
             streamingProgress={flowStreamingProgress}
             streamError={flowStreamError}
             useDropdowns={true}
-            hideFlowTracking={flowPanelTab === 'flow'}
-            showFlowTrackingInline={flowPanelTab === 'tracking'}
+            hideFlowTracking={true}
             isSidebarPanel={true}
           />
         </div>
@@ -5146,25 +5119,35 @@ export default function TradingViewChart({
       const today = new Date()
       const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
 
+      // Roll a date back until it lands on a weekday (Mon-Fri)
+      const lastTradingDay = (d: Date, extraDays = 0): Date => {
+        const result = new Date(d)
+        result.setDate(result.getDate() - extraDays)
+        // 0=Sun, 6=Sat — keep stepping back until weekday
+        while (result.getDay() === 0 || result.getDay() === 6) {
+          result.setDate(result.getDate() - 1)
+        }
+        return result
+      }
+
       let fromDate: Date
-      const toDate: Date = new Date(today)
-      toDate.setDate(toDate.getDate() - 1) // Use yesterday as end date to ensure data availability
+      // Always step back at least 1 day so we get the last COMPLETED trading day.
+      // (Handles Monday pre-market, post-weekend, holidays, etc.)
+      const toDate: Date = lastTradingDay(today, 1)
       let multiplier: number
       let timespan: string
 
       if (timeframe === '1D') {
-        fromDate = new Date(toDate)
-        fromDate.setDate(fromDate.getDate() - 1) // Get data from 2 days ago to yesterday
+        // from = the trading day before toDate
+        fromDate = lastTradingDay(toDate, 1)
         multiplier = 5
         timespan = 'minute'
       } else if (timeframe === '5D') {
-        fromDate = new Date(toDate)
-        fromDate.setDate(fromDate.getDate() - 7) // Get 7 days of data
+        fromDate = lastTradingDay(today, 7) // ~7 calendar days back, landing on a weekday
         multiplier = 30
         timespan = 'minute'
       } else {
-        fromDate = new Date(toDate)
-        fromDate.setDate(fromDate.getDate() - 30) // Get 30 days of data
+        fromDate = lastTradingDay(today, 30) // ~30 calendar days back
         multiplier = 1
         timespan = 'day'
       }
@@ -5287,9 +5270,9 @@ export default function TradingViewChart({
     }
   }, [])
 
-  // Fetch Options Trades data when tab is active or timeframe changes
+  // Fetch Options Trades data when plan panel is open or timeframe changes
   useEffect(() => {
-    if (watchlistTab !== 'Options Trades') return
+    if (activeSidebarPanel !== 'plan') return
 
     const saved = localStorage.getItem('optionsWatchlist')
     const optionsWatchlist: any[] = saved ? JSON.parse(saved) : []
@@ -5330,11 +5313,17 @@ export default function TradingViewChart({
     }, 15000)
 
     return () => clearInterval(quoteInterval)
-  }, [watchlistTab, optionsTradesTimeframes, fetchOptionData, fetchLiveOptionQuotes, fetchStockATR])
+  }, [
+    activeSidebarPanel,
+    optionsTradesTimeframes,
+    fetchOptionData,
+    fetchLiveOptionQuotes,
+    fetchStockATR,
+  ])
 
   // Update peak prices when live quotes update (outside of render)
   useEffect(() => {
-    if (watchlistTab !== 'Options Trades') return
+    if (activeSidebarPanel !== 'plan') return
 
     const saved = localStorage.getItem('optionsWatchlist')
     const optionsWatchlist: any[] = saved ? JSON.parse(saved) : []
@@ -5368,7 +5357,7 @@ export default function TradingViewChart({
       localStorage.setItem(peakPricesKey, JSON.stringify(peakPrices))
       setOptionPeakPrices(peakPrices)
     }
-  }, [liveOptionQuotes, watchlistTab])
+  }, [liveOptionQuotes, activeSidebarPanel])
 
   // Seasonality panel state
   const [seasonalSymbol, setSeasonalSymbol] = useState(symbol)
@@ -16040,9 +16029,11 @@ export default function TradingViewChart({
   const WatchlistPanel = ({
     activeTab,
     setActiveTab,
+    hideNav,
   }: {
     activeTab: string
     setActiveTab: (tab: string) => void
+    hideNav?: boolean
   }) => {
     // Ref to preserve scroll position during re-renders
     const watchlistScrollRef = useRef<HTMLDivElement>(null)
@@ -16419,68 +16410,70 @@ export default function TradingViewChart({
     return (
       <div className="h-full flex flex-col bg-black text-white">
         {/* Bloomberg-style Header */}
-        <div className="p-3 border-b border-yellow-500 bg-black relative">
-          {/* Close button - mobile and desktop */}
-          <button
-            onClick={() => setActiveSidebarPanel(null)}
-            className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-            aria-label="Close panel"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {!hideNav && (
+          <div className="p-3 border-b border-yellow-500 bg-black relative">
+            {/* Close button - mobile and desktop */}
+            <button
+              onClick={() => setActiveSidebarPanel(null)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
+              aria-label="Close panel"
             >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-          {/* Tab Navigation */}
-          <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
-            {['Watchlist', 'Tracking', 'Options Trades'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveTab(tab)
-                }}
-                className="md:text-[20px] text-[12px]"
-                style={{
-                  flex: 1,
-                  padding: '12px 24px',
-                  fontWeight: '900',
-                  fontFamily: 'monospace',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  border: 'none',
-                  borderRight: activeTab === tab ? 'none' : '1px solid #333',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s',
-                  background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                  color: activeTab === tab ? '#ff8844' : '#ffffff',
-                  boxShadow:
-                    'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                  opacity: 1,
-                  filter: 'contrast(1.1) brightness(1.1)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background =
-                    'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background =
-                    'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)'
-                }}
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                {tab}
-              </button>
-            ))}
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+            {/* Tab Navigation */}
+            <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
+              {['Watchlist', 'Tracking'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setActiveTab(tab)
+                  }}
+                  className="md:text-[20px] text-[12px]"
+                  style={{
+                    flex: 1,
+                    padding: '12px 24px',
+                    fontWeight: '900',
+                    fontFamily: 'monospace',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                    border: 'none',
+                    borderRight: activeTab === tab ? 'none' : '1px solid #333',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+                    color: activeTab === tab ? '#ff8844' : '#ffffff',
+                    boxShadow:
+                      'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
+                    opacity: 1,
+                    filter: 'contrast(1.1) brightness(1.1)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background =
+                      'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background =
+                      'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)'
+                  }}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Watchlist Tab Content */}
         {activeTab === 'Watchlist' && (
@@ -17263,8 +17256,8 @@ export default function TradingViewChart({
           </div>
         )}
 
-        {/* Options Trades Tab Content */}
-        {activeTab === 'Options Trades' && (
+        {/* Options Trades Tab Content - only renders inside TradingPlan (hideNav=true) */}
+        {activeTab === 'Options Trades' && hideNav && (
           <div className="flex-1 overflow-y-auto bg-black p-6" style={{ display: 'block' }}>
             {(() => {
               const saved = localStorage.getItem('optionsWatchlist')
@@ -17490,6 +17483,58 @@ export default function TradingViewChart({
                           width: '100%',
                         }}
                       >
+                        {/* Enter Trade + Button */}
+                        <button
+                          onClick={() => {
+                            window.dispatchEvent(
+                              new CustomEvent('watchpicksEnterTrade', {
+                                detail: {
+                                  symbol: option.symbol,
+                                  type: option.type,
+                                  strategy: 'Options',
+                                  setup: 'WatchPicks Entry',
+                                  entryPrice: currentPrice,
+                                  quantity: option.quantity || 1,
+                                  entryDate: new Date().toISOString().split('T')[0],
+                                  notes: `WatchPicks | ${option.type.toUpperCase()} $${option.strike} exp ${option.expiration} | Mark: $${currentPrice.toFixed(2)} | Stop: $${stopLoss.toFixed(2)} | T1: $${target80OptionValue.toFixed(2)} | T2: $${target90OptionValue.toFixed(2)}`,
+                                  tags: ['WatchPicks'],
+                                  confidence: 3,
+                                  strike: option.strike,
+                                  expiry: option.expiration,
+                                  optionType: option.type,
+                                  stopLoss,
+                                  takeProfit:
+                                    target80OptionValue > 0 ? target80OptionValue : undefined,
+                                  target80:
+                                    target80OptionValue > 0 ? target80OptionValue : undefined,
+                                  target90:
+                                    target90OptionValue > 0 ? target90OptionValue : undefined,
+                                  delta: liveGreeks.delta,
+                                  gamma: liveGreeks.gamma,
+                                  theta: liveGreeks.theta,
+                                  vega: liveGreeks.vega,
+                                  impliedVolatility,
+                                  daysToExpiry,
+                                },
+                              })
+                            )
+                          }}
+                          className="absolute top-2 z-10 flex items-center justify-center rounded transition-all"
+                          style={{
+                            right: '32px',
+                            height: '24px',
+                            padding: '0 8px',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            letterSpacing: '0.5px',
+                            background: '#14532d',
+                            border: '1px solid #22c55e',
+                            color: '#4ade80',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          ENTER TRADE +
+                        </button>
                         {/* Remove Trade Button */}
                         <button
                           onClick={() => {
@@ -23202,8 +23247,8 @@ export default function TradingViewChart({
                       watchlist.push(newOption)
                       localStorage.setItem('optionsWatchlist', JSON.stringify(watchlist))
 
-                      // Switch to Options Trades tab
-                      setWatchlistTab('Options Trades')
+                      // Switch to plan panel (Options tab)
+                      setActiveSidebarPanel('plan')
                       setShowTradeModal(false)
                     }
                   }}
@@ -28400,20 +28445,30 @@ export default function TradingViewChart({
                 )}
                 {activeSidebarPanel === 'alerts' && (
                   <div className="h-full flex flex-col bg-black">
-                    {/* Mobile Title and X Button */}
-                    <div className="md:hidden px-6 py-1 border-b border-gray-800 bg-black relative">
+                    {/* Header */}
+                    <div
+                      className="px-6 py-4 border-b border-yellow-900/40 bg-black relative"
+                      style={{ boxShadow: '0 1px 0 rgba(234,179,8,0.08)' }}
+                    >
+                      {/* Close button */}
                       <button
                         onClick={() => setActiveSidebarPanel(null)}
-                        className="absolute top-1 right-3 text-gray-400 hover:text-white transition-colors z-50"
+                        className="absolute top-3 right-4 flex items-center justify-center w-7 h-7 rounded-md border border-red-700 text-red-400 hover:text-white transition-all duration-150 z-50 active:scale-95"
+                        style={{
+                          background:
+                            'linear-gradient(145deg, #7f1d1d 0%, #991b1b 40%, #450a0a 100%)',
+                          boxShadow:
+                            '0 2px 0 #450a0a, 0 4px 8px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+                        }}
                         aria-label="Close panel"
                       >
                         <svg
-                          width="24"
-                          height="24"
+                          width="14"
+                          height="14"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="2"
+                          strokeWidth="2.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
@@ -28421,29 +28476,44 @@ export default function TradingViewChart({
                           <line x1="6" y1="6" x2="18" y2="18"></line>
                         </svg>
                       </button>
-                      <div className="text-center">
-                        <h1
-                          className="font-black text-white tracking-wider uppercase"
+                      <div className="flex items-center gap-3">
+                        {/* Bell icon badge */}
+                        <div
+                          className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0"
                           style={{
-                            fontSize: '45px',
-                            lineHeight: '1',
-                            marginBottom: '5px',
-                            textShadow: `
- 2px 2px 0px rgba(0, 0, 0, 0.9),
- -1px -1px 0px rgba(255, 255, 255, 0.1),
- 0px -2px 0px rgba(255, 255, 255, 0.05),
- 0px 2px 0px rgba(0, 0, 0, 0.8),
- inset 0 2px 4px rgba(0, 0, 0, 0.5)
- `,
-                            background:
-                              'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                            background: 'linear-gradient(135deg, #422006 0%, #1c0a00 100%)',
+                            border: '1px solid rgba(234,179,8,0.3)',
+                            boxShadow: '0 0 12px rgba(234,179,8,0.15)',
                           }}
                         >
-                          Alerts
-                        </h1>
+                          <TbBell className="w-5 h-5 text-yellow-400" />
+                        </div>
+                        <div className="flex flex-col leading-none">
+                          <span className="text-[10px] font-semibold tracking-[0.3em] text-yellow-500/70 uppercase mb-0.5">
+                            Watchlist
+                          </span>
+                          <h1
+                            className="text-xl md:text-2xl font-bold tracking-tight"
+                            style={{
+                              background:
+                                'linear-gradient(90deg, #fde047 0%, #facc15 50%, #f59e0b 100%)',
+                              WebkitBackgroundClip: 'text',
+                              WebkitTextFillColor: 'transparent',
+                            }}
+                          >
+                            Alerts
+                          </h1>
+                        </div>
+                        {/* Flashing warning indicator */}
+                        <div className="ml-auto mr-8 flex items-center gap-1.5">
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500" />
+                          </span>
+                          <span className="text-[10px] font-bold text-yellow-500/60 tracking-widest uppercase">
+                            Active
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <div
@@ -28975,7 +29045,18 @@ export default function TradingViewChart({
                     onClose={() => setActiveSidebarPanel(null)}
                   />
                 )}
-                {activeSidebarPanel === 'plan' && <TradingPlan />}
+                {activeSidebarPanel === 'plan' && (
+                  <TradingPlan
+                    optionsContent={
+                      <WatchlistPanel
+                        activeTab="Options Trades"
+                        setActiveTab={setWatchlistTab}
+                        hideNav={true}
+                      />
+                    }
+                    flowContent={<FlowTrackingPanel />}
+                  />
+                )}
                 {activeSidebarPanel === 'rrg' && (
                   <div className="h-full flex flex-col bg-black text-white">
                     {/* Bloomberg-style Header */}
@@ -31013,7 +31094,7 @@ export default function TradingViewChart({
                                 flexShrink: 0,
                               }}
                             >
-                              {seasonalScreenerFilters.startingSoon ? '✓ ' : ''}Starting in 1-3 Days
+                              {seasonalScreenerFilters.startingSoon ? '✓ ' : ''}Starting in 1-9 Days
                             </button>
 
                             <button

@@ -118,7 +118,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
                 textShadow: '0 1px 2px rgba(0,0,0,0.5)',
               }}
             >
-              {startingSoonFilter ? '✓ ' : ''}Starting in 1-3 Days
+              {startingSoonFilter ? '✓ ' : ''}Starting in 1-9 Days
             </button>
             <button
               onClick={() => handleFilterToggle('fiftyTwoWeek')}

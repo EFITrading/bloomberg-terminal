@@ -73,7 +73,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     if (filters.startingSoon) {
       filtered = filtered.filter((opp) => {
         const daysUntilStart = (opp as any).daysUntilStart || 0
-        return daysUntilStart >= 1 && daysUntilStart <= 3
+        return daysUntilStart >= 1 && daysUntilStart <= 9
       })
     }
     if (filters.fiftyTwoWeek) {
@@ -168,6 +168,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     { id: '15Y', name: '15 Years', years: 15, description: 'Comprehensive - Long patterns' },
     { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' },
   ]
+
+  const selectedYears = timePeriodOptions.find((p) => p.id === timePeriod)?.years || 15
 
   const loadMarketData = async (selectedMarket?: string) => {
     try {
@@ -725,7 +727,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         {bullishOpps.map((opportunity, index) => {
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                           const timeframeYears =
-                            (opportunity as any).timeframe || (opportunity as any).years || 15
+                            (opportunity as any).timeframe ||
+                            (opportunity as any).years ||
+                            selectedYears
                           return (
                             <OpportunityCard
                               key={`seasoned-bullish-${opportunity.symbol}-${index}`}
@@ -790,7 +794,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         {bearishOpps.map((opportunity, index) => {
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                           const timeframeYears =
-                            (opportunity as any).timeframe || (opportunity as any).years || 15
+                            (opportunity as any).timeframe ||
+                            (opportunity as any).years ||
+                            selectedYears
                           return (
                             <OpportunityCard
                               key={`seasoned-bearish-${opportunity.symbol}-${index}`}
@@ -880,7 +886,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           ? opportunity.symbol === topBullish.symbol
                           : false
                         const timeframeYears =
-                          (opportunity as any).timeframe || (opportunity as any).years || 15
+                          (opportunity as any).timeframe ||
+                          (opportunity as any).years ||
+                          selectedYears
                         return (
                           <OpportunityCard
                             key={`bullish-${opportunity.symbol}-${index}`}
@@ -946,7 +954,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           ? opportunity.symbol === topBearish.symbol
                           : false
                         const timeframeYears =
-                          (opportunity as any).timeframe || (opportunity as any).years || 15
+                          (opportunity as any).timeframe ||
+                          (opportunity as any).years ||
+                          selectedYears
                         return (
                           <OpportunityCard
                             key={`bearish-${opportunity.symbol}-${index}`}

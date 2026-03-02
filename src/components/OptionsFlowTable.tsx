@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { polygonService } from '@/lib/polygonService'
 
 import '../app/options-flow/mobile.css'
+import FlowTrackingPanel from './FlowTrackingPanel'
 
 // Polygon API key for bid/ask analysis
 
@@ -2054,6 +2055,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   const addToFlowTracking = async (trade: OptionsFlowData) => {
     // Store original data with timestamp - only current price and grade will update
+    const gradeResult = calculatePositioningGrade(trade, comboTradeMap)
 
     const flowToTrack = {
       ...trade,
@@ -2063,6 +2065,8 @@ Stock Reaction: ${scores.stockReaction}/15`
       originalPrice: trade.premium_per_contract,
 
       originalStockPrice: trade.spot_price,
+
+      classification: gradeResult.grade,
     }
 
     const newTrackedFlows = [...trackedFlows, flowToTrack]
@@ -2972,7 +2976,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   return (
-    <>
+    <div style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
       {/* Filter Dialog Modal */}
 
       {isFilterDialogOpen && (
@@ -8053,33 +8057,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         </div>
       </div>
 
-      {/* Flow Tracking Panel - Always Visible on Desktop, Toggleable on Mobile, or Inline */}
-
-      {!hideFlowTracking && (
-        <div
-          className={
-            showFlowTrackingInline
-              ? 'relative bg-black border border-gray-700 w-full h-full overflow-auto'
-              : `fixed right-0 bg-black border-l border-gray-700 z-50 w-full md:w-[800px] ${isFlowTrackingOpen ? 'block md:block' : 'hidden md:block'}`
-          }
-          style={
-            showFlowTrackingInline
-              ? {
-                  background: '#000000',
-                }
-              : {
-                  top: '125px',
-
-                  height: 'calc(100vh - 125px)',
-
-                  background: '#000000',
-
-                  boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.8)',
-                }
-          }
-        >
-          {/* Panel Header with 3D Title */}
-
+      {false && (
+        <div>
+          {/* dead legacy panel - kept for reference only, never renders */}
           <div className="sticky top-0 bg-black z-10 border-b border-gray-700 p-4">
             <h2
               className="text-3xl font-black text-center"
@@ -9499,6 +9479,22 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
       )}
-    </>
+      {!isSidebarPanel && (
+        <div
+          style={{
+            width: '26%',
+            minHeight: '100vh',
+            position: 'sticky',
+            top: 0,
+            overflowY: 'auto',
+            borderLeft: '1px solid #374151',
+            background: '#000000',
+            flexShrink: 0,
+          }}
+        >
+          <FlowTrackingPanel />
+        </div>
+      )}
+    </div>
   )
 }
