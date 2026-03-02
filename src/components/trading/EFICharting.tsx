@@ -28352,7 +28352,7 @@ export default function TradingViewChart({
           {/* Sidebar Panels */}
           {activeSidebarPanel && (
             <div
-              className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
+              className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
               style={{
                 maxWidth:
                   activeSidebarPanel === 'liquid'
@@ -28368,7 +28368,7 @@ export default function TradingViewChart({
               {/* Sidebar panel debugging */}
 
               {/* Panel Content */}
-              <div className={`h-full ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}>
+              <div className={`h-full overflow-y-auto`}>
                 {activeSidebarPanel === 'liquid' && (
                   <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
                 )}

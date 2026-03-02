@@ -21,8 +21,27 @@ export default function MarketPage() {
     document.body.style.overflow = 'hidden'
     document.documentElement.style.overflow = 'hidden'
 
-    // Prevent wheel events from scrolling the document at all
-    const preventScroll = (e: WheelEvent) => e.preventDefault()
+    // Prevent wheel events from scrolling the document, but allow scrolling inside sidebar panels
+    const preventScroll = (e: WheelEvent) => {
+      const path: string[] = []
+      let el = e.target as HTMLElement | null
+      while (el && el !== document.body) {
+        const style = window.getComputedStyle(el)
+        const overflowY = style.overflowY
+        const tag =
+          el.tagName + (el.className ? '.' + String(el.className).split(' ').join('.') : '')
+        path.push(
+          `${tag}[overflowY=${overflowY},scrollH=${el.scrollHeight},clientH=${el.clientHeight}]`
+        )
+        if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+          console.log('✅ SCROLL ALLOWED at:', tag)
+          return
+        }
+        el = el.parentElement
+      }
+      console.log('🚫 SCROLL BLOCKED. Path walked:', path.join(' → '))
+      e.preventDefault()
+    }
     document.addEventListener('wheel', preventScroll, { passive: false })
 
     const updateHeight = () => {
