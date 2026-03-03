@@ -4173,7 +4173,7 @@ export default function TradingViewChart({
     setIsGexActive(true)
   }
 
-  // GEX Live OI Scan Handler - EXACT copy of DealerAttraction updateLiveOI logic
+  // GEX Live OI Scan Handler - same historical bid/ask logic as AlgoFlow & Options Flow page
   const handleLiveGEXClick = async () => {
     if (isGexLoading) return
 
@@ -4186,42 +4186,52 @@ export default function TradingViewChart({
       return
     }
 
-    // Activate and scan for live OI - EXACT DealerAttraction logic
     setIsGexLoading(true)
     setGexProgress(0)
 
     const eventSource = new EventSource(`/api/stream-options-flow?ticker=${symbol}`)
     let allTrades: any[] = []
+    let scanComplete = false
 
     eventSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data)
 
-        if (data.type === 'complete' && data.trades?.length > 0) {
-          allTrades = data.trades
+        // Accumulate trades from ticker_complete events (same as DealerAttraction)
+        if (data.type === 'ticker_complete' && data.trades?.length > 0) {
+          allTrades.push(...data.trades)
+          return
+        }
+
+        if (data.type === 'complete') {
+          if (data.trades?.length > 0) allTrades = data.trades
+          if (allTrades.length === 0) {
+            eventSource.close()
+            setIsGexLoading(false)
+            setGexProgress(0)
+            return
+          }
+
+          scanComplete = true
           eventSource.close()
           setGexProgress(20) // 20% - trades received
 
           // Step 1: Fetch volume and OI data for all trades using Polygon API
-          const uniqueExpirations = [...new Set(allTrades.map((t) => t.expiry))]
-
+          const uniqueExpirations = [...new Set(allTrades.map((t: any) => t.expiry))]
           const allContracts = new Map()
 
-          // Fetch data for each expiration
           for (let i = 0; i < uniqueExpirations.length; i++) {
-            const expiry = uniqueExpirations[i]
+            const expiry = uniqueExpirations[i] as string
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
-
             try {
               const response = await fetch(
                 `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiryParam}&limit=250&apiKey=qyKP_vdrxtME8uAj0gufQA8sTOdcoaSl`
               )
-
               if (response.ok) {
                 const chainData = await response.json()
                 if (chainData.results) {
                   chainData.results.forEach((contract: any) => {
-                    if (contract.details && contract.details.ticker) {
+                    if (contract.details?.ticker) {
                       allContracts.set(contract.details.ticker, {
                         volume: contract.day?.volume || 0,
                         open_interest: contract.open_interest || 0,
@@ -4230,18 +4240,16 @@ export default function TradingViewChart({
                   })
                 }
               }
-
-              // Update progress: 20% to 60% during contract fetching
               setGexProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
             } catch (error) {
-              console.error(`  ❌ Error fetching ${expiryParam}:`, error)
+              console.error(`❌ Error fetching ${expiryParam}:`, error)
             }
           }
 
           setGexProgress(60) // 60% - contracts fetched
 
           // Step 2: Enrich trades with volume/OI
-          const enrichedTrades = allTrades.map((trade) => {
+          const enrichedTrades = allTrades.map((trade: any) => {
             const contractData = allContracts.get(trade.ticker)
             return {
               ...trade,
@@ -4252,29 +4260,87 @@ export default function TradingViewChart({
           })
           setGexProgress(70) // 70% - trades enriched
 
-          // Step 3: Detect fill styles (EXACT AlgoFlow logic)
-          const tradesWithFillStyle = enrichedTrades.map((trade) => {
-            const volume = trade.volume || 0
-            const tradeSize = trade.trade_size || 0
-            const oi = trade.open_interest || 0
+          // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
+          // Same approach as AlgoFlowScreener & Options Flow page
+          const normalizeTickerForOptions = (ticker: string) => {
+            const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' }
+            return specialCases[ticker] || ticker
+          }
 
-            // Fill style logic from AlgoFlow
-            let fillStyle = 'N/A'
+          const buildOptionTicker = (trade: any): string => {
+            const expiry = trade.expiry.replace(/-/g, '').slice(2)
+            const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+            return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
+          }
 
-            if (tradeSize > oi * 0.5) {
-              fillStyle = 'AA' // Aggressive opening
-            } else if (tradeSize > volume * 0.3) {
-              fillStyle = 'A' // Opening
-            } else if (tradeSize > oi * 0.1) {
-              fillStyle = 'BB' // Block opening
-            } else {
-              fillStyle = 'B' // Likely closing
+          const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
+            const midpoint = (bid + ask) / 2
+            if (fillPrice >= ask + 0.01) return 'AA'
+            if (fillPrice <= bid - 0.01) return 'BB'
+            if (fillPrice === ask) return 'A'
+            if (fillPrice === bid) return 'B'
+            return fillPrice >= midpoint ? 'A' : 'B'
+          }
+
+          // Build deduplicated batch — unique by contract + second bucket (same as AlgoFlow)
+          type QuoteKey = string
+          const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
+          for (const trade of enrichedTrades) {
+            const contract = buildOptionTicker(trade)
+            const tradeMs =
+              typeof trade.trade_timestamp === 'number'
+                ? trade.trade_timestamp
+                : new Date(trade.trade_timestamp).getTime()
+            const timestampNs = tradeMs * 1_000_000
+            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+            if (!uniqueQuotes.has(key))
+              uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
+          }
+
+          // Single batch POST — server fans out all Polygon historical quote calls simultaneously
+          const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
+          const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
+          try {
+            const res = await fetch('/api/options-quotes-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ trades: batchPayload }),
+            })
+            const batchData = await res.json()
+            for (const r of batchData.results as {
+              id: string
+              bid: number | null
+              ask: number | null
+            }[]) {
+              quoteResultMap.set(
+                r.id,
+                r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
+              )
             }
+          } catch {
+            // All trades fall through to N/A
+          }
 
-            return {
-              ...trade,
-              fill_style: fillStyle,
+          setGexProgress(78) // 78% - historical quotes fetched
+
+          // Map historical quotes back to each trade
+          const tradesWithFillStyle: any[] = enrichedTrades.map((trade: any) => {
+            const contract = buildOptionTicker(trade)
+            const tradeMs =
+              typeof trade.trade_timestamp === 'number'
+                ? trade.trade_timestamp
+                : new Date(trade.trade_timestamp).getTime()
+            const timestampNs = tradeMs * 1_000_000
+            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+            const quote = quoteResultMap.get(key) ?? null
+            if (quote) {
+              return {
+                ...trade,
+                fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask),
+              }
             }
+            return { ...trade, fill_style: 'N/A' }
           })
 
           setGexProgress(80) // 80% - fill styles calculated
@@ -8190,6 +8256,34 @@ export default function TradingViewChart({
     ],
   }
 
+  // Holdings for each regime ETF — used to compute alignment ratio
+  const REGIME_SECTOR_HOLDINGS: Record<string, string[]> = {
+    XLK: ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM', 'ORCL', 'ADBE', 'ACN', 'CSCO', 'AMD'],
+    XLF: ['JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'SPGI', 'AXP', 'BLK'],
+    XLV: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY'],
+    XLI: ['CAT', 'RTX', 'HON', 'UPS', 'LMT', 'BA', 'UNP', 'ADP', 'DE', 'MMM'],
+    XLY: ['AMZN', 'TSLA', 'HD', 'MCD', 'BKNG', 'NKE', 'LOW', 'SBUX', 'TJX', 'ORLY'],
+    XLP: ['PG', 'KO', 'PEP', 'WMT', 'COST', 'MDLZ', 'CL', 'KMB', 'GIS', 'MO'],
+    XLE: ['XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PSX', 'VLO', 'MPC', 'OXY', 'BKR'],
+    XLU: ['NEE', 'SO', 'DUK', 'CEG', 'SRE', 'AEP', 'VST', 'D', 'PCG', 'PEG'],
+    XLB: ['LIN', 'APD', 'SHW', 'ECL', 'FCX', 'NEM', 'DD', 'NUE', 'PPG', 'DOW'],
+    XLRE: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR'],
+    XLC: ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'TMUS', 'CHTR', 'EA'],
+    // Industry ETFs — 35% of each group
+    IGV: ['CRM', 'MSFT', 'ADBE', 'NOW', 'INTU', 'ORCL', 'PANW', 'SNPS', 'CDNS', 'FTNT'],
+    SMH: ['NVDA', 'TSM', 'ASML', 'AVGO', 'TXN', 'QCOM', 'AMD', 'MU', 'LRCX', 'KLAC'],
+    KRE: ['WBS', 'FITB', 'CFG', 'KEY', 'RF', 'HBAN', 'MTB', 'CMA', 'ZION', 'SNV'],
+    ARKK: ['TSLA', 'COIN', 'SHOP', 'ROKU', 'CRSP', 'EXAS', 'TWLO', 'PATH', 'BEAM', 'PACB'],
+    KIE: ['CB', 'PRU', 'MET', 'TRV', 'AFL', 'ALL', 'PGR', 'HIG', 'AIG', 'EG'],
+    JETS: ['AAL', 'DAL', 'UAL', 'LUV', 'ALK', 'SKYW', 'HA', 'JBLU', 'BA', 'RYAAY'],
+    XHB: ['DHI', 'LEN', 'PHM', 'NVR', 'TOL', 'BLDR', 'KBH', 'MTH', 'MHO', 'IBP'],
+    ITA: ['RTX', 'LMT', 'NOC', 'GD', 'BA', 'HII', 'LDOS', 'SAIC', 'KTOS', 'CACI'],
+    GDX: ['NEM', 'GOLD', 'WPM', 'AEM', 'KGC', 'AGI', 'K', 'PAAS', 'GFI', 'SSRM'],
+    OIH: ['SLB', 'HAL', 'BKR', 'NOV', 'FTI', 'PTEN', 'RES', 'WHD', 'ACDC', 'NR'],
+    XME: ['NUE', 'STLD', 'CLF', 'X', 'FCX', 'AA', 'HL', 'MP', 'ATI', 'CMP'],
+    VNQ: ['AMT', 'PLD', 'CCI', 'EQIX', 'PSA', 'WELL', 'SPG', 'AVB', 'EQR', 'VICI'],
+  }
+
   // Ticker name mapping
   const tickerNames: Record<string, string> = {
     // Markets
@@ -8298,6 +8392,227 @@ export default function TradingViewChart({
         'IJH',
         'IWN',
         'IWO',
+        // Sector holdings for alignment scoring
+        'AAPL',
+        'MSFT',
+        'NVDA',
+        'AVGO',
+        'CRM',
+        'ORCL',
+        'ADBE',
+        'ACN',
+        'CSCO',
+        'AMD',
+        'JPM',
+        'V',
+        'MA',
+        'BAC',
+        'WFC',
+        'GS',
+        'MS',
+        'SPGI',
+        'AXP',
+        'BLK',
+        'UNH',
+        'JNJ',
+        'PFE',
+        'ABBV',
+        'MRK',
+        'TMO',
+        'ABT',
+        'DHR',
+        'BMY',
+        'LLY',
+        'CAT',
+        'RTX',
+        'HON',
+        'UPS',
+        'LMT',
+        'BA',
+        'UNP',
+        'ADP',
+        'DE',
+        'MMM',
+        'AMZN',
+        'TSLA',
+        'HD',
+        'MCD',
+        'BKNG',
+        'NKE',
+        'LOW',
+        'SBUX',
+        'TJX',
+        'ORLY',
+        'PG',
+        'KO',
+        'PEP',
+        'COST',
+        'MDLZ',
+        'CL',
+        'KMB',
+        'GIS',
+        'MO',
+        'XOM',
+        'CVX',
+        'COP',
+        'EOG',
+        'SLB',
+        'PSX',
+        'VLO',
+        'MPC',
+        'OXY',
+        'BKR',
+        'NEE',
+        'SO',
+        'DUK',
+        'CEG',
+        'SRE',
+        'AEP',
+        'VST',
+        'D',
+        'PCG',
+        'PEG',
+        'LIN',
+        'APD',
+        'SHW',
+        'ECL',
+        'FCX',
+        'NEM',
+        'DD',
+        'NUE',
+        'PPG',
+        'DOW',
+        'PLD',
+        'AMT',
+        'CCI',
+        'EQIX',
+        'PSA',
+        'WY',
+        'DLR',
+        'O',
+        'SBAC',
+        'EXR',
+        'GOOGL',
+        'META',
+        'NFLX',
+        'DIS',
+        'CMCSA',
+        'VZ',
+        'T',
+        'TMUS',
+        'CHTR',
+        'EA',
+        // Industry ETF holdings for alignment scoring
+        // IGV
+        'NOW',
+        'INTU',
+        'PANW',
+        'SNPS',
+        'CDNS',
+        'FTNT',
+        // SMH
+        'TSM',
+        'ASML',
+        'TXN',
+        'QCOM',
+        'MU',
+        'LRCX',
+        'KLAC',
+        // KRE
+        'WBS',
+        'FITB',
+        'CFG',
+        'KEY',
+        'RF',
+        'HBAN',
+        'MTB',
+        'CMA',
+        'ZION',
+        'SNV',
+        // ARKK
+        'COIN',
+        'SHOP',
+        'ROKU',
+        'CRSP',
+        'EXAS',
+        'TWLO',
+        'PATH',
+        'BEAM',
+        'PACB',
+        // KIE
+        'CB',
+        'PRU',
+        'MET',
+        'TRV',
+        'AFL',
+        'ALL',
+        'PGR',
+        'HIG',
+        'AIG',
+        'EG',
+        // JETS
+        'AAL',
+        'DAL',
+        'UAL',
+        'LUV',
+        'ALK',
+        'SKYW',
+        'HA',
+        'JBLU',
+        'RYAAY',
+        // XHB
+        'DHI',
+        'LEN',
+        'PHM',
+        'NVR',
+        'TOL',
+        'BLDR',
+        'KBH',
+        'MTH',
+        'MHO',
+        'IBP',
+        // ITA
+        'NOC',
+        'GD',
+        'HII',
+        'LDOS',
+        'SAIC',
+        'KTOS',
+        'CACI',
+        // GDX
+        'GOLD',
+        'WPM',
+        'AEM',
+        'KGC',
+        'AGI',
+        'K',
+        'PAAS',
+        'GFI',
+        'SSRM',
+        // OIH
+        'HAL',
+        'NOV',
+        'FTI',
+        'PTEN',
+        'RES',
+        'WHD',
+        'ACDC',
+        'NR',
+        // XME
+        'STLD',
+        'CLF',
+        'X',
+        'AA',
+        'HL',
+        'MP',
+        'ATI',
+        'CMP',
+        // VNQ
+        'WELL',
+        'SPG',
+        'AVB',
+        'EQR',
+        'VICI',
       ]
 
       // Load core symbols first, then additional if not initial load
@@ -8521,12 +8836,15 @@ export default function TradingViewChart({
 
           // Update market regimes for Navigation (calculate inline with processedData)
           const calculateEnhancedRegime = (period: string): RegimeAnalysis => {
-            // Core sectors
+            // Core sectors (65% of each group)
             const growthSectors = ['XLY', 'XLK', 'XLC']
             const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV']
-            // Sub-sectors for combined regimes
-            const valueSectors = ['XLE', 'XLB'] // Value rotation
-            const riskOnSectors = ['XLI', 'XLF'] // Risk-on rotation
+            const valueSectors = ['XLE', 'XLB']
+            const riskOnSectors = ['XLI', 'XLF']
+            // Industry ETFs (35% of each group)
+            const growthIndustries = ['IGV', 'SMH', 'KRE', 'ARKK']
+            const defensiveIndustries = ['GDX', 'OIH', 'XME', 'VNQ']
+            const valueIndustries = ['KIE', 'KRE', 'JETS', 'XHB', 'ITA']
 
             const getChange = (symbol: string) => {
               const data = processedData[symbol]
@@ -8542,16 +8860,60 @@ export default function TradingViewChart({
 
             const spyChange = getChange('SPY')
 
-            // Calculate average changes for each category
-            const defensiveChanges = defensiveSectors.map((s) => getChange(s))
-            const growthChanges = growthSectors.map((s) => getChange(s))
-            const valueChanges = valueSectors.map((s) => getChange(s))
-            const riskOnChanges = riskOnSectors.map((s) => getChange(s))
+            // Holdings alignment: fraction of an ETF's top holdings that move in the same direction.
+            // If 7/10 holdings align → 0.70. If fewer holdings are loaded → ratio reflects only what's available.
+            // No fallback to 1.0 — missing data means 0 aligned, so ratio is genuinely 0 until data arrives.
+            const getAlignmentRatio = (etfSymbol: string): number => {
+              const etfChange = getChange(etfSymbol)
+              const holdings = REGIME_SECTOR_HOLDINGS[etfSymbol] || []
+              const available = holdings.filter((h) => processedData[h] !== undefined)
+              const aligned = available.filter((h) => {
+                const hChange = getChange(h)
+                return (etfChange > 0 && hChange > 0) || (etfChange < 0 && hChange < 0)
+              })
+              const ratio = available.length > 0 ? aligned.length / available.length : 0
+              return ratio
+            }
 
-            const defensiveAvg =
-              defensiveChanges.reduce((a, b) => a + b, 0) / defensiveChanges.length
-            const growthAvg = growthChanges.reduce((a, b) => a + b, 0) / growthChanges.length
-            const valueAvg = valueChanges.reduce((a, b) => a + b, 0) / valueChanges.length
+            // Sector changes — alignment-weighted, each group
+            const defensiveSectorChanges = defensiveSectors.map(
+              (s) => getChange(s) * getAlignmentRatio(s)
+            )
+            const growthSectorChanges = growthSectors.map(
+              (s) => getChange(s) * getAlignmentRatio(s)
+            )
+            const valueSectorChanges = valueSectors.map((s) => getChange(s) * getAlignmentRatio(s))
+            const riskOnChanges = riskOnSectors.map((s) => getChange(s) * getAlignmentRatio(s))
+            // Industry changes — same alignment logic
+            const growthIndustryChanges = growthIndustries.map(
+              (s) => getChange(s) * getAlignmentRatio(s)
+            )
+            const defensiveIndustryChanges = defensiveIndustries.map(
+              (s) => getChange(s) * getAlignmentRatio(s)
+            )
+            const valueIndustryChanges = valueIndustries.map(
+              (s) => getChange(s) * getAlignmentRatio(s)
+            )
+
+            // Sector averages
+            const growthSectorAvg =
+              growthSectorChanges.reduce((a, b) => a + b, 0) / growthSectorChanges.length
+            const defensiveSectorAvg =
+              defensiveSectorChanges.reduce((a, b) => a + b, 0) / defensiveSectorChanges.length
+            const valueSectorAvg =
+              valueSectorChanges.reduce((a, b) => a + b, 0) / valueSectorChanges.length
+            // Industry averages
+            const growthIndustryAvg =
+              growthIndustryChanges.reduce((a, b) => a + b, 0) / growthIndustryChanges.length
+            const defensiveIndustryAvg =
+              defensiveIndustryChanges.reduce((a, b) => a + b, 0) / defensiveIndustryChanges.length
+            const valueIndustryAvg =
+              valueIndustryChanges.reduce((a, b) => a + b, 0) / valueIndustryChanges.length
+
+            // Blended: sectors = 65%, industries = 35%
+            const growthAvg = growthSectorAvg * 0.65 + growthIndustryAvg * 0.35
+            const defensiveAvg = defensiveSectorAvg * 0.65 + defensiveIndustryAvg * 0.35
+            const valueAvg = valueSectorAvg * 0.65 + valueIndustryAvg * 0.35
             const riskOnAvg = riskOnChanges.reduce((a, b) => a + b, 0) / riskOnChanges.length
 
             // Calculate the spread (KEY METRIC!)
@@ -18735,7 +19097,7 @@ export default function TradingViewChart({
                                                   .findIndex((d, idx) => {
                                                     const t = new Date(d.timestamp)
                                                     const tEt = t.toLocaleString('en-US', {
-                                                      timeZone: 'America/New_York',
+                                                      timeZone: 'America/Los_Angeles',
                                                     })
                                                     const tEtDate = new Date(tEt)
                                                     const h = tEtDate.getHours()
@@ -18775,15 +19137,15 @@ export default function TradingViewChart({
                                             for (let i = 0; i < stockData.length; i++) {
                                               const time = new Date(stockData[i].timestamp)
                                               const etTime = time.toLocaleString('en-US', {
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                               const etDate = new Date(etTime)
                                               const hour = etDate.getHours()
                                               const minute = etDate.getMinutes()
                                               const totalMinutes = hour * 60 + minute
                                               const isMarketHours =
-                                                totalMinutes >= 9 * 60 + 30 &&
-                                                totalMinutes < 16 * 60
+                                                totalMinutes >= 6 * 60 + 30 &&
+                                                totalMinutes < 13 * 60
 
                                               if (isMarketHours) {
                                                 const x =
@@ -18845,19 +19207,19 @@ export default function TradingViewChart({
                                                 hour: 'numeric',
                                                 minute: '2-digit',
                                                 hour12: true,
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                             } else if (currentTimeframe === '5D') {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'numeric',
                                                 day: 'numeric',
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                             } else {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'short',
                                                 day: 'numeric',
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                             }
                                           }
@@ -19384,16 +19746,16 @@ export default function TradingViewChart({
                                             const time = new Date(stockData[i].timestamp)
                                             const etTime = new Date(
                                               time.toLocaleString('en-US', {
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                             )
                                             const totalMinutes =
                                               etTime.getHours() * 60 + etTime.getMinutes()
 
                                             let bg: string | null = null
-                                            if (totalMinutes >= 240 && totalMinutes < 570)
+                                            if (totalMinutes >= 240 && totalMinutes < 390)
                                               bg = 'rgba(255, 140, 0, 0.12)'
-                                            else if (totalMinutes >= 960 && totalMinutes < 1200)
+                                            else if (totalMinutes >= 780 && totalMinutes < 1200)
                                               bg = 'rgba(25, 50, 100, 0.15)'
 
                                             if (bg !== lastBg) {
@@ -19426,13 +19788,13 @@ export default function TradingViewChart({
                                             const time = new Date(stockData[i].timestamp)
                                             const etTime = new Date(
                                               time.toLocaleString('en-US', {
-                                                timeZone: 'America/New_York',
+                                                timeZone: 'America/Los_Angeles',
                                               })
                                             )
                                             const totalMinutes =
                                               etTime.getHours() * 60 + etTime.getMinutes()
                                             const isMarketHours =
-                                              totalMinutes >= 570 && totalMinutes < 960
+                                              totalMinutes >= 390 && totalMinutes < 780
 
                                             if (isMarketHours) {
                                               segmentPoints.push(
@@ -23681,7 +24043,7 @@ export default function TradingViewChart({
 
       <div className="w-full h-full flex">
         <div
-          className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full flex flex-col rounded-lg overflow-hidden transition-all duration-300`}
+          className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full flex flex-col rounded-lg overflow-y-auto transition-all duration-300`}
           style={{ backgroundColor: colors.background }}
         >
           {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}

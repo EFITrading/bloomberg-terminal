@@ -139,7 +139,7 @@ if (parentPort) {
               function getSmartTimeRange() {
                      try {
                             const now = new Date();
-                            const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+                            const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
                             const easternHour = eastern.getHours();
                             const easternMinute = eastern.getMinutes();
                             const currentTime = easternHour + (easternMinute / 60);
@@ -158,9 +158,9 @@ if (parentPort) {
 
                                    // Determine if we're in EDT or EST
                                    const isDST = now.toLocaleString('en-US', {
-                                          timeZone: 'America/New_York',
+                                          timeZone: 'America/Los_Angeles',
                                           timeZoneName: 'short'
-                                   }).includes('EDT');
+                                   }).includes('PDT');
 
                                    const tzOffset = isDST ? '-0400' : '-0500';
                                    const dateStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 09:30:00 GMT${tzOffset}`;
@@ -170,7 +170,7 @@ if (parentPort) {
                                    const endTime = now.getTime() * 1000000; // Current time in nanoseconds
 
                                    console.log(` Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
-                                   console.log(`   - Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(`   - Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
                                    return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
                             } else {
                                    // HISTORICAL MODE: Market is closed
@@ -195,16 +195,16 @@ if (parentPort) {
                                           console.log(` Worker ${workerIndex}: HISTORICAL MODE - Scanning last trading day`);
                                    }
 
-                                   // Create full trading day range (9:30 AM - 4:00 PM ET)
+                                   // Create full trading day range (6:30 AM - 1:00 PM PST)
                                    const year = tradingDate.getFullYear();
                                    const month = tradingDate.getMonth() + 1;
                                    const dayOfMonth = tradingDate.getDate();
 
-                                   // Determine if we're in EDT or EST for this date
+                                   // Determine if we're in PDT or PST for this date
                                    const isDST = tradingDate.toLocaleString('en-US', {
-                                          timeZone: 'America/New_York',
+                                          timeZone: 'America/Los_Angeles',
                                           timeZoneName: 'short'
-                                   }).includes('EDT');
+                                   }).includes('PDT');
 
                                    const tzOffset = isDST ? '-0400' : '-0500';
 
@@ -217,8 +217,8 @@ if (parentPort) {
                                    const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
                                    const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
 
-                                   console.log(`   - Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                                   console.log(`   - Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(`   - Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
+                                   console.log(`   - Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
 
                                    return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
                             }
@@ -245,8 +245,8 @@ if (parentPort) {
                      console.log(` Worker ${workerIndex}: Using ${dateRange ? 'API-provided' : 'calculated'} date range: ${timeRange.date}`);
 
                      console.log(` Worker ${workerIndex}: ${timeRange.isLive ? 'LIVE' : 'HISTORICAL'} scan for ${timeRange.date}`);
-                     console.log(`   - Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                     console.log(`   - End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                     console.log(`   - Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
+                     console.log(`   - End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
 
                      for (const ticker of batch) {
                             try {

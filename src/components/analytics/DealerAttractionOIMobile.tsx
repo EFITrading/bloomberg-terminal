@@ -1,77 +1,82 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect } from 'react';
-import DealerOpenInterestChart from './DealerOpenInterestChart';
-import DealerGEXChart from './DealerGEXChart';
+import React, { useEffect, useState } from 'react'
+
+import DealerGEXChart from './DealerGEXChart'
+import DealerOpenInterestChart from './DealerOpenInterestChart'
 
 // MOBILE ONLY - OI/GEX Tab Component
 const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
-  const [sharedExpiration, setSharedExpiration] = useState<string>('');
-  const [expirationDates, setExpirationDates] = useState<string[]>([]);
+  const [sharedExpiration, setSharedExpiration] = useState<string>('')
+  const [expirationDates, setExpirationDates] = useState<string[]>([])
 
   // OI Chart State
-  const [showCalls, setShowCalls] = useState<boolean>(true);
-  const [showPuts, setShowPuts] = useState<boolean>(true);
-  const [showNetOI, setShowNetOI] = useState<boolean>(false);
-  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
-  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+  const [showCalls, setShowCalls] = useState<boolean>(true)
+  const [showPuts, setShowPuts] = useState<boolean>(true)
+  const [showNetOI, setShowNetOI] = useState<boolean>(false)
+  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('')
+  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('')
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number; put: number } | null>(null)
 
   // GEX Chart State
-  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
-  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
-  const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
+  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true)
+  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true)
+  const [showNetGamma, setShowNetGamma] = useState<boolean>(true)
 
   // Unified Controls (affect both charts)
-  const [showPremium, setShowPremium] = useState<boolean>(false);
-  const [showAITowers, setShowAITowers] = useState<boolean>(false);
+  const [showPremium, setShowPremium] = useState<boolean>(false)
+  const [showAITowers, setShowAITowers] = useState<boolean>(false)
 
   // Fetch expiration dates once
   useEffect(() => {
-    if (!selectedTicker) return;
+    if (!selectedTicker) return
 
     const fetchExpirations = async () => {
       try {
-        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
-        const result = await response.json();
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`)
+        const result = await response.json()
 
         if (result.success && result.data) {
-          const dates = Object.keys(result.data).sort();
-          setExpirationDates(dates);
+          const dates = Object.keys(result.data).sort()
+          setExpirationDates(dates)
 
           if (dates.length > 0 && !sharedExpiration) {
-            setSharedExpiration(dates[0]);
+            setSharedExpiration(dates[0])
           }
         }
       } catch (err) {
-        console.error('Error fetching expirations:', err);
+        console.error('Error fetching expirations:', err)
       }
-    };
+    }
 
-    fetchExpirations();
-  }, [selectedTicker]);
+    fetchExpirations()
+  }, [selectedTicker])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* MOBILE Control Bar - Redesigned for 430px */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        padding: '10px',
-        background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
-        borderRadius: '16px',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.6)',
-        maxWidth: '430px',
-        flexShrink: 0
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          padding: '10px',
+          background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
+          borderRadius: '16px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.6)',
+          maxWidth: '430px',
+          flexShrink: 0,
+        }}
+      >
         {/* Row 1: Date, Mode, Premium, AI */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '90px 90px 1fr 1fr',
-          gap: '6px'
-        }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '90px 90px 1fr 1fr',
+            gap: '6px',
+          }}
+        >
           {/* Expiration Selector */}
           <select
             value={sharedExpiration}
@@ -88,14 +93,22 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
               cursor: 'pointer',
               fontFamily: '"SF Pro Display", -apple-system, sans-serif',
               width: '100%',
-              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)'
+              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)',
             }}
           >
-            <option value="all-expirations" style={{ background: '#000', color: '#fff' }}>All Exp</option>
-            <option value="45-days" style={{ background: '#000', color: '#fff' }}>45D</option>
-            {expirationDates.map(date => (
+            <option value="all-expirations" style={{ background: '#000', color: '#fff' }}>
+              All Exp
+            </option>
+            <option value="45-days" style={{ background: '#000', color: '#fff' }}>
+              45D
+            </option>
+            {expirationDates.map((date) => (
               <option key={date} value={date} style={{ background: '#000', color: '#fff' }}>
-                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })}
+                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  timeZone: 'America/Los_Angeles',
+                })}
               </option>
             ))}
           </select>
@@ -103,35 +116,61 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           {/* OI & GEX Mode Selector */}
           <select
             value={
-              showNetOI ? 'net-oi' :
-                showNetGamma ? 'net-gex' :
-                  (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
-                    (showCalls && showPuts) ? 'oi-both' :
-                      showCalls ? 'calls' :
-                        showPuts ? 'puts' :
-                          showPositiveGamma ? 'pos-gex' :
-                            showNegativeGamma ? 'neg-gex' : 'both'
+              showNetOI
+                ? 'net-oi'
+                : showNetGamma
+                  ? 'net-gex'
+                  : showCalls && showPuts && showPositiveGamma && showNegativeGamma
+                    ? 'both'
+                    : showCalls && showPuts
+                      ? 'oi-both'
+                      : showCalls
+                        ? 'calls'
+                        : showPuts
+                          ? 'puts'
+                          : showPositiveGamma
+                            ? 'pos-gex'
+                            : showNegativeGamma
+                              ? 'neg-gex'
+                              : 'both'
             }
             onChange={(e) => {
-              const value = e.target.value;
+              const value = e.target.value
               if (value === 'both') {
-                setShowCalls(true); setShowPuts(true);
-                setShowPositiveGamma(true); setShowNegativeGamma(true);
-                setShowNetOI(false); setShowNetGamma(false);
+                setShowCalls(true)
+                setShowPuts(true)
+                setShowPositiveGamma(true)
+                setShowNegativeGamma(true)
+                setShowNetOI(false)
+                setShowNetGamma(false)
               } else if (value === 'oi-both') {
-                setShowCalls(true); setShowPuts(true); setShowNetOI(false);
+                setShowCalls(true)
+                setShowPuts(true)
+                setShowNetOI(false)
               } else if (value === 'calls') {
-                setShowCalls(true); setShowPuts(false); setShowNetOI(false);
+                setShowCalls(true)
+                setShowPuts(false)
+                setShowNetOI(false)
               } else if (value === 'puts') {
-                setShowCalls(false); setShowPuts(true); setShowNetOI(false);
+                setShowCalls(false)
+                setShowPuts(true)
+                setShowNetOI(false)
               } else if (value === 'net-oi') {
-                setShowNetOI(true); setShowCalls(false); setShowPuts(false);
+                setShowNetOI(true)
+                setShowCalls(false)
+                setShowPuts(false)
               } else if (value === 'pos-gex') {
-                setShowPositiveGamma(true); setShowNegativeGamma(false); setShowNetGamma(false);
+                setShowPositiveGamma(true)
+                setShowNegativeGamma(false)
+                setShowNetGamma(false)
               } else if (value === 'neg-gex') {
-                setShowPositiveGamma(false); setShowNegativeGamma(true); setShowNetGamma(false);
+                setShowPositiveGamma(false)
+                setShowNegativeGamma(true)
+                setShowNetGamma(false)
               } else if (value === 'net-gex') {
-                setShowNetGamma(true); setShowPositiveGamma(false); setShowNegativeGamma(false);
+                setShowNetGamma(true)
+                setShowPositiveGamma(false)
+                setShowNegativeGamma(false)
               }
             }}
             style={{
@@ -146,20 +185,36 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
               cursor: 'pointer',
               fontFamily: '"SF Pro Display", -apple-system, sans-serif',
               width: '100%',
-              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)'
+              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)',
             }}
           >
-            <option value="both" style={{ background: '#000', color: '#fff' }}>All</option>
+            <option value="both" style={{ background: '#000', color: '#fff' }}>
+              All
+            </option>
             <optgroup label="OI" style={{ background: '#000', color: '#888', fontSize: '10px' }}>
-              <option value="oi-both" style={{ background: '#000', color: '#fff' }}>C+P</option>
-              <option value="calls" style={{ background: '#000', color: '#0f0' }}>C</option>
-              <option value="puts" style={{ background: '#000', color: '#f00' }}>P</option>
-              <option value="net-oi" style={{ background: '#000', color: '#fff' }}>Net</option>
+              <option value="oi-both" style={{ background: '#000', color: '#fff' }}>
+                C+P
+              </option>
+              <option value="calls" style={{ background: '#000', color: '#0f0' }}>
+                C
+              </option>
+              <option value="puts" style={{ background: '#000', color: '#f00' }}>
+                P
+              </option>
+              <option value="net-oi" style={{ background: '#000', color: '#fff' }}>
+                Net
+              </option>
             </optgroup>
             <optgroup label="GEX" style={{ background: '#000', color: '#888', fontSize: '10px' }}>
-              <option value="pos-gex" style={{ background: '#000', color: '#0f0' }}>+γ</option>
-              <option value="neg-gex" style={{ background: '#000', color: '#f00' }}>-γ</option>
-              <option value="net-gex" style={{ background: '#000', color: '#fff' }}>Net</option>
+              <option value="pos-gex" style={{ background: '#000', color: '#0f0' }}>
+                +γ
+              </option>
+              <option value="neg-gex" style={{ background: '#000', color: '#f00' }}>
+                -γ
+              </option>
+              <option value="net-gex" style={{ background: '#000', color: '#fff' }}>
+                Net
+              </option>
             </optgroup>
           </select>
 
@@ -168,7 +223,9 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             onClick={() => setShowPremium(!showPremium)}
             style={{
               padding: '6px 4px',
-              background: showPremium ? 'linear-gradient(135deg, #ff9500 0%, #ff5f00 100%)' : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
+              background: showPremium
+                ? 'linear-gradient(135deg, #ff9500 0%, #ff5f00 100%)'
+                : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
               border: `1px solid ${showPremium ? '#ff9500' : 'rgba(255, 255, 255, 0.15)'}`,
               borderRadius: '10px',
               color: '#ffffff',
@@ -180,7 +237,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
               alignItems: 'center',
               justifyContent: 'center',
               gap: '3px',
-              boxShadow: showPremium ? '0 2px 8px rgba(255, 149, 0, 0.3)' : 'none'
+              boxShadow: showPremium ? '0 2px 8px rgba(255, 149, 0, 0.3)' : 'none',
             }}
           >
             <span style={{ fontSize: '13px' }}>$</span>
@@ -192,7 +249,9 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             onClick={() => setShowAITowers(!showAITowers)}
             style={{
               padding: '6px 4px',
-              background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
+              background: showAITowers
+                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
               border: `1px solid ${showAITowers ? '#667eea' : 'rgba(255, 255, 255, 0.15)'}`,
               borderRadius: '10px',
               color: '#ffffff',
@@ -204,10 +263,17 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
               alignItems: 'center',
               justifyContent: 'center',
               gap: '3px',
-              boxShadow: showAITowers ? '0 2px 8px rgba(102, 126, 234, 0.3)' : 'none'
+              boxShadow: showAITowers ? '0 2px 8px rgba(102, 126, 234, 0.3)' : 'none',
             }}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
               <path d="M2 17l10 5 10-5" />
               <path d="M2 12l10 5 10-5" />
@@ -218,31 +284,39 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
       </div>
 
       {/* MOBILE: Scrollable Charts Container */}
-      <div style={{
-        height: 'calc(100vh - 200px)',
-        overflowY: 'scroll',
-        overflowX: 'hidden',
-        WebkitOverflowScrolling: 'touch',
-        marginTop: '20px'
-      }}>
+      <div
+        style={{
+          height: 'calc(100vh - 200px)',
+          overflowY: 'scroll',
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          marginTop: '20px',
+        }}
+      >
         {/* MOBILE: Scaled Charts */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0px',
-          paddingBottom: '100px'
-        }}>
-          <div style={{
-            width: '100%',
-            maxWidth: '430px',
-            height: '380px'
-          }}>
-            <div style={{
-              transform: 'scale(0.56)',
-              transformOrigin: 'top left',
-              width: '769px',
-              height: '450px'
-            }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0px',
+            paddingBottom: '100px',
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '430px',
+              height: '380px',
+            }}
+          >
+            <div
+              style={{
+                transform: 'scale(0.56)',
+                transformOrigin: 'top left',
+                width: '769px',
+                height: '450px',
+              }}
+            >
               <DealerOpenInterestChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -260,18 +334,23 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             </div>
           </div>
 
-          <div className="w-full" style={{
-            width: '100%',
-            maxWidth: '430px',
-            height: '380px',
-            marginTop: '-20px'
-          }}>
-            <div style={{
-              transform: 'scale(0.56)',
-              transformOrigin: 'top left',
-              width: '769px',
-              height: '450px'
-            }}>
+          <div
+            className="w-full"
+            style={{
+              width: '100%',
+              maxWidth: '430px',
+              height: '380px',
+              marginTop: '-20px',
+            }}
+          >
+            <div
+              style={{
+                transform: 'scale(0.56)',
+                transformOrigin: 'top left',
+                width: '769px',
+                height: '450px',
+              }}
+            >
               <DealerGEXChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -289,7 +368,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default DealerAttractionOIMobile;
+export default DealerAttractionOIMobile

@@ -1,89 +1,97 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect } from 'react';
-import DealerOpenInterestChart from './DealerOpenInterestChart';
-import DealerGEXChart from './DealerGEXChart';
+import React, { useEffect, useState } from 'react'
+
+import DealerGEXChart from './DealerGEXChart'
+import DealerOpenInterestChart from './DealerOpenInterestChart'
 
 // DESKTOP ONLY - OI/GEX Tab Component
-const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({ selectedTicker, activeTableCount = 0 }) => {
-  const [sharedExpiration, setSharedExpiration] = useState<string>('');
-  const [expirationDates, setExpirationDates] = useState<string[]>([]);
+const DealerAttractionOIDesktop: React.FC<{
+  selectedTicker: string
+  activeTableCount?: number
+}> = ({ selectedTicker, activeTableCount = 0 }) => {
+  const [sharedExpiration, setSharedExpiration] = useState<string>('')
+  const [expirationDates, setExpirationDates] = useState<string[]>([])
 
   // OI Chart State
-  const [showCalls, setShowCalls] = useState<boolean>(true);
-  const [showPuts, setShowPuts] = useState<boolean>(true);
-  const [showNetOI, setShowNetOI] = useState<boolean>(false);
-  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
-  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+  const [showCalls, setShowCalls] = useState<boolean>(true)
+  const [showPuts, setShowPuts] = useState<boolean>(true)
+  const [showNetOI, setShowNetOI] = useState<boolean>(false)
+  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('')
+  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('')
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number; put: number } | null>(null)
 
   // GEX Chart State
-  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
-  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
-  const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
+  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true)
+  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true)
+  const [showNetGamma, setShowNetGamma] = useState<boolean>(true)
 
   // Unified Controls (affect both charts)
-  const [showPremium, setShowPremium] = useState<boolean>(false);
-  const [showAITowers, setShowAITowers] = useState<boolean>(false);
+  const [showPremium, setShowPremium] = useState<boolean>(false)
+  const [showAITowers, setShowAITowers] = useState<boolean>(false)
 
   // Fetch expiration dates once
   useEffect(() => {
-    if (!selectedTicker) return;
+    if (!selectedTicker) return
 
     const fetchExpirations = async () => {
       try {
-        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
-        const result = await response.json();
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`)
+        const result = await response.json()
 
         if (result.success && result.data) {
-          const dates = Object.keys(result.data).sort();
-          setExpirationDates(dates);
+          const dates = Object.keys(result.data).sort()
+          setExpirationDates(dates)
 
           if (dates.length > 0 && !sharedExpiration) {
-            setSharedExpiration(dates[0]);
+            setSharedExpiration(dates[0])
           }
         }
       } catch (err) {
-        console.error('Error fetching expirations:', err);
+        console.error('Error fetching expirations:', err)
       }
-    };
+    }
 
-    fetchExpirations();
-  }, [selectedTicker]);
+    fetchExpirations()
+  }, [selectedTicker])
 
   return (
     <div className="space-y-8">
       {/* DESKTOP Control Bar - Single Row Layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, max-content))',
-        gap: '8px',
-        padding: '12px',
-        background: '#000000',
-        borderRadius: '12px',
-        border: '1px solid #333333',
-        boxShadow: `
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, max-content))',
+          gap: '8px',
+          padding: '12px',
+          background: '#000000',
+          borderRadius: '12px',
+          border: '1px solid #333333',
+          boxShadow: `
           0 8px 32px rgba(0, 0, 0, 0.8),
           0 2px 8px rgba(0, 0, 0, 0.6),
           inset 0 1px 0 rgba(255, 255, 255, 0.1),
           inset 0 -1px 0 rgba(0, 0, 0, 0.8)
         `,
-        position: 'relative' as const,
-        zIndex: 100,
-        transform: 'translateZ(0)',
-        backdropFilter: 'blur(20px)'
-      }}>
+          position: 'relative' as const,
+          zIndex: 100,
+          transform: 'translateZ(0)',
+          backdropFilter: 'blur(20px)',
+        }}
+      >
         {/* 3D Highlight Effect */}
-        <div style={{
-          position: 'absolute' as const,
-          top: '1px',
-          left: '1px',
-          right: '1px',
-          height: '50%',
-          background: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: '12px 12px 0 0',
-          pointerEvents: 'none' as const
-        }} />
+        <div
+          style={{
+            position: 'absolute' as const,
+            top: '1px',
+            left: '1px',
+            right: '1px',
+            height: '50%',
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '12px 12px 0 0',
+            pointerEvents: 'none' as const,
+          }}
+        />
 
         {/* Expiration Selector */}
         <select
@@ -107,92 +115,117 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
-          <option key="all-expirations" value="all-expirations" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+          <option
+            key="all-expirations"
+            value="all-expirations"
+            style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}
+          >
             All Expirations
           </option>
-          <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+          <option
+            key="45-days"
+            value="45-days"
+            style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}
+          >
             45 Days (All)
           </option>
-          {expirationDates.map(date => (
+          {expirationDates.map((date) => (
             <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
-              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
+              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                timeZone: 'America/Los_Angeles',
+              })}
             </option>
           ))}
         </select>
 
         {/* 90% Range P/C Display */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column' as const,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2px',
-          padding: '6px 8px',
-          background: '#000000',
-          borderRadius: '8px',
-          border: '1px solid #333333',
-          boxShadow: `
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '2px',
+            padding: '6px 8px',
+            background: '#000000',
+            borderRadius: '8px',
+            border: '1px solid #333333',
+            boxShadow: `
             inset 0 2px 4px rgba(0, 0, 0, 0.6),
             inset 0 -1px 0 rgba(255, 255, 255, 0.05),
             0 1px 0 rgba(255, 255, 255, 0.1)
           `,
-          zIndex: 1
-        }}>
-          <div style={{
-            color: '#ff6600',
-            fontSize: '11px',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase' as const
-          }}>
+            zIndex: 1,
+          }}
+        >
+          <div
+            style={{
+              color: '#ff6600',
+              fontSize: '11px',
+              fontWeight: '600',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase' as const,
+            }}
+          >
             90% Range P/C
           </div>
-          <div style={{
-            color: '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
-          }}>
+          <div
+            style={{
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: '600',
+              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
+            }}
+          >
             {expectedRangePCRatio || 'Calc...'}
           </div>
         </div>
 
         {/* 45D P/C Display */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column' as const,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2px',
-          padding: '6px 8px',
-          background: '#000000',
-          borderRadius: '8px',
-          border: '1px solid #333333',
-          boxShadow: `
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '2px',
+            padding: '6px 8px',
+            background: '#000000',
+            borderRadius: '8px',
+            border: '1px solid #333333',
+            boxShadow: `
             inset 0 2px 4px rgba(0, 0, 0, 0.6),
             inset 0 -1px 0 rgba(255, 255, 255, 0.05),
             0 1px 0 rgba(255, 255, 255, 0.1)
           `,
-          zIndex: 1
-        }}>
-          <div style={{
-            color: '#ff6600',
-            fontSize: '11px',
-            fontWeight: '600',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase' as const
-          }}>
+            zIndex: 1,
+          }}
+        >
+          <div
+            style={{
+              color: '#ff6600',
+              fontSize: '11px',
+              fontWeight: '600',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase' as const,
+            }}
+          >
             45D P/C
           </div>
-          <div style={{
-            color: '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
-          }}>
+          <div
+            style={{
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: '600',
+              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
+            }}
+          >
             {cumulativePCRatio45Days || 'Calc...'}
           </div>
         </div>
@@ -214,14 +247,16 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: showPremium ? 'none' : `
+            boxShadow: showPremium
+              ? 'none'
+              : `
               inset 0 2px 4px rgba(0, 0, 0, 0.6),
               inset 0 -1px 0 rgba(255, 255, 255, 0.05),
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
           💰 Premium
@@ -236,7 +271,9 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
             justifyContent: 'center',
             gap: '4px',
             padding: '8px 10px',
-            background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#000000',
+            background: showAITowers
+              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              : '#000000',
             border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
             borderRadius: '8px',
             color: '#ffffff',
@@ -244,14 +281,16 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : `
+            boxShadow: showAITowers
+              ? '0 4px 12px rgba(102, 126, 234, 0.4)'
+              : `
               inset 0 2px 4px rgba(0, 0, 0, 0.6),
               inset 0 -1px 0 rgba(255, 255, 255, 0.05),
               0 1px 0 rgba(255, 255, 255, 0.1)
             `,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
-            zIndex: 1
+            zIndex: 1,
           }}
         >
           👑 AI
@@ -259,47 +298,46 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
 
         {/* DESKTOP: Separate OI Dropdown - Shows 'OI' Title */}
         <div style={{ position: 'relative' as const, display: 'flex', alignItems: 'center' }}>
-          <div style={{
-            position: 'absolute' as const,
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            color: '#ff6600',
-            fontSize: '15px',
-            fontWeight: '700',
-            pointerEvents: 'none' as const,
-            zIndex: 2,
-            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            letterSpacing: '1px',
-            lineHeight: '1'
-          }}>
+          <div
+            style={{
+              position: 'absolute' as const,
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              color: '#ff6600',
+              fontSize: '15px',
+              fontWeight: '700',
+              pointerEvents: 'none' as const,
+              zIndex: 2,
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+              letterSpacing: '1px',
+              lineHeight: '1',
+            }}
+          >
             OI
           </div>
           <select
             value={
-              showNetOI ? 'net' :
-                (showCalls && showPuts) ? 'both' :
-                  showCalls ? 'calls' :
-                    'puts'
+              showNetOI ? 'net' : showCalls && showPuts ? 'both' : showCalls ? 'calls' : 'puts'
             }
             onChange={(e) => {
-              const value = e.target.value;
+              const value = e.target.value
               if (value === 'both') {
-                setShowCalls(true);
-                setShowPuts(true);
-                setShowNetOI(false);
+                setShowCalls(true)
+                setShowPuts(true)
+                setShowNetOI(false)
               } else if (value === 'calls') {
-                setShowCalls(true);
-                setShowPuts(false);
-                setShowNetOI(false);
+                setShowCalls(true)
+                setShowPuts(false)
+                setShowNetOI(false)
               } else if (value === 'puts') {
-                setShowCalls(false);
-                setShowPuts(true);
-                setShowNetOI(false);
+                setShowCalls(false)
+                setShowPuts(true)
+                setShowNetOI(false)
               } else if (value === 'net') {
-                setShowNetOI(true);
-                setShowCalls(false);
-                setShowPuts(false);
+                setShowNetOI(true)
+                setShowCalls(false)
+                setShowPuts(false)
               }
             }}
             style={{
@@ -328,59 +366,72 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 8px center',
               paddingRight: '28px',
-              minWidth: '100px'
+              minWidth: '100px',
             }}
           >
-            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>Calls + Puts</option>
-            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>Calls Only</option>
-            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>Puts Only</option>
-            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net</option>
+            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+              Calls + Puts
+            </option>
+            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
+              Calls Only
+            </option>
+            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
+              Puts Only
+            </option>
+            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
+              Net
+            </option>
           </select>
         </div>
 
         {/* DESKTOP: Separate GEX Dropdown - Shows 'GEX' Title */}
         <div style={{ position: 'relative' as const, display: 'flex', alignItems: 'center' }}>
-          <div style={{
-            position: 'absolute' as const,
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            color: '#667eea',
-            fontSize: '15px',
-            fontWeight: '700',
-            pointerEvents: 'none' as const,
-            zIndex: 2,
-            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            letterSpacing: '1px',
-            lineHeight: '1'
-          }}>
+          <div
+            style={{
+              position: 'absolute' as const,
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              color: '#667eea',
+              fontSize: '15px',
+              fontWeight: '700',
+              pointerEvents: 'none' as const,
+              zIndex: 2,
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+              letterSpacing: '1px',
+              lineHeight: '1',
+            }}
+          >
             GEX
           </div>
           <select
             value={
-              showNetGamma ? 'net' :
-                (showPositiveGamma && showNegativeGamma) ? 'both' :
-                  showPositiveGamma ? 'positive' :
-                    'negative'
+              showNetGamma
+                ? 'net'
+                : showPositiveGamma && showNegativeGamma
+                  ? 'both'
+                  : showPositiveGamma
+                    ? 'positive'
+                    : 'negative'
             }
             onChange={(e) => {
-              const value = e.target.value;
+              const value = e.target.value
               if (value === 'both') {
-                setShowPositiveGamma(true);
-                setShowNegativeGamma(true);
-                setShowNetGamma(false);
+                setShowPositiveGamma(true)
+                setShowNegativeGamma(true)
+                setShowNetGamma(false)
               } else if (value === 'positive') {
-                setShowPositiveGamma(true);
-                setShowNegativeGamma(false);
-                setShowNetGamma(false);
+                setShowPositiveGamma(true)
+                setShowNegativeGamma(false)
+                setShowNetGamma(false)
               } else if (value === 'negative') {
-                setShowPositiveGamma(false);
-                setShowNegativeGamma(true);
-                setShowNetGamma(false);
+                setShowPositiveGamma(false)
+                setShowNegativeGamma(true)
+                setShowNetGamma(false)
               } else if (value === 'net') {
-                setShowNetGamma(true);
-                setShowPositiveGamma(false);
-                setShowNegativeGamma(false);
+                setShowNetGamma(true)
+                setShowPositiveGamma(false)
+                setShowNegativeGamma(false)
               }
             }}
             style={{
@@ -409,22 +460,32 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 8px center',
               paddingRight: '28px',
-              minWidth: '120px'
+              minWidth: '120px',
             }}
           >
-            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>Pos + Neg</option>
-            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>Positive</option>
-            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>Negative</option>
-            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net</option>
+            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+              Pos + Neg
+            </option>
+            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>
+              Positive
+            </option>
+            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>
+              Negative
+            </option>
+            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
+              Net
+            </option>
           </select>
         </div>
       </div>
 
       {/* DESKTOP: Normal size charts (no scaling) - Dynamic width based on table count */}
-      <div style={{
-        width: activeTableCount === 2 ? '1100px' : '1200px',
-        maxWidth: activeTableCount === 2 ? '1100px' : '1200px'
-      }}>
+      <div
+        style={{
+          width: activeTableCount === 2 ? '1100px' : '1200px',
+          maxWidth: activeTableCount === 2 ? '1100px' : '1200px',
+        }}
+      >
         <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -441,10 +502,12 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div style={{
-        width: activeTableCount === 2 ? '1100px' : '1200px',
-        maxWidth: activeTableCount === 2 ? '1100px' : '1200px'
-      }}>
+      <div
+        style={{
+          width: activeTableCount === 2 ? '1100px' : '1200px',
+          maxWidth: activeTableCount === 2 ? '1100px' : '1200px',
+        }}
+      >
         <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -460,7 +523,7 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
         />
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default DealerAttractionOIDesktop;
+export default DealerAttractionOIDesktop

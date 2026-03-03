@@ -348,14 +348,14 @@ function OptionsChain({
           const datePart = date.toLocaleDateString('en-US', {
             month: 'numeric',
             day: 'numeric',
-            timeZone: 'America/New_York',
+            timeZone: 'America/Los_Angeles',
           })
 
           const timePart = date.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
-            timeZone: 'America/New_York',
+            timeZone: 'America/Los_Angeles',
           })
 
           return datePart + ' ' + timePart

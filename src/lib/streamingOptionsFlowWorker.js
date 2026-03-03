@@ -201,7 +201,7 @@ async function fetchOptionsDataWithStreaming(ticker) {
  * Same logic as original worker but optimized for streaming
  */
 function getSmartTimeRange(now) {
-  const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
   const hour = easternTime.getHours()
   const minute = easternTime.getMinutes()
   const currentMinute = hour * 60 + minute

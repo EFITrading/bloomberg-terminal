@@ -20,7 +20,7 @@ async function isMarketActuallyOpen(): Promise<boolean> {
 // Market hours utility functions
 export function isMarketOpen(): boolean {
   const now = new Date()
-  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
   const hour = eastern.getHours()
   const minute = eastern.getMinutes()
   const day = eastern.getDay() // 0 = Sunday, 6 = Saturday
@@ -30,7 +30,7 @@ export function isMarketOpen(): boolean {
     return false
   }
 
-  // Market hours: 9:30 AM - 4:00 PM ET
+  // Market hours: 6:30 AM - 1:00 PM PST
   const marketOpen = 9.5 // 9:30 AM
   const marketClose = 16 // 4:00 PM
   const currentTime = hour + minute / 60
@@ -40,7 +40,7 @@ export function isMarketOpen(): boolean {
 
 export async function getLastTradingDay(): Promise<string> {
   const now = new Date()
-  const easternString = now.toLocaleString('en-US', { timeZone: 'America/New_York' })
+  const easternString = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
   const easternDate = new Date(easternString)
   const tradingDay = new Date(easternDate)
 
@@ -107,7 +107,7 @@ export function getTodaysMarketOpenTimestamp(): number {
     const now = new Date()
 
     // Get today's date in Eastern timezone
-    const easternDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const easternDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
     const year = easternDate.getFullYear()
     const month = easternDate.getMonth()
     const date = easternDate.getDate()
@@ -121,7 +121,9 @@ export function getTodaysMarketOpenTimestamp(): number {
 
     // Validate the result by checking if the time displays as 9:30 AM ET
     const validation = new Date(marketOpenTimestamp)
-    const easternValidation = validation.toLocaleString('en-US', { timeZone: 'America/New_York' })
+    const easternValidation = validation.toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+    })
 
     if (!easternValidation.includes('9:30')) {
       // Fallback: manually calculate Eastern timezone offset
@@ -156,7 +158,7 @@ export function getTodaysMarketOpenTimestamp(): number {
     }
 
     console.log(
-      `[TIME] Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+      `[TIME] Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
     return finalTimestamp
   } catch (error) {
@@ -173,7 +175,7 @@ export async function getSmartDateRange(): Promise<{
 }> {
   const marketOpen = await isMarketActuallyOpen()
   const now = new Date()
-  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
   if (marketOpen) {
     // LIVE MODE: Market is currently open, scan from market open until now
@@ -182,10 +184,10 @@ export async function getSmartDateRange(): Promise<{
 
     console.log(`[LIVE] LIVE MODE: Market is OPEN, scanning from market open to now`)
     console.log(
-      `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+      `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
     console.log(
-      `   - End: ${new Date(currentTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET (LIVE)`
+      `   - End: ${new Date(currentTime).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST (LIVE)`
     )
 
     return {
@@ -226,10 +228,10 @@ export async function getSmartDateRange(): Promise<{
       console.log(`[AFTER-HOURS] AFTER-HOURS MODE: Scanning today's completed session`)
       console.log(`   - Date: ${today}`)
       console.log(
-        `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+        `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
       )
       console.log(
-        `   - End: ${todayMarketClose.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+        `   - End: ${todayMarketClose.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
       )
 
       return {
@@ -242,10 +244,10 @@ export async function getSmartDateRange(): Promise<{
       // Weekend or holiday - scan last full trading day
       console.log(`[HISTORICAL] HISTORICAL MODE: Scanning last trading day (${lastTradingDay})`)
       console.log(
-        `   - Start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+        `   - Start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
       )
       console.log(
-        `   - End: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+        `   - End: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
       )
 
       return {
@@ -566,7 +568,7 @@ export class OptionsFlowService {
 
     const result: string[] = []
     const now = new Date()
-    const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
     const currentDate = new Date(eastern)
 
     // Start from today or last trading day if weekend/holiday
@@ -718,9 +720,9 @@ export class OptionsFlowService {
     const marketStatus = isLive ? 'LIVE' : 'LAST TRADING DAY'
     const marketOpenTimestamp = getTodaysMarketOpenTimestamp()
     const marketOpenTime = new Date(marketOpenTimestamp).toLocaleString('en-US', {
-      timeZone: 'America/New_York',
+      timeZone: 'America/Los_Angeles',
     })
-    const currentTime = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+    const currentTime = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
 
     console.log(
       `[MULTI] FETCHING ${marketStatus} OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'NO TICKER SPECIFIED'}`
@@ -730,7 +732,7 @@ export class OptionsFlowService {
       `[DEBUG] Using date: ${currentDate} (${isLive ? 'Market Open' : 'Market Closed - Historical Data'})`
     )
     console.log(
-      `[TIME] Time range: ${marketOpenTime} ET -> ${currentTime} ET (${isLive ? 'LIVE UPDATE' : 'HISTORICAL'})`
+      `[TIME] Time range: ${marketOpenTime} PST -> ${currentTime} PST (${isLive ? 'LIVE UPDATE' : 'HISTORICAL'})`
     )
 
     // Determine which tickers to scan
@@ -1001,7 +1003,7 @@ export class OptionsFlowService {
       const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`
 
       console.log(
-        `[FETCH] Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+        `[FETCH] Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
       )
 
       const response = await this.robustFetch(url)
@@ -1125,19 +1127,19 @@ export class OptionsFlowService {
     return filtered
   }
 
-  // Market hours validation - Only show trades during 9:30 AM - 4:00 PM ET
+  // Market hours validation - Only show trades during 6:30 AM - 1:00 PM PST
   private isWithinMarketHours(tradeTimestamp: Date): boolean {
-    // Convert to ET timezone
+    // Convert to PST timezone
     const etTime = new Date(
-      tradeTimestamp.toLocaleString('en-US', { timeZone: 'America/New_York' })
+      tradeTimestamp.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
     )
     const hours = etTime.getHours()
     const minutes = etTime.getMinutes()
     const timeInMinutes = hours * 60 + minutes
 
-    // Market hours: 9:30 AM (570 minutes) to 4:00 PM (960 minutes) ET
-    const marketOpen = 9 * 60 + 30 // 9:30 AM = 570 minutes
-    const marketClose = 16 * 60 // 4:00 PM = 960 minutes
+    // Market hours: 6:30 AM (390 minutes) to 1:00 PM (780 minutes) PST
+    const marketOpen = 6 * 60 + 30 // 6:30 AM = 390 minutes
+    const marketClose = 13 * 60 // 1:00 PM = 780 minutes
 
     const isWithinHours = timeInMinutes >= marketOpen && timeInMinutes <= marketClose
 
@@ -1862,13 +1864,13 @@ export class OptionsFlowService {
 
         // Market hours filter
         const eastern = new Date(
-          tradeDate.toLocaleString('en-US', { timeZone: 'America/New_York' })
+          tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
         )
         const hour = eastern.getHours()
         const minute = eastern.getMinutes()
         const timeDecimal = hour + minute / 60
 
-        if (timeDecimal < 9.5 || timeDecimal >= 16) {
+        if (timeDecimal < 6.5 || timeDecimal >= 13) {
           continue // Outside market hours
         }
 
@@ -1922,7 +1924,7 @@ export class OptionsFlowService {
     const now = new Date()
 
     console.log(
-      `[TIME] Live data range: ${todayStart.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET -> ${now.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`
+      `[TIME] Live data range: ${todayStart.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST -> ${now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
 
     try {
@@ -3145,13 +3147,13 @@ export class OptionsFlowService {
 
             // Market hours filter
             const eastern = new Date(
-              tradeTime.toLocaleString('en-US', { timeZone: 'America/New_York' })
+              tradeTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
             )
             const hour = eastern.getHours()
             const minute = eastern.getMinutes()
             const timeDecimal = hour + minute / 60
 
-            if (timeDecimal < 9.5 || timeDecimal >= 16) continue
+            if (timeDecimal < 6.5 || timeDecimal >= 13) continue
 
             const premium = trade.price * trade.size
             const contractType = contract.contract_type?.toLowerCase() || 'call'

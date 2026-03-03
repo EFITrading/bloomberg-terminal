@@ -54,7 +54,7 @@ const formatTime = (timestamp: string) =>
     hour12: true,
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'America/New_York',
+    timeZone: 'America/Los_Angeles',
   })
 
 const formatDate = (dateString: string) => {

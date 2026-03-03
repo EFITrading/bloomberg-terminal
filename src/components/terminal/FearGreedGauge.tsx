@@ -1,93 +1,138 @@
-'use client';
+'use client'
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react'
 
 interface SectorAnalysis {
-  sector: string;
-  change: number;
-  relativeToSPY: number;
+  sector: string
+  change: number
+  relativeToSPY: number
 }
 
 interface RegimeAnalysis {
-  defensiveAvg: number;
-  growthAvg: number;
-  valueAvg: number;
-  defensiveGrowthSpread: number;
-  spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK';
-  regime: string;
-  confidence: number;
-  defensiveSectors: SectorAnalysis[];
-  growthSectors: SectorAnalysis[];
-  valueSectors: SectorAnalysis[];
+  defensiveAvg: number
+  growthAvg: number
+  valueAvg: number
+  defensiveGrowthSpread: number
+  spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK'
+  regime: string
+  confidence: number
+  defensiveSectors: SectorAnalysis[]
+  growthSectors: SectorAnalysis[]
+  valueSectors: SectorAnalysis[]
 }
 
 interface FearGreedGaugeProps {
-  regimeAnalysis: Record<string, RegimeAnalysis>;
+  regimeAnalysis: Record<string, RegimeAnalysis>
 }
 
 export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) {
-  // Calculate weighted composite spread using composite logic
+  // VIX price — same fetch logic as EnhancedRegimeDisplay composite gauge
+  const [vixPrice, setVixPrice] = useState<number | null>(null)
+
+  useEffect(() => {
+    const fetchVix = async () => {
+      try {
+        const res = await fetch(
+          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        )
+        const data = await res.json()
+        if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {
+          setVixPrice(data.results[0].underlying_asset.value)
+        }
+      } catch (_) {}
+    }
+    fetchVix()
+    const interval = setInterval(fetchVix, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Calculate weighted composite spread — identical to EnhancedRegimeDisplay composite logic
   const score = useMemo(() => {
-    const timeframes = ['1d', '5d', '13d', '21d', '50d', 'ytd'];
-    const weights = { '1d': 0.25, '5d': 0.20, '13d': 0.20, '21d': 0.15, '50d': 0.15, 'ytd': 0.05 };
+    // Same weights as composite gauge (sectors sum to 0.95, VIX gets 0.05)
+    const timeframes = ['1d', '5d', '13d', '21d', '50d', 'ytd']
+    const weights = { '1d': 0.2, '5d': 0.2, '13d': 0.2, '21d': 0.15, '50d': 0.15, ytd: 0.05 }
 
-    let compositeSpread = 0;
-    let totalWeight = 0;
+    let compositeSpread = 0
+    let totalWeight = 0
 
-    timeframes.forEach(tf => {
-      const tfAnalysis = regimeAnalysis[tf];
+    timeframes.forEach((tf) => {
+      const tfAnalysis = regimeAnalysis[tf]
       if (tfAnalysis) {
-        const weight = weights[tf as keyof typeof weights];
-        compositeSpread += tfAnalysis.defensiveGrowthSpread * weight;
-        totalWeight += weight;
+        const weight = weights[tf as keyof typeof weights]
+        compositeSpread += tfAnalysis.defensiveGrowthSpread * weight
+        totalWeight += weight
       }
-    });
+    })
 
-    // Normalize by actual total weight
+    // Normalize to per-1.0 equivalent (handles missing timeframes)
     if (totalWeight > 0) {
-      compositeSpread /= totalWeight;
+      compositeSpread /= totalWeight
     }
 
-    // Scale to -100 to +100 range for display (spread typically ranges from -10 to +10)
-    // INVERT: Positive spread = defensive (fear/left), Negative spread = growth (greed/right)
-    return Math.max(-100, Math.min(100, -compositeSpread * 10));
-  }, [regimeAnalysis]);
+    // VIX blend — same thresholds as composite gauge
+    const VIX_SIGNAL_STRENGTH = 4.0
+    let vixActiveWeight = 0
+    let vixSignal = 0
+
+    if (vixPrice !== null) {
+      if (vixPrice > 25) {
+        vixActiveWeight = 0.05
+        vixSignal = VIX_SIGNAL_STRENGTH // defensive
+      } else if (vixPrice > 21) {
+        vixActiveWeight = 0.03
+        vixSignal = VIX_SIGNAL_STRENGTH // defensive
+      } else if (vixPrice < 14) {
+        vixActiveWeight = 0.05
+        vixSignal = -VIX_SIGNAL_STRENGTH // growth
+      } else {
+        vixActiveWeight = 0.03
+        vixSignal = -VIX_SIGNAL_STRENGTH // growth
+      }
+    }
+
+    // Fixed budget blend: sectors = 0.95, VIX = up to 0.05
+    compositeSpread = compositeSpread * 0.95 + vixSignal * vixActiveWeight
+
+    // Scale to -100 to +100 gauge range
+    // INVERT: positive spread (defensive) → FEAR (left), negative (growth) → GREED (right)
+    return Math.max(-100, Math.min(100, -compositeSpread * 10))
+  }, [regimeAnalysis, vixPrice])
 
   // Calculate gauge position (0-180 degrees, where 0 is far left, 90 is center, 180 is far right)
   const angle = useMemo(() => {
-    return ((score + 100) / 200) * 180;
-  }, [score]);
+    return ((score + 100) / 200) * 180
+  }, [score])
 
   // Get color based on score (positive = growth/green, negative = defensive/red)
   const getColor = (s: number) => {
-    if (s >= 60) return '#10b981'; // Deep green (Strong Growth)
-    if (s >= 20) return '#4ade80'; // Light green (Growth)
-    if (s > -20) return '#fbbf24'; // Yellow (Neutral)
-    if (s > -60) return '#f87171'; // Light red (Defensive)
-    return '#dc2626'; // Deep red (Strong Defensive)
-  };
+    if (s >= 60) return '#10b981' // Deep green (Strong Growth)
+    if (s >= 20) return '#4ade80' // Light green (Growth)
+    if (s > -20) return '#fbbf24' // Yellow (Neutral)
+    if (s > -60) return '#f87171' // Light red (Defensive)
+    return '#dc2626' // Deep red (Strong Defensive)
+  }
 
   const getLabel = (s: number) => {
-    if (s >= 60) return 'STRONG GROWTH';
-    if (s >= 20) return 'GROWTH';
-    if (s > -20) return 'NEUTRAL';
-    if (s > -60) return 'DEFENSIVE';
-    return 'STRONG DEFENSIVE';
-  };
+    if (s >= 60) return 'STRONG GROWTH'
+    if (s >= 20) return 'GROWTH'
+    if (s > -20) return 'NEUTRAL'
+    if (s > -60) return 'DEFENSIVE'
+    return 'STRONG DEFENSIVE'
+  }
 
-  const color = getColor(score);
-  const label = getLabel(score);
+  const color = getColor(score)
+  const label = getLabel(score)
 
-  const radius = 40;
-  const strokeWidth = 7;
-  const centerX = 60;
-  const centerY = 60;
+  const radius = 40
+  const strokeWidth = 7
+  const centerX = 60
+  const centerY = 60
 
   // Calculate needle position
-  const needleAngle = 180 - angle; // Flip the angle so 0 is left, 180 is right
-  const needleLength = radius - 10;
-  const needleX = centerX + needleLength * Math.cos((needleAngle * Math.PI) / 180);
-  const needleY = centerY - needleLength * Math.sin((needleAngle * Math.PI) / 180);
+  const needleAngle = 180 - angle // Flip the angle so 0 is left, 180 is right
+  const needleLength = radius - 10
+  const needleX = centerX + needleLength * Math.cos((needleAngle * Math.PI) / 180)
+  const needleY = centerY - needleLength * Math.sin((needleAngle * Math.PI) / 180)
 
   return (
     <div
@@ -181,23 +226,100 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
           {/* Fire particles for defensive side (negative scores) */}
           {score < 0 && (
             <>
-              <circle className="fire-particle fire-1" cx={needleX} cy={needleY} r="2" fill="#ff6b00" opacity="0.8" />
-              <circle className="fire-particle fire-2" cx={needleX} cy={needleY} r="1.5" fill="#ff4500" opacity="0.7" />
-              <circle className="fire-particle fire-3" cx={needleX} cy={needleY} r="2.5" fill="#ff8c00" opacity="0.6" />
-              <circle className="fire-particle fire-4" cx={needleX} cy={needleY} r="1.8" fill="#ff0000" opacity="0.8" />
-              <circle className="fire-particle fire-5" cx={needleX} cy={needleY} r="2.2" fill="#ffa500" opacity="0.5" />
+              <circle
+                className="fire-particle fire-1"
+                cx={needleX}
+                cy={needleY}
+                r="2"
+                fill="#ff6b00"
+                opacity="0.8"
+              />
+              <circle
+                className="fire-particle fire-2"
+                cx={needleX}
+                cy={needleY}
+                r="1.5"
+                fill="#ff4500"
+                opacity="0.7"
+              />
+              <circle
+                className="fire-particle fire-3"
+                cx={needleX}
+                cy={needleY}
+                r="2.5"
+                fill="#ff8c00"
+                opacity="0.6"
+              />
+              <circle
+                className="fire-particle fire-4"
+                cx={needleX}
+                cy={needleY}
+                r="1.8"
+                fill="#ff0000"
+                opacity="0.8"
+              />
+              <circle
+                className="fire-particle fire-5"
+                cx={needleX}
+                cy={needleY}
+                r="2.2"
+                fill="#ffa500"
+                opacity="0.5"
+              />
             </>
           )}
 
           {/* Firework particles for growth side (positive scores) */}
           {score > 0 && (
             <>
-              <circle className="firework-particle fw-1" cx={needleX} cy={needleY} r="2" fill="#00ff88" opacity="0.9" />
-              <circle className="firework-particle fw-2" cx={needleX} cy={needleY} r="1.5" fill="#00ffff" opacity="0.8" />
-              <circle className="firework-particle fw-3" cx={needleX} cy={needleY} r="2.5" fill="#00ff00" opacity="0.7" />
-              <circle className="firework-particle fw-4" cx={needleX} cy={needleY} r="1.8" fill="#88ff00" opacity="0.9" />
-              <circle className="firework-particle fw-5" cx={needleX} cy={needleY} r="2.2" fill="#66ff99" opacity="0.8" />
-              <circle className="firework-particle fw-6" cx={needleX} cy={needleY} r="1.2" fill="#00ff66" opacity="0.6" />
+              <circle
+                className="firework-particle fw-1"
+                cx={needleX}
+                cy={needleY}
+                r="2"
+                fill="#00ff88"
+                opacity="0.9"
+              />
+              <circle
+                className="firework-particle fw-2"
+                cx={needleX}
+                cy={needleY}
+                r="1.5"
+                fill="#00ffff"
+                opacity="0.8"
+              />
+              <circle
+                className="firework-particle fw-3"
+                cx={needleX}
+                cy={needleY}
+                r="2.5"
+                fill="#00ff00"
+                opacity="0.7"
+              />
+              <circle
+                className="firework-particle fw-4"
+                cx={needleX}
+                cy={needleY}
+                r="1.8"
+                fill="#88ff00"
+                opacity="0.9"
+              />
+              <circle
+                className="firework-particle fw-5"
+                cx={needleX}
+                cy={needleY}
+                r="2.2"
+                fill="#66ff99"
+                opacity="0.8"
+              />
+              <circle
+                className="firework-particle fw-6"
+                cx={needleX}
+                cy={needleY}
+                r="1.2"
+                fill="#00ff66"
+                opacity="0.6"
+              />
             </>
           )}
 
@@ -249,22 +371,27 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
       </svg>
 
       {/* Score and Label */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        marginTop: '-5px',
-        gap: '2px',
-      }}>
-        <div style={{
-          fontSize: '16px',
-          fontWeight: '900',
-          color: color,
-          textShadow: '0 2px 4px rgba(0, 0, 0, 0.8)',
-          letterSpacing: '-0.5px',
-          transition: 'all 0.4s ease',
-        }}>
-          {score > 0 ? '+' : ''}{score.toFixed(1)}%
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          marginTop: '-5px',
+          gap: '2px',
+        }}
+      >
+        <div
+          style={{
+            fontSize: '16px',
+            fontWeight: '900',
+            color: color,
+            textShadow: '0 2px 4px rgba(0, 0, 0, 0.8)',
+            letterSpacing: '-0.5px',
+            transition: 'all 0.4s ease',
+          }}
+        >
+          {score > 0 ? '+' : ''}
+          {score.toFixed(1)}%
         </div>
       </div>
 
@@ -381,7 +508,8 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
 
         /* Needle tip glow pulse */
         @keyframes glow-pulse {
-          0%, 100% {
+          0%,
+          100% {
             r: 6;
             opacity: 0.3;
           }
@@ -396,5 +524,5 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
         }
       `}</style>
     </div>
-  );
+  )
 }

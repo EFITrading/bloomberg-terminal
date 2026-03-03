@@ -34,12 +34,10 @@ export default function MarketPage() {
           `${tag}[overflowY=${overflowY},scrollH=${el.scrollHeight},clientH=${el.clientHeight}]`
         )
         if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
-          console.log('✅ SCROLL ALLOWED at:', tag)
           return
         }
         el = el.parentElement
       }
-      console.log('🚫 SCROLL BLOCKED. Path walked:', path.join(' → '))
       e.preventDefault()
     }
     document.addEventListener('wheel', preventScroll, { passive: false })
@@ -72,7 +70,7 @@ export default function MarketPage() {
 
   return (
     <div
-      className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0"
+      className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-y-auto fixed inset-0"
       style={{ paddingTop: '120px' }}
     >
       <div className="w-full h-full">

@@ -173,7 +173,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
-                timeZone: 'America/New_York',
+                timeZone: 'America/Los_Angeles',
               })}
             </option>
           ))}
@@ -575,40 +575,6 @@ interface MMDashboardProps {
   }
   expirations: string[]
   strikeWidth?: number
-}
-
-interface SIDashboardProps {
-  selectedTicker: string
-  currentPrice: number
-  gexByStrikeByExpiration: {
-    [expiration: string]: {
-      [strike: number]: {
-        call: number
-        put: number
-        callOI: number
-        putOI: number
-        callGamma?: number
-        putGamma?: number
-        callDelta?: number
-        putDelta?: number
-        callVega?: number
-        putVega?: number
-      }
-    }
-  }
-  vexByStrikeByExpiration: {
-    [expiration: string]: {
-      [strike: number]: {
-        call: number
-        put: number
-        callOI: number
-        putOI: number
-        callVega?: number
-        putVega?: number
-      }
-    }
-  }
-  expirations: string[]
 }
 
 interface MaxPainDashboardProps {
@@ -2688,1277 +2654,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
   )
 }
 
-// SI Dashboard Component
-const SIDashboard: React.FC<SIDashboardProps> = ({
-  selectedTicker,
-  currentPrice,
-  gexByStrikeByExpiration,
-  vexByStrikeByExpiration,
-  expirations,
-}) => {
-  const [screenerFilter, setScreenerFilter] = useState<string>('all')
-  const [screenerData, setScreenerData] = useState<any[]>([])
-  const [screenerLoading, setScreenerLoading] = useState(false)
-  const [screenerAbortController, setScreenerAbortController] = useState<AbortController | null>(
-    null
-  )
-  const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 15
-
-  // Filter to 45-day expirations for SI analysis
-  const siExpirations = useMemo(() => {
-    const today = new Date()
-    const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000) // 45 days from now
-
-    return expirations
-      .filter((exp) => {
-        const expDate = new Date(exp + 'T00:00:00Z')
-        return expDate >= today && expDate <= maxDate
-      })
-      .sort()
-  }, [expirations])
-
-  // ============================================================================
-  // STABILITY INDEX (SI) CALCULATION - UNIFIED ACCURATE METHOD
-  // Uses identical logic to MMDashboard gauge for consistency
-  // See detailed formula documentation above MMDashboard siMetrics
-  // ============================================================================
-
-  // Calculate SI using real GEX, VEX, and DEX data - ACCURATE METHOD
-  const siMetrics = useMemo(() => {
-    if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
-      return {
-        si: 0,
-        gexTotal: 0,
-        vexTotal: 0,
-        dexTotal: 0,
-        siNorm: 0,
-        stability: 'UNKNOWN',
-        marketBehavior: 'No Data',
-      }
-    }
-
-    let totalGEX = 0
-    let totalVEX = 0
-    let totalDEX = 0
-
-    // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
-    siExpirations.forEach((exp) => {
-      const gexData = gexByStrikeByExpiration[exp]
-      const vexData = vexByStrikeByExpiration[exp]
-
-      if (gexData) {
-        Object.entries(gexData).forEach(([strike, data]) => {
-          const strikePrice = parseFloat(strike)
-
-          const callOI = data.callOI || 0
-          const putOI = data.putOI || 0
-
-          if (callOI > 0 || putOI > 0) {
-            // Calculate GEX from raw gamma
-            const callGamma = data.callGamma || 0
-            const putGamma = data.putGamma || 0
-
-            if (callOI > 0 && callGamma !== 0) {
-              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100
-              totalGEX += callGEX
-            }
-            if (putOI > 0 && putGamma !== 0) {
-              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100
-              totalGEX += putGEX
-            }
-
-            // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
-            const callVega = data.callVega || 0
-            const putVega = data.putVega || 0
-
-            if (callOI > 0 && callVega !== 0) {
-              const callVEX = callVega * callOI * 100
-              totalVEX += callVEX
-            }
-            if (putOI > 0 && putVega !== 0) {
-              const putVEX = -putVega * putOI * 100
-              totalVEX += putVEX
-            }
-
-            // Calculate DEX using standardized delta approximation
-            const moneyness = strikePrice / currentPrice
-            let callDelta = 0
-            let putDelta = 0
-
-            if (moneyness > 1.05) {
-              // OTM calls
-              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
-            } else if (moneyness < 0.95) {
-              // ITM calls
-              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
-            } else {
-              // ATM calls
-              callDelta = 0.5
-            }
-
-            putDelta = callDelta - 1 // Put-call parity
-
-            // Calculate DEX
-            const callDEX = callDelta * callOI * 100 * currentPrice
-            const putDEX = putDelta * putOI * 100 * currentPrice
-
-            totalDEX += callDEX + putDEX
-          }
-        })
-      }
-    })
-
-    // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
-    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
-    const si = denominator !== 0 ? totalGEX / denominator : 0
-
-    // Use the raw SI value without artificial clamping
-    // Determine stability level and market behavior based on actual SI ranges
-    let stability = ''
-    let marketBehavior = ''
-    let stabilityColor = ''
-
-    if (si >= 2.0) {
-      stability = 'EXTREMELY STABLE'
-      marketBehavior = 'Strong Mean Reversion'
-      stabilityColor = 'text-green-500'
-    } else if (si >= 0.5) {
-      stability = 'HIGHLY STABLE'
-      marketBehavior = 'Mean Reverting'
-      stabilityColor = 'text-green-400'
-    } else if (si >= 0) {
-      stability = 'MILDLY SUPPORTIVE'
-      marketBehavior = 'Range-bound'
-      stabilityColor = 'text-blue-400'
-    } else if (si >= -0.5) {
-      stability = 'VOLATILITY BUILDING'
-      marketBehavior = 'Breakout Likely'
-      stabilityColor = 'text-yellow-400'
-    } else if (si >= -2.0) {
-      stability = 'REFLEXIVE MARKET'
-      marketBehavior = 'Fragile & Explosive'
-      stabilityColor = 'text-red-400'
-    } else {
-      stability = 'EXTREMELY REFLEXIVE'
-      marketBehavior = 'Highly Explosive'
-      stabilityColor = 'text-red-500'
-    }
-
-    return {
-      si,
-      gexTotal: totalGEX,
-      vexTotal: totalVEX,
-      dexTotal: totalDEX,
-      siNorm: si, // Use actual SI value, not normalized
-      stability,
-      marketBehavior,
-      stabilityColor,
-    }
-  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, siExpirations])
-
-  const formatExposure = (value: number) => {
-    const absValue = Math.abs(value)
-    const sign = value < 0 ? '-' : '+'
-
-    if (absValue >= 1e9) {
-      return `${sign}${(absValue / 1e9).toFixed(2)}B`
-    } else if (absValue >= 1e6) {
-      return `${sign}${(absValue / 1e6).toFixed(1)}M`
-    } else if (absValue >= 1000) {
-      return `${sign}${(absValue / 1000).toFixed(1)}K`
-    }
-    return `${sign}${absValue.toFixed(0)}`
-  }
-
-  // Function to calculate SI for a single ticker - REBUILT FROM SCRATCH using main gauge logic
-  const calculateSIForTicker = async (ticker: string) => {
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000)
-
-      const response = await fetch(`/api/options-chain?ticker=${ticker}`, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      })
-      clearTimeout(timeoutId)
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-      const result = await response.json()
-      if (!result.success || !result.data) return null
-
-      const price = result.currentPrice
-      const optionsData = result.data
-      if (!price || price <= 0) return null
-
-      // STEP 1: Filter EXACTLY like main component does (first 3 months, then 45 days)
-      const allExps = Object.keys(optionsData).sort()
-      const threeMonthsFromNow = new Date()
-      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3)
-      const expsWithin3Months = allExps.filter((exp) => {
-        const expDate = new Date(exp + 'T00:00:00Z')
-        return expDate <= threeMonthsFromNow
-      })
-
-      // Then filter to 45 days
-      const today = new Date()
-      const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
-      const validExps = expsWithin3Months
-        .filter((exp) => {
-          const expDate = new Date(exp + 'T00:00:00Z')
-          return expDate >= today && expDate <= maxDate
-        })
-        .sort()
-
-      if (validExps.length === 0) return null
-
-      // STEP 2: Build GEX and VEX structures - ACCUMULATE across multiple expirations
-      const gexByStrikeByExp: {
-        [strike: number]: { call: number; put: number; callOI: number; putOI: number }
-      } = {}
-      const vexByStrikeByExp: { [strike: number]: { call: number; put: number } } = {}
-
-      validExps.forEach((exp) => {
-        const expData = optionsData[exp]
-        if (!expData?.calls || !expData?.puts) return
-
-        const { calls, puts } = expData
-
-        // Process calls - ACCUMULATE values for same strikes across expirations
-        Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike)
-          const oi = data.open_interest || 0
-
-          if (oi > 0) {
-            if (!gexByStrikeByExp[strikeNum]) {
-              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
-            }
-            if (!vexByStrikeByExp[strikeNum]) {
-              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
-            }
-
-            gexByStrikeByExp[strikeNum].callOI += oi // ACCUMULATE OI
-
-            const gamma = data.greeks?.gamma || 0
-            if (gamma) {
-              const gex = gamma * oi * (price * price) * 100
-              gexByStrikeByExp[strikeNum].call += gex // ACCUMULATE GEX
-            }
-
-            const vega = data.greeks?.vega || 0
-            if (vega) {
-              const vex = vega * oi * 100
-              vexByStrikeByExp[strikeNum].call += vex // ACCUMULATE VEX
-            }
-          }
-        })
-
-        // Process puts - ACCUMULATE values for same strikes across expirations
-        Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike)
-          const oi = data.open_interest || 0
-
-          if (oi > 0) {
-            if (!gexByStrikeByExp[strikeNum]) {
-              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
-            }
-            if (!vexByStrikeByExp[strikeNum]) {
-              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
-            }
-
-            gexByStrikeByExp[strikeNum].putOI += oi // ACCUMULATE OI
-
-            const gamma = data.greeks?.gamma || 0
-            if (gamma) {
-              const gex = -gamma * oi * (price * price) * 100
-              gexByStrikeByExp[strikeNum].put += gex // ACCUMULATE GEX
-            }
-
-            const vega = data.greeks?.vega || 0
-            if (vega) {
-              const vex = -vega * oi * 100
-              vexByStrikeByExp[strikeNum].put += vex // ACCUMULATE VEX
-            }
-          }
-        })
-      })
-
-      // STEP 3: Calculate SI using EXACT logic from main gauge (lines 877-926)
-      let totalGEX = 0
-      let totalVEX = 0
-      let totalDEX = 0
-
-      Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
-        const strikePrice = parseFloat(strike)
-
-        // Add GEX (EXACT copy from line 891)
-        totalGEX += data.call + data.put
-
-        // Add VEX (EXACT copy from lines 894-896)
-        if (vexByStrikeByExp[strikePrice]) {
-          totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put
-        }
-
-        // Calculate DEX (EXACT copy from lines 899-922)
-        const callOI = data.callOI || 0
-        const putOI = data.putOI || 0
-
-        const moneyness = strikePrice / price
-        let callDelta = 0
-        let putDelta = 0
-
-        if (moneyness > 1.05) {
-          callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
-        } else if (moneyness < 0.95) {
-          callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
-        } else {
-          callDelta = 0.5
-        }
-
-        putDelta = callDelta - 1
-
-        const callDEX = callDelta * callOI * 100 * price
-        const putDEX = putDelta * putOI * 100 * price
-
-        totalDEX += callDEX + putDEX
-      })
-
-      // STEP 4: Calculate SI (EXACT copy from lines 926-927)
-      const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
-      const si = denominator !== 0 ? totalGEX / denominator : 0
-
-      if (!isFinite(si)) return null
-
-      // Categorize
-      let regime = ''
-      let regimeColor = ''
-      if (si >= 2.0) {
-        regime = 'EXTREMELY STABLE'
-        regimeColor = 'text-green-500'
-      } else if (si >= 0.5) {
-        regime = 'STABLE'
-        regimeColor = 'text-green-400'
-      } else if (si >= 0) {
-        regime = 'SUPPORTIVE'
-        regimeColor = 'text-blue-400'
-      } else if (si >= -0.5) {
-        regime = 'BUILDING'
-        regimeColor = 'text-yellow-400'
-      } else if (si >= -2.0) {
-        regime = 'REFLEXIVE'
-        regimeColor = 'text-red-400'
-      } else {
-        regime = 'EXTREMELY REFLEXIVE'
-        regimeColor = 'text-red-500'
-      }
-
-      return {
-        ticker,
-        price,
-        si,
-        regime,
-        regimeColor,
-        gex: totalGEX,
-        vex: totalVEX,
-        dex: totalDEX,
-        contractCount: Object.keys(gexByStrikeByExp).length,
-      }
-    } catch (error) {
-      return null
-    }
-  }
-
-  // Cancel screener scan
-  const cancelScreenerScan = () => {
-    if (screenerAbortController) {
-      screenerAbortController.abort()
-      setScreenerAbortController(null)
-    }
-    setScreenerLoading(false)
-  }
-
-  // Load screener data for top symbols with advanced parallel processing
-  const loadScreenerData = async () => {
-    // Cancel any existing scan
-    if (screenerAbortController) {
-      screenerAbortController.abort()
-    }
-
-    const newController = new AbortController()
-    setScreenerAbortController(newController)
-    setScreenerLoading(true)
-    setScreenerData([]) // Clear existing data
-
-    try {
-      // Use your full Top 1000+ symbols - all tiers (deduplicated)
-      const allSymbolsWithDupes = [
-        ...PRELOAD_TIERS.TIER_1_INSTANT,
-        ...PRELOAD_TIERS.TIER_2_FAST,
-        ...PRELOAD_TIERS.TIER_3_REGULAR,
-        ...PRELOAD_TIERS.TIER_4_BACKGROUND,
-        ...PRELOAD_TIERS.TIER_5_EXTENDED,
-        ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE,
-      ]
-      const allSymbols = [...new Set(allSymbolsWithDupes)] // Remove duplicates
-
-      // Process in priority batches but use ALL symbols (deduplicated)
-      const primarySymbols = [...new Set(PRELOAD_TIERS.TIER_1_INSTANT)]
-      const secondarySymbols = [...new Set(PRELOAD_TIERS.TIER_2_FAST)]
-      const tertiarySymbols = [
-        ...new Set([
-          ...PRELOAD_TIERS.TIER_3_REGULAR,
-          ...PRELOAD_TIERS.TIER_4_BACKGROUND,
-          ...PRELOAD_TIERS.TIER_5_EXTENDED,
-          ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE,
-        ]),
-      ]
-
-      console.log(
-        `Starting parallel SI scan with ${allSymbols.length} symbols from your full universe...`
-      )
-
-      const results: any[] = []
-      let successCount = 0
-      let failCount = 0
-
-      // Enhanced SI calculation with multiple fallbacks
-      const calculateSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
-        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000]
-
-        for (let attempt = 0; attempt < timeouts.length; attempt++) {
-          try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt])
-
-            const response = await fetch(`/api/options-chain?ticker=${symbol}`, {
-              signal: controller.signal,
-              headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache',
-              },
-            })
-
-            clearTimeout(timeoutId)
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-            const result = await response.json()
-
-            if (!result.success || !result.data || !result.currentPrice) {
-              throw new Error('Invalid response data')
-            }
-
-            const optionsData = result.data
-            const validExps = Object.keys(optionsData).filter((exp) => {
-              const expData = optionsData[exp]
-              return (
-                expData && expData.calls && expData.puts && Object.keys(expData.calls).length > 0
-              )
-            })
-
-            if (validExps.length === 0) throw new Error('No valid options data')
-
-            return await calculateSIFromData(symbol, result.currentPrice, optionsData)
-          } catch (error) {
-            if (attempt < timeouts.length - 1) {
-              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
-            }
-          }
-        }
-
-        throw new Error(`All attempts failed for ${symbol}`)
-      }
-
-      // Process in priority batches with parallel execution
-      const processBatch = async (symbols: string[], priority: string, batchSize = 3) => {
-        const batches = []
-        for (let i = 0; i < symbols.length; i += batchSize) {
-          batches.push(symbols.slice(i, i + batchSize))
-        }
-
-        for (const batch of batches) {
-          if (newController.signal.aborted) break
-
-          const batchPromises = batch.map(async (symbol: string) => {
-            try {
-              const result = await calculateSIWithFallbacks(symbol, priority)
-              if (result) {
-                successCount++
-                results.push(result)
-                console.log(`✓ ${symbol}: SI = ${result.si.toFixed(3)} (${result.regime})`)
-
-                // Update UI immediately for each result
-                const sorted = [...results].sort((a, b) => b.si - a.si)
-                setScreenerData(sorted)
-
-                return result
-              }
-            } catch (error) {
-              failCount++
-              // Less noisy error logging - only log first few failures
-              if (failCount <= 5) {
-                console.warn(
-                  `Failed to fetch ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`
-                )
-              } else if (failCount === 6) {
-                console.warn(`... suppressing further error logs (${failCount}+ failures)`)
-              }
-              return null
-            }
-          })
-
-          await Promise.allSettled(batchPromises)
-          await new Promise((resolve) => setTimeout(resolve, 200))
-        }
-      }
-
-      // Process in priority order
-      await processBatch(primarySymbols, 'high', 2)
-      await processBatch(secondarySymbols, 'normal', 3)
-      await processBatch(tertiarySymbols, 'low', 4)
-
-      console.log(`SI scan complete: ${successCount} successful, ${failCount} failed`)
-
-      // Final update
-      const finalResults = results.sort((a, b) => b.si - a.si)
-      setScreenerData(finalResults)
-    } catch (error) {
-      console.error('Error loading screener data:', error)
-      setScreenerData([])
-    } finally {
-      setScreenerLoading(false)
-      setScreenerAbortController(null)
-    }
-  }
-
-  // ============================================================================
-  // SCREENER: SI CALCULATION FROM RAW OPTIONS CHAIN DATA
-  // ============================================================================
-  // This function calculates SI from scratch using raw options chain data.
-  // Uses IDENTICAL methodology to the gauge for consistency.
-  // See detailed formula documentation above MMDashboard siMetrics.
-  // ============================================================================
-
-  // Separate SI calculation function - Uses unified accurate method
-  const calculateSIFromData = async (ticker: string, price: number, optionsData: any) => {
-    // STEP 1: Filter EXACTLY like main component (first 3 months, then 45 days)
-    const allExps = Object.keys(optionsData).sort()
-    const threeMonthsFromNow = new Date()
-    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3)
-    const expsWithin3Months = allExps.filter((exp) => {
-      const expDate = new Date(exp + 'T00:00:00Z')
-      return expDate <= threeMonthsFromNow
-    })
-
-    const today = new Date()
-    const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
-    const validExps = expsWithin3Months
-      .filter((exp) => {
-        const expDate = new Date(exp + 'T00:00:00Z')
-        return expDate >= today && expDate <= maxDate
-      })
-      .sort()
-
-    if (validExps.length === 0) throw new Error('No valid expirations')
-
-    // STEP 2: Build GEX and VEX structures EXACTLY like main component
-    const gexByStrikeByExp: {
-      [strike: number]: { call: number; put: number; callOI: number; putOI: number }
-    } = {}
-    const vexByStrikeByExp: { [strike: number]: { call: number; put: number } } = {}
-
-    validExps.forEach((exp) => {
-      const expData = optionsData[exp]
-      if (!expData?.calls || !expData?.puts) return
-
-      const { calls, puts } = expData
-
-      // Process calls - ACCUMULATE values for same strikes across expirations
-      Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-        const strikeNum = parseFloat(strike)
-        const oi = data.open_interest || 0
-
-        if (oi > 0) {
-          if (!gexByStrikeByExp[strikeNum]) {
-            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
-          }
-          if (!vexByStrikeByExp[strikeNum]) {
-            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
-          }
-
-          gexByStrikeByExp[strikeNum].callOI += oi // ACCUMULATE
-
-          const gamma = data.greeks?.gamma || 0
-          if (gamma) {
-            const gex = gamma * oi * (price * price) * 100
-            gexByStrikeByExp[strikeNum].call += gex // ACCUMULATE
-          }
-
-          const vega = data.greeks?.vega || 0
-          if (vega) {
-            const vex = vega * oi * 100
-            vexByStrikeByExp[strikeNum].call += vex // ACCUMULATE
-          }
-        }
-      })
-
-      // Process puts - ACCUMULATE values for same strikes across expirations
-      Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-        const strikeNum = parseFloat(strike)
-        const oi = data.open_interest || 0
-
-        if (oi > 0) {
-          if (!gexByStrikeByExp[strikeNum]) {
-            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 }
-          }
-          if (!vexByStrikeByExp[strikeNum]) {
-            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 }
-          }
-
-          gexByStrikeByExp[strikeNum].putOI += oi // ACCUMULATE
-
-          const gamma = data.greeks?.gamma || 0
-          if (gamma) {
-            const gex = -gamma * oi * (price * price) * 100
-            gexByStrikeByExp[strikeNum].put += gex // ACCUMULATE
-          }
-
-          const vega = data.greeks?.vega || 0
-          if (vega) {
-            const vex = -vega * oi * 100
-            vexByStrikeByExp[strikeNum].put += vex // ACCUMULATE
-          }
-        }
-      })
-    })
-
-    // STEP 3: Calculate SI using accumulated GEX/VEX from Greeks and calculated DEX
-    let totalGEX = 0
-    let totalVEX = 0
-    let totalDEX = 0
-
-    Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
-      const strikePrice = parseFloat(strike)
-
-      // Use accumulated GEX values (already calculated from gamma × oi × price² × 100)
-      totalGEX += data.call + data.put
-
-      // Use accumulated VEX values (already calculated from vega × oi × 100)
-      if (vexByStrikeByExp[strikePrice]) {
-        totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put
-      }
-
-      // Calculate DEX using standardized delta approximation
-      const callOI = data.callOI || 0
-      const putOI = data.putOI || 0
-
-      const moneyness = strikePrice / price
-      let callDelta = 0
-      let putDelta = 0
-
-      if (moneyness > 1.05) {
-        callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2))
-      } else if (moneyness < 0.95) {
-        callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4))
-      } else {
-        callDelta = 0.5
-      }
-
-      putDelta = callDelta - 1
-
-      const callDEX = callDelta * callOI * 100 * price
-      const putDEX = putDelta * putOI * 100 * price
-
-      totalDEX += callDEX + putDEX
-    })
-
-    const denominator = Math.abs(totalVEX) + Math.abs(totalDEX)
-    if (denominator === 0) throw new Error('Zero denominator')
-
-    const si = totalGEX / denominator
-    if (!isFinite(si)) throw new Error('Invalid SI result')
-
-    // Categorize
-    let regime = '',
-      regimeColor = ''
-    if (si >= 2.0) {
-      regime = 'EXTREMELY STABLE'
-      regimeColor = 'text-green-500'
-    } else if (si >= 0.5) {
-      regime = 'STABLE'
-      regimeColor = 'text-green-400'
-    } else if (si >= 0) {
-      regime = 'SUPPORTIVE'
-      regimeColor = 'text-blue-400'
-    } else if (si >= -0.5) {
-      regime = 'BUILDING'
-      regimeColor = 'text-yellow-400'
-    } else if (si >= -2.0) {
-      regime = 'REFLEXIVE'
-      regimeColor = 'text-red-400'
-    } else {
-      regime = 'EXTREMELY REFLEXIVE'
-      regimeColor = 'text-red-500'
-    }
-
-    return {
-      ticker,
-      price,
-      si,
-      regime,
-      regimeColor,
-      gex: totalGEX,
-      vex: totalVEX,
-      dex: totalDEX,
-      contractCount: Object.keys(gexByStrikeByExp).length,
-    }
-  }
-
-  // Filter screener data based on regime
-  const filteredScreenerData = useMemo(() => {
-    if (screenerFilter === 'all') return screenerData
-
-    return screenerData.filter((item) => {
-      switch (screenerFilter) {
-        case 'highly-stable':
-          return item.si >= 0.5
-        case 'mildly-supportive':
-          return item.si >= 0 && item.si < 0.5
-        case 'volatility-building':
-          return item.si >= -0.5 && item.si < 0
-        case 'reflexive':
-          return item.si < -0.5
-        default:
-          return true
-      }
-    })
-  }, [screenerData, screenerFilter])
-
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredScreenerData.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedData = filteredScreenerData.slice(startIndex, endIndex)
-
-  // Reset to page 1 when filter changes
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [screenerFilter])
-
-  // Don't auto-load screener data on mount - let user trigger it manually
-  // This prevents 1000+ API calls on page load
-  // useEffect(() => {
-  //   if (screenerData.length === 0) {
-  //     loadScreenerData();
-  //   }
-  // }, []);
-
-  return (
-    <div>
-      {/* Header */}
-      <div className="bg-black border-2 border-purple-500/50 p-6 mb-6">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-white uppercase tracking-wider">
-            STABILITY INTENSITY
-          </h2>
-        </div>
-      </div>
-
-      {/* Main SI Gauge */}
-      <div className="bg-black border border-gray-600 p-8 mb-6">
-        <div className="relative">
-          {/* Center - SI Value */}
-          <div className="text-center">
-            <div className={`text-6xl font-bold mb-4 ${siMetrics.stabilityColor}`}>
-              {siMetrics.siNorm.toFixed(3)}
-            </div>
-            <div className={`text-2xl font-bold mb-2 ${siMetrics.stabilityColor}`}>
-              {siMetrics.stability}
-            </div>
-            <div className="text-lg text-gray-300">{siMetrics.marketBehavior}</div>
-          </div>
-
-          {/* Right side - Interpretation */}
-          {selectedTicker && currentPrice > 0 && (
-            <div className="absolute top-4 right-4">
-              <div className="bg-black border-2 border-orange-500/60 rounded-lg p-6 shadow-2xl max-w-md">
-                <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 border-b-2 border-orange-500/40 pb-2">
-                  MARKET INTERPRETATION
-                </div>
-                <div className="text-white text-sm font-medium space-y-3 leading-relaxed">
-                  {siMetrics.siNorm >= 0.5 && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="text-orange-400 font-semibold mb-1">Dealer Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Dealers are long gamma and short vega</div>
-                          <div>• Their hedging absorbs volatility</div>
-                          <div>• They actively dampen directional moves</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Low volatility, slow price action</div>
-                          <div>• Strong mean reversion</div>
-                          <div>• Breakouts tend to fail and revert back into range</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {siMetrics.siNorm >= 0 && siMetrics.siNorm < 0.5 && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Dealers slightly supportive to price</div>
-                          <div>• Light positive gamma influence</div>
-                          <div>• Small dips get cushioned</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Range-bound with mild upward drift</div>
-                          <div>• Limited directional momentum</div>
-                          <div>• Clean intraday scalps but weak trend conviction</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {siMetrics.siNorm >= -0.5 && siMetrics.siNorm < 0 && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Dealers shifting toward short gamma</div>
-                          <div>• Hedging starts to amplify moves</div>
-                          <div>• Sensitivity to price changes increases</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Volatility beginning to rise</div>
-                          <div>• Breakouts become more likely</div>
-                          <div>• Early trend days appear, ranges get wider</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {siMetrics.siNorm < -0.5 && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Dealers are short gamma and high vega</div>
-                          <div>• Their hedging accelerates moves</div>
-                          <div>• Reflexive flows create runaway momentum</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                        <div className="space-y-1">
-                          <div>• Fast, explosive price action</div>
-                          <div>• Strong trend continuation</div>
-                          <div>• Breakouts rarely revert — they extend hard</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* SI Scale Visualization - UPDATED HEIGHT */}
-        <div className="relative w-full max-w-2xl mx-auto mb-4">
-          <div
-            className="rounded-full relative"
-            style={{
-              height: '75px !important',
-              minHeight: '75px',
-              maxHeight: '75px',
-              background:
-                'linear-gradient(to right, #dc2626 0%, #ef4444 20%, #eab308 40%, #3b82f6 60%, #22c55e 80%, #16a34a 100%)',
-            }}
-          >
-            {/* Red border for left half */}
-            <div
-              className="absolute top-0 left-0 rounded-full"
-              style={{
-                width: '50%',
-                height: '75px',
-                border: '6px solid #ff0000',
-                borderRight: 'none',
-                borderRadius: '75px 0 0 75px',
-                clipPath: 'inset(0 50% 0 0)',
-              }}
-            />
-            {/* Green border for right half */}
-            <div
-              className="absolute top-0 right-0 rounded-full"
-              style={{
-                width: '50%',
-                height: '75px',
-                border: '6px solid #00ff00',
-                borderLeft: 'none',
-                borderRadius: '0 75px 75px 0',
-                clipPath: 'inset(0 0 0 50%)',
-              }}
-            />
-            {/* SI Indicator - position based on actual SI value with extended range */}
-            <div
-              className="absolute top-0 bg-white border-2 border-black rounded-full transform -translate-x-1/2 transition-all duration-500"
-              style={{
-                width: '30px',
-                height: '75px',
-                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%`,
-              }}
-            />
-          </div>
-
-          {/* Scale Labels - Extended range */}
-          <div className="flex justify-between mt-2 text-xs font-bold">
-            <span className="text-red-500">-10.0</span>
-            <span className="text-red-400">-5.0</span>
-            <span className="text-red-300">-2.0</span>
-            <span className="text-yellow-400">-0.5</span>
-            <span className="text-blue-400">0</span>
-            <span className="text-blue-400">+0.5</span>
-            <span className="text-green-300">+2.0</span>
-            <span className="text-green-400">+5.0</span>
-            <span className="text-green-500">+10.0</span>
-          </div>
-          <div className="flex justify-between mt-1 text-xs text-gray-400">
-            <span>MAX</span>
-            <span>EXTREME</span>
-            <span>HIGH</span>
-            <span>BUILDING</span>
-            <span>NEUTRAL</span>
-            <span>SUPPORTIVE</span>
-            <span>HIGH</span>
-            <span>EXTREME</span>
-            <span>MAX</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Exposure Breakdown */}
-      {/* Hidden: GEX, VEX, DEX Components - functionality preserved */}
-      {false && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* GEX Component */}
-          <div className="bg-black border border-gray-600 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-3 h-3 bg-orange-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
-                Gamma Exposure
-              </h3>
-            </div>
-
-            <div className="text-center">
-              <div className="text-3xl font-bold text-orange-400 mb-2">
-                {formatExposure(siMetrics.gexTotal)}
-              </div>
-              <div className="text-sm text-gray-300">
-                {siMetrics.gexTotal > 0 ? 'Stabilizing Force' : 'Destabilizing Force'}
-              </div>
-            </div>
-          </div>
-
-          {/* VEX Component */}
-          <div className="bg-black border border-gray-600 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-3 h-3 bg-purple-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
-                Vega Exposure
-              </h3>
-            </div>
-
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400 mb-2">
-                {formatExposure(siMetrics.vexTotal)}
-              </div>
-              <div className="text-sm text-gray-300">Volatility Sensitivity</div>
-            </div>
-          </div>
-
-          {/* DEX Component */}
-          <div className="bg-black border border-gray-600 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-3 h-3 bg-blue-400 rounded-full"></div>
-              <h3 className="text-white font-bold uppercase text-sm tracking-wider">
-                Delta Exposure
-              </h3>
-            </div>
-
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-400 mb-2">
-                {formatExposure(siMetrics.dexTotal)}
-              </div>
-              <div className="text-sm text-gray-300">Directional Sensitivity</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SI Screener */}
-      <div className="bg-black border border-gray-600">
-        <div className="bg-black px-6 py-4 border-b border-gray-600">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white font-black uppercase text-lg tracking-widest">SI SCREENER</h3>
-
-            {/* Filter Controls */}
-            <div className="flex items-center gap-4">
-              <span className="text-purple-400 font-bold text-sm uppercase tracking-wider">
-                FILTER:
-              </span>
-              <div className="relative">
-                <select
-                  value={screenerFilter}
-                  onChange={(e) => setScreenerFilter(e.target.value)}
-                  className="bg-black border-2 border-purple-600 focus:border-purple-400 focus:outline-none px-4 py-2 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[180px] transition-all"
-                >
-                  <option value="all">ALL REGIMES</option>
-                  <option value="highly-stable">HIGHLY STABLE</option>
-                  <option value="mildly-supportive">MILDLY SUPPORTIVE</option>
-                  <option value="volatility-building">VOLATILITY BUILDING</option>
-                  <option value="reflexive">REFLEXIVE MARKET</option>
-                </select>
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                  <svg className="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              {screenerLoading ? (
-                <button
-                  onClick={cancelScreenerScan}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 border-red-500 transition-all"
-                >
-                  CANCEL SCAN
-                </button>
-              ) : (
-                <button
-                  onClick={loadScreenerData}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 border-purple-500 transition-all"
-                >
-                  START SCAN
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <table className="w-full">
-            <thead className="bg-gray-900">
-              <tr>
-                <th className="px-4 py-4 text-left text-sm font-black text-purple-400 uppercase tracking-widest">
-                  Symbol
-                </th>
-                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">
-                  Price
-                </th>
-                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">
-                  SI
-                </th>
-                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">
-                  Regime
-                </th>
-                <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {screenerLoading && screenerData.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-400"></div>
-                        <span className="text-purple-400 font-bold uppercase">SCANNING...</span>
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        Analyzing SI across 1400+ symbols • Results appear as found
-                      </div>
-                      <div className="text-xs text-yellow-500/70 italic">
-                        Note: Some symbols may fail due to rate limits or missing data
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ) : screenerData.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center">
-                    <div className="space-y-3">
-                      <div className="text-gray-400">No data loaded</div>
-                      <div className="text-sm text-gray-500">
-                        Click <span className="text-purple-400 font-bold">START SCAN</span> to
-                        analyze market stability
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedData.length > 0 ? (
-                paginatedData.map((item, idx) => {
-                  // Determine action based on actual SI ranges
-                  let actionText = ''
-                  let actionColor = ''
-
-                  if (item.si >= 2.0) {
-                    actionText = 'STRONG FADE'
-                    actionColor = 'text-green-500'
-                  } else if (item.si >= 0.5) {
-                    actionText = 'FADE MOVES'
-                    actionColor = 'text-green-400'
-                  } else if (item.si >= 0) {
-                    actionText = 'RANGE TRADE'
-                    actionColor = 'text-blue-400'
-                  } else if (item.si >= -0.5) {
-                    actionText = 'AWAIT BREAKOUT'
-                    actionColor = 'text-yellow-400'
-                  } else if (item.si >= -2.0) {
-                    actionText = 'MOMENTUM TRADE'
-                    actionColor = 'text-red-400'
-                  } else {
-                    actionText = 'HIGH MOMENTUM'
-                    actionColor = 'text-red-500'
-                  }
-
-                  return (
-                    <tr
-                      key={item.ticker}
-                      className="border-b border-gray-800 hover:bg-gray-900/50 transition-colors duration-200"
-                    >
-                      <td className="px-4 py-3 text-white font-bold text-lg tracking-wider">
-                        {item.ticker}
-                      </td>
-                      <td className="px-4 py-3 text-right text-white font-mono">
-                        ${item.price.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={`font-bold text-lg ${item.regimeColor}`}>
-                          {item.si.toFixed(3)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`font-black text-sm tracking-wider ${item.regimeColor}`}>
-                          {item.regime}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`font-bold text-xs tracking-wider ${actionColor}`}>
-                          {actionText}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })
-              ) : (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                    <div className="text-sm">
-                      <strong className="text-purple-400">SI SCREENER READY</strong>
-                      <br />
-                      Click START SCAN to begin SI analysis.
-                      <br />
-                      Results will appear when scan completes.
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Controls */}
-        {filteredScreenerData.length > 0 && (
-          <div className="bg-black border-t border-gray-600 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-400">
-                Showing {startIndex + 1}-{Math.min(endIndex, filteredScreenerData.length)} of{' '}
-                {filteredScreenerData.length} symbols
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
-                    currentPage === 1
-                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                  }`}
-                >
-                  PREVIOUS
-                </button>
-
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                    // Show first page, last page, current page, and pages around current
-                    const showPage =
-                      page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1
-                    const showEllipsis =
-                      (page === 2 && currentPage > 3) ||
-                      (page === totalPages - 1 && currentPage < totalPages - 2)
-
-                    if (showEllipsis) {
-                      return (
-                        <span key={page} className="px-2 text-gray-500">
-                          ...
-                        </span>
-                      )
-                    }
-
-                    if (!showPage) return null
-
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${
-                          currentPage === page
-                            ? 'bg-purple-600 border-purple-500 text-white'
-                            : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <button
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
-                    currentPage === totalPages
-                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                  }`}
-                >
-                  NEXT
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // Max Pain Dashboard Component - True MM-Optimal Expiry Target
 const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
   selectedTicker,
@@ -4716,7 +3411,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     SPY: { data: [], loading: false },
   })
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION')
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'SI'>('MM')
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM'>('MM')
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
 
@@ -4748,6 +3443,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         if (showOI && activeTableCount === 1) {
           // OI + 1 table: 1200px + 900px = 2100px
           sidebarPanel.style.width = '2100px'
+        } else if (duoMode && !showOI && activeTableCount === 2) {
+          // DUO MODE: 2 tables at 540px each = 1080px
+          sidebarPanel.style.width = '1080px'
         } else {
           // 2 tables (no OI) - 1775px
           sidebarPanel.style.width = '1775px'
@@ -4765,7 +3463,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         sidebarPanel.style.width = 'calc(100vw - 4.0625rem)'
       }
     }
-  }, [activeTableCount, showOI])
+  }, [activeTableCount, showOI, duoMode])
 
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
@@ -4854,76 +3552,90 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           })
           setLiveOIProgress(70) // 70% - trades enriched
 
-          // Step 3: Detect fill styles using REAL bid/ask analysis (exact AlgoFlowScreener logic)
-
-          const BATCH_SIZE = 20
-          const tradesWithFillStyle: any[] = []
+          // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
+          // Same approach as AlgoFlowScreener & Options Flow page — fetches the bid/ask
+          // that existed at the moment the trade printed, not the current live snapshot.
 
           const normalizeTickerForOptions = (ticker: string) => {
-            const specialCases: Record<string, string> = {
-              'BRK.B': 'BRK',
-              'BF.B': 'BF',
-            }
+            const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' }
             return specialCases[ticker] || ticker
           }
 
-          for (let i = 0; i < enrichedTrades.length; i += BATCH_SIZE) {
-            const batch = enrichedTrades.slice(i, i + BATCH_SIZE)
-
-            const batchPromises = batch.map(async (trade) => {
-              try {
-                const expiry = trade.expiry.replace(/-/g, '').slice(2)
-                const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-                const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-                const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-
-                const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
-
-                const response = await fetch(snapshotUrl)
-                const data = await response.json()
-
-                if (data.results && data.results.last_quote) {
-                  const bid = data.results.last_quote.bid
-                  const ask = data.results.last_quote.ask
-                  const fillPrice = trade.premium_per_contract
-
-                  if (bid && ask && fillPrice) {
-                    let fillStyle = 'N/A'
-                    const midpoint = (bid + ask) / 2
-
-                    if (fillPrice >= ask + 0.01) {
-                      fillStyle = 'AA'
-                    } else if (fillPrice <= bid - 0.01) {
-                      fillStyle = 'BB'
-                    } else if (fillPrice === ask) {
-                      fillStyle = 'A'
-                    } else if (fillPrice === bid) {
-                      fillStyle = 'B'
-                    } else if (fillPrice >= midpoint) {
-                      fillStyle = 'A'
-                    } else {
-                      fillStyle = 'B'
-                    }
-
-                    return { ...trade, fill_style: fillStyle }
-                  }
-                }
-
-                return { ...trade, fill_style: 'N/A' }
-              } catch (error) {
-                return { ...trade, fill_style: 'N/A' }
-              }
-            })
-
-            const batchResults = await Promise.all(batchPromises)
-            tradesWithFillStyle.push(...batchResults)
-
-            // Update progress during fill style analysis
-            const progressPercent = Math.round(((i + BATCH_SIZE) / enrichedTrades.length) * 10)
-            setLiveOIProgress(70 + progressPercent)
-
-            await new Promise((resolve) => setTimeout(resolve, 100))
+          const buildOptionTicker = (trade: any): string => {
+            const expiry = trade.expiry.replace(/-/g, '').slice(2)
+            const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+            return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
           }
+
+          const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
+            const midpoint = (bid + ask) / 2
+            if (fillPrice >= ask + 0.01) return 'AA'
+            if (fillPrice <= bid - 0.01) return 'BB'
+            if (fillPrice === ask) return 'A'
+            if (fillPrice === bid) return 'B'
+            return fillPrice >= midpoint ? 'A' : 'B'
+          }
+
+          // Build deduplicated batch payload — unique by contract + second bucket (same as AlgoFlow)
+          type QuoteKey = string
+          const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
+          for (const trade of enrichedTrades) {
+            const contract = buildOptionTicker(trade)
+            const tradeMs =
+              typeof trade.trade_timestamp === 'number'
+                ? trade.trade_timestamp
+                : new Date(trade.trade_timestamp).getTime()
+            const timestampNs = tradeMs * 1_000_000
+            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+            if (!uniqueQuotes.has(key))
+              uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
+          }
+
+          // Single batch POST — server fans out all Polygon historical quote calls simultaneously
+          const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
+          const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
+          try {
+            const res = await fetch('/api/options-quotes-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ trades: batchPayload }),
+            })
+            const batchData = await res.json()
+            for (const r of batchData.results as {
+              id: string
+              bid: number | null
+              ask: number | null
+            }[]) {
+              quoteResultMap.set(
+                r.id,
+                r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
+              )
+            }
+          } catch {
+            // All trades fall through to N/A fill style
+          }
+
+          setLiveOIProgress(78) // 78% - historical quotes fetched
+
+          // Map historical quotes back to each trade
+          const tradesWithFillStyle: any[] = enrichedTrades.map((trade) => {
+            const contract = buildOptionTicker(trade)
+            const tradeMs =
+              typeof trade.trade_timestamp === 'number'
+                ? trade.trade_timestamp
+                : new Date(trade.trade_timestamp).getTime()
+            const timestampNs = tradeMs * 1_000_000
+            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+            const quote = quoteResultMap.get(key) ?? null
+            if (quote) {
+              return {
+                ...trade,
+                fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask),
+              }
+            }
+            return { ...trade, fill_style: 'N/A' }
+          })
 
           setLiveOIProgress(80) // 80% - fill styles calculated
 
@@ -5355,19 +4067,19 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           const currentPrice = allExpirationsResult.currentPrice
           const allExpirations = Object.keys(allExpirationsResult.data).sort()
 
-          // Get current time in Eastern Time
+          // Get current time in Pacific Time
           const currentTimeET = new Date()
           const nowET = new Date(
-            currentTimeET.toLocaleString('en-US', { timeZone: 'America/New_York' })
+            currentTimeET.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
           )
           const currentHour = nowET.getHours()
           const currentMinute = nowET.getMinutes()
 
           console.log(
-            `🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
+            `🕐 ${ticker} Current PST time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
           )
 
-          // After 4:15 PM ET, look for next trading day (same logic as QQQ/SPY)
+          // After 1:15 PM PST, look for next trading day (same logic as QQQ/SPY)
           const targetDate = new Date()
           targetDate.setHours(0, 0, 0, 0)
           if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
@@ -5584,16 +4296,16 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         const currentPrice = result.currentPrice
         const allExpirations = Object.keys(result.data).sort()
 
-        // Find ODTE expiry using ET timezone
+        // Find ODTE expiry using PST timezone
         const currentTimeET = new Date()
         const nowET = new Date(
-          currentTimeET.toLocaleString('en-US', { timeZone: 'America/New_York' })
+          currentTimeET.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
         )
         const currentHour = nowET.getHours()
         const currentMinute = nowET.getMinutes()
 
         console.log(
-          `🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
+          `🕐 ${ticker} Current PST time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
         )
 
         // After 4:15 PM ET, look for next trading day
@@ -8897,16 +7609,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           >
                             Market Maker
                           </button>
-                          <button
-                            onClick={() => setActiveWorkbenchTab('SI')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'SI'
-                                ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
-                          >
-                            Stability Index
-                          </button>
                         </div>
 
                         <button
@@ -9004,12 +7706,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     key={selectedTicker}
                     ticker={selectedTicker}
                     date={(() => {
-                      // Get current time in ET
+                      // Get current time in PST
                       const now = new Date()
 
-                      // Get ET time components
+                      // Get PST time components
                       const etFormatter = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'America/New_York',
+                        timeZone: 'America/Los_Angeles',
                         year: 'numeric',
                         month: '2-digit',
                         day: '2-digit',
@@ -11197,15 +9899,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 {/* Render the appropriate workbench component */}
                 <div style={{ display: activeWorkbenchTab === 'MM' ? 'block' : 'none' }}>
                   <MMDashboard
-                    selectedTicker={selectedTicker}
-                    currentPrice={currentPrice}
-                    gexByStrikeByExpiration={gexByStrikeByExpiration}
-                    vexByStrikeByExpiration={vexByStrikeByExpiration}
-                    expirations={expirations}
-                  />
-                </div>
-                <div style={{ display: activeWorkbenchTab === 'SI' ? 'block' : 'none' }}>
-                  <SIDashboard
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}

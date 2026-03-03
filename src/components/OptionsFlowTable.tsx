@@ -2907,7 +2907,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       minute: '2-digit', // Always show minutes with leading zero
 
-      timeZone: 'America/New_York', // Ensure ET timezone
+      timeZone: 'America/Los_Angeles', // Ensure PST timezone
     })
   }
 
@@ -2925,7 +2925,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       second: '2-digit',
 
-      timeZone: 'America/New_York',
+      timeZone: 'America/Los_Angeles',
     })
   }
 

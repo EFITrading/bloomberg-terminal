@@ -230,6 +230,28 @@ export default function EnhancedRegimeDisplay({
   const [picksLoading, setPicksLoading] = useState(false)
   const lastPicksKey = useRef('')
 
+  // VIX price state — fetched once on mount, used to adjust composite only
+  const [vixPrice, setVixPrice] = useState<number | null>(null)
+
+  useEffect(() => {
+    const fetchVix = async () => {
+      try {
+        const res = await fetch(
+          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        )
+        const data = await res.json()
+        if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {
+          const price = data.results[0].underlying_asset.value
+          setVixPrice(price)
+        }
+      } catch (_) {}
+    }
+    fetchVix()
+    // Refresh VIX every 5 minutes
+    const interval = setInterval(fetchVix, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   useEffect(() => {
     if (!showSummary) return
     const a = regimeAnalysis[selectedTimeframe]
@@ -329,7 +351,8 @@ export default function EnhancedRegimeDisplay({
 
   // Calculate weighted composite regime across all timeframes
   const timeframes = ['1d', '5d', '13d', '21d', '50d', 'ytd']
-  const weights = { '1d': 0.25, '5d': 0.2, '13d': 0.2, '21d': 0.15, '50d': 0.15, ytd: 0.05 } // Recent data weighted more
+  // Timeframes sum to 0.95 — the remaining 0.05 is reserved for the VIX slot
+  const weights = { '1d': 0.2, '5d': 0.2, '13d': 0.2, '21d': 0.15, '50d': 0.15, ytd: 0.05 } // Total = 0.95 (VIX gets 0.05)
 
   let compositeSpread = 0
   let compositeDefensiveAvg = 0
@@ -356,6 +379,40 @@ export default function EnhancedRegimeDisplay({
     compositeGrowthAvg /= totalWeight
     compositeConfidence /= totalWeight
   }
+
+  // === VIX ADJUSTMENT — composite gauge only, NOT the 6 individual timeframe gauges ===
+  // Budget: sectors = 0.95, VIX slot = 0.05. Total always = 1.0.
+  // After /= totalWeight above, compositeSpread is normalized to "per 1.0 equivalent".
+  // Scale it back to its 95% share, then add VIX contribution for its 5% share.
+  const VIX_SIGNAL_STRENGTH = 4.0 // same scale as spread (threshold for STRONG = 2.0)
+  let vixActiveWeight = 0
+  let vixSignal = 0
+  let vixLabel = 'NEUTRAL (no VIX data)'
+
+  if (vixPrice !== null) {
+    if (vixPrice > 25) {
+      vixActiveWeight = 0.05 // full 5% slot → defensive
+      vixSignal = VIX_SIGNAL_STRENGTH
+      vixLabel = `DEFENSIVE +5% (VIX ${vixPrice.toFixed(2)} > 25)`
+    } else if (vixPrice > 21) {
+      vixActiveWeight = 0.03 // 3% of the 5% slot → defensive
+      vixSignal = VIX_SIGNAL_STRENGTH
+      vixLabel = `DEFENSIVE +3% (VIX ${vixPrice.toFixed(2)} 21–25)`
+    } else if (vixPrice < 14) {
+      vixActiveWeight = 0.05 // full 5% slot → growth
+      vixSignal = -VIX_SIGNAL_STRENGTH
+      vixLabel = `GROWTH +5% (VIX ${vixPrice.toFixed(2)} < 14)`
+    } else {
+      // 14 <= VIX <= 21
+      vixActiveWeight = 0.03 // 3% of the 5% slot → growth
+      vixSignal = -VIX_SIGNAL_STRENGTH
+      vixLabel = `GROWTH +3% (VIX ${vixPrice.toFixed(2)} 14–21)`
+    }
+  }
+
+  const compositeSpreadBeforeVix = compositeSpread
+  // Fixed budget blend: sectors occupy 0.95, VIX occupies up to 0.05, total = 1.0
+  compositeSpread = compositeSpread * 0.95 + vixSignal * vixActiveWeight
 
   // Determine composite regime
   const getCompositeRegime = () => {
