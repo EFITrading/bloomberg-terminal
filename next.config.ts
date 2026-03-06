@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '4mb',
     },
+    scrollRestoration: false,
   },
   // CRITICAL: Ensure middleware runs in Next.js 15
   skipMiddlewareUrlNormalize: false,

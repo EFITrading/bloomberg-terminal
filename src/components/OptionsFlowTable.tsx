@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 // Import your existing Polygon service
 
 import { polygonService } from '@/lib/polygonService'
+import { useDealerZonesStore } from '@/store/dealerZonesStore'
 
 import '../app/options-flow/mobile.css'
 import FlowTrackingPanel from './FlowTrackingPanel'
@@ -93,6 +94,10 @@ const enrichTradeDataCombined = async (
 
             const openInterest = result.open_interest || null
 
+            // Extract IV from snapshot (used for Targets column)
+            const impliedVolatility: number | null =
+              result.implied_volatility || result.greeks?.iv || null
+
             successCount++
 
             // Extract fill style from last quote
@@ -125,7 +130,13 @@ const enrichTradeDataCombined = async (
               }
             }
 
-            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest }
+            return {
+              ...trade,
+              fill_style: fillStyle,
+              volume,
+              open_interest: openInterest,
+              implied_volatility: impliedVolatility ?? trade.implied_volatility,
+            }
           }
 
           return { ...trade, fill_style: 'N/A', volume: null, open_interest: null }
@@ -414,9 +425,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
-        <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>
-          ${spotPrice.toFixed(2)}
-        </span>
+        <span style={{ color: 'white', fontWeight: 'bold' }}>${spotPrice.toFixed(2)}</span>
 
         <span className="text-gray-400">{'>>'} </span>
 
@@ -430,7 +439,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
 
     return (
       <div className="flex items-center gap-2">
-        <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>
+        <span style={{ color: 'white', fontWeight: isNotablePick ? 'bold' : undefined }}>
           ${spotPrice.toFixed(2)}
         </span>
 
@@ -450,7 +459,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
 
   return (
     <div className="flex items-center gap-2">
-      <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>
+      <span style={{ color: 'white', fontWeight: isNotablePick ? 'bold' : undefined }}>
         ${spotPrice.toFixed(2)}
       </span>
 
@@ -555,6 +564,57 @@ interface MarketInfo {
   market_open: boolean
 }
 
+// ── Pure Black-Scholes helpers (same math as DealerOpenInterestChart) ──
+function _bsNormalCDF(x: number): number {
+  const a1 = 0.254829592,
+    a2 = -0.284496736,
+    a3 = 1.421413741,
+    a4 = -1.453152027,
+    a5 = 1.061405429,
+    p = 0.3275911
+  const sign = x >= 0 ? 1 : -1
+  const ax = Math.abs(x)
+  const t = 1.0 / (1.0 + p * ax)
+  const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax)
+  return 0.5 * (1 + sign * y)
+}
+function _bsD2(S: number, K: number, r: number, sigma: number, T: number): number {
+  return (Math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+}
+function bsStrikeForProb(
+  S: number,
+  sigma: number,
+  dte: number,
+  prob: number,
+  isCall: boolean
+): number | null {
+  if (!sigma || sigma <= 0 || dte <= 0) return null
+  const r = 0.0387
+  const T = dte / 365
+  const copCall = (K: number) => (1 - _bsNormalCDF(_bsD2(S, K, r, sigma, T))) * 100
+  const copPut = (K: number) => _bsNormalCDF(_bsD2(S, K, r, sigma, T)) * 100
+  if (isCall) {
+    let lo = S + 0.01,
+      hi = S * 1.5
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = copCall(mid)
+      if (Math.abs(p - prob) < 0.1) return mid
+      p < prob ? (lo = mid) : (hi = mid)
+    }
+    return (lo + hi) / 2
+  } else {
+    let lo = S * 0.5,
+      hi = S - 0.01
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = copPut(mid)
+      if (Math.abs(p - prob) < 0.1) return mid
+      p < prob ? (hi = mid) : (lo = mid)
+    }
+    return (lo + hi) / 2
+  }
+}
 interface OptionsFlowTableProps {
   data: OptionsFlowData[]
 
@@ -744,6 +804,33 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null)
 
   const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false)
+
+  const [selectedNotableTrade, setSelectedNotableTrade] = useState<OptionsFlowData | null>(null)
+  const [notableAnalysisLoading, setNotableAnalysisLoading] = useState<boolean>(false)
+  const [notableAnalysisData, setNotableAnalysisData] = useState<{
+    t1: number
+    t2: number
+    spotAtEntry: number
+    pctToT1: number
+    pctToT2: number
+    goldenZones: Array<{ strike: number; oi: number; expiry: string }>
+    purpleZones: Array<{ strike: number; oi: number; expiry: string }>
+  } | null>(null)
+
+  // Cache: key = `${ticker}_${expiry}` → { golden: strike|null, purple: strike|null }
+  const getDealerZone = useDealerZonesStore((s) => s.getZone)
+  const [dealerZoneCache, setDealerZoneCache] = useState<
+    Record<
+      string,
+      {
+        golden: number | null
+        purple: number | null
+        atmIV: number | null
+        goldenExpiry?: string | null
+        purpleExpiry?: string | null
+      }
+    >
+  >({})
 
   const [pricesFetchedForDataset, setPricesFetchedForDataset] = useState<string>('') // Track if prices were fetched for current dataset
 
@@ -2041,6 +2128,186 @@ Stock Reaction: ${scores.stockReaction}/15`
     return true
   }
 
+  // Notable Trade Analysis — targets + dealer zones
+  const openNotableAnalysis = async (trade: OptionsFlowData) => {
+    setSelectedNotableTrade(trade)
+    setNotableAnalysisLoading(true)
+    setNotableAnalysisData(null)
+
+    try {
+      const isCall = trade.type === 'call'
+      const spotPrice = trade.spot_price
+      const expiryForApi = trade.expiry
+
+      // ── Fetch real option chain for IV + tower detection ──
+      const response = await fetch(
+        `/api/options-chain?ticker=${trade.underlying_ticker}&expiration=${expiryForApi}`
+      )
+      const result = await response.json()
+
+      let t1 = 0
+      let t2 = 0
+      let pctToT1 = 0
+      let pctToT2 = 0
+      let goldenZone: { strike: number; oi: number } | null = null
+      let purpleZone: { strike: number; oi: number } | null = null
+
+      if (result.success && result.data) {
+        const expData = result.data[expiryForApi] || (Object.values(result.data)[0] as any)
+
+        if (expData) {
+          // ── EXACT same Black-Scholes as DealerOpenInterestChart ──
+          const normalCDF = (x: number): number => {
+            const a1 = 0.254829592,
+              a2 = -0.284496736,
+              a3 = 1.421413741,
+              a4 = -1.453152027,
+              a5 = 1.061405429,
+              p = 0.3275911
+            const sign = x >= 0 ? 1 : -1
+            x = Math.abs(x)
+            const t = 1.0 / (1.0 + p * x)
+            const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+            return 0.5 * (1 + sign * y)
+          }
+          const calculateD2 = (S: number, K: number, r: number, sigma: number, T: number) => {
+            const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+            return d1 - sigma * Math.sqrt(T)
+          }
+          const chanceOfProfitSellCall = (
+            S: number,
+            K: number,
+            r: number,
+            sigma: number,
+            T: number
+          ) => (1 - normalCDF(calculateD2(S, K, r, sigma, T))) * 100
+          const chanceOfProfitSellPut = (
+            S: number,
+            K: number,
+            r: number,
+            sigma: number,
+            T: number
+          ) => normalCDF(calculateD2(S, K, r, sigma, T)) * 100
+          const findStrikeForProbability = (
+            S: number,
+            r: number,
+            sigma: number,
+            T: number,
+            targetProb: number,
+            isCallDir: boolean
+          ): number => {
+            if (isCallDir) {
+              let low = S + 0.01,
+                high = S * 1.5
+              for (let i = 0; i < 50; i++) {
+                const mid = (low + high) / 2
+                const prob = chanceOfProfitSellCall(S, mid, r, sigma, T)
+                if (Math.abs(prob - targetProb) < 0.1) return mid
+                if (prob < targetProb) low = mid
+                else high = mid
+              }
+              return (low + high) / 2
+            } else {
+              let low = S * 0.5,
+                high = S - 0.01
+              for (let i = 0; i < 50; i++) {
+                const mid = (low + high) / 2
+                const prob = chanceOfProfitSellPut(S, mid, r, sigma, T)
+                if (Math.abs(prob - targetProb) < 0.1) return mid
+                if (prob < targetProb) high = mid
+                else low = mid
+              }
+              return (low + high) / 2
+            }
+          }
+
+          // Compute avgIV from ATM options (same as DealerOpenInterestChart)
+          const allContracts: Array<{ strike: number; iv: number }> = []
+          Object.entries(expData.calls || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0)
+              allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          Object.entries(expData.puts || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0)
+              allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          const atmContracts = allContracts.filter(
+            (c) => Math.abs((c.strike - spotPrice) / spotPrice) <= 0.05
+          )
+          const avgIV =
+            atmContracts.length > 0
+              ? atmContracts.reduce((sum, c) => sum + c.iv, 0) / atmContracts.length
+              : trade.implied_volatility || 0.3
+
+          const daysToExpiry = trade.days_to_expiry > 0 ? trade.days_to_expiry : 1
+          const T = daysToExpiry / 365
+          const r = 0.0387
+
+          // For CALL: T1 = call80 (80% range upper), T2 = call90
+          // For PUT:  T1 = put80 (80% range lower),  T2 = put90
+          t1 = +findStrikeForProbability(spotPrice, r, avgIV, T, 80, isCall).toFixed(2)
+          t2 = +findStrikeForProbability(spotPrice, r, avgIV, T, 90, isCall).toFixed(2)
+          pctToT1 = +((Math.abs(t1 - spotPrice) / spotPrice) * 100).toFixed(2)
+          pctToT2 = +((Math.abs(t2 - spotPrice) / spotPrice) * 100).toFixed(2)
+
+          // ── EXACT tower detection from DealerOpenInterestChart ──
+          // Build OI arrays sorted by strike
+          const callEntries = Object.entries(expData.calls || {})
+            .map(([s, d]: [string, any]) => ({ strike: parseFloat(s), oi: d.open_interest || 0 }))
+            .filter((e) => e.oi > 0)
+            .sort((a, b) => a.strike - b.strike)
+
+          const putEntries = Object.entries(expData.puts || {})
+            .map(([s, d]: [string, any]) => ({ strike: parseFloat(s), oi: d.open_interest || 0 }))
+            .filter((e) => e.oi > 0)
+            .sort((a, b) => a.strike - b.strike)
+
+          // Detect top tower: highest OI center where left+right neighbors are 25-65% of center
+          const detectTopTower = (entries: Array<{ strike: number; oi: number }>) => {
+            const sorted = [...entries].sort((a, b) => b.oi - a.oi)
+            for (const candidate of sorted) {
+              const idx = entries.findIndex((e) => e.strike === candidate.strike)
+              if (idx <= 0 || idx >= entries.length - 1) continue
+              const leftPct = (entries[idx - 1].oi / candidate.oi) * 100
+              const rightPct = (entries[idx + 1].oi / candidate.oi) * 100
+              if (leftPct >= 25 && leftPct <= 65 && rightPct >= 25 && rightPct <= 65) {
+                return candidate
+              }
+            }
+            // fallback: highest OI strike
+            return sorted[0] || null
+          }
+
+          goldenZone = detectTopTower(callEntries)
+          purpleZone = detectTopTower(putEntries)
+        }
+      }
+
+      setNotableAnalysisData({
+        t1,
+        t2,
+        spotAtEntry: spotPrice,
+        pctToT1,
+        pctToT2,
+        goldenZones: goldenZone ? [{ ...goldenZone, expiry: expiryForApi }] : [],
+        purpleZones: purpleZone ? [{ ...purpleZone, expiry: expiryForApi }] : [],
+      })
+    } catch (err) {
+      console.error('[NOTABLE] Analysis failed', err)
+      setNotableAnalysisData({
+        t1: 0,
+        t2: 0,
+        spotAtEntry: trade.spot_price,
+        pctToT1: 0,
+        pctToT2: 0,
+        goldenZones: [],
+        purpleZones: [],
+      })
+    } finally {
+      setNotableAnalysisLoading(false)
+    }
+  }
+
   // Flow Tracking (Watchlist) Functions
 
   const generateFlowId = (trade: OptionsFlowData): string => {
@@ -2135,12 +2402,19 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       const today = new Date().toISOString().split('T')[0]
 
+      // Compress payload client-side to avoid 413 Payload Too Large
+      const dataString = JSON.stringify({ date: today, data })
+      const encoded = new TextEncoder().encode(dataString)
+      const cs = new CompressionStream('gzip')
+      const writer = cs.writable.getWriter()
+      writer.write(encoded)
+      writer.close()
+      const compressedBuffer = await new Response(cs.readable).arrayBuffer()
+
       const response = await fetch('/api/flows/save', {
         method: 'POST',
-
-        headers: { 'Content-Type': 'application/json' },
-
-        body: JSON.stringify({ date: today, data }),
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: compressedBuffer,
       })
 
       if (!response.ok) {
@@ -2760,6 +3034,58 @@ Stock Reaction: ${scores.stockReaction}/15`
   }, [filteredAndSortedData, currentPage, itemsPerPage])
 
   const totalPages = Math.ceil(filteredAndSortedData.length / itemsPerPage)
+
+  // Auto-fetch dealer zones for all visible notable trades
+  useEffect(() => {
+    const notableTrades = paginatedData.filter(
+      (t) => notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(t))
+    )
+    // Deduplicate by ticker — one fetch covers ALL expirations for the ticker
+    const seenTickers = new Set<string>()
+    for (const trade of notableTrades) {
+      const key = trade.underlying_ticker
+      if (key in dealerZoneCache || seenTickers.has(key)) continue
+      seenTickers.add(key)
+
+      // ── Priority 1: use DealerAttraction's live-computed values if available ──
+      const storeZone = getDealerZone(key)
+      if (storeZone) {
+        setDealerZoneCache((prev) => ({
+          ...prev,
+          [key]: {
+            golden: storeZone.golden,
+            purple: storeZone.purple,
+            atmIV: storeZone.atmIV,
+            goldenExpiry: storeZone.goldenDetail?.expiry ?? null,
+            purpleExpiry: storeZone.purpleDetail?.expiry ?? null,
+          },
+        }))
+        continue
+      }
+
+      // ── Priority 2: fetch from server-side snapshot API ──
+      setDealerZoneCache((prev) =>
+        key in prev ? prev : { ...prev, [key]: { golden: null, purple: null, atmIV: null } }
+      )
+      // Delegate entirely to the dealer-zones API — same computation as DealerAttraction
+      fetch(`/api/dealer-zones?ticker=${trade.underlying_ticker}`)
+        .then((r) => r.json())
+        .then((result: any) => {
+          if (!result.success) return
+          const golden = result.golden ?? null
+          const purple = result.purple ?? null
+          const atmIV = result.atmIV ?? null
+          const goldenExpiry = result.goldenDetail?.expiry ?? null
+          const purpleExpiry = result.purpleDetail?.expiry ?? null
+          setDealerZoneCache((prev) => ({
+            ...prev,
+            [key]: { golden, purple, atmIV, goldenExpiry, purpleExpiry },
+          }))
+        })
+        .catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paginatedData, notableFilterActive, efiHighlightsActive])
 
   // Reset to page 1 when filters change
 
@@ -4542,7 +4868,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         style={{
           minHeight: showFlowTrackingInline ? 'auto' : '100vh',
 
-          width: isSidebarPanel ? '100%' : '74%',
+          width: isSidebarPanel ? '100%' : isMobileView ? '100%' : '74%',
 
           marginRight: '0',
 
@@ -4573,7 +4899,14 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div className="flex items-center gap-3">
               {/* Search Bar */}
 
-              <div className="relative" style={{ width: '150px', flexShrink: 0 }}>
+              <div
+                className="relative"
+                style={{
+                  width: efiHighlightsActive ? '90px' : '150px',
+                  flexShrink: 0,
+                  transition: 'width 0.2s',
+                }}
+              >
                 <div className="absolute left-3 top-1/2 transform -translate-y-1/2 z-10 pointer-events-none">
                   <svg
                     className="w-4 h-4 text-orange-500"
@@ -4690,6 +5023,31 @@ Stock Reaction: ${scores.stockReaction}/15`
                     HIGHLIGHTS
                   </span>
                 </button>
+
+                {/* Notable Button - mobile, shown when EFI Highlights active */}
+                {efiHighlightsActive && (
+                  <button
+                    onClick={() => setNotableFilterActive(!notableFilterActive)}
+                    className="px-2 font-black uppercase transition-all duration-200 flex items-center hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                    style={{
+                      height: '40px',
+                      background: notableFilterActive
+                        ? 'linear-gradient(180deg, #FFD700 0%, #FFA500 100%)'
+                        : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                      border: notableFilterActive ? '2px solid #FFD700' : '2px solid #2a2a2a',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      letterSpacing: '0.5px',
+                      fontWeight: '900',
+                      boxShadow: notableFilterActive
+                        ? '0 0 10px rgba(255, 215, 0, 0.5), inset 0 2px 8px rgba(0, 0, 0, 0.3)'
+                        : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                      color: notableFilterActive ? '#000000' : '#FFD700',
+                    }}
+                  >
+                    NOTABLE
+                  </button>
+                )}
 
                 {/* Filter Button */}
 
@@ -4843,7 +5201,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                         <button
                           onClick={() => {
-                            setIsHistoryDialogOpen(true)
+                            loadFlowHistory()
 
                             setMobileMenuOpen(false)
                           }}
@@ -6770,6 +7128,17 @@ Stock Reaction: ${scores.stockReaction}/15`
                       Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
+                    {notableFilterActive && (
+                      <th className="hidden md:table-cell text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl border-r border-gray-700">
+                        Targets
+                      </th>
+                    )}
+                    {notableFilterActive && (
+                      <th className="hidden md:table-cell text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl border-r border-gray-700">
+                        Dealer
+                      </th>
+                    )}
+
                     {efiHighlightsActive && (
                       <th
                         className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
@@ -6791,7 +7160,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                   {paginatedData.map((trade, index) => {
                     const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade)
 
-                    const isNotablePick = efiHighlightsActive && meetsNotableCriteria(trade)
+                    const isNotablePick =
+                      notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(trade))
 
                     // Determine if EFI highlight is bullish or bearish
 
@@ -6820,22 +7190,28 @@ Stock Reaction: ${scores.stockReaction}/15`
                     }
 
                     return (
-                      <tr
+                      <React.Fragment
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
-                        className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
-                        style={{
-                          ...(isNotablePick
-                            ? {
-                                outline: '3px solid #FFD700',
-
-                                outlineOffset: '-3px',
-                              }
-                            : {}),
-
-                          ...(isEfiHighlight
-                            ? isBullishEfi
+                      >
+                        <tr
+                          className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
+                          onClick={() => {
+                            if (isNotablePick) openNotableAnalysis(trade)
+                          }}
+                          style={{
+                            cursor: isNotablePick ? 'pointer' : 'default',
+                            ...(isNotablePick
                               ? {
-                                  background: `
+                                  outline: '3px solid #FFD700',
+
+                                  outlineOffset: '-3px',
+                                }
+                              : {}),
+
+                            ...(isEfiHighlight
+                              ? isBullishEfi
+                                ? {
+                                    background: `
 
                               radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
 
@@ -6879,15 +7255,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  borderLeft: '5px solid #00ff00',
+                                    borderLeft: '5px solid #00ff00',
 
-                                  borderRight: '5px solid #00ff00',
+                                    borderRight: '5px solid #00ff00',
 
-                                  borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                                    borderTop: '2px solid rgba(0, 255, 0, 0.2)',
 
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                  boxShadow: `
+                                    boxShadow: `
 
                               inset 0 4px 16px rgba(0, 255, 0, 0.2),
 
@@ -6909,18 +7285,18 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  position: 'relative' as const,
+                                    position: 'relative' as const,
 
-                                  transform: 'translateZ(0)',
+                                    transform: 'translateZ(0)',
 
-                                  backdropFilter: 'blur(0.5px)',
+                                    backdropFilter: 'blur(0.5px)',
 
-                                  WebkitBackdropFilter: 'blur(0.5px)',
+                                    WebkitBackdropFilter: 'blur(0.5px)',
 
-                                  isolation: 'isolate' as const,
-                                }
-                              : {
-                                  background: `
+                                    isolation: 'isolate' as const,
+                                  }
+                                : {
+                                    background: `
 
                               radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
 
@@ -6964,15 +7340,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  borderLeft: '5px solid #ff0000',
+                                    borderLeft: '5px solid #ff0000',
 
-                                  borderRight: '5px solid #ff0000',
+                                    borderRight: '5px solid #ff0000',
 
-                                  borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                                    borderTop: '2px solid rgba(255, 0, 0, 0.2)',
 
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                  boxShadow: `
+                                    boxShadow: `
 
                               inset 0 4px 16px rgba(255, 0, 0, 0.2),
 
@@ -6994,37 +7370,96 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  position: 'relative' as const,
+                                    position: 'relative' as const,
 
-                                  transform: 'translateZ(0)',
+                                    transform: 'translateZ(0)',
 
-                                  backdropFilter: 'blur(0.5px)',
+                                    backdropFilter: 'blur(0.5px)',
 
-                                  WebkitBackdropFilter: 'blur(0.5px)',
+                                    WebkitBackdropFilter: 'blur(0.5px)',
 
-                                  isolation: 'isolate' as const,
+                                    isolation: 'isolate' as const,
+                                  }
+                              : {
+                                  backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
+                                }),
+
+                            position: 'relative' as const,
+
+                            zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
+                          }}
+                        >
+                          <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-center">
+                            {/* Mobile: Ticker + Time stacked */}
+
+                            <div className="md:hidden flex flex-col items-center space-y-1">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => handleTickerClick(trade.underlying_ticker)}
+                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${
+                                    selectedTickerFilter === trade.underlying_ticker
+                                      ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                      : ''
+                                  }`}
+                                >
+                                  {trade.underlying_ticker}
+                                </button>
+
+                                <button
+                                  onClick={() =>
+                                    isInFlowTracking(trade)
+                                      ? removeFromFlowTracking(trade)
+                                      : addToFlowTracking(trade)
+                                  }
+                                  className="text-white hover:text-orange-400 transition-colors"
+                                  title={
+                                    isInFlowTracking(trade)
+                                      ? 'Remove from Flow Tracking'
+                                      : 'Add to Flow Tracking'
+                                  }
+                                >
+                                  {isInFlowTracking(trade) ? (
+                                    <TbStarFilled className="w-3 h-3 text-orange-400" />
+                                  ) : (
+                                    <TbStar className="w-3 h-3" />
+                                  )}
+                                </button>
+                              </div>
+
+                              <div
+                                className="text-xs"
+                                style={
+                                  isNotablePick
+                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                    : { color: '#d1d5db' }
                                 }
-                            : {
-                                backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
-                              }),
+                              >
+                                {formatTime(trade.trade_timestamp)}
+                              </div>
+                            </div>
 
-                          position: 'relative' as const,
+                            {/* Desktop: Time only */}
 
-                          zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
-                        }}
-                      >
-                        <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-center">
-                          {/* Mobile: Ticker + Time stacked */}
+                            <div
+                              className="hidden md:block"
+                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
+                            >
+                              {formatTimeWithSeconds(trade.trade_timestamp)}
+                            </div>
+                          </td>
 
-                          <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div className="flex items-center justify-center gap-2">
+                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${
+                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
                                   selectedTickerFilter === trade.underlying_ticker
                                     ? 'ring-2 ring-orange-500 bg-gray-800/50'
                                     : ''
                                 }`}
+                                style={
+                                  isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}
+                                }
                               >
                                 {trade.underlying_ticker}
                               </button>
@@ -7043,483 +7478,659 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 }
                               >
                                 {isInFlowTracking(trade) ? (
-                                  <TbStarFilled className="w-3 h-3 text-orange-400" />
+                                  <TbStarFilled className="w-4 h-4 text-orange-400" />
                                 ) : (
-                                  <TbStar className="w-3 h-3" />
+                                  <TbStar className="w-4 h-4" />
                                 )}
                               </button>
                             </div>
+                          </td>
 
-                            <div
-                              className="text-xs"
-                              style={
-                                isNotablePick
-                                  ? { color: '#FFD700', fontWeight: 'bold' }
-                                  : { color: '#d1d5db' }
-                              }
-                            >
-                              {formatTime(trade.trade_timestamp)}
-                            </div>
-                          </div>
-
-                          {/* Desktop: Time only */}
-
-                          <div
-                            className="hidden md:block"
-                            style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
+                          <td
+                            className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}
                           >
-                            {formatTimeWithSeconds(trade.trade_timestamp)}
-                          </div>
-                        </td>
+                            {/* Mobile: Strike + Call/Put stacked */}
 
-                        <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleTickerClick(trade.underlying_ticker)}
-                              className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
-                                selectedTickerFilter === trade.underlying_ticker
-                                  ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                  : ''
-                              }`}
-                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
-                            >
-                              {trade.underlying_ticker}
-                            </button>
+                            <div className="md:hidden flex flex-col items-center space-y-1">
+                              <div
+                                className="text-xs font-semibold"
+                                style={
+                                  isNotablePick
+                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                    : { color: 'white' }
+                                }
+                              >
+                                ${trade.strike}
+                              </div>
 
-                            <button
-                              onClick={() =>
-                                isInFlowTracking(trade)
-                                  ? removeFromFlowTracking(trade)
-                                  : addToFlowTracking(trade)
-                              }
-                              className="text-white hover:text-orange-400 transition-colors"
-                              title={
-                                isInFlowTracking(trade)
-                                  ? 'Remove from Flow Tracking'
-                                  : 'Add to Flow Tracking'
-                              }
-                            >
-                              {isInFlowTracking(trade) ? (
-                                <TbStarFilled className="w-4 h-4 text-orange-400" />
-                              ) : (
-                                <TbStar className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-
-                        <td
-                          className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}
-                        >
-                          {/* Mobile: Strike + Call/Put stacked */}
-
-                          <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div
-                              className="text-xs font-semibold"
-                              style={
-                                isNotablePick
-                                  ? { color: '#FFD700', fontWeight: 'bold' }
-                                  : { color: 'white' }
-                              }
-                            >
-                              ${trade.strike}
+                              <div className={`text-xs font-bold ${getCallPutColor(trade.type)}`}>
+                                {trade.type.toUpperCase()}
+                              </div>
                             </div>
 
-                            <div className={`text-xs font-bold ${getCallPutColor(trade.type)}`}>
-                              {trade.type.toUpperCase()}
-                            </div>
-                          </div>
+                            {/* Desktop: Call/Put only */}
 
-                          {/* Desktop: Call/Put only */}
+                            <div className="hidden md:block">{trade.type.toUpperCase()}</div>
+                          </td>
 
-                          <div className="hidden md:block">{trade.type.toUpperCase()}</div>
-                        </td>
+                          <td
+                            className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell"
+                            style={
+                              isNotablePick
+                                ? { color: '#FFD700', fontWeight: 'bold' }
+                                : { color: 'white' }
+                            }
+                          >
+                            ${trade.strike}
+                          </td>
 
-                        <td
-                          className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell"
-                          style={
-                            isNotablePick
-                              ? { color: '#FFD700', fontWeight: 'bold' }
-                              : { color: 'white' }
-                          }
-                        >
-                          ${trade.strike}
-                        </td>
+                          <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-center">
+                            {/* Mobile: Size@Price+Grade + Premium stacked */}
 
-                        <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-center">
-                          {/* Mobile: Size@Price+Grade + Premium stacked */}
-
-                          <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div className="flex items-center justify-center gap-1">
-                              <span className="text-cyan-400 font-bold text-xs">
-                                {trade.trade_size.toLocaleString()}
-                              </span>
-
-                              <span className="text-yellow-400 font-bold text-xs">
-                                @{trade.premium_per_contract.toFixed(2)}
-                              </span>
-
-                              {(trade as any).fill_style && (
-                                <span
-                                  className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${
-                                    (trade as any).fill_style === 'A'
-                                      ? 'text-green-400 bg-green-400/20 border border-green-400/40'
-                                      : (trade as any).fill_style === 'AA'
-                                        ? 'text-green-300 bg-green-300/20 border border-green-300/40'
-                                        : (trade as any).fill_style === 'B'
-                                          ? 'text-red-400 bg-red-400/20 border border-red-400/40'
-                                          : (trade as any).fill_style === 'BB'
-                                            ? 'text-red-300 bg-red-300/20 border border-red-300/40'
-                                            : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
-                                  }`}
-                                >
-                                  {(trade as any).fill_style}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="text-green-400 font-bold text-xs">
-                              {formatCurrency(trade.total_premium)}
-                            </div>
-                          </div>
-
-                          {/* Desktop: Original layout */}
-
-                          <div className="hidden md:block">
-                            <div className="flex flex-col space-y-0.5 md:space-y-1">
-                              <div className="flex flex-wrap items-center gap-1">
-                                <span
-                                  className="text-cyan-400 font-bold size-text"
-                                  style={{ fontSize: '12px' }}
-                                >
-                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}>
-                                    {trade.trade_size.toLocaleString()}
-                                  </span>
+                            <div className="md:hidden flex flex-col items-center space-y-1">
+                              <div className="flex items-center justify-center gap-1">
+                                <span className="text-cyan-400 font-bold text-xs">
+                                  {trade.trade_size.toLocaleString()}
                                 </span>
 
-                                <span
-                                  className="text-slate-400 premium-at"
-                                  style={{ fontSize: '12px' }}
-                                >
-                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}>
-                                    {' '}
-                                    @{' '}
-                                  </span>
-                                </span>
-
-                                <span
-                                  className="text-yellow-400 font-bold premium-value"
-                                  style={{ fontSize: '12px' }}
-                                >
-                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}>
-                                    {trade.premium_per_contract.toFixed(2)}
-                                  </span>
+                                <span className="text-yellow-400 font-bold text-xs">
+                                  @{trade.premium_per_contract.toFixed(2)}
                                 </span>
 
                                 {(trade as any).fill_style && (
                                   <span
-                                    className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
+                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${
                                       (trade as any).fill_style === 'A'
-                                        ? 'text-green-400 bg-green-400/10 border border-green-400/30'
+                                        ? 'text-green-400 bg-green-400/20 border border-green-400/40'
                                         : (trade as any).fill_style === 'AA'
-                                          ? 'text-green-300 bg-green-300/10 border border-green-300/30'
+                                          ? 'text-green-300 bg-green-300/20 border border-green-300/40'
                                           : (trade as any).fill_style === 'B'
-                                            ? 'text-red-400 bg-red-400/10 border border-red-400/30'
+                                            ? 'text-red-400 bg-red-400/20 border border-red-400/40'
                                             : (trade as any).fill_style === 'BB'
-                                              ? 'text-red-300 bg-red-300/10 border border-red-300/30'
-                                              : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                              ? 'text-red-300 bg-red-300/20 border border-red-300/40'
+                                              : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
                                     }`}
-                                    style={{ fontSize: '12px' }}
                                   >
-                                    <span className="hidden md:inline" style={{ fontSize: '15px' }}>
-                                      {(trade as any).fill_style}
-                                    </span>
+                                    {(trade as any).fill_style}
                                   </span>
                                 )}
                               </div>
+
+                              <div className="text-green-400 font-bold text-xs">
+                                {formatCurrency(trade.total_premium)}
+                              </div>
                             </div>
-                          </div>
-                        </td>
 
-                        <td className="hidden md:table-cell p-2 md:p-6 font-bold text-xs md:text-xl text-green-400 border-r border-gray-700/30 premium-text">
-                          {formatCurrency(trade.total_premium)}
-                        </td>
+                            {/* Desktop: Original layout */}
 
-                        <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-center">
-                          {/* Mobile: Expiry + Type stacked */}
+                            <div className="hidden md:block">
+                              <div className="flex flex-col space-y-0.5 md:space-y-1">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <span
+                                    className="text-cyan-400 font-bold size-text"
+                                    style={{ fontSize: '12px' }}
+                                  >
+                                    <span className="hidden md:inline" style={{ fontSize: '19px' }}>
+                                      {trade.trade_size.toLocaleString()}
+                                    </span>
+                                  </span>
 
-                          <div className="md:hidden flex flex-col items-center space-y-1">
+                                  <span
+                                    className="text-slate-400 premium-at"
+                                    style={{ fontSize: '12px' }}
+                                  >
+                                    <span className="hidden md:inline" style={{ fontSize: '19px' }}>
+                                      {' '}
+                                      @{' '}
+                                    </span>
+                                  </span>
+
+                                  <span
+                                    className="text-yellow-400 font-bold premium-value"
+                                    style={{ fontSize: '12px' }}
+                                  >
+                                    <span className="hidden md:inline" style={{ fontSize: '19px' }}>
+                                      {trade.premium_per_contract.toFixed(2)}
+                                    </span>
+                                  </span>
+
+                                  {(trade as any).fill_style && (
+                                    <span
+                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
+                                        (trade as any).fill_style === 'A'
+                                          ? 'text-green-400 bg-green-400/10 border border-green-400/30'
+                                          : (trade as any).fill_style === 'AA'
+                                            ? 'text-green-300 bg-green-300/10 border border-green-300/30'
+                                            : (trade as any).fill_style === 'B'
+                                              ? 'text-red-400 bg-red-400/10 border border-red-400/30'
+                                              : (trade as any).fill_style === 'BB'
+                                                ? 'text-red-300 bg-red-300/10 border border-red-300/30'
+                                                : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                      }`}
+                                      style={{ fontSize: '12px' }}
+                                    >
+                                      <span
+                                        className="hidden md:inline"
+                                        style={{ fontSize: '15px' }}
+                                      >
+                                        {(trade as any).fill_style}
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="hidden md:table-cell p-2 md:p-6 font-bold text-xs md:text-xl text-green-400 border-r border-gray-700/30 premium-text">
+                            {formatCurrency(trade.total_premium)}
+                          </td>
+
+                          <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-center">
+                            {/* Mobile: Expiry + Type stacked */}
+
+                            <div className="md:hidden flex flex-col items-center space-y-1">
+                              <div
+                                className="text-xs font-semibold"
+                                style={
+                                  isNotablePick
+                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                    : { color: 'white' }
+                                }
+                              >
+                                {formatDate(trade.expiry)}
+                              </div>
+
+                              <span
+                                className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
+                              >
+                                {trade.classification || trade.trade_type}
+                              </span>
+                            </div>
+
+                            {/* Desktop: Expiry only */}
+
                             <div
-                              className="text-xs font-semibold"
-                              style={
-                                isNotablePick
-                                  ? { color: '#FFD700', fontWeight: 'bold' }
-                                  : { color: 'white' }
-                              }
+                              className="hidden md:block"
+                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
                             >
                               {formatDate(trade.expiry)}
                             </div>
+                          </td>
 
-                            <span
-                              className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
-                            >
-                              {trade.classification || trade.trade_type}
-                            </span>
-                          </div>
+                          <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-center">
+                            {/* Mobile: Spot + Current stacked vertically */}
 
-                          {/* Desktop: Expiry only */}
+                            <div className="md:hidden flex flex-col items-center space-y-1">
+                              <div className="text-xs">
+                                <span className="font-bold" style={{ color: 'white' }}>
+                                  $
+                                  {typeof trade.spot_price === 'number'
+                                    ? trade.spot_price.toFixed(2)
+                                    : parseFloat(trade.spot_price).toFixed(2)}
+                                </span>
+                              </div>
 
-                          <div
-                            className="hidden md:block"
-                            style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
-                          >
-                            {formatDate(trade.expiry)}
-                          </div>
-                        </td>
-
-                        <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-center">
-                          {/* Mobile: Spot + Current stacked vertically */}
-
-                          <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div className="text-xs">
-                              <span
-                                className="font-bold"
-                                style={isNotablePick ? { color: '#FFD700' } : { color: 'white' }}
-                              >
-                                $
-                                {typeof trade.spot_price === 'number'
-                                  ? trade.spot_price.toFixed(2)
-                                  : parseFloat(trade.spot_price).toFixed(2)}
-                              </span>
-                            </div>
-
-                            <div className="text-xs">
-                              <span
-                                className={`font-bold ${((currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0) > trade.spot_price ? 'text-green-400' : 'text-red-400'}`}
-                              >
-                                $
-                                {(
-                                  (currentPrices[trade.underlying_ticker] || trade.current_price) ??
-                                  0
-                                ).toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Desktop: Normal layout */}
-
-                          <div className="hidden md:block">
-                            <PriceDisplay
-                              spotPrice={trade.spot_price}
-                              currentPrice={
-                                currentPrices[trade.underlying_ticker] || trade.current_price
-                              }
-                              isLoading={priceLoadingState[trade.underlying_ticker]}
-                              ticker={trade.underlying_ticker}
-                              isNotablePick={isNotablePick}
-                            />
-                          </div>
-                        </td>
-
-                        <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
-                          {typeof trade.volume === 'number' &&
-                          typeof trade.open_interest === 'number' ? (
-                            <div className="flex items-center justify-center gap-1">
-                              <span
-                                className="text-cyan-400 font-bold"
-                                style={{ fontSize: '19.2px' }}
-                              >
-                                {trade.volume.toLocaleString()}
-                              </span>
-
-                              <span className="text-gray-400" style={{ fontSize: '16.8px' }}>
-                                /
-                              </span>
-
-                              <span
-                                className="text-purple-400 font-bold"
-                                style={{ fontSize: '19.2px' }}
-                              >
-                                {trade.open_interest.toLocaleString()}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-gray-500" style={{ fontSize: '19.2px' }}>
-                              --
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
-                          <span
-                            className={`trade-type-badge inline-block px-4 py-2 rounded-full text-xs md:text-lg font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
-                          >
-                            {(trade.classification || trade.trade_type) === 'MULTI-LEG'
-                              ? 'ML'
-                              : trade.classification || trade.trade_type}
-                          </span>
-                        </td>
-
-                        {efiHighlightsActive &&
-                          (() => {
-                            const expiry = trade.expiry.replace(/-/g, '').slice(2)
-
-                            const strikeFormatted = String(
-                              Math.round(trade.strike * 1000)
-                            ).padStart(8, '0')
-
-                            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-
-                            const normalizedTicker = normalizeTickerForOptions(
-                              trade.underlying_ticker
-                            )
-
-                            const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-
-                            const currentPrice = currentOptionPrices[optionTicker]
-
-                            const entryPrice = trade.premium_per_contract
-
-                            // Only calculate grade when prices are fetched
-
-                            if (optionPricesFetching) {
-                              return (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-center">
-                                  <div className="inline-flex items-center gap-2">
-                                    <svg
-                                      className="animate-spin h-4 w-4 text-orange-500"
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      fill="none"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <circle
-                                        className="opacity-25"
-                                        cx="12"
-                                        cy="12"
-                                        r="10"
-                                        stroke="currentColor"
-                                        strokeWidth="4"
-                                      ></circle>
-
-                                      <path
-                                        className="opacity-75"
-                                        fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                      ></path>
-                                    </svg>
-
-                                    <span className="text-gray-400 text-xs">Loading...</span>
-                                  </div>
-                                </td>
-                              )
-                            }
-
-                            // Calculate grade using the centralized function
-
-                            const gradeData = getCachedGrade(trade)
-
-                            if (currentPrice && currentPrice > 0) {
-                              const currentValue = currentPrice * trade.trade_size * 100
-
-                              const entryValue = trade.total_premium
-
-                              const rawPercentChange =
-                                ((currentPrice - entryPrice) / entryPrice) * 100
-
-                              // B/BB = sold to open: profit when contract LOSES value, loss when it gains
-                              const displayFillStyle = trade.fill_style || ''
-                              const isSoldToOpenDisplay =
-                                displayFillStyle === 'B' || displayFillStyle === 'BB'
-                              const percentChange = isSoldToOpenDisplay
-                                ? -rawPercentChange
-                                : rawPercentChange
-
-                              // For sold-to-open: profitable when contract price dropped (priceHigher=false = green)
-                              const priceHigher = percentChange > 0
-
-                              // Simple color logic: green if position is in profit, red if in loss
-                              const color = priceHigher ? '#00ff00' : '#ff0000'
-
-                              // Smart formatting for value
-
-                              const formatValue = (val: number): string => {
-                                if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`
-
-                                if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`
-
-                                return `$${val.toFixed(0)}`
-                              }
-
-                              // Use calculated grade data
-
-                              const { grade, color: scoreColor, breakdown } = gradeData
-
-                              return (
-                                <td
-                                  className="p-2 md:p-6 border-r border-gray-700/30"
-                                  style={{
-                                    position: 'relative',
-
-                                    zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
-                                  }}
+                              <div className="text-xs">
+                                <span
+                                  className={`font-bold ${((currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0) > trade.spot_price ? 'text-green-400' : 'text-red-400'}`}
                                 >
-                                  {/* Mobile: Compact grade + percentage */}
+                                  $
+                                  {(
+                                    (currentPrices[trade.underlying_ticker] ||
+                                      trade.current_price) ??
+                                    0
+                                  ).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
 
-                                  <div className="md:hidden flex flex-col items-center space-y-1">
-                                    <span
-                                      style={{
-                                        color: scoreColor,
+                            {/* Desktop: Normal layout */}
 
-                                        fontWeight: 'bold',
+                            <div className="hidden md:block">
+                              <PriceDisplay
+                                spotPrice={trade.spot_price}
+                                currentPrice={
+                                  currentPrices[trade.underlying_ticker] || trade.current_price
+                                }
+                                isLoading={priceLoadingState[trade.underlying_ticker]}
+                                ticker={trade.underlying_ticker}
+                                isNotablePick={isNotablePick}
+                              />
+                            </div>
+                          </td>
 
-                                        fontSize: '14px',
+                          <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
+                            {typeof trade.volume === 'number' &&
+                            typeof trade.open_interest === 'number' ? (
+                              <div className="flex items-center justify-center gap-1">
+                                <span
+                                  className="text-cyan-400 font-bold"
+                                  style={{ fontSize: '19.2px' }}
+                                >
+                                  {trade.volume.toLocaleString()}
+                                </span>
 
-                                        textShadow: `0 1px 2px rgba(0, 0, 0, 0.8)`,
-                                      }}
-                                    >
-                                      {grade}
-                                    </span>
+                                <span className="text-gray-400" style={{ fontSize: '16.8px' }}>
+                                  /
+                                </span>
 
-                                    <span
-                                      style={{
-                                        color,
+                                <span
+                                  className="text-purple-400 font-bold"
+                                  style={{ fontSize: '19.2px' }}
+                                >
+                                  {trade.open_interest.toLocaleString()}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-500" style={{ fontSize: '19.2px' }}>
+                                --
+                              </span>
+                            )}
+                          </td>
 
-                                        fontWeight: 'bold',
+                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
+                            <span
+                              className={`trade-type-badge inline-block px-4 py-2 rounded-full text-xs md:text-lg font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
+                            >
+                              {(trade.classification || trade.trade_type) === 'MULTI-LEG'
+                                ? 'ML'
+                                : trade.classification || trade.trade_type}
+                            </span>
+                          </td>
 
-                                        fontSize: '12px',
-                                      }}
-                                    >
-                                      {priceHigher ? '+' : ''}
-                                      {percentChange.toFixed(1)}%
-                                    </span>
-                                  </div>
-
-                                  {/* Desktop: Original large circle display */}
-
-                                  <div className="hidden md:flex items-center gap-2">
+                          {/* ── Targets column ── */}
+                          {notableFilterActive &&
+                            (() => {
+                              const isCall = trade.type === 'call'
+                              const fillStyle = trade.fill_style || ''
+                              const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
+                              // A/AA: directional — calls go up, puts go down
+                              // B/BB: inversed  — calls go down (sold call = bearish), puts go up (sold put = bullish)
+                              const targetIsUpside =
+                                (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
+                              const cacheKeyT = trade.underlying_ticker
+                              const cachedIV = dealerZoneCache[cacheKeyT]?.atmIV
+                              const sigma =
+                                cachedIV && cachedIV > 0
+                                  ? cachedIV
+                                  : trade.implied_volatility && trade.implied_volatility > 0
+                                    ? trade.implied_volatility
+                                    : 0
+                              const t1 =
+                                sigma > 0
+                                  ? bsStrikeForProb(
+                                      trade.spot_price,
+                                      sigma,
+                                      trade.days_to_expiry,
+                                      80,
+                                      targetIsUpside
+                                    )
+                                  : null
+                              const t2 =
+                                sigma > 0
+                                  ? bsStrikeForProb(
+                                      trade.spot_price,
+                                      sigma,
+                                      trade.days_to_expiry,
+                                      90,
+                                      targetIsUpside
+                                    )
+                                  : null
+                              return (
+                                <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
+                                  {t1 && t2 ? (
                                     <div
                                       style={{
-                                        display: 'inline-flex',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '5px',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            color: '#00ff88',
+                                            letterSpacing: '1px',
+                                            minWidth: '22px',
+                                          }}
+                                        >
+                                          T1
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: '17px',
+                                            fontWeight: 900,
+                                            color: '#ffffff',
+                                            letterSpacing: '-0.5px',
+                                          }}
+                                        >
+                                          ${t1.toFixed(2)}
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            color: '#FFA500',
+                                            letterSpacing: '1px',
+                                            minWidth: '22px',
+                                          }}
+                                        >
+                                          T2
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: '17px',
+                                            fontWeight: 900,
+                                            color: '#ffffff',
+                                            letterSpacing: '-0.5px',
+                                          }}
+                                        >
+                                          ${t2.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span style={{ color: '#333', fontSize: '12px' }}>—</span>
+                                  )}
+                                </td>
+                              )
+                            })()}
 
-                                        alignItems: 'center',
+                          {/* ── Dealer column ── */}
+                          {notableFilterActive &&
+                            (() => {
+                              const cacheKey = trade.underlying_ticker
+                              const zones = dealerZoneCache[cacheKey]
+                              const isNotableRow =
+                                notableFilterActive ||
+                                (efiHighlightsActive && meetsNotableCriteria(trade))
+                              return (
+                                <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
+                                  {isNotableRow ? (
+                                    zones ? (
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: '5px',
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              fontSize: '12px',
+                                              fontWeight: 700,
+                                              color: '#FFD700',
+                                              letterSpacing: '1px',
+                                              minWidth: '42px',
+                                            }}
+                                          >
+                                            MAGNET
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontSize: '17px',
+                                              fontWeight: 900,
+                                              color: '#FFD700',
+                                              letterSpacing: '-0.5px',
+                                            }}
+                                          >
+                                            {zones.golden != null ? `$${zones.golden}` : '—'}
+                                          </span>
+                                          {zones.goldenExpiry && (
+                                            <span
+                                              style={{
+                                                fontSize: '13px',
+                                                fontWeight: 700,
+                                                color: '#FFD700',
+                                              }}
+                                            >
+                                              {zones.goldenExpiry.slice(5).replace('-', '/')}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              fontSize: '12px',
+                                              fontWeight: 700,
+                                              color: '#a855f7',
+                                              letterSpacing: '1px',
+                                              minWidth: '42px',
+                                            }}
+                                          >
+                                            PIVOT
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontSize: '17px',
+                                              fontWeight: 900,
+                                              color: '#a855f7',
+                                              letterSpacing: '-0.5px',
+                                            }}
+                                          >
+                                            {zones.purple != null ? `$${zones.purple}` : '—'}
+                                          </span>
+                                          {zones.purpleExpiry && (
+                                            <span
+                                              style={{
+                                                fontSize: '13px',
+                                                fontWeight: 700,
+                                                color: '#a855f7',
+                                              }}
+                                            >
+                                              {zones.purpleExpiry.slice(5).replace('-', '/')}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span
+                                        style={{
+                                          color: '#555',
+                                          fontSize: '10px',
+                                          letterSpacing: '1px',
+                                        }}
+                                      >
+                                        ...
+                                      </span>
+                                    )
+                                  ) : (
+                                    <span style={{ color: '#333', fontSize: '12px' }}>—</span>
+                                  )}
+                                </td>
+                              )
+                            })()}
 
-                                        justifyContent: 'center',
+                          {efiHighlightsActive &&
+                            (() => {
+                              const expiry = trade.expiry.replace(/-/g, '').slice(2)
 
-                                        width: '78px',
+                              const strikeFormatted = String(
+                                Math.round(trade.strike * 1000)
+                              ).padStart(8, '0')
 
-                                        height: '78px',
+                              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
 
-                                        border: `6px solid ${scoreColor}`,
+                              const normalizedTicker = normalizeTickerForOptions(
+                                trade.underlying_ticker
+                              )
 
-                                        borderRadius: '50%',
+                              const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
 
-                                        background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
+                              const currentPrice = currentOptionPrices[optionTicker]
 
-                                        marginLeft: '10px',
+                              const entryPrice = trade.premium_per_contract
 
-                                        transform: 'rotate(-12deg)',
+                              // Only calculate grade when prices are fetched
 
-                                        boxShadow: `
+                              if (optionPricesFetching) {
+                                return (
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-center">
+                                    <div className="inline-flex items-center gap-2">
+                                      <svg
+                                        className="animate-spin h-4 w-4 text-orange-500"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <circle
+                                          className="opacity-25"
+                                          cx="12"
+                                          cy="12"
+                                          r="10"
+                                          stroke="currentColor"
+                                          strokeWidth="4"
+                                        ></circle>
+
+                                        <path
+                                          className="opacity-75"
+                                          fill="currentColor"
+                                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                        ></path>
+                                      </svg>
+
+                                      <span className="text-gray-400 text-xs">Loading...</span>
+                                    </div>
+                                  </td>
+                                )
+                              }
+
+                              // Calculate grade using the centralized function
+
+                              const gradeData = getCachedGrade(trade)
+
+                              if (currentPrice && currentPrice > 0) {
+                                const currentValue = currentPrice * trade.trade_size * 100
+
+                                const entryValue = trade.total_premium
+
+                                const rawPercentChange =
+                                  ((currentPrice - entryPrice) / entryPrice) * 100
+
+                                // B/BB = sold to open: profit when contract LOSES value, loss when it gains
+                                const displayFillStyle = trade.fill_style || ''
+                                const isSoldToOpenDisplay =
+                                  displayFillStyle === 'B' || displayFillStyle === 'BB'
+                                const percentChange = isSoldToOpenDisplay
+                                  ? -rawPercentChange
+                                  : rawPercentChange
+
+                                // For sold-to-open: profitable when contract price dropped (priceHigher=false = green)
+                                const priceHigher = percentChange > 0
+
+                                // Simple color logic: green if position is in profit, red if in loss
+                                const color = priceHigher ? '#00ff00' : '#ff0000'
+
+                                // Smart formatting for value
+
+                                const formatValue = (val: number): string => {
+                                  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`
+
+                                  if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`
+
+                                  return `$${val.toFixed(0)}`
+                                }
+
+                                // Use calculated grade data
+
+                                const { grade, color: scoreColor, breakdown } = gradeData
+
+                                return (
+                                  <td
+                                    className="p-2 md:p-6 border-r border-gray-700/30"
+                                    style={{
+                                      position: 'relative',
+
+                                      zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
+                                    }}
+                                  >
+                                    {/* Mobile: Compact grade + percentage */}
+
+                                    <div className="md:hidden flex flex-col items-center space-y-1">
+                                      <span
+                                        style={{
+                                          color: scoreColor,
+
+                                          fontWeight: 'bold',
+
+                                          fontSize: '14px',
+
+                                          textShadow: `0 1px 2px rgba(0, 0, 0, 0.8)`,
+                                        }}
+                                      >
+                                        {grade}
+                                      </span>
+
+                                      <span
+                                        style={{
+                                          color,
+
+                                          fontWeight: 'bold',
+
+                                          fontSize: '12px',
+                                        }}
+                                      >
+                                        {priceHigher ? '+' : ''}
+                                        {percentChange.toFixed(1)}%
+                                      </span>
+                                    </div>
+
+                                    {/* Desktop: Original large circle display */}
+
+                                    <div className="hidden md:flex items-center gap-2">
+                                      <div
+                                        style={{
+                                          display: 'inline-flex',
+
+                                          alignItems: 'center',
+
+                                          justifyContent: 'center',
+
+                                          width: '78px',
+
+                                          height: '78px',
+
+                                          border: `6px solid ${scoreColor}`,
+
+                                          borderRadius: '50%',
+
+                                          background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
+
+                                          marginLeft: '10px',
+
+                                          transform: 'rotate(-12deg)',
+
+                                          boxShadow: `
 
  0 8px 16px rgba(0, 0, 0, 0.6),
 
@@ -7529,42 +8140,42 @@ Stock Reaction: ${scores.stockReaction}/15`
 
  `,
 
-                                        position: 'relative',
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-
-                                          top: '3px',
-
-                                          left: '3px',
-
-                                          right: '3px',
-
-                                          bottom: '3px',
-
-                                          border: `2px dashed ${scoreColor}80`,
-
-                                          borderRadius: '50%',
+                                          position: 'relative',
                                         }}
-                                      ></div>
+                                      >
+                                        <div
+                                          style={{
+                                            position: 'absolute',
 
-                                      <span
-                                        onMouseEnter={() => setHoveredGradeIndex(index)}
-                                        onMouseLeave={() => setHoveredGradeIndex(null)}
-                                        style={{
-                                          color: scoreColor,
+                                            top: '3px',
 
-                                          fontWeight: 'normal',
+                                            left: '3px',
 
-                                          fontSize: '20px',
+                                            right: '3px',
 
-                                          fontStyle: 'italic',
+                                            bottom: '3px',
 
-                                          fontFamily: 'Impact, Georgia, serif',
+                                            border: `2px dashed ${scoreColor}80`,
 
-                                          textShadow: `
+                                            borderRadius: '50%',
+                                          }}
+                                        ></div>
+
+                                        <span
+                                          onMouseEnter={() => setHoveredGradeIndex(index)}
+                                          onMouseLeave={() => setHoveredGradeIndex(null)}
+                                          style={{
+                                            color: scoreColor,
+
+                                            fontWeight: 'normal',
+
+                                            fontSize: '20px',
+
+                                            fontStyle: 'italic',
+
+                                            fontFamily: 'Impact, Georgia, serif',
+
+                                            textShadow: `
 
  0 3px 0 rgba(0, 0, 0, 0.8),
 
@@ -7574,464 +8185,682 @@ Stock Reaction: ${scores.stockReaction}/15`
 
  `,
 
-                                          transform: 'rotate(12deg)',
+                                            transform: 'rotate(12deg)',
 
-                                          letterSpacing: '1px',
+                                            letterSpacing: '1px',
 
-                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+                                            filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
 
-                                          WebkitTextStroke: `0.5px ${scoreColor}`,
+                                            WebkitTextStroke: `0.5px ${scoreColor}`,
 
-                                          cursor: 'help',
+                                            cursor: 'help',
 
-                                          position: 'relative',
+                                            position: 'relative',
+                                          }}
+                                        >
+                                          {grade}
+
+                                          {hoveredGradeIndex === index &&
+                                            (index < 3 ? (
+                                              <div
+                                                style={{
+                                                  position: 'absolute',
+
+                                                  top: '100%',
+
+                                                  left: '50%',
+
+                                                  transform: 'translateX(-50%) translateY(12px)',
+
+                                                  backgroundColor: '#000000',
+
+                                                  color: '#ffffff',
+
+                                                  padding: '16px 20px',
+
+                                                  borderRadius: '12px',
+
+                                                  fontSize: '15px',
+
+                                                  fontFamily: 'monospace',
+
+                                                  fontStyle: 'normal',
+
+                                                  fontWeight: 'normal',
+
+                                                  whiteSpace: 'pre-line',
+
+                                                  zIndex: 99999,
+
+                                                  minWidth: '280px',
+
+                                                  boxShadow: `
+
+ 0 8px 32px rgba(0, 0, 0, 0.8),
+
+ 0 0 0 2px ${scoreColor}40
+
+ `,
+
+                                                  border: `2px solid ${scoreColor}`,
+
+                                                  lineHeight: '1.8',
+
+                                                  letterSpacing: '0.5px',
+
+                                                  textShadow: 'none',
+
+                                                  WebkitTextStroke: '0',
+
+                                                  pointerEvents: 'none',
+                                                }}
+                                              >
+                                                <div
+                                                  style={{
+                                                    marginBottom: '8px',
+                                                    fontWeight: 'bold',
+                                                    fontSize: '16px',
+                                                  }}
+                                                >
+                                                  Score:{' '}
+                                                  <span style={{ color: scoreColor }}>
+                                                    {gradeData.score}/100
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Expiration:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.expiration === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.expiration === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.expiration}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Contract P&L:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.contractPrice === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.contractPrice === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.contractPrice}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Combo Trade:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.combo === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.combo === 10
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.combo}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Price Action:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.priceAction === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.priceAction === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.priceAction}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Stock Reaction:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.stockReaction === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.stockReaction === 15
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.stockReaction}/15
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    position: 'absolute',
+
+                                                    top: '-10px',
+
+                                                    left: '50%',
+
+                                                    transform: 'translateX(-50%)',
+
+                                                    width: 0,
+
+                                                    height: 0,
+
+                                                    borderLeft: '10px solid transparent',
+
+                                                    borderRight: '10px solid transparent',
+
+                                                    borderBottom: `10px solid ${scoreColor}`,
+                                                  }}
+                                                ></div>
+                                              </div>
+                                            ) : (
+                                              <div
+                                                style={{
+                                                  position: 'absolute',
+
+                                                  bottom: '100%',
+
+                                                  left: '50%',
+
+                                                  transform: 'translateX(-50%) translateY(-12px)',
+
+                                                  backgroundColor: '#000000',
+
+                                                  color: '#ffffff',
+
+                                                  padding: '16px 20px',
+
+                                                  borderRadius: '12px',
+
+                                                  fontSize: '15px',
+
+                                                  fontFamily: 'monospace',
+
+                                                  fontStyle: 'normal',
+
+                                                  fontWeight: 'normal',
+
+                                                  whiteSpace: 'pre-line',
+
+                                                  zIndex: 99999,
+
+                                                  minWidth: '280px',
+
+                                                  boxShadow: `
+
+ 0 8px 32px rgba(0, 0, 0, 0.8),
+
+ 0 0 0 2px ${scoreColor}40
+
+ `,
+
+                                                  border: `2px solid ${scoreColor}`,
+
+                                                  lineHeight: '1.8',
+
+                                                  letterSpacing: '0.5px',
+
+                                                  textShadow: 'none',
+
+                                                  WebkitTextStroke: '0',
+
+                                                  pointerEvents: 'none',
+                                                }}
+                                              >
+                                                <div
+                                                  style={{
+                                                    marginBottom: '8px',
+                                                    fontWeight: 'bold',
+                                                    fontSize: '16px',
+                                                  }}
+                                                >
+                                                  Score:{' '}
+                                                  <span style={{ color: scoreColor }}>
+                                                    {gradeData.score}/100
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Expiration:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.expiration === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.expiration === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.expiration}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Contract P&L:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.contractPrice === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.contractPrice === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.contractPrice}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Combo Trade:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.combo === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.combo === 10
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.combo}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Price Action:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.priceAction === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.priceAction === 25
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.priceAction}/25
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Stock Reaction:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.stockReaction === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.stockReaction === 15
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.stockReaction}/15
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    position: 'absolute',
+
+                                                    bottom: '-10px',
+
+                                                    left: '50%',
+
+                                                    transform: 'translateX(-50%)',
+
+                                                    width: 0,
+
+                                                    height: 0,
+
+                                                    borderLeft: '10px solid transparent',
+
+                                                    borderRight: '10px solid transparent',
+
+                                                    borderTop: `10px solid ${scoreColor}`,
+                                                  }}
+                                                ></div>
+                                              </div>
+                                            ))}
+                                        </span>
+                                      </div>
+
+                                      <span
+                                        style={{
+                                          color,
+                                          fontWeight: 'bold',
+                                          fontSize: '16.8px',
+                                          whiteSpace: 'nowrap',
                                         }}
                                       >
-                                        {grade}
-
-                                        {hoveredGradeIndex === index &&
-                                          (index < 3 ? (
-                                            <div
-                                              style={{
-                                                position: 'absolute',
-
-                                                top: '100%',
-
-                                                left: '50%',
-
-                                                transform: 'translateX(-50%) translateY(12px)',
-
-                                                backgroundColor: '#000000',
-
-                                                color: '#ffffff',
-
-                                                padding: '16px 20px',
-
-                                                borderRadius: '12px',
-
-                                                fontSize: '15px',
-
-                                                fontFamily: 'monospace',
-
-                                                fontStyle: 'normal',
-
-                                                fontWeight: 'normal',
-
-                                                whiteSpace: 'pre-line',
-
-                                                zIndex: 99999,
-
-                                                minWidth: '280px',
-
-                                                boxShadow: `
-
- 0 8px 32px rgba(0, 0, 0, 0.8),
-
- 0 0 0 2px ${scoreColor}40
-
- `,
-
-                                                border: `2px solid ${scoreColor}`,
-
-                                                lineHeight: '1.8',
-
-                                                letterSpacing: '0.5px',
-
-                                                textShadow: 'none',
-
-                                                WebkitTextStroke: '0',
-
-                                                pointerEvents: 'none',
-                                              }}
-                                            >
-                                              <div
-                                                style={{
-                                                  marginBottom: '8px',
-                                                  fontWeight: 'bold',
-                                                  fontSize: '16px',
-                                                }}
-                                              >
-                                                Score:{' '}
-                                                <span style={{ color: scoreColor }}>
-                                                  {gradeData.score}/100
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Expiration:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.expiration === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.expiration === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.expiration}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Contract P&L:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.contractPrice === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.contractPrice === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.contractPrice}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Combo Trade:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.combo === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.combo === 10
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.combo}/10
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Price Action:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.priceAction === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.priceAction === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.priceAction}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Stock Reaction:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.stockReaction === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.stockReaction === 15
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.stockReaction}/15
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  position: 'absolute',
-
-                                                  top: '-10px',
-
-                                                  left: '50%',
-
-                                                  transform: 'translateX(-50%)',
-
-                                                  width: 0,
-
-                                                  height: 0,
-
-                                                  borderLeft: '10px solid transparent',
-
-                                                  borderRight: '10px solid transparent',
-
-                                                  borderBottom: `10px solid ${scoreColor}`,
-                                                }}
-                                              ></div>
-                                            </div>
-                                          ) : (
-                                            <div
-                                              style={{
-                                                position: 'absolute',
-
-                                                bottom: '100%',
-
-                                                left: '50%',
-
-                                                transform: 'translateX(-50%) translateY(-12px)',
-
-                                                backgroundColor: '#000000',
-
-                                                color: '#ffffff',
-
-                                                padding: '16px 20px',
-
-                                                borderRadius: '12px',
-
-                                                fontSize: '15px',
-
-                                                fontFamily: 'monospace',
-
-                                                fontStyle: 'normal',
-
-                                                fontWeight: 'normal',
-
-                                                whiteSpace: 'pre-line',
-
-                                                zIndex: 99999,
-
-                                                minWidth: '280px',
-
-                                                boxShadow: `
-
- 0 8px 32px rgba(0, 0, 0, 0.8),
-
- 0 0 0 2px ${scoreColor}40
-
- `,
-
-                                                border: `2px solid ${scoreColor}`,
-
-                                                lineHeight: '1.8',
-
-                                                letterSpacing: '0.5px',
-
-                                                textShadow: 'none',
-
-                                                WebkitTextStroke: '0',
-
-                                                pointerEvents: 'none',
-                                              }}
-                                            >
-                                              <div
-                                                style={{
-                                                  marginBottom: '8px',
-                                                  fontWeight: 'bold',
-                                                  fontSize: '16px',
-                                                }}
-                                              >
-                                                Score:{' '}
-                                                <span style={{ color: scoreColor }}>
-                                                  {gradeData.score}/100
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Expiration:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.expiration === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.expiration === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.expiration}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Contract P&L:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.contractPrice === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.contractPrice === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.contractPrice}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Combo Trade:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.combo === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.combo === 10
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.combo}/10
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Price Action:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.priceAction === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.priceAction === 25
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.priceAction}/25
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                }}
-                                              >
-                                                <span>Stock Reaction:</span>
-
-                                                <span
-                                                  style={{
-                                                    color:
-                                                      gradeData.scores.stockReaction === 0
-                                                        ? '#ff0000'
-                                                        : gradeData.scores.stockReaction === 15
-                                                          ? '#00ff00'
-                                                          : '#ffffff',
-                                                  }}
-                                                >
-                                                  {gradeData.scores.stockReaction}/15
-                                                </span>
-                                              </div>
-
-                                              <div
-                                                style={{
-                                                  position: 'absolute',
-
-                                                  bottom: '-10px',
-
-                                                  left: '50%',
-
-                                                  transform: 'translateX(-50%)',
-
-                                                  width: 0,
-
-                                                  height: 0,
-
-                                                  borderLeft: '10px solid transparent',
-
-                                                  borderRight: '10px solid transparent',
-
-                                                  borderTop: `10px solid ${scoreColor}`,
-                                                }}
-                                              ></div>
-                                            </div>
-                                          ))}
+                                        ${currentPrice.toFixed(2)}
+                                      </span>
+
+                                      <span
+                                        style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}
+                                      >
+                                        {formatValue(currentValue)}
+                                      </span>
+
+                                      <span
+                                        style={{
+                                          color,
+                                          fontWeight: 'bold',
+                                          fontSize: '15.6px',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {priceHigher ? '+' : ''}
+                                        {percentChange.toFixed(1)}%
                                       </span>
                                     </div>
+                                  </td>
+                                )
+                              } else {
+                                return (
+                                  <td className="p-2 md:p-6 border-r border-gray-700/30">
+                                    <span className="text-gray-500 text-sm">Loading...</span>
+                                  </td>
+                                )
+                              }
+                            })()}
+                        </tr>
 
-                                    <span
+                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot — only for notable picks on mobile */}
+                        {isMobileView &&
+                          isNotablePick &&
+                          (() => {
+                            const isCall2 = trade.type === 'call'
+                            const fillStyle2 = (trade as any).fill_style || ''
+                            const isSold2 = fillStyle2 === 'B' || fillStyle2 === 'BB'
+                            const targetUp2 = (isCall2 && !isSold2) || (!isCall2 && isSold2)
+                            const cachedIV2 = dealerZoneCache[trade.underlying_ticker]?.atmIV
+                            const sigma2 =
+                              cachedIV2 && cachedIV2 > 0
+                                ? cachedIV2
+                                : trade.implied_volatility && trade.implied_volatility > 0
+                                  ? trade.implied_volatility
+                                  : 0
+                            const t1m =
+                              sigma2 > 0
+                                ? bsStrikeForProb(
+                                    trade.spot_price,
+                                    sigma2,
+                                    trade.days_to_expiry,
+                                    80,
+                                    targetUp2
+                                  )
+                                : null
+                            const t2m =
+                              sigma2 > 0
+                                ? bsStrikeForProb(
+                                    trade.spot_price,
+                                    sigma2,
+                                    trade.days_to_expiry,
+                                    90,
+                                    targetUp2
+                                  )
+                                : null
+                            const zones2 = dealerZoneCache[trade.underlying_ticker]
+                            const dirBg = targetUp2 ? 'rgba(0,180,60,0.22)' : 'rgba(200,30,30,0.22)'
+                            const dirBorder = targetUp2
+                              ? '1px solid rgba(0,220,80,0.5)'
+                              : '1px solid rgba(220,40,40,0.5)'
+                            return (
+                              <tr
+                                className="md:hidden border-b border-slate-700/50"
+                                style={{ background: 'rgba(0,0,0,0.6)' }}
+                              >
+                                <td colSpan={99} style={{ padding: '6px 10px' }}>
+                                  <div
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: '0.8fr 0.8fr 0.9fr 0.9fr',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    {/* T1 */}
+                                    <div
                                       style={{
-                                        color,
-                                        fontWeight: 'bold',
-                                        fontSize: '16.8px',
-                                        whiteSpace: 'nowrap',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        background: dirBg,
+                                        borderRadius: '4px',
+                                        padding: '5px 4px',
+                                        border: dirBorder,
                                       }}
                                     >
-                                      ${currentPrice.toFixed(2)}
-                                    </span>
-
-                                    <span
-                                      style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}
-                                    >
-                                      {formatValue(currentValue)}
-                                    </span>
-
-                                    <span
+                                      <span
+                                        style={{
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: '#ffffff',
+                                          letterSpacing: '0.5px',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        T1
+                                      </span>
+                                      <span
+                                        style={{
+                                          fontSize: '13px',
+                                          fontWeight: 900,
+                                          color: '#ffffff',
+                                        }}
+                                      >
+                                        {t1m ? `$${t1m.toFixed(2)}` : '—'}
+                                      </span>
+                                    </div>
+                                    {/* T2 */}
+                                    <div
                                       style={{
-                                        color,
-                                        fontWeight: 'bold',
-                                        fontSize: '15.6px',
-                                        whiteSpace: 'nowrap',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        background: dirBg,
+                                        borderRadius: '4px',
+                                        padding: '5px 4px',
+                                        border: dirBorder,
                                       }}
                                     >
-                                      {priceHigher ? '+' : ''}
-                                      {percentChange.toFixed(1)}%
-                                    </span>
+                                      <span
+                                        style={{
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: '#ffffff',
+                                          letterSpacing: '0.5px',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        T2
+                                      </span>
+                                      <span
+                                        style={{
+                                          fontSize: '13px',
+                                          fontWeight: 900,
+                                          color: '#ffffff',
+                                        }}
+                                      >
+                                        {t2m ? `$${t2m.toFixed(2)}` : '—'}
+                                      </span>
+                                    </div>
+                                    {/* Magnet */}
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        background: dirBg,
+                                        borderRadius: '4px',
+                                        padding: '5px 4px',
+                                        border: dirBorder,
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: '#FFD700',
+                                          letterSpacing: '0.5px',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        MAG
+                                      </span>
+                                      <span
+                                        style={{
+                                          fontSize: '13px',
+                                          fontWeight: 900,
+                                          color: '#FFD700',
+                                        }}
+                                      >
+                                        {zones2?.golden != null ? `$${zones2.golden}` : '…'}
+                                        {zones2?.goldenExpiry && (
+                                          <span
+                                            style={{
+                                              fontSize: '9px',
+                                              marginLeft: '2px',
+                                              color: '#FFD700',
+                                            }}
+                                          >
+                                            {zones2.goldenExpiry.slice(5).replace('-', '/')}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                    {/* Pivot */}
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        background: dirBg,
+                                        borderRadius: '4px',
+                                        padding: '5px 4px',
+                                        border: dirBorder,
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: '#dd44ff',
+                                          letterSpacing: '0.5px',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        PIV
+                                      </span>
+                                      <span
+                                        style={{
+                                          fontSize: '13px',
+                                          fontWeight: 900,
+                                          color: '#dd44ff',
+                                        }}
+                                      >
+                                        {zones2?.purple != null ? `$${zones2.purple}` : '…'}
+                                        {zones2?.purpleExpiry && (
+                                          <span
+                                            style={{
+                                              fontSize: '9px',
+                                              marginLeft: '2px',
+                                              color: '#dd44ff',
+                                            }}
+                                          >
+                                            {zones2.purpleExpiry.slice(5).replace('-', '/')}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
                                   </div>
                                 </td>
-                              )
-                            } else {
-                              return (
-                                <td className="p-2 md:p-6 border-r border-gray-700/30">
-                                  <span className="text-gray-500 text-sm">Loading...</span>
-                                </td>
-                              )
-                            }
+                              </tr>
+                            )
                           })()}
-                      </tr>
+                      </React.Fragment>
                     )
                   })}
                 </tbody>
@@ -9479,7 +10308,517 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
       )}
-      {!isSidebarPanel && (
+      {/* ── NOTABLE TRADE ANALYSIS MODAL ── */}
+      {selectedNotableTrade && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2147483647,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={() => {
+            setSelectedNotableTrade(null)
+            setNotableAnalysisData(null)
+          }}
+        >
+          <div
+            style={{
+              background: '#000000',
+              border: '1px solid #FFD700',
+              width: '560px',
+              maxWidth: '96vw',
+              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, monospace',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ── Header bar ── */}
+            <div
+              style={{
+                borderBottom: '1px solid #FFD700',
+                padding: '0 20px',
+                height: '48px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#000',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#FFD700',
+                  letterSpacing: '3px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                ★ Notable Flow Analysis
+              </span>
+              <button
+                onClick={() => {
+                  setSelectedNotableTrade(null)
+                  setNotableAnalysisData(null)
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #333',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '1px',
+                }}
+              >
+                ESC
+              </button>
+            </div>
+
+            {/* ── Trade identity row ── */}
+            <div
+              style={{
+                padding: '20px 20px 0',
+                borderBottom: '1px solid #1c1c1c',
+                paddingBottom: '20px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: '10px',
+                  marginBottom: '14px',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '32px',
+                    fontWeight: 900,
+                    color: '#ffffff',
+                    letterSpacing: '-1px',
+                  }}
+                >
+                  {selectedNotableTrade.underlying_ticker}
+                </span>
+                <span
+                  style={{
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466',
+                  }}
+                >
+                  ${selectedNotableTrade.strike} {selectedNotableTrade.type.toUpperCase()}
+                </span>
+                <span
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: '#FFD700',
+                    marginLeft: 'auto',
+                  }}
+                >
+                  ${(selectedNotableTrade.total_premium / 1000).toFixed(0)}K PREMIUM
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0',
+                  borderTop: '1px solid #1c1c1c',
+                  paddingTop: '14px',
+                }}
+              >
+                {[
+                  { label: 'EXPIRY', value: selectedNotableTrade.expiry },
+                  { label: 'DTE', value: `${selectedNotableTrade.days_to_expiry}D` },
+                  { label: 'SPOT ENTRY', value: `$${selectedNotableTrade.spot_price.toFixed(2)}` },
+                  {
+                    label: 'FILL',
+                    value: String((selectedNotableTrade as any).fill_style || 'N/A'),
+                  },
+                  { label: 'SIZE', value: `${selectedNotableTrade.trade_size.toLocaleString()}` },
+                ].map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      flex: 1,
+                      borderRight: i < 4 ? '1px solid #1c1c1c' : 'none',
+                      paddingRight: '12px',
+                      paddingLeft: i > 0 ? '12px' : 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: '#666666',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        letterSpacing: '1.5px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      {item.label}
+                    </div>
+                    <div style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700 }}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {notableAnalysisLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div
+                  style={{
+                    color: '#FFD700',
+                    fontSize: '11px',
+                    letterSpacing: '3px',
+                    fontWeight: 700,
+                  }}
+                >
+                  CALCULATING TARGETS &amp; DEALER ZONES...
+                </div>
+              </div>
+            ) : notableAnalysisData && notableAnalysisData.t1 > 0 ? (
+              <div>
+                {/* ── Targets section ── */}
+                <div style={{ padding: '20px', borderBottom: '1px solid #1c1c1c' }}>
+                  <div
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      color: '#FFD700',
+                      letterSpacing: '2px',
+                      marginBottom: '14px',
+                    }}
+                  >
+                    PROBABILITY TARGETS — {selectedNotableTrade.expiry}
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '1px',
+                      background: '#1c1c1c',
+                    }}
+                  >
+                    {/* T1 */}
+                    <div
+                      style={{
+                        background: '#000',
+                        padding: '16px',
+                        borderLeft: `3px solid ${selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466'}`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          letterSpacing: '2px',
+                          color: '#ffffff',
+                          marginBottom: '8px',
+                        }}
+                      >
+                        TARGET 1 — 80%
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 900,
+                          color: selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466',
+                          letterSpacing: '-1px',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ${notableAnalysisData.t1.toFixed(2)}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: '6px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#ffffff',
+                        }}
+                      >
+                        {selectedNotableTrade.type === 'call' ? '+' : '−'}
+                        {notableAnalysisData.pctToT1}% from spot
+                      </div>
+                    </div>
+                    {/* T2 */}
+                    <div
+                      style={{
+                        background: '#000',
+                        padding: '16px',
+                        borderLeft: `3px solid ${selectedNotableTrade.type === 'call' ? '#00cc55' : '#cc0033'}`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          letterSpacing: '2px',
+                          color: '#ffffff',
+                          marginBottom: '8px',
+                        }}
+                      >
+                        TARGET 2 — 90%
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '28px',
+                          fontWeight: 900,
+                          color: selectedNotableTrade.type === 'call' ? '#00cc55' : '#cc0033',
+                          letterSpacing: '-1px',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ${notableAnalysisData.t2.toFixed(2)}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: '6px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#ffffff',
+                        }}
+                      >
+                        {selectedNotableTrade.type === 'call' ? '+' : '−'}
+                        {notableAnalysisData.pctToT2}% from spot
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Dealer zones ── */}
+                <div style={{ padding: '20px' }}>
+                  <div
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      color: '#FFD700',
+                      letterSpacing: '2px',
+                      marginBottom: '14px',
+                    }}
+                  >
+                    DEALER ATTRACTION ZONES — {selectedNotableTrade.expiry}
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '1px',
+                      background: '#1c1c1c',
+                    }}
+                  >
+                    {/* Golden — top call wall */}
+                    <div
+                      style={{
+                        background: '#000',
+                        padding: '16px',
+                        borderLeft: '3px solid #FFD700',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            background: '#FFD700',
+                            borderRadius: '50%',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            color: '#FFD700',
+                            letterSpacing: '2px',
+                          }}
+                        >
+                          GOLDEN ZONE
+                        </span>
+                        <span style={{ fontSize: '9px', color: '#444444', marginLeft: 'auto' }}>
+                          CALL WALL
+                        </span>
+                      </div>
+                      {notableAnalysisData.goldenZones.length > 0 ? (
+                        <div>
+                          <div
+                            style={{
+                              fontSize: '30px',
+                              fontWeight: 900,
+                              color: '#FFD700',
+                              letterSpacing: '-1px',
+                              lineHeight: 1,
+                            }}
+                          >
+                            ${notableAnalysisData.goldenZones[0].strike}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: '#ffffff',
+                            }}
+                          >
+                            OI {notableAnalysisData.goldenZones[0].oi.toLocaleString()}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color:
+                                notableAnalysisData.goldenZones[0].strike >
+                                notableAnalysisData.spotAtEntry
+                                  ? '#00ff88'
+                                  : '#ff4466',
+                            }}
+                          >
+                            {notableAnalysisData.goldenZones[0].strike >
+                            notableAnalysisData.spotAtEntry
+                              ? '▲ ABOVE SPOT'
+                              : '▼ BELOW SPOT'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>
+                          No wall detected
+                        </div>
+                      )}
+                    </div>
+                    {/* Purple — top put wall */}
+                    <div
+                      style={{
+                        background: '#000',
+                        padding: '16px',
+                        borderLeft: '3px solid #a855f7',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            background: '#a855f7',
+                            borderRadius: '50%',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            color: '#a855f7',
+                            letterSpacing: '2px',
+                          }}
+                        >
+                          PURPLE ZONE
+                        </span>
+                        <span style={{ fontSize: '9px', color: '#444444', marginLeft: 'auto' }}>
+                          PUT WALL
+                        </span>
+                      </div>
+                      {notableAnalysisData.purpleZones.length > 0 ? (
+                        <div>
+                          <div
+                            style={{
+                              fontSize: '30px',
+                              fontWeight: 900,
+                              color: '#a855f7',
+                              letterSpacing: '-1px',
+                              lineHeight: 1,
+                            }}
+                          >
+                            ${notableAnalysisData.purpleZones[0].strike}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: '#ffffff',
+                            }}
+                          >
+                            OI {notableAnalysisData.purpleZones[0].oi.toLocaleString()}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color:
+                                notableAnalysisData.purpleZones[0].strike >
+                                notableAnalysisData.spotAtEntry
+                                  ? '#00ff88'
+                                  : '#ff4466',
+                            }}
+                          >
+                            {notableAnalysisData.purpleZones[0].strike >
+                            notableAnalysisData.spotAtEntry
+                              ? '▲ ABOVE SPOT'
+                              : '▼ BELOW SPOT'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>
+                          No wall detected
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Footer ── */}
+                <div
+                  style={{
+                    borderTop: '1px solid #1c1c1c',
+                    padding: '10px 20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 600,
+                      color: '#444444',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Targets: Black-Scholes 80/90% · Zones: OI Tower Detection
+                  </span>
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#444444' }}>
+                    {selectedNotableTrade.expiry}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {!isSidebarPanel && !isMobileView && (
         <div
           style={{
             width: '26%',
@@ -9492,6 +10831,40 @@ Stock Reaction: ${scores.stockReaction}/15`
             flexShrink: 0,
           }}
         >
+          <FlowTrackingPanel />
+        </div>
+      )}
+
+      {/* Mobile: full-screen overlay when TRACK is active */}
+      {!isSidebarPanel && isMobileView && isFlowTrackingOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9990,
+            background: '#000000',
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ padding: '12px 12px 0', display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setIsFlowTrackingOpen(false)}
+              style={{
+                background: 'transparent',
+                border: '1px solid #6b7280',
+                borderRadius: '6px',
+                color: '#9ca3af',
+                padding: '4px 12px',
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              ✕ Close
+            </button>
+          </div>
           <FlowTrackingPanel />
         </div>
       )}

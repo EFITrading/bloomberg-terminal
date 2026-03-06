@@ -8,7 +8,7 @@
 
   /* Push control bar down on mobile only */
   .control-bar,
-  div[style*="border-b border-gray-700"] {
+  div[style*='border-b border-gray-700'] {
     margin-top: 30px !important;
     padding-top: 12px !important;
   }
@@ -194,7 +194,7 @@
 
   /* Adjust table height for mobile */
   .table-scroll-container {
-    height: calc(100vh - 180px) !important;
+    height: calc(100vh - 140px) !important;
   }
 
   /* Hide dividers on very small screens */

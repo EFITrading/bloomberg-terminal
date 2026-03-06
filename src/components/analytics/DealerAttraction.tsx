@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 // Import the Top 1000 symbols
 import { PRELOAD_TIERS } from '../../lib/Top1000Symbols'
+import { useDealerZonesStore } from '../../store/dealerZonesStore'
 import DealerAttractionOIDesktop from './DealerAttractionOIDesktop'
 import DealerAttractionOIMobile from './DealerAttractionOIMobile'
 import DealerGEXChart from './DealerGEXChart'
@@ -6051,9 +6052,96 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     return calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX')
   }, [allGEXCalculatedData])
 
+  const setDealerZone = useDealerZonesStore((s) => s.setZone)
+
   const dealerTopValues = useMemo(() => {
-    return calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer')
-  }, [allDealerCalculatedData])
+    const tv = calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer')
+
+    // ── DEALER ATTRACTION MAIN TABLE DEBUG ───────────────────────────────────
+    if (allDealerCalculatedData.length > 0) {
+      // Find which strike+expiry is yellow (highest positive net dealer)
+      let yellowStrike: number | null = null
+      let yellowExp: string | null = null
+      let yellowVal = -Infinity
+      // Find which strike+expiry is purple (highest negative net dealer)
+      let purpleStrike: number | null = null
+      let purpleExp: string | null = null
+      let purpleVal = Infinity
+
+      allDealerCalculatedData.forEach((row: any) => {
+        Object.keys(row).forEach((key) => {
+          if (key === 'strike') return
+          const cell = row[key]
+          if (!cell || typeof cell !== 'object') return
+          const net = (cell.call || 0) + (cell.put || 0)
+          if (net > yellowVal) {
+            yellowVal = net
+            yellowStrike = row.strike
+            yellowExp = key
+          }
+          if (net < purpleVal) {
+            purpleVal = net
+            purpleStrike = row.strike
+            purpleExp = key
+          }
+        })
+      })
+
+      // Top 20 rows by |net| summed across all expirations
+      const strikeNets = allDealerCalculatedData
+        .map((row: any) => {
+          let totalNet = 0
+          Object.keys(row).forEach((key) => {
+            if (key === 'strike') return
+            const cell = row[key]
+            if (cell && typeof cell === 'object') totalNet += (cell.call || 0) + (cell.put || 0)
+          })
+          return { strike: row.strike, totalNet }
+        })
+        .sort((a: any, b: any) => Math.abs(b.totalNet) - Math.abs(a.totalNet))
+
+      // ── Write to global store so OptionsFlowTable can read identical values ──────
+      const willUseLiveData = liveMode && liveOIData.size > 0
+      setDealerZone(selectedTicker, {
+        golden: yellowStrike,
+        purple: purpleStrike,
+        atmIV: null, // computed separately; will be overwritten by the API if needed
+        goldenDetail:
+          yellowStrike != null
+            ? { strike: yellowStrike, expiry: yellowExp ?? '', net: yellowVal }
+            : null,
+        purpleDetail:
+          purpleStrike != null
+            ? { strike: purpleStrike, expiry: purpleExp ?? '', net: purpleVal }
+            : null,
+        isLive: willUseLiveData,
+      })
+      // ──────────────────────────────────────────────────────────────────────────────
+
+      console.groupCollapsed(
+        `%c[DEALER ATTRACTION MAIN TABLE] ${selectedTicker} | ${allDealerCalculatedData.length} strikes | ${expirations.length} expirations (3-month cap)`,
+        'color:#facc15;font-weight:bold'
+      )
+      console.log(
+        '%c YELLOW (highest positive dealer):',
+        'color:#FFD700;font-weight:bold',
+        yellowStrike != null
+          ? `strike=$${yellowStrike}  exp=${yellowExp}  net=${yellowVal.toExponential(3)}`
+          : 'NONE'
+      )
+      console.log(
+        '%c PURPLE (highest negative dealer):',
+        'color:#c084fc;font-weight:bold',
+        purpleStrike != null
+          ? `strike=$${purpleStrike}  exp=${purpleExp}  net=${purpleVal.toExponential(3)}`
+          : 'NONE'
+      )
+      console.groupEnd()
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    return tv
+  }, [allDealerCalculatedData, expirations, selectedTicker, liveMode, liveOIData, setDealerZone])
 
   const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data])
   const vexTopValues = useMemo(
@@ -7920,6 +8008,63 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         const highestDealer = Math.max(...dealerGEXValues)
                         const lowestDealer = Math.min(...dealerGEXValues)
 
+                        // ── DEALER ATTRACTION DEBUG ────────────────────────────────────────────
+                        {
+                          const goldenRow = tickerDataArray.find((row) => {
+                            if (!row.expirations?.[odteExpiry]) return false
+                            const nd =
+                              (row.expirations[odteExpiry].call_dealer || 0) +
+                              (row.expirations[odteExpiry].put_dealer || 0)
+                            return nd === highestDealer && nd > 0
+                          })
+                          const purpleRow = tickerDataArray.find((row) => {
+                            if (!row.expirations?.[odteExpiry]) return false
+                            const nd =
+                              (row.expirations[odteExpiry].call_dealer || 0) +
+                              (row.expirations[odteExpiry].put_dealer || 0)
+                            return nd === lowestDealer && nd < 0
+                          })
+                          const allRows = tickerDataArray
+                            .filter((row) => row.expirations?.[odteExpiry])
+                            .map((row) => ({
+                              strike: row.strike,
+                              netGEX: +(
+                                (row.expirations![odteExpiry].call_gex || 0) +
+                                (row.expirations![odteExpiry].put_gex || 0)
+                              ).toExponential(3),
+                              netDealer: +(
+                                (row.expirations![odteExpiry].call_dealer || 0) +
+                                (row.expirations![odteExpiry].put_dealer || 0)
+                              ).toExponential(3),
+                            }))
+                            .sort(
+                              (a, b) =>
+                                Math.abs(Number(b.netDealer)) - Math.abs(Number(a.netDealer))
+                            )
+                          console.groupCollapsed(
+                            `%c[DEALER ATTRACTION] ${tricoTicker} exp=${odteExpiry} | ${allRows.length} strikes`,
+                            'color:#facc15;font-weight:bold'
+                          )
+                          console.log(
+                            '%c YELLOW (highest dealer):',
+                            'color:#FFD700;font-weight:bold',
+                            goldenRow
+                              ? `strike=${goldenRow.strike}  netDealer=${highestDealer.toExponential(3)}`
+                              : 'NONE'
+                          )
+                          console.log(
+                            '%c PURPLE (lowest dealer):',
+                            'color:#c084fc;font-weight:bold',
+                            purpleRow
+                              ? `strike=${purpleRow.strike}  netDealer=${lowestDealer.toExponential(3)}`
+                              : 'NONE'
+                          )
+                          console.log('Top 20 strikes by |netDealer|:')
+                          console.table(allRows.slice(0, 20))
+                          console.groupEnd()
+                        }
+                        // ──────────────────────────────────────────────────────────────────────
+
                         // Calculate top values for proper gradient opacity
                         const normalTopValues = {
                           highestPositive: Math.max(...normalGEXValues.filter((v) => v > 0)),
@@ -8912,8 +9057,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                     let currentTableIndex = 0
                     const getTableWidth = () => {
-                      // On mobile, don't use fixed widths - let tables size naturally based on content
+                      // On mobile, enforce equal widths so tables don't collapse when empty
                       if (isMobile) {
+                        if (activeTableCount === 3) {
+                          return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
+                        } else if (activeTableCount === 2) {
+                          return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
+                        }
                         return undefined
                       }
                       if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {

@@ -8557,7 +8557,6 @@ export default function TradingViewChart({
         'LUV',
         'ALK',
         'SKYW',
-        'HA',
         'JBLU',
         'RYAAY',
         // XHB
@@ -8597,11 +8596,9 @@ export default function TradingViewChart({
         'RES',
         'WHD',
         'ACDC',
-        'NR',
         // XME
         'STLD',
         'CLF',
-        'X',
         'AA',
         'HL',
         'MP',
@@ -24055,7 +24052,9 @@ export default function TradingViewChart({
               borderColor: '#333333',
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
-              overflow: 'hidden',
+              overflowX:
+                typeof window !== 'undefined' && window.innerWidth <= 768 ? 'auto' : 'hidden',
+              overflowY: 'hidden',
               zIndex: 10000,
               display:
                 typeof window !== 'undefined' && window.innerWidth <= 768 && activeSidebarPanel
@@ -24099,12 +24098,20 @@ export default function TradingViewChart({
 
             {/* Symbol and Price Info */}
             <div
-              className="flex items-center w-full relative z-10"
+              className="flex items-center relative z-10"
               style={{
                 display:
                   typeof window !== 'undefined' && window.innerWidth <= 768 && activeSidebarPanel
                     ? 'none'
                     : 'flex',
+                minWidth:
+                  typeof window !== 'undefined' && window.innerWidth <= 768
+                    ? 'max-content'
+                    : '100%',
+                width:
+                  typeof window !== 'undefined' && window.innerWidth <= 768
+                    ? 'max-content'
+                    : '100%',
               }}
             >
               {/* Left side: Symbol Search + Price + Controls */}

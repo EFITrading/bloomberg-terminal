@@ -1,59 +1,69 @@
-import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
-import { gzip, gunzip } from 'zlib';
-import { promisify } from 'util';
+import { promisify } from 'util'
+import { gunzip, gzip } from 'zlib'
 
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
+import { NextRequest, NextResponse } from 'next/server'
 
-export const runtime = 'nodejs';
+import prisma from '@/lib/prisma'
+
+const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
+
+export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
-    const { date, data } = await request.json();
+    let date: string
+    let data: unknown
 
-    if (!date || !data) {
-      return NextResponse.json(
-        { error: 'Date and data are required' },
-        { status: 400 }
-      );
+    const contentType = request.headers.get('Content-Type') || ''
+    if (contentType.includes('application/octet-stream')) {
+      // Client sent gzip-compressed body – decompress before parsing
+      const compressedBuffer = await request.arrayBuffer()
+      const decompressed = await gunzipAsync(Buffer.from(compressedBuffer))
+      const parsed = JSON.parse(decompressed.toString('utf8'))
+      date = parsed.date
+      data = parsed.data
+    } else {
+      const body = await request.json()
+      date = body.date
+      data = body.data
     }
 
-    const dateObj = new Date(date);
+    if (!date || !data) {
+      return NextResponse.json({ error: 'Date and data are required' }, { status: 400 })
+    }
+
+    const dateObj = new Date(date)
     if (isNaN(dateObj.getTime())) {
-      return NextResponse.json(
-        { error: 'Invalid date format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid date format' }, { status: 400 })
     }
 
     // Normalize to midnight UTC to ensure consistent querying
-    dateObj.setUTCHours(0, 0, 0, 0);
+    dateObj.setUTCHours(0, 0, 0, 0)
 
-    const dataString = JSON.stringify(data);
-    const originalSize = Buffer.byteLength(dataString, 'utf8');
+    const dataString = JSON.stringify(data)
+    const originalSize = Buffer.byteLength(dataString, 'utf8')
 
     // Compress data using gzip to reduce size
-    const compressed = await gzipAsync(dataString);
-    const compressedSize = compressed.length;
-    const compressedBase64 = compressed.toString('base64');
+    const compressed = await gzipAsync(dataString)
+    const compressedSize = compressed.length
+    const compressedBase64 = compressed.toString('base64')
 
-    console.log(`💾 Compressing flow: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${((compressedSize / originalSize) * 100).toFixed(1)}% of original)`);
+    console.log(
+      `💾 Compressing flow: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${((compressedSize / originalSize) * 100).toFixed(1)}% of original)`
+    )
 
     // Upsert the flow data (store compressed)
     const flow = await prisma.flow.upsert({
       where: { date: dateObj.toISOString() },
       update: { data: compressedBase64, size: originalSize },
       create: { date: dateObj.toISOString(), data: compressedBase64, size: originalSize },
-      select: { id: true, date: true, size: true } // Only return minimal data
-    });
+      select: { id: true, date: true, size: true }, // Only return minimal data
+    })
 
-    return NextResponse.json({ success: true, flow });
+    return NextResponse.json({ success: true, flow })
   } catch (error) {
-    console.error('Error saving flow:', error);
-    return NextResponse.json(
-      { error: 'Failed to save flow' },
-      { status: 500 }
-    );
+    console.error('Error saving flow:', error)
+    return NextResponse.json({ error: 'Failed to save flow' }, { status: 500 })
   }
 }
