@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { getToken } from 'next-auth/jwt';
+import { getToken } from 'next-auth/jwt'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname } = request.nextUrl
 
   // Allow public routes
   if (
@@ -13,33 +13,40 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {
-    return NextResponse.next();
+    return NextResponse.next()
   }
 
-  // Check authentication
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  // Check password cookie FIRST — fast, no async needed
+  const passwordCookie = request.cookies.get('efi-auth')
+  const hasPasswordAccess = passwordCookie?.value === 'authenticated'
 
-  // Check password cookie
-  const passwordCookie = request.cookies.get('efi-auth');
-  const hasPasswordAccess = passwordCookie?.value === 'authenticated';
+  if (hasPasswordAccess) {
+    return NextResponse.next()
+  }
 
-  // Allow if authenticated
-  if (token?.hasAccess || hasPasswordAccess) {
-    return NextResponse.next();
+  // Only call getToken if cookie check failed — avoids hanging/slow JWT verify on every request
+  let tokenAccess = false
+  try {
+    const token = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    })
+    tokenAccess = !!(token as any)?.hasAccess
+  } catch (err) {
+    console.error('[Middleware] getToken failed:', err)
+  }
+
+  if (tokenAccess) {
+    return NextResponse.next()
   }
 
   // Redirect to login
-  console.log('❌ No access, redirecting to login');
-  const url = request.nextUrl.clone();
-  url.pathname = '/login';
-  return NextResponse.redirect(url);
+  console.log('[Middleware] No access, redirecting to login from:', pathname)
+  const url = request.nextUrl.clone()
+  url.pathname = '/login'
+  return NextResponse.redirect(url)
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
-};
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}

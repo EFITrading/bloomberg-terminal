@@ -3741,7 +3741,7 @@ const FlowPanel = React.memo(
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'contain' }}>
           <OptionsFlowTable
             data={flowData}
             summary={flowSummary}
@@ -5427,6 +5427,7 @@ export default function TradingViewChart({
 
   // Seasonality panel state
   const [seasonalSymbol, setSeasonalSymbol] = useState(symbol)
+  const [seasonalSymbolDraft, setSeasonalSymbolDraft] = useState(symbol)
   const [seasonalYears, setSeasonalYears] = useState(20)
   const [seasonalElectionMode, setSeasonalElectionMode] = useState('Normal Mode')
   const [seasonalMonthlyData, setSeasonalMonthlyData] = useState<Array<{
@@ -5459,6 +5460,7 @@ export default function TradingViewChart({
   // Update seasonal symbol when chart symbol changes
   useEffect(() => {
     setSeasonalSymbol(symbol)
+    setSeasonalSymbolDraft(symbol)
   }, [symbol])
 
   const closeFlowPanel = useCallback(() => {
@@ -16910,6 +16912,7 @@ export default function TradingViewChart({
                 overflowAnchor: 'none',
                 scrollBehavior: 'auto',
                 contain: 'layout',
+                overscrollBehavior: 'contain',
               }}
             >
               {allSymbols.length === 0 ? (
@@ -17617,7 +17620,10 @@ export default function TradingViewChart({
 
         {/* Options Trades Tab Content - only renders inside TradingPlan (hideNav=true) */}
         {activeTab === 'Options Trades' && hideNav && (
-          <div className="flex-1 overflow-y-auto bg-black p-6" style={{ display: 'block' }}>
+          <div
+            className="flex-1 overflow-y-auto bg-black p-6"
+            style={{ display: 'block', overscrollBehavior: 'contain' }}
+          >
             {(() => {
               const saved = localStorage.getItem('optionsWatchlist')
               const optionsWatchlist: any[] = saved ? JSON.parse(saved) : []
@@ -20565,6 +20571,7 @@ export default function TradingViewChart({
             background: '#000000',
             borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+            overscrollBehavior: 'contain',
           }}
         >
           {/* Premium Title Section */}
@@ -21165,6 +21172,7 @@ export default function TradingViewChart({
                 className="h-full overflow-y-auto"
                 style={{
                   background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)',
+                  overscrollBehavior: 'contain',
                 }}
               >
                 {/* Premium Streaming Indicator */}
@@ -27797,7 +27805,10 @@ export default function TradingViewChart({
           {/* Chart Container with Sidebar */}
           <div className="flex flex-1 bg-[#0a0a0a]">
             {/* Clean Professional Sidebar */}
-            <div className="sidebar-container w-[100px] md:w-[100px] sm:w-[80px] bg-black/95 border-r border-gray-800/50 backdrop-blur-sm relative overflow-y-auto mobile-sidebar">
+            <div
+              className="sidebar-container w-[100px] md:w-[100px] sm:w-[80px] bg-black/95 border-r border-gray-800/50 backdrop-blur-sm relative overflow-y-auto mobile-sidebar"
+              style={{ overscrollBehavior: 'contain' }}
+            >
               <div className="relative z-10 flex flex-col items-center py-3 h-full gap-4">
                 {/* Sidebar Buttons */}
                 {[
@@ -28807,6 +28818,7 @@ export default function TradingViewChart({
                         }
                       }}
                       className="flex-1 overflow-y-auto"
+                      style={{ overscrollBehavior: 'contain' }}
                     >
                       <UnifiedScreenerPanel />
                     </div>
@@ -28897,6 +28909,7 @@ export default function TradingViewChart({
                         maxHeight: '100%',
                         overflow: 'auto',
                         background: '#000000',
+                        overscrollBehavior: 'contain',
                       }}
                     >
                       <div
@@ -29890,8 +29903,12 @@ export default function TradingViewChart({
                             <input
                               type="text"
                               placeholder="SPY"
-                              value={seasonalSymbol}
-                              onChange={(e) => setSeasonalSymbol(e.target.value.toUpperCase())}
+                              value={seasonalSymbolDraft}
+                              onChange={(e) => setSeasonalSymbolDraft(e.target.value.toUpperCase())}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && seasonalSymbolDraft.trim())
+                                  setSeasonalSymbol(seasonalSymbolDraft.trim())
+                              }}
                               style={{
                                 width: '90px',
                                 padding: '9px 12px',

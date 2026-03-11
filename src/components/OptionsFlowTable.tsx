@@ -4870,7 +4870,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
           width: isSidebarPanel ? '100%' : isMobileView ? '100%' : '74%',
 
-          marginRight: '0',
+          marginRight: isSidebarPanel || isMobileView ? '0' : '26%',
 
           marginTop: '0',
 
@@ -10822,13 +10822,14 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           style={{
             width: '26%',
-            minHeight: '100vh',
-            position: 'sticky',
-            top: 0,
+            height: '100vh',
+            position: 'fixed',
+            top: 125,
+            right: 0,
             overflowY: 'auto',
             borderLeft: '1px solid #374151',
             background: '#000000',
-            flexShrink: 0,
+            zIndex: 50,
           }}
         >
           <FlowTrackingPanel />
@@ -10840,7 +10841,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           style={{
             position: 'fixed',
-            top: 0,
+            top: 75,
             left: 0,
             right: 0,
             bottom: 0,
@@ -10849,23 +10850,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             overflowY: 'auto',
           }}
         >
-          <div style={{ padding: '12px 12px 0', display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setIsFlowTrackingOpen(false)}
-              style={{
-                background: 'transparent',
-                border: '1px solid #6b7280',
-                borderRadius: '6px',
-                color: '#9ca3af',
-                padding: '4px 12px',
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              ✕ Close
-            </button>
-          </div>
-          <FlowTrackingPanel />
+          <FlowTrackingPanel onClose={() => setIsFlowTrackingOpen(false)} />
         </div>
       )}
     </div>

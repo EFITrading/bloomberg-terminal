@@ -11,8 +11,8 @@ interface HeroSectionProps {
   loading?: boolean
   timePeriodOptions?: Array<{ id: string; name: string; years: number; description: string }>
   onFilterChange?: (filters: {
-    highWinRate: boolean
-    startingSoon: boolean
+    highWinRate: string
+    startingSoon: string
     fiftyTwoWeek: boolean
   }) => void
   onSeasonedScan?: (market: string) => void
@@ -32,36 +32,36 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   onBestScan,
 }) => {
   const [selectedMarket, setSelectedMarket] = useState('S&P 500')
-  const [highWinRateFilter, setHighWinRateFilter] = useState(false)
-  const [startingSoonFilter, setStartingSoonFilter] = useState(false)
+  const [highWinRateFilter, setHighWinRateFilter] = useState('')
+  const [startingSoonFilter, setStartingSoonFilter] = useState('')
   const [fiftyTwoWeekFilter, setFiftyTwoWeekFilter] = useState(false)
 
-  const handleFilterToggle = (filterType: 'highWinRate' | 'startingSoon' | 'fiftyTwoWeek') => {
-    if (filterType === 'highWinRate') {
-      const newValue = !highWinRateFilter
-      setHighWinRateFilter(newValue)
-      onFilterChange?.({
-        highWinRate: newValue,
-        startingSoon: startingSoonFilter,
-        fiftyTwoWeek: fiftyTwoWeekFilter,
-      })
-    } else if (filterType === 'startingSoon') {
-      const newValue = !startingSoonFilter
-      setStartingSoonFilter(newValue)
-      onFilterChange?.({
-        highWinRate: highWinRateFilter,
-        startingSoon: newValue,
-        fiftyTwoWeek: fiftyTwoWeekFilter,
-      })
-    } else {
-      const newValue = !fiftyTwoWeekFilter
-      setFiftyTwoWeekFilter(newValue)
-      onFilterChange?.({
-        highWinRate: highWinRateFilter,
-        startingSoon: startingSoonFilter,
-        fiftyTwoWeek: newValue,
-      })
-    }
+  const handleWinRateChange = (value: string) => {
+    setHighWinRateFilter(value)
+    onFilterChange?.({
+      highWinRate: value,
+      startingSoon: startingSoonFilter,
+      fiftyTwoWeek: fiftyTwoWeekFilter,
+    })
+  }
+
+  const handleStartingSoonChange = (value: string) => {
+    setStartingSoonFilter(value)
+    onFilterChange?.({
+      highWinRate: highWinRateFilter,
+      startingSoon: value,
+      fiftyTwoWeek: fiftyTwoWeekFilter,
+    })
+  }
+
+  const handleFilterToggle = (filterType: 'fiftyTwoWeek') => {
+    const newValue = !fiftyTwoWeekFilter
+    setFiftyTwoWeekFilter(newValue)
+    onFilterChange?.({
+      highWinRate: highWinRateFilter,
+      startingSoon: startingSoonFilter,
+      fiftyTwoWeek: newValue,
+    })
   }
 
   const markets = ['S&P 500', 'NASDAQ 100', 'DOW JONES']
@@ -80,46 +80,33 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           <div
             style={{ display: 'flex', gap: '12px', marginTop: '12px', justifyContent: 'center' }}
           >
-            <button
-              onClick={() => handleFilterToggle('highWinRate')}
+            <select
+              value={startingSoonFilter}
+              onChange={(e) => handleStartingSoonChange(e.target.value)}
               style={{
                 background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                padding: '8px 16px',
-                fontSize: '13px',
+                color: startingSoonFilter ? '#fff' : '#888',
+                border: `1px solid ${startingSoonFilter ? '#aaa' : '#333'}`,
+                padding: '8px 12px',
+                fontSize: '12px',
                 fontWeight: '600',
                 borderRadius: '4px',
                 cursor: 'pointer',
-                transition: 'all 0.3s ease',
                 outline: 'none',
                 fontFamily: 'monospace',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                paddingRight: '28px',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
               }}
             >
-              {highWinRateFilter ? '✓ ' : ''}60%+ Win Rate
-            </button>
-            <button
-              onClick={() => handleFilterToggle('startingSoon')}
-              style={{
-                background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                padding: '8px 16px',
-                fontSize: '13px',
-                fontWeight: '600',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                outline: 'none',
-                fontFamily: 'monospace',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-              }}
-            >
-              {startingSoonFilter ? '✓ ' : ''}Starting in 1-9 Days
-            </button>
+              <option value="">Entry Window</option>
+              <option value="1d">1 Day Entry</option>
+              <option value="3d">3 Day Entry</option>
+              <option value="9d">9 Day Entry</option>
+            </select>
             <button
               onClick={() => handleFilterToggle('fiftyTwoWeek')}
               style={{

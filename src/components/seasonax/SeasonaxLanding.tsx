@@ -16,10 +16,10 @@ interface SeasonaxLandingProps {
   autoStart?: boolean
   initialMarket?: string
   initialTimePeriod?: string
-  externalFilters?: { highWinRate: boolean; startingSoon: boolean; fiftyTwoWeek: boolean }
+  externalFilters?: { highWinRate: string; startingSoon: string; fiftyTwoWeek: boolean }
   onFiltersChange?: (filters: {
-    highWinRate: boolean
-    startingSoon: boolean
+    highWinRate: string
+    startingSoon: string
     fiftyTwoWeek: boolean
   }) => void
   sidebarMode?: boolean // Flag to enable larger fonts for sidebar
@@ -43,7 +43,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 })
   const [hasScanned, setHasScanned] = useState(false) // Track if user has clicked scan
   const [filters, setFilters] = useState(
-    externalFilters || { highWinRate: false, startingSoon: false, fiftyTwoWeek: false }
+    externalFilters || { highWinRate: '', startingSoon: '', fiftyTwoWeek: false }
   )
   const [seasonedMode, setSeasonedMode] = useState(false) // Track if showing seasoned multi-timeframe results
   const [bestMode, setBestMode] = useState(false) // Track if showing BEST scan results
@@ -67,13 +67,15 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
   const displayedOpportunities = React.useMemo(() => {
     let filtered = [...opportunities]
-    if (filters.highWinRate) {
-      filtered = filtered.filter((opp) => opp.winRate >= 60)
-    }
+    // Always filter 70%+ and sort by win rate descending
+    filtered = filtered.filter((opp) => opp.winRate >= 70)
+    filtered = filtered.sort((a, b) => b.winRate - a.winRate)
+    // Entry window filter
     if (filters.startingSoon) {
+      const days = filters.startingSoon === '1d' ? 1 : filters.startingSoon === '3d' ? 3 : 9
       filtered = filtered.filter((opp) => {
-        const daysUntilStart = (opp as any).daysUntilStart || 0
-        return daysUntilStart >= 1 && daysUntilStart <= 9
+        const d = (opp as any).daysUntilStart ?? 0
+        return d >= -days && d <= days
       })
     }
     if (filters.fiftyTwoWeek) {
@@ -84,8 +86,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }, [opportunities, filters])
 
   const handleFilterChange = (newFilters: {
-    highWinRate: boolean
-    startingSoon: boolean
+    highWinRate: string
+    startingSoon: string
     fiftyTwoWeek: boolean
   }) => {
     setFilters(newFilters)
@@ -669,7 +671,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             style={{
               border: '3px solid #FFD700',
               borderRadius: '12px',
-              height: '80vh',
+              height: '87vh',
               overflow: 'hidden',
               boxShadow: '0 4px 20px rgba(255, 215, 0, 0.3)',
               display: 'flex',
@@ -712,7 +714,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           {
                             overflowY: 'auto',
                             overflowX: 'hidden',
-                            height: 'calc(80vh - 70px)',
+                            height: 'calc(87vh - 70px)',
                             paddingRight: '8px',
                             scrollbarWidth: 'none',
                             msOverflowStyle: 'none',
@@ -732,7 +734,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             selectedYears
                           return (
                             <OpportunityCard
-                              key={`seasoned-bullish-${opportunity.symbol}-${index}`}
+                              key={`seasoned-bullish-${opportunity.symbol}`}
                               pattern={opportunity}
                               rank={index + 1}
                               isTopBullish={false}
@@ -779,7 +781,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           {
                             overflowY: 'auto',
                             overflowX: 'hidden',
-                            height: 'calc(80vh - 70px)',
+                            height: 'calc(87vh - 70px)',
                             paddingRight: '8px',
                             scrollbarWidth: 'none',
                             msOverflowStyle: 'none',
@@ -799,7 +801,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             selectedYears
                           return (
                             <OpportunityCard
-                              key={`seasoned-bearish-${opportunity.symbol}-${index}`}
+                              key={`seasoned-bearish-${opportunity.symbol}`}
                               pattern={opportunity}
                               rank={index + 1}
                               isTopBullish={false}
@@ -869,7 +871,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         {
                           overflowY: 'auto',
                           overflowX: 'hidden',
-                          height: 'calc(80vh - 70px)',
+                          height: 'calc(87vh - 70px)',
                           paddingRight: '8px',
                           scrollbarWidth: 'none',
                           msOverflowStyle: 'none',
@@ -937,7 +939,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         {
                           overflowY: 'auto',
                           overflowX: 'hidden',
-                          height: 'calc(80vh - 70px)',
+                          height: 'calc(87vh - 70px)',
                           paddingRight: '8px',
                           scrollbarWidth: 'none',
                           msOverflowStyle: 'none',

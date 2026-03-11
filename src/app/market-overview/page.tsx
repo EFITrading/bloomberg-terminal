@@ -70,8 +70,8 @@ export default function MarketPage() {
 
   return (
     <div
-      className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-y-auto fixed inset-0"
-      style={{ paddingTop: '120px' }}
+      className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0"
+      style={{ paddingTop: '120px', overscrollBehavior: 'none' }}
     >
       <div className="w-full h-full">
         <TradingViewChart

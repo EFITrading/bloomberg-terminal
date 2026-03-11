@@ -6117,26 +6117,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         isLive: willUseLiveData,
       })
       // ──────────────────────────────────────────────────────────────────────────────
-
-      console.groupCollapsed(
-        `%c[DEALER ATTRACTION MAIN TABLE] ${selectedTicker} | ${allDealerCalculatedData.length} strikes | ${expirations.length} expirations (3-month cap)`,
-        'color:#facc15;font-weight:bold'
-      )
-      console.log(
-        '%c YELLOW (highest positive dealer):',
-        'color:#FFD700;font-weight:bold',
-        yellowStrike != null
-          ? `strike=$${yellowStrike}  exp=${yellowExp}  net=${yellowVal.toExponential(3)}`
-          : 'NONE'
-      )
-      console.log(
-        '%c PURPLE (highest negative dealer):',
-        'color:#c084fc;font-weight:bold',
-        purpleStrike != null
-          ? `strike=$${purpleStrike}  exp=${purpleExp}  net=${purpleVal.toExponential(3)}`
-          : 'NONE'
-      )
-      console.groupEnd()
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -8041,27 +8021,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               (a, b) =>
                                 Math.abs(Number(b.netDealer)) - Math.abs(Number(a.netDealer))
                             )
-                          console.groupCollapsed(
-                            `%c[DEALER ATTRACTION] ${tricoTicker} exp=${odteExpiry} | ${allRows.length} strikes`,
-                            'color:#facc15;font-weight:bold'
-                          )
-                          console.log(
-                            '%c YELLOW (highest dealer):',
-                            'color:#FFD700;font-weight:bold',
-                            goldenRow
-                              ? `strike=${goldenRow.strike}  netDealer=${highestDealer.toExponential(3)}`
-                              : 'NONE'
-                          )
-                          console.log(
-                            '%c PURPLE (lowest dealer):',
-                            'color:#c084fc;font-weight:bold',
-                            purpleRow
-                              ? `strike=${purpleRow.strike}  netDealer=${lowestDealer.toExponential(3)}`
-                              : 'NONE'
-                          )
-                          console.log('Top 20 strikes by |netDealer|:')
-                          console.table(allRows.slice(0, 20))
-                          console.groupEnd()
                         }
                         // ──────────────────────────────────────────────────────────────────────
 
@@ -9382,8 +9341,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       <div
                                         className={
                                           useBloombergTheme
-                                            ? 'bb-header text-xs md:text-sm text-gray-400'
-                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                            ? 'bb-header text-xs text-gray-400'
+                                            : 'text-xs font-bold text-white uppercase'
                                         }
                                       >
                                         Strike
@@ -9399,7 +9358,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           maxWidth: `${mobileExpWidth}px`,
                                         }}
                                       >
-                                        <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                        <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                           {formatDate(exp)}
                                         </div>
                                       </th>

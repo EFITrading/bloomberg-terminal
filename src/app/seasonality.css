@@ -5,42 +5,46 @@
 /* PREMIUM DARK THEME VARIABLES */
 :root {
   /* Premium Orange Accent */
-  --premium-orange: #FF4A00;
-  --premium-orange-bright: #FF6B1A;
-  --premium-orange-soft: #FF8C3A;
+  --premium-orange: #ff4a00;
+  --premium-orange-bright: #ff6b1a;
+  --premium-orange-soft: #ff8c3a;
   --premium-orange-glow: rgba(255, 74, 0, 0.25);
   --premium-orange-subtle: rgba(255, 74, 0, 0.1);
 
   /* Ultra Dark Theme */
   --ultra-black: #000000;
   --deep-black: #080808;
-  --pitch-black: #0C0C0C;
+  --pitch-black: #0c0c0c;
   --void-black: #101010;
   --shadow-black: #141414;
 
   /* Premium Grays */
-  --platinum-text: #F8F8F8;
-  --silver-text: #E8E8E8;
-  --muted-text: #B8B8B8;
+  --platinum-text: #f8f8f8;
+  --silver-text: #e8e8e8;
+  --muted-text: #b8b8b8;
   --subtle-text: #888888;
   --dim-text: #666666;
 
   /* Premium Borders & Accents */
-  --premium-border: #1F1F1F;
-  --premium-border-light: #2A2A2A;
+  --premium-border: #1f1f1f;
+  --premium-border-light: #2a2a2a;
   --premium-border-accent: #333333;
   --premium-glow: rgba(248, 248, 248, 0.1);
 
   /* Status Colors */
-  --premium-green: #00FF7F;
-  --premium-red: #FF3366;
-  --premium-blue: #3399FF;
-  --premium-yellow: #FFB800;
+  --premium-green: #00ff7f;
+  --premium-red: #ff3366;
+  --premium-blue: #3399ff;
+  --premium-yellow: #ffb800;
 
   /* Gradients */
-  --premium-gradient-bg: linear-gradient(145deg, #000000 0%, #0A0A0A 50%, #000000 100%);
-  --premium-gradient-card: linear-gradient(145deg, #080808 0%, #101010 50%, #0C0C0C 100%);
-  --premium-gradient-accent: linear-gradient(90deg, var(--premium-orange) 0%, var(--premium-orange-bright) 100%);
+  --premium-gradient-bg: linear-gradient(145deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+  --premium-gradient-card: linear-gradient(145deg, #080808 0%, #101010 50%, #0c0c0c 100%);
+  --premium-gradient-accent: linear-gradient(
+    90deg,
+    var(--premium-orange) 0%,
+    var(--premium-orange-bright) 100%
+  );
 }
 
 /* Global Enhancements - Ultra Sharp Text */
@@ -53,7 +57,13 @@
 
 body {
   background: var(--ultra-black);
-  font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family:
+    'Inter',
+    'SF Pro Display',
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
   overflow-x: hidden;
   color: var(--platinum-text);
   margin: 0;
@@ -108,10 +118,6 @@ body {
   position: relative;
 }
 
-
-
-
-
 .progress-info {
   margin-top: 0.75rem;
   /* 12px converted to rem */
@@ -149,7 +155,6 @@ body {
 /* PREMIUM CONTAINER */
 .seasonax-container {
   position: relative;
-  min-height: 100vh;
   background: var(--ultra-black);
   display: flex;
   flex-direction: column;
@@ -252,10 +257,7 @@ body * {
   color: #ffffff !important;
 }
 
-
-
 @keyframes abstractFlow {
-
   0%,
   100% {
     transform: translateX(0) translateY(0) scale(1);
@@ -291,7 +293,6 @@ body * {
 }
 
 @keyframes patternRotate {
-
   0%,
   100% {
     transform: rotate(0deg) scale(1);
@@ -346,19 +347,20 @@ body * {
   margin-right: 2px;
 }
 
-
-
-
-
 /* Data-Driven Page Integration - Bloomberg Terminal Theme */
 .data-driven-container {
-  min-height: 100vh;
   background: transparent;
   color: #ffffff;
   font-family: 'Roboto Mono', monospace;
   margin: 0;
   padding: 0;
   overflow: visible;
+}
+
+/* Override: prevent forced 100vh on seasonax containers inside data-driven page
+   so the page height is content-driven, not forced to viewport height */
+.data-driven-container .seasonax-container {
+  min-height: auto !important;
 }
 
 /* Data-Driven Header with Centered Layout */
@@ -380,7 +382,7 @@ body * {
 /* Start Screener Button - Main CTA */
 .start-screener-btn {
   padding: 12px 24px;
-  background: #0066CC;
+  background: #0066cc;
   border: none;
   color: #ffffff;
   cursor: pointer;
@@ -395,12 +397,12 @@ body * {
 }
 
 .start-screener-btn:hover {
-  background: #0052A3;
+  background: #0052a3;
   box-shadow: 0 4px 12px rgba(0, 102, 204, 0.5);
 }
 
 .start-screener-btn.active {
-  background: #0052A3;
+  background: #0052a3;
   box-shadow: 0 4px 12px rgba(0, 102, 204, 0.5);
 }
 
@@ -433,11 +435,9 @@ body * {
 }
 
 .tab-button.active {
-  color: #FF6B35;
-  border-bottom-color: #FF6B35;
+  color: #ff6b35;
+  border-bottom-color: #ff6b35;
 }
-
-
 
 .tab-content {
   flex: 1;
@@ -569,15 +569,15 @@ body * {
 }
 
 .legend-item.bullish {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .legend-item.bearish {
-  color: #FF0000;
+  color: #ff0000;
 }
 
 .legend-item.mixed {
-  color: #FFFF00;
+  color: #ffff00;
 }
 
 .loading-sectors {
@@ -747,32 +747,32 @@ body * {
 
 .sentiment-bullish {
   background: rgba(0, 255, 0, 0.1);
-  border-left: 3px solid #00FF00;
+  border-left: 3px solid #00ff00;
 }
 
 .sentiment-bullish .sentiment-icon,
 .sentiment-bullish .sentiment-text {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .sentiment-bearish {
   background: rgba(255, 0, 0, 0.1);
-  border-left: 3px solid #FF0000;
+  border-left: 3px solid #ff0000;
 }
 
 .sentiment-bearish .sentiment-icon,
 .sentiment-bearish .sentiment-text {
-  color: #FF0000;
+  color: #ff0000;
 }
 
 .sentiment-mixed {
   background: rgba(255, 255, 0, 0.1);
-  border-left: 3px solid #FFFF00;
+  border-left: 3px solid #ffff00;
 }
 
 .sentiment-mixed .sentiment-icon,
 .sentiment-mixed .sentiment-text {
-  color: #FFFF00;
+  color: #ffff00;
 }
 
 /* Responsive design removed */
@@ -825,7 +825,6 @@ body * {
 
 /* Seasonax Chart Styles - Modern Bloomberg Terminal Theme */
 .seasonax-container {
-  min-height: 100vh;
   height: auto;
   background: transparent;
   color: #ffffff;
@@ -956,17 +955,18 @@ body * {
   left: 0;
   width: 3px;
   height: 100%;
-  background: linear-gradient(180deg,
-      transparent,
-      var(--crispy-orange),
-      var(--crispy-orange-light),
-      var(--crispy-orange),
-      transparent);
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--crispy-orange),
+    var(--crispy-orange-light),
+    var(--crispy-orange),
+    transparent
+  );
   animation: orangeSidebarGlow 5s ease-in-out infinite;
 }
 
 @keyframes orangeSidebarGlow {
-
   0%,
   100% {
     opacity: 0.4;
@@ -989,18 +989,14 @@ body * {
 }
 
 .seasonax-sidebar::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg,
-      var(--crispy-orange-border),
-      var(--dark-orange));
+  background: linear-gradient(180deg, var(--crispy-orange-border), var(--dark-orange));
   border-radius: 4px;
   transition: all 0.3s ease;
   border: 1px solid rgba(255, 107, 53, 0.2);
 }
 
 .seasonax-sidebar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg,
-      var(--crispy-orange),
-      var(--crispy-orange-light));
+  background: linear-gradient(180deg, var(--crispy-orange), var(--crispy-orange-light));
   box-shadow: 0 0 10px var(--crispy-orange-glow);
 }
 
@@ -1032,7 +1028,6 @@ body * {
 }
 
 @keyframes monthlyPulse {
-
   0%,
   100% {
     opacity: 0.3;
@@ -1057,14 +1052,15 @@ body * {
 }
 
 @keyframes labelGlow {
-
   0%,
   100% {
     text-shadow: 0 0 15px rgba(192, 192, 192, 0.7);
   }
 
   50% {
-    text-shadow: 0 0 25px rgba(192, 192, 192, 0.9), 0 0 35px rgba(192, 192, 192, 0.5);
+    text-shadow:
+      0 0 25px rgba(192, 192, 192, 0.9),
+      0 0 35px rgba(192, 192, 192, 0.5);
   }
 }
 
@@ -1146,10 +1142,7 @@ body * {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg,
-      transparent,
-      rgba(255, 255, 255, 0.1),
-      transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
   transition: left 0.6s;
 }
 
@@ -1165,7 +1158,7 @@ body * {
 
 .month-label {
   font-size: 5px !important;
-  color: #FFFFFF;
+  color: #ffffff;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 800;
   text-transform: uppercase;
@@ -1175,30 +1168,30 @@ body * {
 }
 
 .month-label.best-month {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
 }
 
 .month-label.worst-month {
-  color: #FF0000 !important;
+  color: #ff0000 !important;
 }
 
 .period-label.bullish-label {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
   font-weight: bold !important;
 }
 
 .side-subtitle.bearish-label {
-  color: #FF0000 !important;
+  color: #ff0000 !important;
   font-weight: bold !important;
 }
 
 .bullish-label {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
   font-weight: bold !important;
 }
 
 .bearish-label {
-  color: #FF0000 !important;
+  color: #ff0000 !important;
   font-weight: bold !important;
 }
 
@@ -1217,21 +1210,15 @@ body * {
 
 .return-value.positive,
 .monthly-return-item .return-value.positive {
-  color: #00FF00 !important;
-  background:
-    linear-gradient(135deg,
-      rgba(0, 255, 0, 0.15) 0%,
-      rgba(0, 255, 0, 0.08) 100%);
+  color: #00ff00 !important;
+  background: linear-gradient(135deg, rgba(0, 255, 0, 0.15) 0%, rgba(0, 255, 0, 0.08) 100%);
   border-color: rgba(0, 255, 0, 0.3);
   font-weight: 600;
 }
 
 .return-value.negative {
-  color: #FF0040;
-  background:
-    linear-gradient(135deg,
-      rgba(255, 0, 64, 0.15) 0%,
-      rgba(255, 0, 64, 0.08) 100%);
+  color: #ff0040;
+  background: linear-gradient(135deg, rgba(255, 0, 64, 0.15) 0%, rgba(255, 0, 64, 0.08) 100%);
   border-color: rgba(255, 0, 64, 0.3);
   font-weight: 600;
 }
@@ -1275,11 +1262,11 @@ body * {
 }
 
 .period-label.bullish-label {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
 }
 
 .period-label.bearish-label {
-  color: #FF0040 !important;
+  color: #ff0040 !important;
 }
 
 .period-item .side-subtitle {
@@ -1293,18 +1280,18 @@ body * {
 }
 
 .period-item.bullish-period .side-subtitle {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .period-item.bearish-period .side-subtitle {
-  color: #FF0040;
+  color: #ff0040;
 }
 
 .period-date {
   font-size: 7px !important;
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
-  color: #C0C0C0 !important;
+  color: #c0c0c0 !important;
   text-align: center;
   margin-bottom: 3px !important;
   line-height: 1.3;
@@ -1324,22 +1311,19 @@ body * {
 }
 
 .period-return.bullish {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
   background: rgba(0, 255, 0, 0.1) !important;
   border-color: rgba(0, 255, 0, 0.3);
 }
 
 .period-return.bearish {
-  color: #FF0040 !important;
+  color: #ff0040 !important;
   background: rgba(255, 0, 64, 0.1) !important;
   border-color: rgba(255, 0, 64, 0.3);
 }
 
 .period-item:hover {
-  background:
-    linear-gradient(145deg,
-      rgba(30, 30, 30, 0.9) 0%,
-      rgba(25, 25, 25, 1) 100%);
+  background: linear-gradient(145deg, rgba(30, 30, 30, 0.9) 0%, rgba(25, 25, 25, 1) 100%);
   border-color: rgba(255, 255, 255, 0.3);
   box-shadow:
     0 6px 20px rgba(0, 0, 0, 0.4),
@@ -1517,7 +1501,6 @@ body * {
 }
 
 @keyframes starTwinkle {
-
   0%,
   100% {
     opacity: 1;
@@ -1531,39 +1514,24 @@ body * {
 }
 
 .election-btn:hover {
-  background:
-    linear-gradient(90deg,
-      #2563eb 0%,
-      /* Brighter blue canton */
-      #2563eb 35%,
-      /* Blue canton continues */
-      #ef4444 35%,
-      /* Brighter red stripe */
-      #f8fafc 40%,
-      /* Brighter white stripe */
-      #ef4444 45%,
-      /* Brighter red stripe */
-      #f8fafc 50%,
-      /* Brighter white stripe */
-      #ef4444 55%,
-      /* Brighter red stripe */
-      #f8fafc 60%,
-      /* Brighter white stripe */
-      #ef4444 65%,
-      /* Brighter red stripe */
-      #f8fafc 70%,
-      /* Brighter white stripe */
-      #ef4444 75%,
-      /* Brighter red stripe */
-      #f8fafc 80%,
-      /* Brighter white stripe */
-      #ef4444 85%,
-      /* Brighter red stripe */
-      #f8fafc 90%,
-      /* Brighter white stripe */
-      #ef4444 100%
-      /* Brighter red stripe */
-    );
+  background: linear-gradient(
+    90deg,
+    #2563eb 0%,
+    /* Brighter blue canton */ #2563eb 35%,
+    /* Blue canton continues */ #ef4444 35%,
+    /* Brighter red stripe */ #f8fafc 40%,
+    /* Brighter white stripe */ #ef4444 45%,
+    /* Brighter red stripe */ #f8fafc 50%,
+    /* Brighter white stripe */ #ef4444 55%,
+    /* Brighter red stripe */ #f8fafc 60%,
+    /* Brighter white stripe */ #ef4444 65%,
+    /* Brighter red stripe */ #f8fafc 70%,
+    /* Brighter white stripe */ #ef4444 75%,
+    /* Brighter red stripe */ #f8fafc 80%,
+    /* Brighter white stripe */ #ef4444 85%,
+    /* Brighter red stripe */ #f8fafc 90%,
+    /* Brighter white stripe */ #ef4444 100% /* Brighter red stripe */
+  );
   background-size: 250% 100%;
   border-color: rgba(255, 255, 255, 0.5);
   box-shadow:
@@ -1581,10 +1549,12 @@ body * {
 /* Election Mode States */
 .election-btn.inactive {
   opacity: 0.7;
-  background: linear-gradient(135deg,
-      rgba(64, 64, 64, 0.9) 0%,
-      rgba(96, 96, 96, 0.9) 50%,
-      rgba(64, 64, 64, 0.9) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(64, 64, 64, 0.9) 0%,
+    rgba(96, 96, 96, 0.9) 50%,
+    rgba(64, 64, 64, 0.9) 100%
+  );
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
@@ -1609,7 +1579,6 @@ body * {
 }
 
 @keyframes flagWave {
-
   0%,
   100% {
     background-position: 0% 50%;
@@ -1678,18 +1647,22 @@ body * {
 }
 
 .election-option:hover {
-  background: linear-gradient(90deg,
-      rgba(30, 58, 138, 0.3) 0%,
-      rgba(220, 38, 38, 0.2) 50%,
-      rgba(30, 58, 138, 0.3) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(30, 58, 138, 0.3) 0%,
+    rgba(220, 38, 38, 0.2) 50%,
+    rgba(30, 58, 138, 0.3) 100%
+  );
   color: #ffffff;
 }
 
 .election-option.selected {
-  background: linear-gradient(90deg,
-      rgba(30, 58, 138, 0.5) 0%,
-      rgba(220, 38, 38, 0.3) 50%,
-      rgba(30, 58, 138, 0.5) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(30, 58, 138, 0.5) 0%,
+    rgba(220, 38, 38, 0.3) 50%,
+    rgba(30, 58, 138, 0.5) 100%
+  );
   color: #ffffff;
   font-weight: 600;
 }
@@ -1699,7 +1672,7 @@ body * {
 }
 
 .seasonax-search-input {
-  width: 126px;
+  width: 88px;
   height: 48px !important;
   min-height: 48px !important;
   max-height: 48px !important;
@@ -1729,7 +1702,7 @@ body * {
 
 .seasonax-search-input:focus {
   outline: none;
-  border-color: #FF8800;
+  border-color: #ff8800;
   background: #000000;
 }
 
@@ -1859,7 +1832,10 @@ body * {
   letter-spacing: 1px;
   margin-right: 15px;
   position: relative;
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
   will-change: background, border-color, box-shadow;
   backface-visibility: hidden;
   transform: translateZ(0);
@@ -1905,8 +1881,8 @@ body * {
 }
 
 .compare-btn:hover {
-  background: #FF6600;
-  border-color: #FF6600 !important;
+  background: #ff6600;
+  border-color: #ff6600 !important;
   color: #000000;
 }
 
@@ -1931,11 +1907,11 @@ body * {
 }
 
 .sweet-spot-btn.compare-btn {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
 }
 
 .pain-point-btn.compare-btn {
-  color: #FF0000 !important;
+  color: #ff0000 !important;
 }
 
 /* Seasonal Notepad */
@@ -2185,8 +2161,8 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .add-btn:hover {
-  background: #FF8800;
-  border-color: #FF8800;
+  background: #ff8800;
+  border-color: #ff8800;
 }
 
 .cancel-btn {
@@ -2203,10 +2179,7 @@ div.correlation-display div.correlation-strength-text {
 .nav-btn,
 .control-btn {
   padding: 3px 4px;
-  background:
-    linear-gradient(135deg,
-      var(--pure-black) 0%,
-      rgba(20, 20, 20, 0.8) 100%);
+  background: linear-gradient(135deg, var(--pure-black) 0%, rgba(20, 20, 20, 0.8) 100%);
   border: 1px solid var(--candy-silver-border);
   color: var(--crispy-white);
   border-radius: 3px;
@@ -2235,10 +2208,7 @@ div.correlation-display div.correlation-strength-text {
   left: -2px;
   right: -2px;
   bottom: -2px;
-  background: linear-gradient(45deg,
-      transparent,
-      var(--crispy-orange-glow),
-      transparent);
+  background: linear-gradient(45deg, transparent, var(--crispy-orange-glow), transparent);
   border-radius: 12px;
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -2256,10 +2226,7 @@ div.correlation-display div.correlation-strength-text {
 
 .nav-btn:hover,
 .control-btn:hover {
-  background:
-    linear-gradient(135deg,
-      rgba(255, 107, 53, 0.1) 0%,
-      rgba(255, 107, 53, 0.05) 100%);
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(255, 107, 53, 0.05) 100%);
   color: var(--crispy-white);
   border-color: var(--crispy-orange-border);
   box-shadow:
@@ -2277,10 +2244,7 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .control-btn.active {
-  background:
-    linear-gradient(135deg,
-      var(--crispy-orange-glow) 0%,
-      rgba(255, 107, 53, 0.15) 100%);
+  background: linear-gradient(135deg, var(--crispy-orange-glow) 0%, rgba(255, 107, 53, 0.15) 100%);
   color: var(--crispy-orange-light);
   border-color: var(--crispy-orange-border);
   box-shadow:
@@ -2296,11 +2260,15 @@ div.correlation-display div.correlation-strength-text {
 
 /* Specific icon animations */
 .smooth-btn.active svg {
-  animation: iconPulse 2s ease-in-out infinite, smoothWave 1.5s ease-in-out infinite;
+  animation:
+    iconPulse 2s ease-in-out infinite,
+    smoothWave 1.5s ease-in-out infinite;
 }
 
 .detrend-btn.active svg {
-  animation: iconPulse 2s ease-in-out infinite, detrendShift 2s linear infinite;
+  animation:
+    iconPulse 2s ease-in-out infinite,
+    detrendShift 2s linear infinite;
 }
 
 .current-date-btn.active svg {
@@ -2312,7 +2280,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes activeGlow {
-
   0%,
   100% {
     box-shadow:
@@ -2328,7 +2295,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes orangeActiveGlow {
-
   0%,
   100% {
     box-shadow:
@@ -2344,7 +2310,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes iconPulse {
-
   0%,
   100% {
     transform: scale(1);
@@ -2356,7 +2321,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes smoothWave {
-
   0%,
   100% {
     transform: translateX(0px) scale(1);
@@ -2394,7 +2358,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes dateHighlight {
-
   0%,
   100% {
     fill: currentColor;
@@ -2430,9 +2393,13 @@ div.correlation-display div.correlation-strength-text {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  background-image: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #0a0a0a 100%), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23FFFFFF' d='M4 5L0 0h8z'/%3E%3C/svg%3E") !important;
+  background-image:
+    linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #0a0a0a 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23FFFFFF' d='M4 5L0 0h8z'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat;
-  background-position: 0 0, right 10px center;
+  background-position:
+    0 0,
+    right 10px center;
   box-shadow:
     0 8px 16px rgba(0, 31, 63, 0.5),
     0 4px 8px rgba(0, 31, 63, 0.3),
@@ -2446,7 +2413,7 @@ div.correlation-display div.correlation-strength-text {
 
 .date-select:focus {
   outline: none;
-  border-color: #FF8800;
+  border-color: #ff8800;
   box-shadow: none;
 }
 
@@ -2557,12 +2524,14 @@ div.correlation-display div.correlation-strength-text {
   left: -2px;
   right: -2px;
   bottom: -2px;
-  background: linear-gradient(45deg,
-      var(--candy-silver),
-      rgba(192, 192, 192, 0.5),
-      var(--candy-silver),
-      rgba(192, 192, 192, 0.7),
-      var(--candy-silver));
+  background: linear-gradient(
+    45deg,
+    var(--candy-silver),
+    rgba(192, 192, 192, 0.5),
+    var(--candy-silver),
+    rgba(192, 192, 192, 0.7),
+    var(--candy-silver)
+  );
   background-size: 200% 200%;
   border-radius: 12px;
   z-index: -1;
@@ -2576,19 +2545,19 @@ div.correlation-display div.correlation-strength-text {
   left: 0;
   right: 0;
   bottom: 0;
-  background:
-    repeating-linear-gradient(45deg,
-      transparent 0px,
-      transparent 1px,
-      rgba(192, 192, 192, 0.02) 1px,
-      rgba(192, 192, 192, 0.02) 2px);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0px,
+    transparent 1px,
+    rgba(192, 192, 192, 0.02) 1px,
+    rgba(192, 192, 192, 0.02) 2px
+  );
   pointer-events: none;
   border-radius: 12px;
   animation: scanPattern 8s linear infinite;
 }
 
 @keyframes canvasGlow {
-
   0%,
   100% {
     box-shadow:
@@ -2606,7 +2575,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes borderShift {
-
   0%,
   100% {
     background-position: 0% 50%;
@@ -2800,7 +2768,11 @@ div.correlation-display div.correlation-strength-text {
   font-size: 14px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 8px;
@@ -2810,14 +2782,22 @@ div.correlation-display div.correlation-strength-text {
   font-size: 16px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.8);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   margin-bottom: 6px;
 }
 
 .period-return {
   font-size: 18px;
   font-weight: 700;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 }
 
 .period-return.bullish {
@@ -2866,11 +2846,11 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .stat-large.positive .stat-value {
-  color: #00FF88;
+  color: #00ff88;
 }
 
 .stat-large.negative .stat-value {
-  color: #FF4444;
+  color: #ff4444;
 }
 
 .stat-large .stat-label {
@@ -2958,12 +2938,12 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .stat-item .stat-value.positive {
-  color: #00FF88;
+  color: #00ff88;
   text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
 }
 
 .stat-item .stat-value.negative {
-  color: #FF4444;
+  color: #ff4444;
   text-shadow: 0 0 8px rgba(255, 68, 68, 0.3);
 }
 
@@ -3020,11 +3000,11 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .gain-loss-percentage.positive {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .gain-loss-percentage.negative {
-  color: #FF0000;
+  color: #ff0000;
 }
 
 .gain-loss-sublabel {
@@ -3153,7 +3133,12 @@ div.correlation-display div.correlation-strength-text {
   left: 0;
   width: 100%;
   height: 3px;
-  background: linear-gradient(90deg, var(--crispy-orange) 0%, var(--crispy-orange-light) 50%, var(--crispy-orange) 100%);
+  background: linear-gradient(
+    90deg,
+    var(--crispy-orange) 0%,
+    var(--crispy-orange-light) 50%,
+    var(--crispy-orange) 100%
+  );
   border-radius: 2px;
 }
 
@@ -3356,12 +3341,12 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .month-bar.positive {
-  border-color: #00FF00;
+  border-color: #00ff00;
   background: rgba(0, 255, 0, 0.05);
 }
 
 .month-bar.negative {
-  border-color: #FF0000;
+  border-color: #ff0000;
   background: rgba(255, 0, 0, 0.05);
 }
 
@@ -3374,11 +3359,11 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .month-bar.positive .month-label {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .month-bar.negative .month-label {
-  color: #FF0000;
+  color: #ff0000;
 }
 
 .month-value {
@@ -3388,11 +3373,11 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .month-bar.positive .month-value {
-  color: #00FF00;
+  color: #00ff00;
 }
 
 .month-bar.negative .month-value {
-  color: #FF0000;
+  color: #ff0000;
 }
 
 /* Chart Legend Styles */
@@ -3476,7 +3461,7 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .error-content h3 {
-  color: #FF4444;
+  color: #ff4444;
   margin-bottom: 15px;
   font-family: 'Inter', sans-serif;
   text-transform: uppercase;
@@ -3488,7 +3473,7 @@ div.correlation-display div.correlation-strength-text {
 .retry-button {
   margin-top: 20px;
   padding: 12px 24px;
-  background: linear-gradient(135deg, #FF4444 0%, #FF6666 100%);
+  background: linear-gradient(135deg, #ff4444 0%, #ff6666 100%);
   color: #ffffff;
   border: none;
   border-radius: 25px;
@@ -3502,7 +3487,7 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .retry-button:hover {
-  background: linear-gradient(135deg, #FF6666 0%, #FF8888 100%);
+  background: linear-gradient(135deg, #ff6666 0%, #ff8888 100%);
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(255, 68, 68, 0.4);
 }
@@ -3537,12 +3522,14 @@ div.correlation-display div.correlation-strength-text {
   left: -2px;
   right: -2px;
   bottom: -2px;
-  background: linear-gradient(45deg,
-      var(--candy-silver),
-      rgba(192, 192, 192, 0.3),
-      var(--candy-silver),
-      rgba(192, 192, 192, 0.5),
-      var(--candy-silver));
+  background: linear-gradient(
+    45deg,
+    var(--candy-silver),
+    rgba(192, 192, 192, 0.3),
+    var(--candy-silver),
+    rgba(192, 192, 192, 0.5),
+    var(--candy-silver)
+  );
   background-size: 300% 300%;
   border-radius: 24px;
   z-index: -1;
@@ -3556,10 +3543,12 @@ div.correlation-display div.correlation-strength-text {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(192, 192, 192, 0.1) 50%,
-      transparent 100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(192, 192, 192, 0.1) 50%,
+    transparent 100%
+  );
   animation: loadingSweep 2s ease-in-out infinite;
 }
 
@@ -3587,12 +3576,14 @@ div.correlation-display div.correlation-strength-text {
   right: -4px;
   bottom: -4px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg,
-      transparent 0deg,
-      rgba(192, 192, 192, 0.2) 90deg,
-      transparent 180deg,
-      rgba(192, 192, 192, 0.3) 270deg,
-      transparent 360deg);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(192, 192, 192, 0.2) 90deg,
+    transparent 180deg,
+    rgba(192, 192, 192, 0.3) 270deg,
+    transparent 360deg
+  );
   animation: spinnerHalo 3s linear infinite reverse;
   z-index: -1;
 }
@@ -3611,7 +3602,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes loadingPulse {
-
   0%,
   100% {
     box-shadow:
@@ -3629,7 +3619,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes loadingBorderFlow {
-
   0%,
   100% {
     background-position: 0% 50%;
@@ -3651,7 +3640,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes spinnerGlow {
-
   0%,
   100% {
     box-shadow:
@@ -3679,7 +3667,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes textGlow {
-
   0%,
   100% {
     text-shadow:
@@ -3725,7 +3712,12 @@ div.correlation-display div.correlation-strength-text {
     radial-gradient(1px 1px at 130px 80px, rgba(192, 192, 192, 0.4), transparent),
     radial-gradient(2px 2px at 160px 30px, rgba(192, 192, 192, 0.3), transparent);
   background-repeat: repeat;
-  background-size: 200px 100px, 300px 150px, 250px 120px, 280px 140px, 320px 160px;
+  background-size:
+    200px 100px,
+    300px 150px,
+    250px 120px,
+    280px 140px,
+    320px 160px;
   animation: floatingParticles 25s linear infinite;
   pointer-events: none;
   z-index: 1;
@@ -3776,7 +3768,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes dataGrid {
-
   0%,
   100% {
     background-size: 50px 50px;
@@ -3788,8 +3779,6 @@ div.correlation-display div.correlation-strength-text {
     opacity: 0.6;
   }
 }
-
-
 
 /* Advanced Glow Orbs */
 .seasonax-container:before {
@@ -3825,7 +3814,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes orbFloat1 {
-
   0%,
   100% {
     transform: translate(0px, 0px) scale(1);
@@ -3841,7 +3829,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes orbFloat2 {
-
   0%,
   100% {
     transform: translate(0px, 0px) scale(1);
@@ -3853,7 +3840,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes orbPulse {
-
   0%,
   100% {
     opacity: 0.3;
@@ -3872,10 +3858,7 @@ div.correlation-display div.correlation-strength-text {
   box-shadow:
     0 8px 20px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  background:
-    linear-gradient(135deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0.02) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
@@ -3967,7 +3950,6 @@ div.correlation-display div.correlation-strength-text {
 }
 
 @keyframes crispyTextShimmer {
-
   0%,
   100% {
     background-position: 0% 50%;
@@ -4035,13 +4017,17 @@ div.correlation-display div.correlation-strength-text {
   background-image:
     linear-gradient(transparent 50%, rgba(192, 192, 192, 0.03) 50%),
     linear-gradient(90deg, transparent 50%, rgba(192, 192, 192, 0.02) 50%);
-  background-size: 100px 4px, 4px 100px;
+  background-size:
+    100px 4px,
+    4px 100px;
   animation: matrixRain 15s linear infinite;
 }
 
 /* Additional Bloomberg Terminal Effects */
 .terminal-glow {
-  text-shadow: 0 0 10px var(--candy-silver), 0 0 20px rgba(192, 192, 192, 0.5);
+  text-shadow:
+    0 0 10px var(--candy-silver),
+    0 0 20px rgba(192, 192, 192, 0.5);
 }
 
 .terminal-border {
@@ -4062,18 +4048,21 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .seasonax-sidebar::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, var(--candy-silver) 0%, #FF8800 100%);
+  background: linear-gradient(135deg, var(--candy-silver) 0%, #ff8800 100%);
   border-radius: 4px;
   box-shadow: 0 0 10px rgba(192, 192, 192, 0.3);
 }
 
 .seasonax-sidebar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #FF8800 0%, #FFAA00 100%);
+  background: linear-gradient(135deg, #ff8800 0%, #ffaa00 100%);
 }
 
 /* Smooth Transitions */
 * {
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 }
 
 /* Focus States */
@@ -4123,7 +4112,7 @@ div.correlation-display div.correlation-strength-text {
 
 .period-metric .metric-card {
   background: rgba(0, 102, 204, 0.1);
-  border: 1px solid #0066CC;
+  border: 1px solid #0066cc;
   border-radius: 8px;
   padding: 15px;
 }
@@ -4280,11 +4269,11 @@ div.correlation-display div.correlation-strength-text {
 }
 
 .positive-value {
-  color: #00FF00 !important;
+  color: #00ff00 !important;
 }
 
 .negative-value {
-  color: #FF0000 !important;
+  color: #ff0000 !important;
 }
 
 /* Crispy White Text Theme - Global */
@@ -4303,7 +4292,9 @@ label {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "liga" 1, "kern" 1;
+  font-feature-settings:
+    'liga' 1,
+    'kern' 1;
   font-optical-sizing: auto;
   color: var(--crispy-white) !important;
   text-shadow:
@@ -4372,7 +4363,11 @@ label {
   left: 0;
   right: 0;
   bottom: 0;
-  background: radial-gradient(ellipse at center top, var(--premium-orange-subtle) 0%, transparent 70%);
+  background: radial-gradient(
+    ellipse at center top,
+    var(--premium-orange-subtle) 0%,
+    transparent 70%
+  );
   pointer-events: none;
 }
 
@@ -4450,7 +4445,9 @@ label {
   text-transform: uppercase;
   letter-spacing: 1px;
   box-shadow: 0 4px 20px rgba(255, 74, 0, 0.3);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
   will-change: background, box-shadow;
   backface-visibility: hidden;
   transform: translateZ(0);
@@ -4638,9 +4635,9 @@ label {
 
 /* PREMIUM RESULTS SECTION */
 .pro-results {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 32px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 4px 4px 0;
   position: relative;
 }
 
@@ -4652,33 +4649,40 @@ label {
   position: relative;
   border: 3px solid rgba(255, 215, 0, 0.6) !important;
   border-radius: 12px;
-  max-height: 80vh;
+  max-height: 87vh;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3), inset 0 0 30px rgba(255, 215, 0, 0.05);
+  box-shadow:
+    0 4px 20px rgba(255, 215, 0, 0.3),
+    inset 0 0 30px rgba(255, 215, 0, 0.05);
 }
 
 .bullish-section,
 .bearish-section {
   flex: 1;
-  padding: 0 20px;
+  padding: 0 8px;
   display: flex;
   flex-direction: column;
-  max-height: 75vh;
+  max-height: 87vh;
+  min-width: 0;
 }
 
 .bullish-section {
-  background: linear-gradient(135deg,
-      rgba(0, 255, 127, 0.02) 0%,
-      rgba(0, 255, 127, 0.01) 50%,
-      transparent 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(0, 255, 127, 0.02) 0%,
+    rgba(0, 255, 127, 0.01) 50%,
+    transparent 100%
+  );
   border-radius: 12px 0 0 12px;
 }
 
 .bearish-section {
-  background: linear-gradient(135deg,
-      rgba(255, 51, 102, 0.02) 0%,
-      rgba(255, 51, 102, 0.01) 50%,
-      transparent 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 51, 102, 0.02) 0%,
+    rgba(255, 51, 102, 0.01) 50%,
+    transparent 100%
+  );
   border-radius: 0 12px 12px 0;
 }
 
@@ -4747,14 +4751,21 @@ label {
 
 .results-grid-split {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 220px));
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 8px;
-  justify-content: center;
+  padding-right: 6px;
+  justify-content: stretch;
   grid-auto-rows: max-content;
   align-content: start;
+  width: 100%;
+}
+
+/* Wide (elite) cards that span 2 columns — full row */
+.results-grid-split > [style*='span 2'] {
+  grid-column: 1 / -1;
+  max-width: calc(220px * 2 + 10px);
 }
 
 /* Custom scrollbar for results grid */
@@ -4797,16 +4808,18 @@ label {
 .separator-line {
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg,
-      transparent 0%,
-      rgba(255, 215, 0, 0.3) 10%,
-      rgba(255, 215, 0, 0.8) 20%,
-      #ffd700 30%,
-      #ffed4e 50%,
-      #ffd700 70%,
-      rgba(255, 215, 0, 0.8) 80%,
-      rgba(255, 215, 0, 0.3) 90%,
-      transparent 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 215, 0, 0.3) 10%,
+    rgba(255, 215, 0, 0.8) 20%,
+    #ffd700 30%,
+    #ffed4e 50%,
+    #ffd700 70%,
+    rgba(255, 215, 0, 0.8) 80%,
+    rgba(255, 215, 0, 0.3) 90%,
+    transparent 100%
+  );
   position: relative;
   border-radius: 2px;
   box-shadow:
@@ -4823,12 +4836,14 @@ label {
   transform: translateX(-50%);
   width: 1px;
   height: 100%;
-  background: linear-gradient(180deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.3) 20%,
-      rgba(255, 255, 255, 0.6) 50%,
-      rgba(255, 255, 255, 0.3) 80%,
-      transparent 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 20%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0.3) 80%,
+    transparent 100%
+  );
 }
 
 .separator-orb {
@@ -4838,11 +4853,7 @@ label {
   transform: translate(-50%, -50%);
   width: 20px;
   height: 20px;
-  background: radial-gradient(circle,
-      #fff 0%,
-      #ffd700 30%,
-      #ffb700 70%,
-      #cc8800 100%);
+  background: radial-gradient(circle, #fff 0%, #ffd700 30%, #ffb700 70%, #cc8800 100%);
   border-radius: 50%;
   box-shadow:
     0 0 15px rgba(255, 215, 0, 0.8),
@@ -4858,9 +4869,7 @@ label {
   transform: translate(-50%, -50%);
   width: 8px;
   height: 8px;
-  background: radial-gradient(circle,
-      rgba(255, 255, 255, 0.9) 0%,
-      rgba(255, 215, 0, 0.6) 100%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, rgba(255, 215, 0, 0.6) 100%);
   border-radius: 50%;
   animation: innerGlow 2s infinite alternate ease-in-out;
 }
@@ -5097,7 +5106,6 @@ label {
 }
 
 @keyframes badgeShimmer {
-
   0%,
   90%,
   100% {
@@ -5369,12 +5377,12 @@ label {
 }
 
 .chart-bar.positive {
-  background: linear-gradient(180deg, var(--premium-green) 0%, #00CC66 100%);
+  background: linear-gradient(180deg, var(--premium-green) 0%, #00cc66 100%);
   box-shadow: 0 0 8px rgba(0, 255, 127, 0.3);
 }
 
 .chart-bar.negative {
-  background: linear-gradient(180deg, var(--premium-red) 0%, #CC0033 100%);
+  background: linear-gradient(180deg, var(--premium-red) 0%, #cc0033 100%);
   box-shadow: 0 0 8px rgba(255, 51, 102, 0.3);
 }
 
@@ -5432,15 +5440,17 @@ label {
   position: absolute;
   width: 100%;
   height: 100%;
-  background: linear-gradient(0deg,
-      #ff1100 0%,
-      #ff3300 15%,
-      #ff5500 30%,
-      #ff7700 50%,
-      #ff9900 70%,
-      #ffbb00 85%,
-      rgba(255, 200, 50, 0.8) 95%,
-      transparent 100%);
+  background: linear-gradient(
+    0deg,
+    #ff1100 0%,
+    #ff3300 15%,
+    #ff5500 30%,
+    #ff7700 50%,
+    #ff9900 70%,
+    #ffbb00 85%,
+    rgba(255, 200, 50, 0.8) 95%,
+    transparent 100%
+  );
   border-radius: 2px 2px 50% 50%;
   filter: blur(0.5px);
 }
@@ -5452,13 +5462,15 @@ label {
   height: 80%;
   left: 10%;
   top: 10%;
-  background: linear-gradient(0deg,
-      #ff3300 0%,
-      #ff6600 30%,
-      #ff9900 60%,
-      #ffcc00 80%,
-      rgba(255, 255, 100, 0.6) 90%,
-      transparent 100%);
+  background: linear-gradient(
+    0deg,
+    #ff3300 0%,
+    #ff6600 30%,
+    #ff9900 60%,
+    #ffcc00 80%,
+    rgba(255, 255, 100, 0.6) 90%,
+    transparent 100%
+  );
   border-radius: 1px 1px 50% 50%;
   animation: innerFlame 0.8s infinite alternate ease-in-out;
 }
@@ -5502,8 +5514,8 @@ label {
 .flame-6 {
   top: -19px;
   left: 85%;
-  animation: realFire 1.0s infinite ease-in-out;
-  animation-delay: 1.0s;
+  animation: realFire 1s infinite ease-in-out;
+  animation-delay: 1s;
 }
 
 /* Right side flames */
@@ -5532,7 +5544,7 @@ label {
 .flame-10 {
   bottom: -18px;
   left: 20%;
-  animation: realFire 1.0s infinite ease-in-out;
+  animation: realFire 1s infinite ease-in-out;
   animation-delay: 0.5s;
   transform: rotate(180deg);
 }
@@ -5646,13 +5658,15 @@ label {
   position: absolute;
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg,
-      #800000 0%,
-      #a00000 20%,
-      #c00000 40%,
-      #cc0000 60%,
-      #990000 80%,
-      #660000 100%);
+  background: linear-gradient(
+    180deg,
+    #800000 0%,
+    #a00000 20%,
+    #c00000 40%,
+    #cc0000 60%,
+    #990000 80%,
+    #660000 100%
+  );
   border-radius: 0 0 50% 50%;
   box-shadow:
     0 0 3px rgba(153, 0, 0, 0.8),
@@ -5716,7 +5730,7 @@ label {
   top: -5px;
   left: 45%;
   animation: realBloodDrip 3.2s infinite ease-in;
-  animation-delay: 1.0s;
+  animation-delay: 1s;
 }
 
 .drop-4 {
@@ -5730,7 +5744,7 @@ label {
   top: -6px;
   left: 78%;
   animation: realBloodDrip 3.1s infinite ease-in;
-  animation-delay: 2.0s;
+  animation-delay: 2s;
 }
 
 .drop-6 {
@@ -5759,7 +5773,7 @@ label {
 .drop-9 {
   top: 35%;
   left: -6px;
-  animation: realBloodDrip 3.0s infinite ease-in;
+  animation: realBloodDrip 3s infinite ease-in;
   animation-delay: 1.3s;
 }
 
@@ -5819,12 +5833,16 @@ label {
 
 /* Enhanced glow for top performers */
 .chart-section.top-bullish {
-  box-shadow: 0 0 20px rgba(255, 100, 0, 0.4), inset 0 0 20px rgba(255, 150, 0, 0.1);
+  box-shadow:
+    0 0 20px rgba(255, 100, 0, 0.4),
+    inset 0 0 20px rgba(255, 150, 0, 0.1);
   border: 1px solid rgba(255, 100, 0, 0.6);
 }
 
 .chart-section.top-bearish {
-  box-shadow: 0 0 20px rgba(204, 0, 0, 0.4), inset 0 0 20px rgba(153, 0, 0, 0.1);
+  box-shadow:
+    0 0 20px rgba(204, 0, 0, 0.4),
+    inset 0 0 20px rgba(153, 0, 0, 0.1);
   border: 1px solid rgba(204, 0, 0, 0.6);
 }
 
@@ -5892,8 +5910,8 @@ button,
     background: transparent;
   }
 
-  .mobile-tab-trigger[data-state="active"] {
-    background: #FF6600 !important;
+  .mobile-tab-trigger[data-state='active'] {
+    background: #ff6600 !important;
     color: white !important;
   }
 
@@ -5909,7 +5927,7 @@ button,
 
   /* ROW 1: ALL controls in ONE row - LEFT aligned */
   .mobile-seasonality-wrapper .header-group.search-compare-group,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2),
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2),
   .mobile-seasonality-wrapper .sweet-pain-buttons {
     display: inline-flex !important;
     flex-direction: row !important;
@@ -5928,9 +5946,9 @@ button,
   }
 
   /* Make first row a single flex container - LEFT aligned */
-  .mobile-seasonality-wrapper .seasonax-header>div:first-child,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2),
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(3) {
+  .mobile-seasonality-wrapper .seasonax-header > div:first-child,
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2),
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(3) {
     display: inline-flex !important;
     width: auto !important;
     margin: 0 !important;
@@ -5940,9 +5958,9 @@ button,
   }
 
   /* Force all row 1 items inline and left-aligned */
-  .mobile-seasonality-wrapper .header-group.search-compare-group>*,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2)>*,
-  .mobile-seasonality-wrapper .sweet-pain-buttons>* {
+  .mobile-seasonality-wrapper .header-group.search-compare-group > *,
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2) > *,
+  .mobile-seasonality-wrapper .sweet-pain-buttons > * {
     display: inline-block !important;
     margin: 0 2px 0 0 !important;
     float: none !important;
@@ -6008,8 +6026,8 @@ button,
   .mobile-seasonality-wrapper .seasonax-controls button,
   .mobile-seasonality-wrapper .seasonax-controls select,
   .mobile-seasonality-wrapper .seasonax-controls .election-mode-btn,
-  .mobile-seasonality-wrapper [class*="election"] button,
-  .mobile-seasonality-wrapper [class*="election"] select {
+  .mobile-seasonality-wrapper [class*='election'] button,
+  .mobile-seasonality-wrapper [class*='election'] select {
     font-size: 8px !important;
     padding: 2px 3px !important;
     height: 22px !important;
@@ -6071,11 +6089,11 @@ button,
   }
 
   /* Reduce gap between bullish 30d and monthly boxes */
-  .mobile-seasonality-wrapper .horizontal-monthly-returns>div {
+  .mobile-seasonality-wrapper .horizontal-monthly-returns > div {
     gap: 0px !important;
   }
 
-  .mobile-seasonality-wrapper .horizontal-monthly-returns [style*="display: flex"] {
+  .mobile-seasonality-wrapper .horizontal-monthly-returns [style*='display: flex'] {
     gap: 0px !important;
   }
 
@@ -6087,13 +6105,13 @@ button,
   }
 
   /* Ensure chart starts below header */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child {
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child {
     clear: both !important;
     margin-top: 8px !important;
   }
 
   /* Target the grid layout and force single column */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child {
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child {
     display: flex !important;
     flex-direction: column !important;
     gap: 0 !important;
@@ -6101,23 +6119,32 @@ button,
   }
 
   /* Hide the second child which is the screener column */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:nth-child(2) {
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:nth-child(2) {
     display: none !important;
   }
 
   /* Make first column (charts) full width */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child {
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:first-child {
     width: 100% !important;
     min-width: 100% !important;
   }
 
   /* Hide the second div inside first column (monthly almanac chart) */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:nth-child(2) {
+  .mobile-seasonality-wrapper
+    .seasonax-container
+    > div:last-child
+    > div:first-child
+    > div:nth-child(2) {
     display: none !important;
   }
 
   /* Make main chart taller */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:first-child>div {
+  .mobile-seasonality-wrapper
+    .seasonax-container
+    > div:last-child
+    > div:first-child
+    > div:first-child
+    > div {
     max-height: 550px !important;
     height: 550px !important;
     width: 100% !important;
@@ -6160,7 +6187,12 @@ button,
     width: 167% !important;
   }
 
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:first-child>div {
+  .mobile-seasonality-wrapper
+    .seasonax-container
+    > div:last-child
+    > div:first-child
+    > div:first-child
+    > div {
     max-height: 480px !important;
     height: 480px !important;
   }

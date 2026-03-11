@@ -65,7 +65,7 @@ const formatDate = (dateString: string) => {
 const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
 
-export default function FlowTrackingPanel() {
+export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
   const [flowTrackingFilters, setFlowTrackingFilters] = useState({
@@ -299,25 +299,79 @@ export default function FlowTrackingPanel() {
   return (
     <div className="relative bg-black w-full h-full overflow-auto">
       {/* Panel Header */}
-      <div className="sticky top-0 bg-black z-10 border-b border-gray-700 p-4">
-        <h2
-          className="text-3xl font-black text-center"
-          style={{
-            fontFamily: 'Impact, Arial Black, sans-serif',
-            background:
-              'linear-gradient(90deg, #ff0000 0%, #00ff00 33%, #ffd700 66%, #ff0000 100%)',
-            backgroundSize: '200% 100%',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            letterSpacing: '3px',
-            fontWeight: 900,
-            animation: 'ftGradientShift 3s ease infinite',
-          }}
+      <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
+      <div
+        className="ftp-header sticky top-0 bg-black z-10 border-b border-gray-700"
+        style={{
+          paddingTop: '4px',
+          paddingBottom: '12px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
+          position: 'relative',
+        }}
+      >
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '12px',
+              background: 'transparent',
+              border: 'none',
+              color: '#9ca3af',
+              fontSize: '20px',
+              lineHeight: 1,
+              cursor: 'pointer',
+              padding: '2px 6px',
+              zIndex: 10,
+            }}
+          >
+            ✕
+          </button>
+        )}
+        <div
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
         >
-          LIVE FLOW TRACKING
-        </h2>
-        <style>{`@keyframes ftGradientShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }`}</style>
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: '#ff8500',
+              flexShrink: 0,
+              boxShadow: '0 0 6px #ff8500',
+            }}
+          />
+          <h2
+            className="ftp-title"
+            style={{
+              fontFamily: 'Inter, "SF Pro Display", Arial, sans-serif',
+              color: '#f0f0f0',
+              fontSize: '26px',
+              fontWeight: 600,
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              margin: 0,
+              padding: 0,
+              borderBottom: '1px solid rgba(255,133,0,0.4)',
+              paddingBottom: '3px',
+            }}
+          >
+            Live Flow Tracking
+          </h2>
+          <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: '#ff8500',
+              flexShrink: 0,
+              boxShadow: '0 0 6px #ff8500',
+            }}
+          />
+        </div>
 
         {/* Filters */}
         <div
