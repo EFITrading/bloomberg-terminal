@@ -539,9 +539,14 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
                   if ((isSold ? -rawPct : rawPct) > -60) return false
                 }
                 if (flowTrackingFilters.showWeeklies) {
-                  const daysToExpiry = Math.floor(
-                    (new Date(flow.expiry).getTime() - Date.now()) / 86400000
+                  const todayMs = new Date().setHours(0, 0, 0, 0)
+                  const expD = new Date(flow.expiry)
+                  const expLocal = new Date(
+                    expD.getUTCFullYear(),
+                    expD.getUTCMonth(),
+                    expD.getUTCDate()
                   )
+                  const daysToExpiry = Math.floor((expLocal.getTime() - todayMs) / 86400000)
                   if (daysToExpiry > 7) return false
                 }
                 return true

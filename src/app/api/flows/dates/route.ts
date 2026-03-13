@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { NextResponse } from 'next/server'
 
-export const runtime = 'nodejs';
+import prisma from '@/lib/prisma'
+
+export const runtime = 'nodejs'
 
 export async function GET() {
   try {
@@ -14,14 +15,19 @@ export async function GET() {
       orderBy: {
         createdAt: 'desc',
       },
-    });
+    })
 
-    return NextResponse.json(flows);
+    const result = flows.map((flow) => ({
+      date: flow.date,
+      createdAt: flow.createdAt,
+      // New saves store trade count in size field (small number).
+      // Old saves stored raw byte size (millions) — return null for those.
+      tradeCount: flow.size < 100000 ? flow.size : null,
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
-    console.error('Error fetching flow dates:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch flow dates' },
-      { status: 500 }
-    );
+    console.error('Error fetching flow dates:', error)
+    return NextResponse.json({ error: 'Failed to fetch flow dates' }, { status: 500 })
   }
 }

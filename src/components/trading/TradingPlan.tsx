@@ -430,10 +430,16 @@ const TradingPlan: React.FC<TradingPlanProps> = ({ optionsContent, flowContent }
         .filter(Boolean),
       ...(tradeFormData.isOptions && {
         daysToExpiry: tradeFormData.expiry
-          ? Math.max(
-              0,
-              Math.ceil((new Date(tradeFormData.expiry).getTime() - Date.now()) / 86400000)
-            )
+          ? (() => {
+              const todayMs = new Date().setHours(0, 0, 0, 0)
+              const expD = new Date(tradeFormData.expiry)
+              const expLocal = new Date(
+                expD.getUTCFullYear(),
+                expD.getUTCMonth(),
+                expD.getUTCDate()
+              )
+              return Math.max(0, Math.ceil((expLocal.getTime() - todayMs) / 86400000))
+            })()
           : 0,
       }),
     }

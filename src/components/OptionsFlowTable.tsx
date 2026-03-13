@@ -1203,17 +1203,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const failed: string[] = []
 
     // Filter out expired options before fetching prices
-
-    const now = new Date()
-
-    now.setHours(0, 0, 0, 0)
+    // Parse expiry as local date (append T12:00:00 to avoid UTC midnight shifting the date back a day in negative-offset timezones)
+    const todayStr = new Date().toLocaleDateString('en-CA') // "YYYY-MM-DD" in local time
 
     const activeTrades = trades.filter((trade) => {
-      const expiryDate = new Date(trade.expiry)
-
-      expiryDate.setHours(0, 0, 0, 0)
-
-      return now <= expiryDate // Only include non-expired options
+      return trade.expiry >= todayStr // string compare works perfectly for ISO date format
     })
 
     if (activeTrades.length === 0) {
@@ -2082,9 +2076,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   const meetsNotableCriteria = (trade: OptionsFlowData): boolean => {
     // 1. Expiration: 0-21 days
-
+    const todayMidnight = new Date()
+    todayMidnight.setHours(0, 0, 0, 0)
+    const expiryD = new Date(trade.expiry)
+    const expiryLocal = new Date(
+      expiryD.getUTCFullYear(),
+      expiryD.getUTCMonth(),
+      expiryD.getUTCDate()
+    )
     const daysToExpiry = Math.floor(
-      (new Date(trade.expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      (expiryLocal.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)
     )
 
     if (daysToExpiry < 0 || daysToExpiry > 21) return false
@@ -4717,148 +4718,237 @@ Stock Reaction: ${scores.stockReaction}/15`
           {/* Modal Content */}
 
           <div
-            className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[9999] w-[90%] max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg border p-6"
+            className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[9999] w-[92%] max-w-xl max-h-[80vh] overflow-hidden flex flex-col"
             style={{
               background: '#000000',
-
-              borderColor: '#ff9447',
-
-              borderWidth: '2px',
+              border: '1px solid #ff6600',
+              fontFamily: '"SF Mono", "Courier New", monospace',
             }}
           >
-            <div className="flex justify-between items-center mb-6">
-              <h2
-                className="text-3xl font-bold"
+            {/* Header */}
+            <div
+              style={{
+                borderBottom: '1px solid #ff6600',
+                padding: '16px 16px',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {/* Centered title */}
+              <div
                 style={{
-                  color: '#ffffff',
-
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-
-                  letterSpacing: '0.5px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
               >
-                Flow History
-              </h2>
-
+                <span
+                  style={{
+                    fontSize: '29px',
+                    fontWeight: 900,
+                    letterSpacing: '6px',
+                    textTransform: 'uppercase',
+                    background:
+                      'linear-gradient(180deg, #ffffff 0%, #ff6600 40%, #ff3300 70%, #aa2200 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                  }}
+                >
+                  FLOW HISTORY
+                </span>
+              </div>
+              {/* ESC pinned to right */}
               <button
                 onClick={() => setIsHistoryDialogOpen(false)}
-                className="text-gray-400 hover:text-white text-3xl font-bold transition-colors"
+                style={{
+                  position: 'absolute',
+                  right: '16px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: '1px solid #333',
+                  color: '#888',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                  letterSpacing: '1px',
+                }}
               >
-                ×
+                ESC
               </button>
             </div>
 
-            {savedFlowDates.length === 0 ? (
-              <div className="text-center py-12" style={{ color: '#ff9447' }}>
-                <svg
-                  className="w-16 h-16 mx-auto mb-4 opacity-50"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+            {/* Body */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '8px' }}>
+              {savedFlowDates.length === 0 ? (
+                <div
+                  style={{
+                    padding: '40px',
+                    textAlign: 'center',
+                    color: '#444',
+                    fontSize: '11px',
+                    letterSpacing: '2px',
+                  }}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
+                  NO SAVED SESSIONS
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {savedFlowDates.map((flow, i) => {
+                    const d = new Date(flow.date)
+                    const localDate = new Date(
+                      d.getUTCFullYear(),
+                      d.getUTCMonth(),
+                      d.getUTCDate(),
+                      12
+                    )
+                    const dateLabel = localDate.toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                    const timeLabel = new Date(flow.createdAt).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                    })
+                    const tradeCount: number | null = (flow as any).tradeCount ?? null
+                    return (
+                      <div
+                        key={flow.date}
+                        style={{
+                          background: '#0a0a0a',
+                          border: '1px solid #1a1a1a',
+                          padding: '10px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                        }}
+                      >
+                        {/* Left: date + meta */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              color: '#ffffff',
+                              fontSize: '15px',
+                              fontWeight: 700,
+                              letterSpacing: '0.5px',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            {dateLabel}
+                          </div>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <span
+                              style={{
+                                color: '#ff6600',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                letterSpacing: '1px',
+                              }}
+                            >
+                              {tradeCount != null
+                                ? `${tradeCount.toLocaleString()} TRADES`
+                                : '— TRADES'}
+                            </span>
+                            <span
+                              style={{
+                                color: '#00e5ff',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                letterSpacing: '0.5px',
+                              }}
+                            >
+                              SAVED {timeLabel}
+                            </span>
+                          </div>
+                        </div>
 
-                <p className="text-xl">No saved flows</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {savedFlowDates.map((flow) => (
-                  <div
-                    key={flow.date}
-                    className="rounded-lg p-4 border transition-all hover:border-opacity-100"
-                    style={{
-                      background: '#0a0a0a',
-
-                      borderColor: '#ff9447',
-
-                      borderWidth: '1px',
-
-                      borderStyle: 'solid',
-
-                      opacity: 0.9,
-                    }}
-                  >
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-xl font-bold mb-1" style={{ color: '#ffffff' }}>
-                          {new Date(flow.date).toLocaleDateString('en-US', {
-                            weekday: 'short',
-
-                            year: 'numeric',
-
-                            month: 'short',
-
-                            day: 'numeric',
-                          })}
-                        </p>
-
-                        <p className="text-sm" style={{ color: '#ff9447' }}>
-                          Size: {(flow.size / 1024).toFixed(2)} KB | Saved:{' '}
-                          {new Date(flow.createdAt).toLocaleTimeString()}
-                        </p>
+                        {/* Right: actions */}
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                          <button
+                            onClick={() => handleLoadFlow(flow.date)}
+                            disabled={loadingFlowDate === flow.date}
+                            style={{
+                              background: '#ff6600',
+                              color: '#000',
+                              border: 'none',
+                              padding: '6px 14px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              letterSpacing: '1.5px',
+                              cursor: 'pointer',
+                              opacity: loadingFlowDate === flow.date ? 0.6 : 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            {loadingFlowDate === flow.date ? (
+                              <>
+                                <svg
+                                  className="w-3 h-3 animate-spin"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  ></circle>
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  ></path>
+                                </svg>
+                                LOADING
+                              </>
+                            ) : (
+                              'LOAD'
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteFlow(flow.date)}
+                            style={{
+                              background: 'transparent',
+                              color: '#555',
+                              border: '1px solid #222',
+                              padding: '6px 10px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              letterSpacing: '1px',
+                              cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => {
+                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
+                            }}
+                            onMouseLeave={(e) => {
+                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#555'
+                            }}
+                          >
+                            DEL
+                          </button>
+                        </div>
                       </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleLoadFlow(flow.date)}
-                          disabled={loadingFlowDate === flow.date}
-                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                          style={{
-                            background: '#ff9447',
-
-                            color: '#000000',
-                          }}
-                        >
-                          {loadingFlowDate === flow.date ? (
-                            <>
-                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                ></circle>
-
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                              </svg>
-                              Loading...
-                            </>
-                          ) : (
-                            'Load'
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteFlow(flow.date)}
-                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-90"
-                          style={{
-                            background: '#1a1a1a',
-
-                            color: '#ffffff',
-
-                            border: '1px solid #ff9447',
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -8635,9 +8725,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   </td>
                                 )
                               } else {
+                                const todayLocal = new Date().toLocaleDateString('en-CA')
+                                const isExpired = trade.expiry < todayLocal
                                 return (
                                   <td className="p-2 md:p-6 border-r border-gray-700/30">
-                                    <span className="text-gray-500 text-sm">Loading...</span>
+                                    <span className="text-gray-500 text-sm">
+                                      {isExpired ? 'Expired' : 'N/A'}
+                                    </span>
                                   </td>
                                 )
                               }
@@ -10308,516 +10402,6 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
       )}
-      {/* ── NOTABLE TRADE ANALYSIS MODAL ── */}
-      {selectedNotableTrade && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 2147483647,
-            background: 'rgba(0,0,0,0.92)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onClick={() => {
-            setSelectedNotableTrade(null)
-            setNotableAnalysisData(null)
-          }}
-        >
-          <div
-            style={{
-              background: '#000000',
-              border: '1px solid #FFD700',
-              width: '560px',
-              maxWidth: '96vw',
-              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, monospace',
-              overflow: 'hidden',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* ── Header bar ── */}
-            <div
-              style={{
-                borderBottom: '1px solid #FFD700',
-                padding: '0 20px',
-                height: '48px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#000',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: '#FFD700',
-                  letterSpacing: '3px',
-                  textTransform: 'uppercase',
-                }}
-              >
-                ★ Notable Flow Analysis
-              </span>
-              <button
-                onClick={() => {
-                  setSelectedNotableTrade(null)
-                  setNotableAnalysisData(null)
-                }}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #333',
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  letterSpacing: '1px',
-                }}
-              >
-                ESC
-              </button>
-            </div>
-
-            {/* ── Trade identity row ── */}
-            <div
-              style={{
-                padding: '20px 20px 0',
-                borderBottom: '1px solid #1c1c1c',
-                paddingBottom: '20px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  gap: '10px',
-                  marginBottom: '14px',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '32px',
-                    fontWeight: 900,
-                    color: '#ffffff',
-                    letterSpacing: '-1px',
-                  }}
-                >
-                  {selectedNotableTrade.underlying_ticker}
-                </span>
-                <span
-                  style={{
-                    fontSize: '20px',
-                    fontWeight: 700,
-                    color: selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466',
-                  }}
-                >
-                  ${selectedNotableTrade.strike} {selectedNotableTrade.type.toUpperCase()}
-                </span>
-                <span
-                  style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#FFD700',
-                    marginLeft: 'auto',
-                  }}
-                >
-                  ${(selectedNotableTrade.total_premium / 1000).toFixed(0)}K PREMIUM
-                </span>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '0',
-                  borderTop: '1px solid #1c1c1c',
-                  paddingTop: '14px',
-                }}
-              >
-                {[
-                  { label: 'EXPIRY', value: selectedNotableTrade.expiry },
-                  { label: 'DTE', value: `${selectedNotableTrade.days_to_expiry}D` },
-                  { label: 'SPOT ENTRY', value: `$${selectedNotableTrade.spot_price.toFixed(2)}` },
-                  {
-                    label: 'FILL',
-                    value: String((selectedNotableTrade as any).fill_style || 'N/A'),
-                  },
-                  { label: 'SIZE', value: `${selectedNotableTrade.trade_size.toLocaleString()}` },
-                ].map((item, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      flex: 1,
-                      borderRight: i < 4 ? '1px solid #1c1c1c' : 'none',
-                      paddingRight: '12px',
-                      paddingLeft: i > 0 ? '12px' : 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: '#666666',
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        letterSpacing: '1.5px',
-                        marginBottom: '4px',
-                      }}
-                    >
-                      {item.label}
-                    </div>
-                    <div style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700 }}>
-                      {item.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {notableAnalysisLoading ? (
-              <div style={{ padding: '40px', textAlign: 'center' }}>
-                <div
-                  style={{
-                    color: '#FFD700',
-                    fontSize: '11px',
-                    letterSpacing: '3px',
-                    fontWeight: 700,
-                  }}
-                >
-                  CALCULATING TARGETS &amp; DEALER ZONES...
-                </div>
-              </div>
-            ) : notableAnalysisData && notableAnalysisData.t1 > 0 ? (
-              <div>
-                {/* ── Targets section ── */}
-                <div style={{ padding: '20px', borderBottom: '1px solid #1c1c1c' }}>
-                  <div
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      color: '#FFD700',
-                      letterSpacing: '2px',
-                      marginBottom: '14px',
-                    }}
-                  >
-                    PROBABILITY TARGETS — {selectedNotableTrade.expiry}
-                  </div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '1px',
-                      background: '#1c1c1c',
-                    }}
-                  >
-                    {/* T1 */}
-                    <div
-                      style={{
-                        background: '#000',
-                        padding: '16px',
-                        borderLeft: `3px solid ${selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466'}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: '9px',
-                          fontWeight: 700,
-                          letterSpacing: '2px',
-                          color: '#ffffff',
-                          marginBottom: '8px',
-                        }}
-                      >
-                        TARGET 1 — 80%
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '28px',
-                          fontWeight: 900,
-                          color: selectedNotableTrade.type === 'call' ? '#00ff88' : '#ff4466',
-                          letterSpacing: '-1px',
-                          lineHeight: 1,
-                        }}
-                      >
-                        ${notableAnalysisData.t1.toFixed(2)}
-                      </div>
-                      <div
-                        style={{
-                          marginTop: '6px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color: '#ffffff',
-                        }}
-                      >
-                        {selectedNotableTrade.type === 'call' ? '+' : '−'}
-                        {notableAnalysisData.pctToT1}% from spot
-                      </div>
-                    </div>
-                    {/* T2 */}
-                    <div
-                      style={{
-                        background: '#000',
-                        padding: '16px',
-                        borderLeft: `3px solid ${selectedNotableTrade.type === 'call' ? '#00cc55' : '#cc0033'}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: '9px',
-                          fontWeight: 700,
-                          letterSpacing: '2px',
-                          color: '#ffffff',
-                          marginBottom: '8px',
-                        }}
-                      >
-                        TARGET 2 — 90%
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '28px',
-                          fontWeight: 900,
-                          color: selectedNotableTrade.type === 'call' ? '#00cc55' : '#cc0033',
-                          letterSpacing: '-1px',
-                          lineHeight: 1,
-                        }}
-                      >
-                        ${notableAnalysisData.t2.toFixed(2)}
-                      </div>
-                      <div
-                        style={{
-                          marginTop: '6px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color: '#ffffff',
-                        }}
-                      >
-                        {selectedNotableTrade.type === 'call' ? '+' : '−'}
-                        {notableAnalysisData.pctToT2}% from spot
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── Dealer zones ── */}
-                <div style={{ padding: '20px' }}>
-                  <div
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      color: '#FFD700',
-                      letterSpacing: '2px',
-                      marginBottom: '14px',
-                    }}
-                  >
-                    DEALER ATTRACTION ZONES — {selectedNotableTrade.expiry}
-                  </div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '1px',
-                      background: '#1c1c1c',
-                    }}
-                  >
-                    {/* Golden — top call wall */}
-                    <div
-                      style={{
-                        background: '#000',
-                        padding: '16px',
-                        borderLeft: '3px solid #FFD700',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            background: '#FFD700',
-                            borderRadius: '50%',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '9px',
-                            fontWeight: 700,
-                            color: '#FFD700',
-                            letterSpacing: '2px',
-                          }}
-                        >
-                          GOLDEN ZONE
-                        </span>
-                        <span style={{ fontSize: '9px', color: '#444444', marginLeft: 'auto' }}>
-                          CALL WALL
-                        </span>
-                      </div>
-                      {notableAnalysisData.goldenZones.length > 0 ? (
-                        <div>
-                          <div
-                            style={{
-                              fontSize: '30px',
-                              fontWeight: 900,
-                              color: '#FFD700',
-                              letterSpacing: '-1px',
-                              lineHeight: 1,
-                            }}
-                          >
-                            ${notableAnalysisData.goldenZones[0].strike}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: '6px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              color: '#ffffff',
-                            }}
-                          >
-                            OI {notableAnalysisData.goldenZones[0].oi.toLocaleString()}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: '4px',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              color:
-                                notableAnalysisData.goldenZones[0].strike >
-                                notableAnalysisData.spotAtEntry
-                                  ? '#00ff88'
-                                  : '#ff4466',
-                            }}
-                          >
-                            {notableAnalysisData.goldenZones[0].strike >
-                            notableAnalysisData.spotAtEntry
-                              ? '▲ ABOVE SPOT'
-                              : '▼ BELOW SPOT'}
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>
-                          No wall detected
-                        </div>
-                      )}
-                    </div>
-                    {/* Purple — top put wall */}
-                    <div
-                      style={{
-                        background: '#000',
-                        padding: '16px',
-                        borderLeft: '3px solid #a855f7',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            background: '#a855f7',
-                            borderRadius: '50%',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '9px',
-                            fontWeight: 700,
-                            color: '#a855f7',
-                            letterSpacing: '2px',
-                          }}
-                        >
-                          PURPLE ZONE
-                        </span>
-                        <span style={{ fontSize: '9px', color: '#444444', marginLeft: 'auto' }}>
-                          PUT WALL
-                        </span>
-                      </div>
-                      {notableAnalysisData.purpleZones.length > 0 ? (
-                        <div>
-                          <div
-                            style={{
-                              fontSize: '30px',
-                              fontWeight: 900,
-                              color: '#a855f7',
-                              letterSpacing: '-1px',
-                              lineHeight: 1,
-                            }}
-                          >
-                            ${notableAnalysisData.purpleZones[0].strike}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: '6px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              color: '#ffffff',
-                            }}
-                          >
-                            OI {notableAnalysisData.purpleZones[0].oi.toLocaleString()}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: '4px',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              color:
-                                notableAnalysisData.purpleZones[0].strike >
-                                notableAnalysisData.spotAtEntry
-                                  ? '#00ff88'
-                                  : '#ff4466',
-                            }}
-                          >
-                            {notableAnalysisData.purpleZones[0].strike >
-                            notableAnalysisData.spotAtEntry
-                              ? '▲ ABOVE SPOT'
-                              : '▼ BELOW SPOT'}
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>
-                          No wall detected
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── Footer ── */}
-                <div
-                  style={{
-                    borderTop: '1px solid #1c1c1c',
-                    padding: '10px 20px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 600,
-                      color: '#444444',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Targets: Black-Scholes 80/90% · Zones: OI Tower Detection
-                  </span>
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#444444' }}>
-                    {selectedNotableTrade.expiry}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
-
       {!isSidebarPanel && !isMobileView && (
         <div
           style={{

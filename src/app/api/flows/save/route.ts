@@ -43,6 +43,12 @@ export async function POST(request: NextRequest) {
 
     const dataString = JSON.stringify(data)
     const originalSize = Buffer.byteLength(dataString, 'utf8')
+    // Count trades for display in history (store in size field as we no longer display raw bytes)
+    const tradeCount = Array.isArray(data)
+      ? data.length
+      : Array.isArray((data as any)?.trades)
+        ? (data as any).trades.length
+        : 0
 
     // Compress data using gzip to reduce size
     const compressed = await gzipAsync(dataString)
@@ -53,11 +59,11 @@ export async function POST(request: NextRequest) {
       `💾 Compressing flow: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${((compressedSize / originalSize) * 100).toFixed(1)}% of original)`
     )
 
-    // Upsert the flow data (store compressed)
+    // Upsert the flow data (store compressed, size field stores trade count)
     const flow = await prisma.flow.upsert({
       where: { date: dateObj.toISOString() },
-      update: { data: compressedBase64, size: originalSize },
-      create: { date: dateObj.toISOString(), data: compressedBase64, size: originalSize },
+      update: { data: compressedBase64, size: tradeCount },
+      create: { date: dateObj.toISOString(), data: compressedBase64, size: tradeCount },
       select: { id: true, date: true, size: true }, // Only return minimal data
     })
 

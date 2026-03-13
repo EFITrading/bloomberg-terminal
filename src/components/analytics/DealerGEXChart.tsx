@@ -1378,7 +1378,15 @@ export default function DealerGEXChart({
                       value={date}
                       style={{ background: '#000000', color: '#ffffff' }}
                     >
-                      {new Date(date).toLocaleDateString()}
+                      {(() => {
+                        const d = new Date(date)
+                        return new Date(
+                          d.getUTCFullYear(),
+                          d.getUTCMonth(),
+                          d.getUTCDate(),
+                          12
+                        ).toLocaleDateString()
+                      })()}
                     </option>
                   ))}
                 </select>
