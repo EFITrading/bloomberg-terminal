@@ -78,6 +78,7 @@ import LeadershipScan from '../LeadershipScan'
 import { OptionsFlowTable } from '../OptionsFlowTable'
 import RRGScreener from '../RRGScreener'
 import RSScreener from '../RSScreener'
+import BuySellButton from './BuySellButton'
 import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import DealerAttraction from '../analytics/DealerAttraction'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
@@ -108,15 +109,15 @@ interface RegimeAnalysis {
   defensiveGrowthSpread: number
   spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK'
   regime:
-    | 'STRONG DEFENSIVE'
-    | 'MODERATE DEFENSIVE'
-    | 'DEFENSIVE + VALUE'
-    | 'RISK ON'
-    | 'STRONG RISK ON'
-    | 'GROWTH + RISK ON'
-    | 'VALUE'
-    | 'MIXED'
-    | 'RISK OFF'
+  | 'STRONG DEFENSIVE'
+  | 'MODERATE DEFENSIVE'
+  | 'DEFENSIVE + VALUE'
+  | 'RISK ON'
+  | 'STRONG RISK ON'
+  | 'GROWTH + RISK ON'
+  | 'VALUE'
+  | 'MIXED'
+  | 'RISK OFF'
   confidence: number
   defensiveSectors: SectorAnalysis[]
   growthSectors: SectorAnalysis[]
@@ -137,6 +138,11 @@ const SeasonalScreenerWrapper: React.FC<{
   filters: { highWinRate: boolean; startingSoon: boolean; fiftyTwoWeek: boolean }
   trigger: boolean
 }> = ({ market, timePeriod, filters, trigger }) => {
+  const externalFilters = {
+    highWinRate: filters.highWinRate ? 'true' : '',
+    startingSoon: filters.startingSoon ? 'true' : '',
+    fiftyTwoWeek: filters.fiftyTwoWeek,
+  }
   return (
     <div className="seasonality-screener-wrapper">
       <style>{`
@@ -172,7 +178,7 @@ const SeasonalScreenerWrapper: React.FC<{
         autoStart={trigger}
         initialMarket={market}
         initialTimePeriod={timePeriod}
-        externalFilters={filters}
+        externalFilters={externalFilters}
         sidebarMode={true}
       />
     </div>
@@ -253,24 +259,24 @@ interface PriceAlert {
   symbol: string
   price: number
   condition:
-    | 'above'
-    | 'below'
-    | 'crossesAbove'
-    | 'crossesBelow'
-    | 'closeAbove5m'
-    | 'closeAbove15m'
-    | 'closeAbove30m'
-    | 'closeAbove1h'
-    | 'closeAbove4h'
-    | 'closeAbove1d'
-    | 'closeBelow5m'
-    | 'closeBelow15m'
-    | 'closeBelow30m'
-    | 'closeBelow1h'
-    | 'closeBelow4h'
-    | 'closeBelow1d'
-    | 'staysInRange'
-    | 'breaksOutOfRange'
+  | 'above'
+  | 'below'
+  | 'crossesAbove'
+  | 'crossesBelow'
+  | 'closeAbove5m'
+  | 'closeAbove15m'
+  | 'closeAbove30m'
+  | 'closeAbove1h'
+  | 'closeAbove4h'
+  | 'closeAbove1d'
+  | 'closeBelow5m'
+  | 'closeBelow15m'
+  | 'closeBelow30m'
+  | 'closeBelow1h'
+  | 'closeBelow4h'
+  | 'closeBelow1d'
+  | 'staysInRange'
+  | 'breaksOutOfRange'
   message: string
   triggered: boolean
   createdAt: Date
@@ -737,11 +743,10 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
-                : 'text-[#868993] hover:text-white'
-            }`}
+            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === tab.id
+              ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
+              : 'text-[#868993] hover:text-white'
+              }`}
           >
             <span className="mr-1">{tab.icon}</span>
             {tab.label}
@@ -1064,11 +1069,10 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
                   <button
                     key={align.value}
                     onClick={() => updateText({ textAlign: align.value as any })}
-                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
-                      (selectedDrawing.richText?.textAlign || 'left') === align.value
-                        ? 'bg-[#2962ff] text-white'
-                        : 'bg-[#1e222d] text-[#868993] hover:text-white'
-                    }`}
+                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${(selectedDrawing.richText?.textAlign || 'left') === align.value
+                      ? 'bg-[#2962ff] text-white'
+                      : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                      }`}
                   >
                     {align.icon}
                   </button>
@@ -3465,6 +3469,679 @@ interface TradingViewChartProps {
   onTimeframeChange?: (timeframe: string) => void
 }
 
+// ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
+function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallbackCandles: any[] }) {
+  const POPUP_TIMEFRAMES = [
+    { label: '5M', value: '5m', days: 10, defaultBars: 78 },  // ~1 trading day visible
+    { label: '1H', value: '1h', days: 365, defaultBars: 120 },  // ~3 months visible
+    { label: '1D', value: '1d', days: 730, defaultBars: 252 },  // ~1 year visible
+    { label: '1W', value: '1w', days: 2555, defaultBars: 104 },  // ~2 years visible
+  ]
+  const [timeframe, setTimeframe] = React.useState('1D')
+  const [candles, setCandles] = React.useState<any[]>(fallbackCandles)
+  const [fetching, setFetching] = React.useState(false)
+  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const stateRef = React.useRef({ offset: 0, barsVisible: Math.min(252, fallbackCandles.length || 252) })
+  const dragRef = React.useRef({ active: false, mode: 'pan' as 'pan' | 'yscale', startX: 0, startY: 0, startOffset: 0, startMultiplier: 1, lastX: 0, lastTime: 0, velocity: 0 })
+  const inertiaRef = React.useRef<number | null>(null)
+  const yScaleRef = React.useRef({ multiplier: 1, centerPrice: null as number | null })
+
+  // Sync when fallbackCandles prop changes (peer symbol swap)
+  React.useEffect(() => {
+    if (timeframe === '1D') {
+      if (fallbackCandles.length > 0) {
+        setCandles(fallbackCandles)
+        stateRef.current = { offset: 0, barsVisible: Math.min(252, fallbackCandles.length) }
+      }
+    }
+  }, [fallbackCandles]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch on symbol or timeframe change
+  React.useEffect(() => {
+    if (timeframe === '1D' && fallbackCandles.length > 0) {
+      setCandles(fallbackCandles)
+      stateRef.current = { offset: 0, barsVisible: Math.min(252, fallbackCandles.length) }
+      return
+    }
+    setFetching(true)
+    const tf = POPUP_TIMEFRAMES.find(t => t.label === timeframe)
+    const days = tf?.days ?? 90
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = new Date().toISOString().split('T')[0]
+    fetch('/api/bulk-chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: [symbol], timeframe: tf?.value || '1d', startDate, endDate }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const prices = data.data?.[symbol] || []
+        if (prices.length > 0) {
+          setCandles(prices)
+          const defaultBars = tf?.defaultBars ?? 120
+          stateRef.current = { offset: 0, barsVisible: Math.min(defaultBars, prices.length) }
+        }
+      })
+      .catch(() => { })
+      .finally(() => setFetching(false))
+  }, [symbol, timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const draw = React.useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.offsetWidth
+    const H = canvas.offsetHeight
+    if (W === 0 || H === 0) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // DPR fix — crispy retina rendering
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, W, H)
+
+    if (candles.length === 0) {
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '11px "Courier New", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(fetching ? 'LOADING…' : 'NO DATA', W / 2, H / 2)
+      return
+    }
+
+    const { offset, barsVisible } = stateRef.current
+    const total = candles.length
+    const start = Math.max(0, total - barsVisible - offset)
+    const end = Math.min(total, start + barsVisible)
+    const visible = candles.slice(start, end)
+    if (visible.length === 0) return
+
+    const PAD_L = 8, PAD_R = 58, PAD_T = 14, PAD_B = 38
+    const chartW = W - PAD_L - PAD_R
+    const chartH = H - PAD_T - PAD_B
+    const VOLUME_H = Math.floor(chartH * 0.18)
+    const CANDLE_H = chartH - VOLUME_H - 6
+
+    const highs = visible.map((c: any) => c.high ?? c.close)
+    const lows = visible.map((c: any) => c.low ?? c.close)
+    const naturalHi = Math.max(...highs)
+    const naturalLo = Math.min(...lows)
+    const naturalRange = naturalHi - naturalLo || Math.abs(naturalHi) * 0.01 || 1
+
+    // Y-scale override (from Y-axis drag)
+    const ys = yScaleRef.current
+    let hi: number, lo: number, range: number
+    if (ys.centerPrice !== null && ys.multiplier !== 1) {
+      range = naturalRange / ys.multiplier
+      lo = ys.centerPrice - range / 2
+      hi = ys.centerPrice + range / 2
+    } else {
+      hi = naturalHi; lo = naturalLo; range = naturalRange
+    }
+
+    const toY = (v: number) => PAD_T + CANDLE_H - ((v - lo) / range) * CANDLE_H
+    const barW = chartW / visible.length
+
+    // Pre/after-hours shading — intraday timeframes only
+    const isIntraday = timeframe === '5M' || timeframe === '1H'
+    if (isIntraday) {
+      visible.forEach((c: any, i: number) => {
+        const ts = c.timestamp ?? c.t
+        if (!ts) return
+        const d = new Date(ts)
+        // Rough DST: EDT Apr–Oct, EST Nov–Mar
+        const mo = d.getUTCMonth() + 1
+        const etOff = (mo > 3 && mo < 11) ? -4 : -5
+        const etMins = ((d.getUTCHours() + etOff + 24) % 24) * 60 + d.getUTCMinutes()
+        const isExtended = etMins < 570 || etMins >= 960  // before 9:30 or after 16:00
+        if (!isExtended) return
+        ctx.fillStyle = 'rgba(255,255,255,0.05)'
+        ctx.fillRect(PAD_L + i * barW, PAD_T, barW, chartH)
+      })
+    }
+
+    // Candles
+    visible.forEach((c: any, i: number) => {
+      const x = PAD_L + i * barW
+      const o = c.open ?? c.close
+      const cl = c.close
+      const h = c.high ?? c.close
+      const l = c.low ?? c.close
+      const color = cl >= o ? '#00ff00' : '#ff0000'
+      const midX = x + barW * 0.5
+      ctx.strokeStyle = color
+      ctx.lineWidth = Math.max(1, barW * 0.12)
+      ctx.beginPath(); ctx.moveTo(midX, toY(h)); ctx.lineTo(midX, toY(l)); ctx.stroke()
+      const bodyTop = toY(Math.max(o, cl))
+      const bodyH = Math.max(1, toY(Math.min(o, cl)) - bodyTop)
+      ctx.fillStyle = color
+      ctx.fillRect(x + barW * 0.1, bodyTop, barW * 0.8, bodyH)
+    })
+
+    // Volume bars
+    const volumes = visible.map((c: any) => c.volume ?? c.v ?? 0)
+    const maxVol = Math.max(...volumes, 1)
+    const volY0 = PAD_T + CANDLE_H + 6
+    visible.forEach((c: any, i: number) => {
+      const x = PAD_L + i * barW
+      const vol = c.volume ?? c.v ?? 0
+      const volH = Math.max(1, (vol / maxVol) * VOLUME_H)
+      ctx.fillStyle = (c.close >= (c.open ?? c.close)) ? 'rgba(0,191,255,0.55)' : 'rgba(255,0,0,0.5)'
+      ctx.fillRect(x + barW * 0.1, volY0 + VOLUME_H - volH, barW * 0.8, volH)
+    })
+
+    // Last price dashed line
+    const lastClose = visible[visible.length - 1]?.close
+    if (lastClose !== undefined) {
+      const lastY = toY(lastClose)
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 4])
+      ctx.beginPath()
+      ctx.moveTo(PAD_L, lastY)
+      ctx.lineTo(W - PAD_R, lastY)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // Y-axis — crispy white
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 13px "Courier New", monospace'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    for (let i = 0; i <= 4; i++) {
+      const val = lo + (range / 4) * (4 - i)
+      const y = PAD_T + (CANDLE_H / 4) * i
+      const label = val >= 1000 ? val.toFixed(0) : val >= 100 ? val.toFixed(1) : val.toFixed(2)
+      ctx.fillText(label, W - PAD_R + 5, y)
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(W - PAD_R, y); ctx.lineTo(W - PAD_R + 3, y); ctx.stroke()
+    }
+
+    // X-axis dates — crispy white
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 12px "Courier New", monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    const step = Math.max(1, Math.floor(visible.length / 5))
+    visible.forEach((c: any, i: number) => {
+      if (i % step !== 0) return
+      const x = PAD_L + i * barW + barW * 0.5
+      const ts = c.timestamp ?? c.t
+      const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
+      ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, x, H - 6)
+    })
+
+    // Axis border
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(PAD_L, PAD_T)
+    ctx.lineTo(PAD_L, H - PAD_B)
+    ctx.lineTo(W - PAD_R, H - PAD_B)
+    ctx.stroke()
+  }, [candles, fetching, timeframe])
+
+  // Canvas DPR setup + ResizeObserver
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const ro = new ResizeObserver(() => {
+      canvas.width = canvas.offsetWidth * dpr
+      canvas.height = canvas.offsetHeight * dpr
+      draw()
+    })
+    ro.observe(canvas)
+    canvas.width = (canvas.offsetWidth || 500) * dpr
+    canvas.height = (canvas.offsetHeight || 220) * dpr
+    draw()
+    return () => ro.disconnect()
+  }, [draw])
+
+  // Wheel + interaction — attached imperatively (passive:false required for preventDefault)
+  const drawRef = React.useRef(draw)
+  drawRef.current = draw
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const PAD_L = 8, PAD_R = 58
+
+    const clampOffset = (o: number, bars: number, total: number) =>
+      Math.max(0, Math.min(Math.max(0, total - bars), o))
+
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const total = candles.length
+      if (total === 0) return
+
+      // Cancel any running inertia
+      if (inertiaRef.current !== null) {
+        cancelAnimationFrame(inertiaRef.current)
+        inertiaRef.current = null
+      }
+
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const chartW = canvas.offsetWidth - PAD_L - PAD_R
+
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        // ── Horizontal scroll → pan ──────────────────────────────────────────
+        // deltaX > 0 = fingers/swipe left = newer data = offset decreases
+        const barPx = chartW / stateRef.current.barsVisible
+        stateRef.current.offset = clampOffset(
+          stateRef.current.offset - (e.deltaX / barPx) * 1.5,
+          stateRef.current.barsVisible, total
+        )
+      } else {
+        // ── Vertical scroll → zoom centered on cursor ────────────────────────
+        // deltaY > 0 = scroll down = zoom out (more bars); < 0 = zoom in
+        const factor = e.deltaY > 0 ? 1.10 : 0.91
+        const newBars = Math.max(8, Math.min(total, stateRef.current.barsVisible * factor))
+
+        // Identify which fractional bar index the cursor sits on,
+        // then keep that bar fixed at the same screen position after zoom.
+        const cursorT = Math.max(0, Math.min(1, (mouseX - PAD_L) / chartW))
+        const cursorBarF = (total - stateRef.current.barsVisible - stateRef.current.offset) + cursorT * stateRef.current.barsVisible
+
+        stateRef.current.barsVisible = newBars
+        const newStart = cursorBarF - cursorT * newBars
+        stateRef.current.offset = clampOffset(total - newStart - newBars, newBars, total)
+      }
+
+      drawRef.current()
+    }
+
+    canvas.addEventListener('wheel', handler, { passive: false })
+    return () => canvas.removeEventListener('wheel', handler)
+  }, [candles])
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null }
+    const canvas = canvasRef.current
+    const offsetX = e.nativeEvent.offsetX
+    const W = canvas?.offsetWidth ?? 500
+    const isYAxis = offsetX > W - 58
+    if (isYAxis) {
+      if (yScaleRef.current.centerPrice === null) {
+        const total = candles.length
+        const { offset, barsVisible } = stateRef.current
+        const start = Math.max(0, total - barsVisible - offset)
+        const vis = candles.slice(start, start + barsVisible)
+        if (vis.length > 0) {
+          const vhi = Math.max(...vis.map((c: any) => c.high ?? c.close))
+          const vlo = Math.min(...vis.map((c: any) => c.low ?? c.close))
+          yScaleRef.current.centerPrice = (vhi + vlo) / 2
+        }
+      }
+      dragRef.current = { active: true, mode: 'yscale', startX: e.clientX, startY: e.clientY, startOffset: stateRef.current.offset, startMultiplier: yScaleRef.current.multiplier, lastX: e.clientX, lastTime: performance.now(), velocity: 0 }
+    } else {
+      dragRef.current = { active: true, mode: 'pan', startX: e.clientX, startY: e.clientY, startOffset: stateRef.current.offset, startMultiplier: 1, lastX: e.clientX, lastTime: performance.now(), velocity: 0 }
+    }
+  }
+
+  // Attach mousemove + mouseup to WINDOW so drag works even when mouse leaves canvas
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+
+    const onMove = (e: MouseEvent) => {
+      // Cursor feedback on canvas hover (only when not dragging)
+      if (canvas && !dragRef.current.active) {
+        const rect = canvas.getBoundingClientRect()
+        const offsetX = e.clientX - rect.left
+        canvas.style.cursor = offsetX > (canvas.offsetWidth - 58) ? 'ns-resize' : 'crosshair'
+      }
+      if (!dragRef.current.active) return
+
+      if (dragRef.current.mode === 'yscale') {
+        const dy = dragRef.current.startY - e.clientY
+        yScaleRef.current.multiplier = Math.max(0.1, Math.min(50, dragRef.current.startMultiplier * Math.pow(1.006, dy)))
+        drawRef.current()
+        return
+      }
+
+      // pan mode
+      const W = canvas?.offsetWidth ?? 500
+      const chartW = W - 8 - 58
+      const barPx = chartW / stateRef.current.barsVisible
+      const total = candles.length
+      const now = performance.now()
+      const dt = now - dragRef.current.lastTime
+      if (dt > 0) {
+        const rawVel = (e.clientX - dragRef.current.lastX) / barPx / dt
+        dragRef.current.velocity = dragRef.current.velocity * 0.6 + rawVel * 0.4
+      }
+      dragRef.current.lastX = e.clientX
+      dragRef.current.lastTime = now
+      const dragBars = (e.clientX - dragRef.current.startX) / barPx
+      stateRef.current.offset = Math.max(0, Math.min(
+        Math.max(0, total - stateRef.current.barsVisible),
+        dragRef.current.startOffset + dragBars
+      ))
+      drawRef.current()
+    }
+
+    const onUp = () => {
+      if (!dragRef.current.active) return
+      if (dragRef.current.mode === 'yscale') { dragRef.current.active = false; return }
+      dragRef.current.active = false
+      let vel = dragRef.current.velocity
+      const total = candles.length
+      if (Math.abs(vel) < 0.004) return
+      const animate = () => {
+        vel *= 0.88
+        if (Math.abs(vel) < 0.0008) { inertiaRef.current = null; return }
+        stateRef.current.offset = Math.max(0, Math.min(
+          Math.max(0, total - stateRef.current.barsVisible),
+          stateRef.current.offset + vel * 16
+        ))
+        drawRef.current()
+        inertiaRef.current = requestAnimationFrame(animate)
+      }
+      inertiaRef.current = requestAnimationFrame(animate)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [candles]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Double-click Y-axis → reset price scale to auto-fit
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (e.nativeEvent.offsetX > canvas.offsetWidth - 58) {
+      yScaleRef.current = { multiplier: 1, centerPrice: null }
+      drawRef.current()
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', alignItems: 'center' }}>
+        {POPUP_TIMEFRAMES.map(tf => (
+          <button
+            key={tf.label}
+            onClick={() => setTimeframe(tf.label)}
+            style={{
+              padding: '3px 10px',
+              fontFamily: '"Courier New", monospace',
+              fontSize: '10px',
+              fontWeight: 700,
+              background: timeframe === tf.label ? '#ff6600' : '#000000',
+              color: timeframe === tf.label ? '#000000' : '#ffffff',
+              border: `1px solid ${timeframe === tf.label ? '#ff6600' : 'rgba(255,255,255,0.35)'}`,
+              boxShadow: timeframe === tf.label ? 'none' : 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.12s',
+            }}
+          >
+            {tf.label}
+          </button>
+        ))}
+        {fetching && (
+          <span style={{ fontFamily: '"Courier New", monospace', fontSize: '9px', color: '#ff6600', marginLeft: '4px' }}>
+            LOADING…
+          </span>
+        )}
+      </div>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '280px', display: 'block', cursor: 'crosshair', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.25)' }}
+        onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
+      />
+    </div>
+  )
+}
+
+// ─── Trade Detail Popup Component ─────────────────────────────────────────────
+function TradeDetailPopup({
+  trade,
+  symbol,
+  onClose,
+  scanPricesCache,
+  scanAllScored,
+}: {
+  trade: any
+  symbol: string
+  onClose: () => void
+  scanPricesCache: Map<string, any[]>
+  scanAllScored: any[]
+}) {
+  const [activeSymbol, setActiveSymbol] = React.useState(symbol)
+  const activeCandles = scanPricesCache.get(activeSymbol) || []
+  const industrySymbol = trade.industrySymbol || ''
+
+  // Dedup peers by symbol (scan may have same stock from multiple tabs)
+  const industryPeers = React.useMemo(() => {
+    const seen = new Set<string>()
+    return scanAllScored
+      .filter((s: any) => s.industrySymbol === industrySymbol)
+      .filter((s: any) => {
+        if (seen.has(s.symbol)) return false
+        seen.add(s.symbol)
+        return true
+      })
+  }, [scanAllScored, industrySymbol])
+
+  const totalPeers = industryPeers.length
+  const upCount = industryPeers.filter((s: any) => s.trend === 'bullish').length
+  const downCount = totalPeers - upCount
+  const outperforming = industryPeers.filter((s: any) => (s.relativePerformance || 0) > 0).length
+  const underperforming = totalPeers - outperforming
+  const avgScore = totalPeers > 0
+    ? Math.round(industryPeers.reduce((a: number, b: any) => a + (b.score || 0), 0) / totalPeers)
+    : 0
+  const topPeers = [...industryPeers].sort((a: any, b: any) => (b.score || 0) - (a.score || 0)).slice(0, 8)
+
+  let above52wkHigh = 0
+  let below52wkLow = 0
+  industryPeers.forEach((peer: any) => {
+    const pc = scanPricesCache.get(peer.symbol) || []
+    if (pc.length === 0) return
+    const highs = pc.map((c: any) => c.high ?? c.close)
+    const lows = pc.map((c: any) => c.low ?? c.close)
+    const rangeHigh = Math.max(...highs)
+    const rangeLow = Math.min(...lows)
+    const last = pc[pc.length - 1]?.close || 0
+    if (last >= rangeHigh * 0.98) above52wkHigh++
+    if (last <= rangeLow * 1.02) below52wkLow++
+  })
+
+  const sentimentPct = totalPeers > 0 ? Math.round(upCount / totalPeers * 100) : 0
+  const outperformingPct = totalPeers > 0 ? Math.round(outperforming / totalPeers * 100) : 0
+  const lastPrice = activeCandles.length > 0 ? activeCandles[activeCandles.length - 1]?.close : null
+  const prevPrice = activeCandles.length > 1 ? activeCandles[activeCandles.length - 2]?.close : null
+  const pctChange = (lastPrice && prevPrice) ? ((lastPrice - prevPrice) / prevPrice * 100) : null
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full mx-4"
+        style={{
+          maxWidth: '1080px',
+          background: '#000000',
+          borderTop: '1px solid rgba(255,255,255,0.3)',
+          borderRight: '1px solid rgba(255,255,255,0.3)',
+          borderBottom: '1px solid rgba(255,255,255,0.3)',
+          borderLeft: `3px solid ${trade.trend === 'bullish' ? '#00e564' : '#ff3232'}`,
+          maxHeight: '92vh',
+          overflowY: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 36px 20px', borderBottom: '1px solid rgba(255,255,255,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 900, fontSize: '2.4rem', color: '#ffffff', letterSpacing: '0.02em' }}>{activeSymbol}</span>
+            {lastPrice !== null && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginRight: '4px' }}>
+                <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '1.5rem', color: '#ffffff', letterSpacing: '0.01em' }}>
+                  ${lastPrice >= 1000 ? lastPrice.toFixed(0) : lastPrice >= 100 ? lastPrice.toFixed(1) : lastPrice.toFixed(2)}
+                </span>
+                {pctChange !== null && (
+                  <span style={{ fontFamily: '"Courier New", monospace', fontSize: '13px', fontWeight: 700, color: pctChange >= 0 ? '#00e564' : '#ff3232' }}>
+                    {pctChange >= 0 ? '▲ +' : '▼ '}{pctChange.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <span style={{ fontFamily: '"Courier New", monospace', fontSize: '15px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{trade.industry}</span>
+              <span style={{ fontFamily: '"Courier New", monospace', fontSize: '14px', color: '#ffffff' }}>{industrySymbol} ETF</span>
+            </div>
+            <div style={{
+              padding: '4px 14px',
+              fontFamily: '"Courier New", monospace', fontSize: '15px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+              color: trade.trend === 'bullish' ? '#00e564' : '#ff3232',
+              border: `1px solid ${trade.trend === 'bullish' ? '#00e564' : '#ff3232'}`,
+            }}>
+              {trade.trend === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+            </div>
+            {activeSymbol !== symbol && (
+              <button
+                onClick={() => setActiveSymbol(symbol)}
+                style={{ fontFamily: '"Courier New", monospace', fontSize: '13px', fontWeight: 600, color: '#ffffff', background: 'transparent', border: '1px solid rgba(255,255,255,0.4)', padding: '4px 12px', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+              >
+                ← {symbol}
+              </button>
+            )}
+          </div>
+          <button onClick={onClose} style={{ color: '#ffffff', fontSize: '1.4rem', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0', padding: '0' }}>
+          {/* LEFT — charts */}
+          <div style={{ padding: '24px 28px 24px 36px', borderRight: '1px solid rgba(255,255,255,0.2)' }}>
+            <div style={{ fontFamily: '"Courier New", monospace', fontSize: '13px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '10px' }}>
+              {activeSymbol} · Price Action
+            </div>
+            <TradePopupChart symbol={activeSymbol} fallbackCandles={activeCandles} />
+            {industrySymbol && (
+              <div style={{ marginTop: '24px' }}>
+                <div style={{ fontFamily: '"Courier New", monospace', fontSize: '13px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '10px' }}>
+                  {industrySymbol} · Industry ETF
+                </div>
+                <TradePopupChart symbol={industrySymbol} fallbackCandles={scanPricesCache.get(industrySymbol) || []} />
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT — stats */}
+          <div style={{ padding: '24px 36px 24px 28px', display: 'flex', flexDirection: 'column', gap: '0' }}>
+
+            {/* Sector Overview header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '16px' }}>
+              <span style={{ fontFamily: '"Courier New", monospace', fontSize: '14px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sector Overview</span>
+              <span style={{ fontFamily: '"Courier New", monospace', fontSize: '13px', color: '#ffffff' }}>{totalPeers} stocks</span>
+            </div>
+
+            {/* Clean stats rows */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.25)', marginBottom: '20px' }}>
+              {[
+                { label: 'Bullish', value: upCount, suffix: `${sentimentPct}%`, color: '#00e564' },
+                { label: 'Bearish', value: downCount, suffix: `${100 - sentimentPct}%`, color: '#ff3232' },
+                { label: 'Outperforming SPY', value: outperforming, suffix: `${outperformingPct}%`, color: outperformingPct >= 50 ? '#00e564' : '#ffffff' },
+                { label: 'Underperforming SPY', value: underperforming, suffix: `${100 - outperformingPct}%`, color: (100 - outperformingPct) >= 50 && outperformingPct < 50 ? '#ff3232' : '#ffffff' },
+                { label: 'Near 52w High', value: above52wkHigh, suffix: null, color: '#ffffff' },
+                { label: 'Near 52w Low', value: below52wkLow, suffix: null, color: '#ffffff' },
+              ].map((row, i) => (
+                <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                  <span style={{ fontFamily: '"Courier New", monospace', fontSize: '15px', color: '#ffffff' }}>{row.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                    <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '18px', color: row.color }}>{row.value}</span>
+                    {row.suffix && <span style={{ fontFamily: '"Courier New", monospace', fontSize: '14px', color: '#ffffff' }}>{row.suffix}</span>}
+                  </div>
+                </div>
+              ))}
+              {/* Avg score row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                <span style={{ fontFamily: '"Courier New", monospace', fontSize: '15px', color: '#ffffff' }}>Avg Score</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '120px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${avgScore}%`, background: avgScore >= 75 ? '#00e564' : avgScore >= 55 ? '#ffffff' : '#ff3232' }} />
+                  </div>
+                  <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '18px', color: avgScore >= 75 ? '#00e564' : avgScore >= 55 ? '#ffffff' : '#ff3232' }}>{avgScore}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Peers table */}
+            {topPeers.length > 0 && (
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: '"Courier New", monospace', fontSize: '14px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '10px' }}>
+                  Sector Peers · Click to Chart
+                </div>
+                {/* Column headers */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 32px 90px 50px', gap: '0', padding: '8px 8px', borderBottom: '1px solid rgba(255,255,255,0.25)' }}>
+                  {['Ticker', '', 'Rel Perf', 'Score'].map(h => (
+                    <span key={h} style={{ fontFamily: '"Courier New", monospace', fontSize: '12px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: h === 'Rel Perf' ? 'right' : h === 'Score' ? 'right' : 'left' }}>{h}</span>
+                  ))}
+                </div>
+                {topPeers.map((peer: any, idx: number) => (
+                  <div
+                    key={`${peer.symbol}-${idx}`}
+                    onClick={() => setActiveSymbol(peer.symbol)}
+                    style={{
+                      display: 'grid', gridTemplateColumns: '1fr 32px 90px 50px',
+                      padding: '12px 8px', borderBottom: '1px solid rgba(255,255,255,0.15)',
+                      cursor: 'pointer',
+                      background: activeSymbol === peer.symbol ? 'rgba(255,255,255,0.1)' : '#000000',
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.08)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = activeSymbol === peer.symbol ? 'rgba(255,255,255,0.1)' : '#000000' }}
+                  >
+                    <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '16px', color: '#ffffff' }}>{peer.symbol}</span>
+                    <span style={{ fontFamily: '"Courier New", monospace', fontSize: '15px', color: peer.trend === 'bullish' ? '#00e564' : '#ff3232' }}>{peer.trend === 'bullish' ? '▲' : '▼'}</span>
+                    <span style={{ fontFamily: '"Courier New", monospace', fontSize: '15px', color: (peer.relativePerformance || 0) >= 0 ? '#00e564' : '#ff3232', textAlign: 'right' }}>
+                      {(peer.relativePerformance || 0) >= 0 ? '+' : ''}{(peer.relativePerformance || 0).toFixed(2)}%
+                    </span>
+                    <span style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '16px', color: '#ffffff', textAlign: 'right' }}>{Math.round(peer.score || 0)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Trade details strip */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.25)', padding: '18px 36px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0' }}>
+            {[
+              { label: 'Option', value: `$${trade.strike?.toFixed(0) || 'N/A'} ${trade.optionType || ''}`, color: '#ffffff' },
+              { label: 'Expiry', value: trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : 'N/A', color: '#ffffff' },
+              { label: 'Price', value: `$${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}`, color: '#ffffff' },
+              { label: 'IV', value: `${trade.impliedVolatility || 'N/A'}%`, color: '#ffffff' },
+              { label: 'Target', value: `$${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}`, color: '#00e564' },
+              { label: 'Stop', value: `$${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}`, color: '#ff3232' },
+            ].map((item, i) => (
+              <div key={item.label} style={{ textAlign: 'center', padding: '0 8px', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                <div style={{ fontFamily: '"Courier New", monospace', fontSize: '12px', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '5px' }}>{item.label}</div>
+                <div style={{ fontFamily: '"Courier New", monospace', fontWeight: 700, fontSize: '17px', color: (item as any).color || '#ffffff' }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Flow Panel Component - Extracted outside to prevent re-renders on mouse move
 const FlowPanel = React.memo(
   ({
@@ -3780,6 +4457,7 @@ export default function TradingViewChart({
   const containerRef = useRef<HTMLDivElement>(null)
   const chartCanvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const topBarRef = useRef<HTMLDivElement>(null)
 
   // Dropdown button refs for positioning
   const technalysisButtonRef = useRef<HTMLButtonElement>(null)
@@ -3861,21 +4539,6 @@ export default function TradingViewChart({
   const [trackingTimeframe, setTrackingTimeframe] = useState<
     '1D' | '5D' | '1M' | '3M' | '6M' | '1Y'
   >('1D')
-
-  // Highlights charts state
-  const [highlightsChartData, setHighlightsChartData] = useState<{
-    [symbol: string]: {
-      symbol: string
-      price: number
-      change: number
-      sparklineData: Array<{ time: number; price: number; etMinutes?: number }>
-      previousDayClose?: number
-    }
-  }>({})
-
-  // Track fetched symbols to prevent unnecessary re-fetches
-  const fetchedSymbolsRef = useRef<Set<string>>(new Set())
-  const highlightsChartFetchedRef = useRef<boolean>(false)
 
   // Memoize tracking categories to prevent remounting on every render
   const trackingCategories = useMemo(
@@ -4029,6 +4692,7 @@ export default function TradingViewChart({
     | 'parallelChannel'
     | 'buyZone'
     | 'sellZone'
+    | 'buySellZone'
     | 'priceRange'
     | 'brush'
   >('select')
@@ -4964,7 +5628,7 @@ export default function TradingViewChart({
             const benchmarkPastIV =
               (benchmarkHistory![i - actualLookback]?.callIV +
                 benchmarkHistory![i - actualLookback]?.putIV) /
-                2 || 1
+              2 || 1
 
             // RS-Ratio: (Current IV / Benchmark IV)
             rsRatio = (currentIV / benchmarkIV) * 100
@@ -6398,9 +7062,6 @@ export default function TradingViewChart({
   const [regimeLoadingStage, setRegimeLoadingStage] = useState<string>('')
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryPerformance | null>(null)
   const [allRegimesLoaded, setAllRegimesLoaded] = useState(false)
-  const [highlightFilter, setHighlightFilter] = useState<'all' | 'gold' | 'purple' | 'highlights'>(
-    'all'
-  )
   const [sortByPercentage, setSortByPercentage] = useState(true) // true = highest first, false = lowest first
 
   // Calculate Historical Volatility (EXACT same as HVScreener)
@@ -6451,11 +7112,11 @@ export default function TradingViewChart({
 
     try {
       // Use EXACT same logic as Market Regimes panel - check highlightedTradesCache for all timeframes
-      const timeframes = ['life', 'developing', 'momentum', 'legacy']
+      const timeframes = ['life', 'momentum']
 
       for (const tf of timeframes) {
         // Check if symbol exists in highlighted trades for this timeframe
-        const tfTrades = highlightedTradesCache[tf]
+        const tfTrades = highlightedTradesCache[`${scanGroupMode}-${tf}`]
         if (tfTrades && tfTrades[symbol]) {
           const trade = tfTrades[symbol]
           results.push({
@@ -7295,13 +7956,11 @@ export default function TradingViewChart({
     // Build MarketRegimeData from ALL cached TimeframeAnalysis
     const fullData: any = {
       life: regimeDataCache['life'] || null,
-      developing: regimeDataCache['developing'] || null,
       momentum: regimeDataCache['momentum'] || null,
-      legacy: regimeDataCache['legacy'] || null,
     }
 
     // Only update if we have at least one timeframe loaded
-    if (fullData.life || fullData.developing || fullData.momentum || fullData.legacy) {
+    if (fullData.life || fullData.momentum) {
       setMarketRegimeData(fullData as MarketRegimeData)
     }
   }, [regimeDataCache])
@@ -7319,9 +7978,7 @@ export default function TradingViewChart({
 
         const tabConfigs = [
           { tab: 'life', days: 5 },
-          { tab: 'developing', days: 21 },
           { tab: 'momentum', days: 80 },
-          { tab: 'legacy', days: 252 },
         ]
 
         const results = await Promise.allSettled(
@@ -7352,9 +8009,7 @@ export default function TradingViewChart({
         // Build full MarketRegimeData with ALL timeframes
         const fullData: any = {
           life: newCache['life'] || null,
-          developing: newCache['developing'] || null,
           momentum: newCache['momentum'] || null,
-          legacy: newCache['legacy'] || null,
         }
         setMarketRegimeData(fullData as MarketRegimeData)
 
@@ -7378,9 +8033,7 @@ export default function TradingViewChart({
 
       const tabConfigs = [
         { tab: 'life', days: 5 },
-        { tab: 'developing', days: 21 },
         { tab: 'momentum', days: 80 },
-        { tab: 'legacy', days: 252 },
       ]
 
       const results = await Promise.allSettled(
@@ -7402,9 +8055,7 @@ export default function TradingViewChart({
 
       const fullData: any = {
         life: newCache['life'] || null,
-        developing: newCache['developing'] || null,
         momentum: newCache['momentum'] || null,
-        legacy: newCache['legacy'] || null,
       }
       setMarketRegimeData(fullData as MarketRegimeData)
 
@@ -7425,6 +8076,14 @@ export default function TradingViewChart({
   const [showTradeModal, setShowTradeModal] = useState(false)
   const [expandedScoreComponent, setExpandedScoreComponent] = useState<string | null>(null)
   const [isCalculatingTrades, setIsCalculatingTrades] = useState(false)
+  const [scanGroupMode, setScanGroupMode] = useState<'sectors' | 'industries'>('sectors')
+
+  // Scan data cache — persists scan candles + all scored candidates for popup reuse
+  const scanPricesCacheRef = useRef<Map<string, any[]>>(new Map())
+  const scanAllScoredRef = useRef<any[]>([])
+  const industryChartCacheRef = useRef<Map<string, any[]>>(new Map())
+  const autoTriggeredIndustriesRef = useRef(false)
+  const [tradeDetailPopup, setTradeDetailPopup] = useState<any | null>(null)
 
   // Scroll position preservation for RegimesPanel
   const regimesPanelScrollRef = useRef<HTMLDivElement>(null)
@@ -7759,7 +8418,7 @@ export default function TradingViewChart({
           returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
         )
 
-        allReturns.forEach((returns, idx) => {})
+        allReturns.forEach((returns, idx) => { })
 
         const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1]?.close : 0
 
@@ -7924,6 +8583,16 @@ export default function TradingViewChart({
   const [rrgIvStartTimestamp, setRrgIvStartTimestamp] = useState<number | null>(null) // First candle with IV color
   const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false)
 
+  // BUY/SELL Indicator state
+  const [showBuySellIndicator, setShowBuySellIndicator] = useState(false)
+  const [buySellData, setBuySellData] = useState<Array<{ date: string; score: number }>>([])
+  const [buySellLoadingProgress, setBuySellLoadingProgress] = useState(0)
+  const [buySellPanelHeight, setBuySellPanelHeight] = useState(120)
+  const [isDraggingBuySellPanel, setIsDraggingBuySellPanel] = useState(false)
+  const buySellResizeDragRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const BUYSELL_HEIGHT_MIN = 60
+  const BUYSELL_HEIGHT_MAX = 400
+
   // Timeframe dropdown state
   const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false)
   const timeframeButtonRef = useRef<HTMLButtonElement>(null)
@@ -7945,14 +8614,18 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Calculate new height from bottom of container
-      const newHeight = bottomOfContainer - mouseY
+      // Subtract everything below flow chart: IV + volume + buySell + time axis
+      const belowFlow =
+        (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) +
+        80 +
+        (showBuySellIndicator ? buySellPanelHeight : 0) +
+        25
+      const newHeight = bottomOfContainer - mouseY - belowFlow
 
-      // Constrain between 100px and 800px (allow dragging much higher)
       const constrainedHeight = Math.max(100, Math.min(800, newHeight))
       setFlowChartHeight(constrainedHeight)
     },
-    [isDraggingFlowChart]
+    [isDraggingFlowChart, isAnyIVHVActive, activeIVPanelCount, ivPanelHeight, showBuySellIndicator, buySellPanelHeight]
   )
 
   const handleFlowChartDragEnd = useCallback(() => {
@@ -7988,8 +8661,8 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Calculate distance from bottom (accounting for volume and time axis)
-      const volumeAndTimeHeight = 80 + 25 // volume area + time axis
+      // Calculate distance from bottom (accounting for volume, BuySell panel, and time axis)
+      const volumeAndTimeHeight = 80 + 25 + (showBuySellIndicator ? buySellPanelHeight : 0)
       const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
       const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace
 
@@ -8000,7 +8673,7 @@ export default function TradingViewChart({
       const constrainedHeight = Math.max(80, Math.min(300, newHeightPerPanel))
       setIVPanelHeight(constrainedHeight)
     },
-    [isDraggingIVPanel, isFlowChartActive, flowChartHeight, activeIVPanelCount]
+    [isDraggingIVPanel, isFlowChartActive, flowChartHeight, activeIVPanelCount, showBuySellIndicator, buySellPanelHeight]
   )
 
   const handleIVPanelDragEnd = useCallback(() => {
@@ -8018,6 +8691,40 @@ export default function TradingViewChart({
       }
     }
   }, [isDraggingIVPanel, handleIVPanelDragMove, handleIVPanelDragEnd])
+
+  // BuySell panel resize handlers
+  const handleBuySellDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDraggingBuySellPanel(true)
+  }, [])
+
+  const handleBuySellDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDraggingBuySellPanel) return
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const distanceFromBottom = rect.bottom - e.clientY - 105 // subtract time axis (25) + volume area (80)
+      const newHeight = Math.max(BUYSELL_HEIGHT_MIN, Math.min(BUYSELL_HEIGHT_MAX, Math.floor(distanceFromBottom)))
+      setBuySellPanelHeight(newHeight)
+    },
+    [isDraggingBuySellPanel, BUYSELL_HEIGHT_MIN, BUYSELL_HEIGHT_MAX]
+  )
+
+  const handleBuySellDragEnd = useCallback(() => {
+    setIsDraggingBuySellPanel(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDraggingBuySellPanel) {
+      window.addEventListener('mousemove', handleBuySellDragMove)
+      window.addEventListener('mouseup', handleBuySellDragEnd)
+      return () => {
+        window.removeEventListener('mousemove', handleBuySellDragMove)
+        window.removeEventListener('mouseup', handleBuySellDragEnd)
+      }
+    }
+  }, [isDraggingBuySellPanel, handleBuySellDragMove, handleBuySellDragEnd])
 
   // IV & HV Data Fetch Handler - Fetches historical IV data and calculates metrics
   const fetchIVData = useCallback(async () => {
@@ -8260,17 +8967,17 @@ export default function TradingViewChart({
 
   // Holdings for each regime ETF — used to compute alignment ratio
   const REGIME_SECTOR_HOLDINGS: Record<string, string[]> = {
-    XLK: ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM', 'ORCL', 'ADBE', 'ACN', 'CSCO', 'AMD'],
-    XLF: ['JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'SPGI', 'AXP', 'BLK'],
-    XLV: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY'],
-    XLI: ['CAT', 'RTX', 'HON', 'UPS', 'LMT', 'BA', 'UNP', 'ADP', 'DE', 'MMM'],
-    XLY: ['AMZN', 'TSLA', 'HD', 'MCD', 'BKNG', 'NKE', 'LOW', 'SBUX', 'TJX', 'ORLY'],
-    XLP: ['PG', 'KO', 'PEP', 'WMT', 'COST', 'MDLZ', 'CL', 'KMB', 'GIS', 'MO'],
-    XLE: ['XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PSX', 'VLO', 'MPC', 'OXY', 'BKR'],
-    XLU: ['NEE', 'SO', 'DUK', 'CEG', 'SRE', 'AEP', 'VST', 'D', 'PCG', 'PEG'],
-    XLB: ['LIN', 'APD', 'SHW', 'ECL', 'FCX', 'NEM', 'DD', 'NUE', 'PPG', 'DOW'],
-    XLRE: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR'],
-    XLC: ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'TMUS', 'CHTR', 'EA'],
+    XLK: ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM', 'ORCL', 'ADBE', 'ACN', 'CSCO', 'AMD', 'AMAT', 'TXN', 'QCOM', 'NOW', 'MU', 'PANW', 'KLAC', 'SNPS', 'CDNS', 'ADI', 'LRCX', 'FTNT', 'FICO', 'ROP', 'INTC'],
+    XLF: ['JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'SPGI', 'AXP', 'BLK', 'BX', 'SCHW', 'CB', 'MSCI', 'AON', 'TRV', 'PGR', 'MET', 'PRU', 'ICE', 'CME', 'USB', 'PNC', 'MCO', 'AFL'],
+    XLV: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY', 'AMGN', 'GILD', 'CVS', 'CI', 'MDT', 'BSX', 'ISRG', 'VRTX', 'REGN', 'ZTS', 'SYK', 'HUM', 'BAX', 'BDX', 'EW'],
+    XLI: ['CAT', 'RTX', 'HON', 'UPS', 'LMT', 'BA', 'UNP', 'ADP', 'DE', 'MMM', 'GE', 'ETN', 'ITW', 'EMR', 'PH', 'ROK', 'CTAS', 'NSC', 'CSX', 'WM', 'FDX', 'GWW', 'IR', 'PCAR', 'TT'],
+    XLY: ['AMZN', 'TSLA', 'HD', 'MCD', 'BKNG', 'NKE', 'LOW', 'SBUX', 'TJX', 'ORLY', 'F', 'GM', 'CMG', 'YUM', 'DRI', 'HLT', 'MAR', 'DHI', 'LEN', 'PHM', 'AZO', 'ROST', 'ABNB', 'RL', 'VFC'],
+    XLP: ['PG', 'KO', 'PEP', 'WMT', 'COST', 'MDLZ', 'CL', 'KMB', 'GIS', 'MO', 'PM', 'EL', 'STZ', 'SJM', 'CAG', 'HRL', 'KDP', 'CPB', 'CHD', 'CLX', 'TSN', 'KHC', 'MNST', 'HSY', 'TAP'],
+    XLE: ['XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PSX', 'VLO', 'MPC', 'OXY', 'BKR', 'HAL', 'DVN', 'FANG', 'OVV', 'MTDR', 'KMI', 'WMB', 'OKE', 'TRGP', 'APA', 'CVI', 'PBF', 'RIG', 'FTI', 'NOV'],
+    XLU: ['NEE', 'SO', 'DUK', 'CEG', 'SRE', 'AEP', 'VST', 'D', 'PCG', 'PEG', 'EXC', 'XEL', 'ES', 'AWK', 'WEC', 'DTE', 'ETR', 'PPL', 'CMS', 'LNT', 'EVRG', 'ATO', 'NI', 'PNW', 'NWE'],
+    XLB: ['LIN', 'APD', 'SHW', 'ECL', 'FCX', 'NEM', 'DD', 'NUE', 'PPG', 'DOW', 'CF', 'MOS', 'IFF', 'ALB', 'EMN', 'AVY', 'PKG', 'IP', 'MLM', 'VMC', 'RS', 'CTVA', 'FMC', 'CE', 'STLD'],
+    XLRE: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR', 'AVB', 'EQR', 'VTR', 'WELL', 'ARE', 'BXP', 'KIM', 'REG', 'SPG', 'VICI', 'MAA', 'IRM', 'NLY', 'AGNC', 'SUI'],
+    XLC: ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'TMUS', 'CHTR', 'EA', 'TTWO', 'RBLX', 'MTCH', 'LYV', 'WBD', 'SIRI', 'FOX', 'TTD', 'OMC', 'NWSA', 'IAC', 'ZM', 'SNAP', 'PINS', 'SPOT'],
     // Industry ETFs — 35% of each group
     IGV: ['CRM', 'MSFT', 'ADBE', 'NOW', 'INTU', 'ORCL', 'PANW', 'SNPS', 'CDNS', 'FTNT'],
     SMH: ['NVDA', 'TSM', 'ASML', 'AVGO', 'TXN', 'QCOM', 'AMD', 'MU', 'LRCX', 'KLAC'],
@@ -8394,116 +9101,11 @@ export default function TradingViewChart({
         'IJH',
         'IWN',
         'IWO',
-        // Sector holdings for alignment scoring
-        'AAPL',
-        'MSFT',
-        'NVDA',
-        'AVGO',
-        'CRM',
-        'ORCL',
-        'ADBE',
-        'ACN',
-        'CSCO',
-        'AMD',
-        'JPM',
-        'V',
-        'MA',
-        'BAC',
-        'WFC',
-        'GS',
-        'MS',
-        'SPGI',
-        'AXP',
-        'BLK',
-        'UNH',
-        'JNJ',
-        'PFE',
-        'ABBV',
-        'MRK',
-        'TMO',
-        'ABT',
-        'DHR',
-        'BMY',
-        'LLY',
-        'CAT',
-        'RTX',
-        'HON',
-        'UPS',
-        'LMT',
-        'BA',
-        'UNP',
-        'ADP',
-        'DE',
-        'MMM',
-        'AMZN',
-        'TSLA',
-        'HD',
-        'MCD',
-        'BKNG',
-        'NKE',
-        'LOW',
-        'SBUX',
-        'TJX',
-        'ORLY',
-        'PG',
-        'KO',
-        'PEP',
-        'COST',
-        'MDLZ',
-        'CL',
-        'KMB',
-        'GIS',
-        'MO',
-        'XOM',
-        'CVX',
-        'COP',
-        'EOG',
-        'SLB',
-        'PSX',
-        'VLO',
-        'MPC',
-        'OXY',
-        'BKR',
-        'NEE',
-        'SO',
-        'DUK',
-        'CEG',
-        'SRE',
-        'AEP',
-        'VST',
-        'D',
-        'PCG',
-        'PEG',
-        'LIN',
-        'APD',
-        'SHW',
-        'ECL',
-        'FCX',
-        'NEM',
-        'DD',
-        'NUE',
-        'PPG',
-        'DOW',
-        'PLD',
-        'AMT',
-        'CCI',
-        'EQIX',
-        'PSA',
-        'WY',
-        'DLR',
-        'O',
-        'SBAC',
-        'EXR',
-        'GOOGL',
-        'META',
-        'NFLX',
-        'DIS',
-        'CMCSA',
-        'VZ',
-        'T',
-        'TMUS',
-        'CHTR',
-        'EA',
+        // Sector holdings — auto-derived from REGIME_SECTOR_HOLDINGS so always in sync
+        ...Array.from(new Set(
+          ['XLK', 'XLF', 'XLV', 'XLI', 'XLY', 'XLP', 'XLE', 'XLU', 'XLB', 'XLRE', 'XLC']
+            .flatMap(s => REGIME_SECTOR_HOLDINGS[s] || [])
+        )),
         // Industry ETF holdings for alignment scoring
         // IGV
         'NOW',
@@ -9491,14 +10093,24 @@ export default function TradingViewChart({
     setSearchQuery(symbol)
   }, [symbol])
 
+  // Block wheel scroll when hovering the top toolbar so it never scrolls the page
+  useEffect(() => {
+    const el = topBarRef.current
+    if (!el) return
+    const block = (e: WheelEvent) => e.preventDefault()
+    el.addEventListener('wheel', block, { passive: false })
+    return () => el.removeEventListener('wheel', block)
+  }, [])
+
   // OLD regime loading removed - now using parallel prefetch on panel open
 
   // Switch to cached highlights instantly when changing tabs
   useEffect(() => {
-    if (highlightedTradesCache[regimesTab]) {
-      setHighlightedTrades(highlightedTradesCache[regimesTab])
+    const key = `${scanGroupMode}-${regimesTab}`
+    if (highlightedTradesCache[key]) {
+      setHighlightedTrades(highlightedTradesCache[key])
     }
-  }, [regimesTab, highlightedTradesCache])
+  }, [regimesTab, highlightedTradesCache, scanGroupMode])
 
   // AI Trade Scoring and Highlighting Logic - Calculate for ALL tabs when data loads
   useEffect(() => {
@@ -9508,9 +10120,9 @@ export default function TradingViewChart({
         return
       }
 
-      // Find tabs that have data but no highlights yet
+      // Find tabs that have data but no highlights yet for this mode
       const tabsToCalculate = Object.keys(regimeDataCache).filter(
-        (tab) => regimeDataCache[tab] && !highlightedTradesCache[tab]
+        (tab) => regimeDataCache[tab] && !highlightedTradesCache[`${scanGroupMode}-${tab}`]
       )
 
       if (tabsToCalculate.length === 0) {
@@ -9577,15 +10189,11 @@ export default function TradingViewChart({
               }
 
               // Select appropriate expiration based on market regime timeframe
-              // Life (5d): ~1-2 weeks | Developing (21d): ~3-5 weeks | Momentum (80d): ~3 months | Legacy (252d): ~6-7 months
+              // Life (5d): ~1-2 weeks | Momentum (80d): ~3 months
               let targetDays = 10 // Life default
 
-              if (regimeTab === 'developing') {
-                targetDays = 28 // ~4 weeks
-              } else if (regimeTab === 'momentum') {
+              if (regimeTab === 'momentum') {
                 targetDays = 90 // ~3 months
-              } else if (regimeTab === 'legacy') {
-                targetDays = 195 // ~6.5 months
               }
 
               // Find closest available expiration to target, prioritizing next available
@@ -9661,8 +10269,8 @@ export default function TradingViewChart({
                   const score = (hasIV ? 1000 : 0) - strikeDiff - distanceFromATM * 0.1
                   const currentBestScore = bestOption
                     ? ((bestOption as any).implied_volatility ? 1000 : 0) -
-                      Math.abs(bestOption.strike_price - targetStrike) -
-                      Math.abs(bestOption.strike_price - currentPrice) * 0.1
+                    Math.abs(bestOption.strike_price - targetStrike) -
+                    Math.abs(bestOption.strike_price - currentPrice) * 0.1
                     : -9999
 
                   if (!bestOption || score > currentBestScore) {
@@ -9813,15 +10421,12 @@ export default function TradingViewChart({
             candidates: any[],
             pricesMap: Map<string, any[]>,
             timeframe: string
-          ): Promise<{ setup: any[]; momentum: any[] }> => {
+          ): Promise<{ scored: any[] }> => {
             return new Promise((resolve, reject) => {
-              const workerCount = Math.min(4, Math.max(1, Math.floor(candidates.length / 20))) // 4 workers max, 1 per 20 candidates
-              const setupWorkers: Worker[] = []
-              const momentumWorkers: Worker[] = []
-              const setupResults: any[][] = []
-              const momentumResults: any[][] = []
-              let completedSetupWorkers = 0
-              let completedMomentumWorkers = 0
+              const workerCount = Math.min(4, Math.max(1, Math.floor(candidates.length / 20)))
+              const workers: Worker[] = []
+              const results: any[][] = new Array(workerCount).fill(null).map(() => [])
+              let completedWorkers = 0
 
               // Convert Map to plain object for worker transfer
               const pricesObj: Record<string, any[]> = {}
@@ -9829,93 +10434,50 @@ export default function TradingViewChart({
                 pricesObj[key] = value
               })
 
-              // Split candidates across workers
               const chunkSize = Math.ceil(candidates.length / workerCount)
 
-              // Launch SETUP-QUALITY workers
               for (let i = 0; i < workerCount; i++) {
                 const start = i * chunkSize
                 const end = Math.min(start + chunkSize, candidates.length)
                 const chunk = candidates.slice(start, end)
 
-                if (chunk.length === 0) continue
+                if (chunk.length === 0) {
+                  completedWorkers++
+                  if (completedWorkers === workerCount) {
+                    resolve({ scored: results.flat() })
+                  }
+                  continue
+                }
 
-                const setupWorker = new Worker('/workers/aiTradeScoreWorkerPure.js')
-                setupWorkers.push(setupWorker)
+                const worker = new Worker('/workers/aiTradeScoreUnified.js')
+                workers.push(worker)
 
-                setupWorker.onmessage = (e) => {
+                worker.onmessage = (e) => {
                   if (e.data.success) {
-                    setupResults[i] = e.data.scoredCandidates
-                    completedSetupWorkers++
-
-                    if (
-                      completedSetupWorkers === workerCount &&
-                      completedMomentumWorkers === workerCount
-                    ) {
-                      // All workers done, combine results
-                      const allSetup = setupResults.flat()
-                      const allMomentum = momentumResults.flat()
-                      setupWorkers.forEach((w) => w.terminate())
-                      momentumWorkers.forEach((w) => w.terminate())
-                      resolve({ setup: allSetup, momentum: allMomentum })
+                    results[i] = e.data.scoredCandidates
+                    completedWorkers++
+                    if (completedWorkers === workerCount) {
+                      workers.forEach((w) => w.terminate())
+                      resolve({ scored: results.flat() })
                     }
                   } else {
-                    setupWorkers.forEach((w) => w.terminate())
-                    momentumWorkers.forEach((w) => w.terminate())
+                    workers.forEach((w) => w.terminate())
                     reject(new Error(e.data.error))
                   }
                 }
 
-                setupWorker.onerror = (error) => {
-                  setupWorkers.forEach((w) => w.terminate())
-                  momentumWorkers.forEach((w) => w.terminate())
+                worker.onerror = (error) => {
+                  workers.forEach((w) => w.terminate())
                   reject(error)
                 }
 
-                setupWorker.postMessage({ candidates: chunk, pricesMap: pricesObj, timeframe })
-              }
-
-              // Launch MOMENTUM-VOLATILITY workers in parallel
-              for (let i = 0; i < workerCount; i++) {
-                const start = i * chunkSize
-                const end = Math.min(start + chunkSize, candidates.length)
-                const chunk = candidates.slice(start, end)
-
-                if (chunk.length === 0) continue
-
-                const momentumWorker = new Worker('/workers/aiTradeScoreMomentumPure.js')
-                momentumWorkers.push(momentumWorker)
-
-                momentumWorker.onmessage = (e) => {
-                  if (e.data.success) {
-                    momentumResults[i] = e.data.scoredCandidates
-                    completedMomentumWorkers++
-
-                    if (
-                      completedSetupWorkers === workerCount &&
-                      completedMomentumWorkers === workerCount
-                    ) {
-                      // All workers done, combine results
-                      const allSetup = setupResults.flat()
-                      const allMomentum = momentumResults.flat()
-                      setupWorkers.forEach((w) => w.terminate())
-                      momentumWorkers.forEach((w) => w.terminate())
-                      resolve({ setup: allSetup, momentum: allMomentum })
-                    }
-                  } else {
-                    setupWorkers.forEach((w) => w.terminate())
-                    momentumWorkers.forEach((w) => w.terminate())
-                    reject(new Error(e.data.error))
-                  }
-                }
-
-                momentumWorker.onerror = (error) => {
-                  setupWorkers.forEach((w) => w.terminate())
-                  momentumWorkers.forEach((w) => w.terminate())
-                  reject(error)
-                }
-
-                momentumWorker.postMessage({ candidates: chunk, pricesMap: pricesObj, timeframe })
+                // Pass full candidates list (allCandidates) for industry cohesion cross-scoring
+                worker.postMessage({
+                  candidates: chunk,
+                  allCandidates: candidates,
+                  pricesMap: pricesObj,
+                  timeframe,
+                })
               }
             })
           }
@@ -9928,57 +10490,107 @@ export default function TradingViewChart({
             return
           }
 
-          // Collect all visible stocks from all industries
-          const bullishIndustries = currentData.industries.filter((ind) => ind.trend === 'bullish')
-          const bearishIndustries = currentData.industries.filter((ind) => ind.trend === 'bearish')
-
+          // Collect all visible stocks from all industries/sectors
           const allCandidates: any[] = []
+          // Also keep flattened group list for industryBestMap below
+          let allScannedGroups: Array<{ symbol: string; name: string }> = []
 
-          // Collect top 3 from each bullish industry (with kill switch)
-          for (const industry of bullishIndustries) {
-            // KILL SWITCH: Skip if bullish but ratio below 21-day EMA
-            if (
-              industry.hasStructure === false ||
-              (industry.ratioVsEMA && industry.ratioVsEMA < 0)
-            ) {
-              continue // Skip this industry - countertrend setup
-            }
+          if (scanGroupMode === 'sectors') {
+            // ── SECTOR MODE ────────────────────────────────────────────────────
+            // Use REGIME_SECTOR_HOLDINGS + watchlistData to determine trend & top performers
+            const SECTOR_SYMBOLS = ['XLK', 'XLF', 'XLV', 'XLI', 'XLY', 'XLP', 'XLE', 'XLU', 'XLB', 'XLRE', 'XLC']
+            const spyChange = regimeTab === 'life'
+              ? (watchlistData['SPY']?.change5d ?? 0)
+              : (watchlistData['SPY']?.change21d ?? 0)
 
-            if (industry.topPerformers && industry.topPerformers.length > 0) {
-              const top3 = industry.topPerformers.slice(0, 3)
-              for (const stock of top3) {
+            for (const sectorSymbol of SECTOR_SYMBOLS) {
+              const sectorChange = regimeTab === 'life'
+                ? (watchlistData[sectorSymbol]?.change5d ?? 0)
+                : (watchlistData[sectorSymbol]?.change21d ?? 0)
+              const sectorRelPerf = sectorChange - spyChange
+              const holdings = REGIME_SECTOR_HOLDINGS[sectorSymbol] || []
+
+              // Build relative performance for each holding
+              const holdingPerfs = holdings
+                .filter(h => watchlistData[h])
+                .map(h => {
+                  const hChange = regimeTab === 'life'
+                    ? (watchlistData[h]?.change5d ?? 0)
+                    : (watchlistData[h]?.change21d ?? 0)
+                  return { symbol: h, relativePerformance: hChange - spyChange }
+                })
+
+              allScannedGroups.push({ symbol: sectorSymbol, name: tickerNames[sectorSymbol] || sectorSymbol })
+              const trend = sectorRelPerf >= 0 ? 'bullish' : 'bearish'
+              // Push ALL holdings for scoring — scorer will rank and pick the best
+              for (const stock of holdingPerfs) {
                 allCandidates.push({
                   symbol: stock.symbol,
                   relativePerformance: stock.relativePerformance,
-                  trend: 'bullish',
-                  industry: industry.name,
-                  industrySymbol: industry.symbol,
+                  trend,
+                  industry: tickerNames[sectorSymbol] || sectorSymbol,
+                  industrySymbol: sectorSymbol,
                 })
+              }
+            }
+          } else {
+            // ── INDUSTRY MODE (original logic) ────────────────────────────────
+            const bullishIndustries = currentData.industries.filter((ind) => ind.trend === 'bullish')
+            const bearishIndustries = currentData.industries.filter((ind) => ind.trend === 'bearish')
+            allScannedGroups = [...bullishIndustries, ...bearishIndustries].map(i => ({ symbol: i.symbol, name: i.name }))
+
+            // Collect top 3 from each bullish industry (with kill switch)
+            for (const industry of bullishIndustries) {
+              if (
+                industry.hasStructure === false ||
+                (industry.ratioVsEMA && industry.ratioVsEMA < 0)
+              ) {
+                continue
+              }
+              if (industry.topPerformers && industry.topPerformers.length > 0) {
+                const top3 = industry.topPerformers.slice(0, 3)
+                for (const stock of top3) {
+                  allCandidates.push({
+                    symbol: stock.symbol,
+                    relativePerformance: stock.relativePerformance,
+                    trend: 'bullish',
+                    industry: industry.name,
+                    industrySymbol: industry.symbol,
+                  })
+                }
+              }
+            }
+
+            // Collect worst 3 from each bearish industry (with kill switch)
+            for (const industry of bearishIndustries) {
+              if (
+                industry.hasStructure === false ||
+                (industry.ratioVsEMA && industry.ratioVsEMA > 0)
+              ) {
+                continue
+              }
+              if (industry.worstPerformers && industry.worstPerformers.length > 0) {
+                const worst3 = industry.worstPerformers.slice(0, 3)
+                for (const stock of worst3) {
+                  allCandidates.push({
+                    symbol: stock.symbol,
+                    relativePerformance: stock.relativePerformance,
+                    trend: 'bearish',
+                    industry: industry.name,
+                    industrySymbol: industry.symbol,
+                  })
+                }
               }
             }
           }
 
-          // Collect worst 3 from each bearish industry (with kill switch)
-          for (const industry of bearishIndustries) {
-            // KILL SWITCH: Skip if bearish but ratio above 21-day EMA
-            if (
-              industry.hasStructure === false ||
-              (industry.ratioVsEMA && industry.ratioVsEMA > 0)
-            ) {
-              continue // Skip this industry - countertrend setup
-            }
-
-            if (industry.worstPerformers && industry.worstPerformers.length > 0) {
-              const worst3 = industry.worstPerformers.slice(0, 3)
-              for (const stock of worst3) {
-                allCandidates.push({
-                  symbol: stock.symbol,
-                  relativePerformance: stock.relativePerformance,
-                  trend: 'bearish',
-                  industry: industry.name,
-                  industrySymbol: industry.symbol,
-                })
-              }
+          if (scanGroupMode === 'sectors') {
+            // Debug: show how many stocks per sector made it into candidates
+            const perSector: Record<string, string[]> = {}
+            for (const c of allCandidates) {
+              const key = c.industrySymbol || c.industry
+              if (!perSector[key]) perSector[key] = []
+              perSector[key].push(c.symbol)
             }
           }
 
@@ -10046,234 +10658,114 @@ export default function TradingViewChart({
             }
           }
 
-          // Score all candidates in parallel using DUAL STRATEGY Web Workers (with timeframe context)
-          const { setup: setupScored, momentum: momentumScored } = await scoreWithWorkers(
-            allCandidates,
-            pricesMap,
-            regimeTab
-          )
-          const validSetup = setupScored.filter((c: any) => c.score > 0)
-          const validMomentum = momentumScored.filter((c: any) => c.score > 0)
+          // Score all candidates with Goldman Sachs-style unified conviction scorer
+          const { scored } = await scoreWithWorkers(allCandidates, pricesMap, regimeTab)
 
-          // Add worker dominance tagging
-          const candidatesWithDominance = allCandidates.map((candidate) => {
-            const setupScore =
-              validSetup.find((s: any) => s.symbol === candidate.symbol)?.score || 0
-            const momentumScore =
-              validMomentum.find((m: any) => m.symbol === candidate.symbol)?.score || 0
-            const scoreDiff = setupScore - momentumScore
-
-            let dominance: 'setup' | 'momentum' | 'transitional' = 'transitional'
-            if (scoreDiff >= 20) dominance = 'setup'
-            else if (scoreDiff <= -20) dominance = 'momentum'
-
-            return {
-              ...candidate,
-              setupScore,
-              momentumScore,
-              dominance,
+          // Persist scan data for popup reuse (no extra API calls on click)
+          pricesMap.forEach((candles, symbol) => { scanPricesCacheRef.current.set(symbol, candles) })
+          scored.forEach((c: any) => {
+            if (!scanAllScoredRef.current.find((x: any) => x.symbol === c.symbol && x.sourceTab === regimeTab)) {
+              scanAllScoredRef.current.push({ ...c, sourceTab: regimeTab })
             }
           })
 
-          if (validSetup.length === 0 && validMomentum.length === 0) {
+          const validScored = scored.filter((c: any) => c.score >= 70)
+
+          if (validScored.length === 0) {
             setIsCalculatingTrades(false)
             return
           }
 
-          // SETUP-QUALITY STRATEGY: Find best bullish and bearish (GOLD highlights)
-          const setupBullish = validSetup.filter((c: any) => c.trend === 'bullish')
-          const setupBearish = validSetup.filter((c: any) => c.trend === 'bearish')
+          // Best overall bullish and bearish (gold highlights)
+          const scoredBullish = validScored.filter((c: any) => c.trend === 'bullish')
+          const scoredBearish = validScored.filter((c: any) => c.trend === 'bearish')
 
-          const bestSetupBullish =
-            setupBullish.length > 0
-              ? setupBullish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
-              : null
-          const bestSetupBearish =
-            setupBearish.length > 0
-              ? setupBearish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
+          const bestBullish =
+            scoredBullish.length > 0
+              ? scoredBullish.reduce((best: any, curr: any) =>
+                curr.score > best.score ? curr : best
+              )
               : null
 
-          // SETUP-QUALITY STRATEGY: Find best in each industry (PURPLE highlights)
-          const setupIndustryBestMap = new Map<string, any>()
+          const bestBearish =
+            scoredBearish.length > 0
+              ? scoredBearish.reduce((best: any, curr: any) =>
+                curr.score > best.score ? curr : best
+              )
+              : null
 
-          for (const industry of [...bullishIndustries, ...bearishIndustries]) {
-            const industryStocks = validSetup.filter((c) => c.industrySymbol === industry.symbol)
+          // Industry leaders (purple highlights)
+          const industryBestMap = new Map<string, any>()
+          for (const industry of allScannedGroups) {
+            const industryStocks = validScored.filter(
+              (c) => c.industrySymbol === industry.symbol
+            )
             if (industryStocks.length > 0) {
               const best = industryStocks.reduce((best, curr) =>
                 curr.score > best.score ? curr : best
               )
-              setupIndustryBestMap.set(industry.symbol, best)
+              industryBestMap.set(industry.symbol, best)
             }
           }
 
-          // MOMENTUM-VOLATILITY STRATEGY: Find best bullish and bearish (ORANGE highlights)
-          const momentumBullish = validMomentum.filter((c: any) => c.trend === 'bullish')
-          const momentumBearish = validMomentum.filter((c: any) => c.trend === 'bearish')
-
-          const bestMomentumBullish =
-            momentumBullish.length > 0
-              ? momentumBullish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
-              : null
-          const bestMomentumBearish =
-            momentumBearish.length > 0
-              ? momentumBearish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
-              : null
-
-          // MOMENTUM-VOLATILITY STRATEGY: Find best in each industry (BLUE highlights)
-          const momentumIndustryBestMap = new Map<string, any>()
-
-          for (const industry of [...bullishIndustries, ...bearishIndustries]) {
-            const industryStocks = validMomentum.filter((c) => c.industrySymbol === industry.symbol)
-            if (industryStocks.length > 0) {
-              const best = industryStocks.reduce((best, curr) =>
-                curr.score > best.score ? curr : best
-              )
-              momentumIndustryBestMap.set(industry.symbol, best)
-            }
-          }
-
-          // Fetch full trade details for all highlighted stocks (4 types)
+          // Fetch trade details for top picks
           const tradesMap: Record<string, any> = {}
 
-          // Fetch SETUP-QUALITY: Gold highlights (best overall)
-          if (bestSetupBullish) {
-            const details = await fetchTradeDetails(bestSetupBullish, regimeTab)
+          if (bestBullish) {
+            const details = await fetchTradeDetails(bestBullish, regimeTab)
             if (details) {
-              details.score = bestSetupBullish.score
-              details.details = bestSetupBullish.details
+              details.score = bestBullish.score
+              details.grade = bestBullish.grade
+              details.details = bestBullish.details
               details.highlightType = 'gold'
-              details.strategy = 'setup'
               details.sourceTab = regimeTab
-              tradesMap[bestSetupBullish.symbol] = details
+              tradesMap[bestBullish.symbol] = details
             }
           }
 
-          if (bestSetupBearish && bestSetupBearish.symbol !== bestSetupBullish?.symbol) {
-            const details = await fetchTradeDetails(bestSetupBearish, regimeTab)
+          if (bestBearish && bestBearish.symbol !== bestBullish?.symbol) {
+            const details = await fetchTradeDetails(bestBearish, regimeTab)
             if (details) {
-              details.score = bestSetupBearish.score
-              details.details = bestSetupBearish.details
+              details.score = bestBearish.score
+              details.grade = bestBearish.grade
+              details.details = bestBearish.details
               details.highlightType = 'gold'
-              details.strategy = 'setup'
               details.sourceTab = regimeTab
-              tradesMap[bestSetupBearish.symbol] = details
+              tradesMap[bestBearish.symbol] = details
             }
           }
 
-          // Fetch MOMENTUM-VOLATILITY: Orange highlights (best overall)
-          if (bestMomentumBullish && !tradesMap[bestMomentumBullish.symbol]) {
-            const details = await fetchTradeDetails(bestMomentumBullish, regimeTab)
-            if (details) {
-              details.score = bestMomentumBullish.score
-              details.details = bestMomentumBullish.details
-              details.highlightType = 'blue'
-              details.strategy = 'momentum'
-              details.sourceTab = regimeTab
-              tradesMap[bestMomentumBullish.symbol] = details
-            }
-          }
-
-          if (
-            bestMomentumBearish &&
-            bestMomentumBearish.symbol !== bestMomentumBullish?.symbol &&
-            !tradesMap[bestMomentumBearish.symbol]
-          ) {
-            const details = await fetchTradeDetails(bestMomentumBearish, regimeTab)
-            if (details) {
-              details.score = bestMomentumBearish.score
-              details.details = bestMomentumBearish.details
-              details.highlightType = 'blue'
-              details.strategy = 'momentum'
-              details.sourceTab = regimeTab
-              tradesMap[bestMomentumBearish.symbol] = details
-            }
-          }
-
-          // Fetch SETUP-QUALITY: Purple highlights (industry leaders) - PARALLEL
-          const purplePromises = Array.from(setupIndustryBestMap.entries()).map(
+          // Industry leaders — fetch in parallel
+          const industryPromises = Array.from(industryBestMap.entries()).map(
             async ([industrySymbol, candidate]) => {
-              // Skip if already fetched
               if (tradesMap[candidate.symbol]) return null
-
               const details = await fetchTradeDetails(candidate, regimeTab)
               if (details) {
                 details.score = candidate.score
+                details.grade = candidate.grade
                 details.details = candidate.details
                 details.highlightType = 'purple'
-                details.strategy = 'setup'
                 details.sourceTab = regimeTab
                 details.industryLeaderOf = industrySymbol
                 return { symbol: candidate.symbol, details }
-              } else {
-                return null
               }
+              return null
             }
           )
 
-          // Fetch MOMENTUM-VOLATILITY: Pink highlights (industry leaders) - PARALLEL
-          const pinkPromises = Array.from(momentumIndustryBestMap.entries()).map(
-            async ([industrySymbol, candidate]) => {
-              // Skip if already fetched
-              if (tradesMap[candidate.symbol]) return null
-
-              const details = await fetchTradeDetails(candidate, regimeTab)
-              if (details) {
-                details.score = candidate.score
-                details.details = candidate.details
-                details.highlightType = 'pink'
-                details.strategy = 'momentum'
-                details.sourceTab = regimeTab
-                details.industryLeaderOf = industrySymbol
-                return { symbol: candidate.symbol, details }
-              } else {
-                return null
-              }
-            }
-          )
-
-          const [purpleResults, pinkResults] = await Promise.all([
-            Promise.all(purplePromises),
-            Promise.all(pinkPromises),
-          ])
-
-          purpleResults.forEach((result) => {
-            if (result) {
-              tradesMap[result.symbol] = result.details
-            }
-          })
-
-          pinkResults.forEach((result) => {
+          const industryResults = await Promise.all(industryPromises)
+          industryResults.forEach((result) => {
             if (result) {
               tradesMap[result.symbol] = result.details
             }
           })
 
           // Update state and cache for this tab
-          const goldCount = Object.values(tradesMap).filter(
-            (t) => t.highlightType === 'gold'
-          ).length
-          const purpleCount = Object.values(tradesMap).filter(
-            (t) => t.highlightType === 'purple'
-          ).length
-          const blueCount = Object.values(tradesMap).filter(
-            (t) => t.highlightType === 'blue'
-          ).length
-          const pinkCount = Object.values(tradesMap).filter(
-            (t) => t.highlightType === 'pink'
-          ).length
 
-          // Update cache for this specific tab
-          setHighlightedTradesCache((prev) => ({ ...prev, [regimeTab]: tradesMap }))
+          // Update cache for this specific tab (keyed by mode so both sector+industry caches coexist)
+          setHighlightedTradesCache((prev) => ({ ...prev, [`${scanGroupMode}-${regimeTab}`]: tradesMap }))
 
-          // If this is the currently active tab, update visible highlights too
+          // If this is the currently active tab and mode, update visible highlights too
           if (regimeTab === regimesTab) {
             setHighlightedTrades(tradesMap)
           }
@@ -10283,10 +10775,19 @@ export default function TradingViewChart({
       } // End of for loop for each tab
 
       setIsCalculatingTrades(false)
+
+      // After sectors scan completes, auto-trigger industries scan in background
+      if (scanGroupMode === 'sectors' && !autoTriggeredIndustriesRef.current) {
+        autoTriggeredIndustriesRef.current = true
+        setScanGroupMode('industries')
+      } else if (scanGroupMode === 'industries' && autoTriggeredIndustriesRef.current) {
+        // Industries scan done — switch display back to sectors
+        setScanGroupMode('sectors')
+      }
     }
 
     calculateHighlightedTrades()
-  }, [regimeDataCache, highlightedTradesCache, isCalculatingTrades, regimesTab]) // Calculate for all tabs when data loads
+  }, [regimeDataCache, highlightedTradesCache, isCalculatingTrades, regimesTab, scanGroupMode, watchlistData]) // Calculate for all tabs when data loads
 
   // Essential drawing state (keep minimal set for existing functionality)
   const [showToolsDropdown, setShowToolsDropdown] = useState(false)
@@ -10468,6 +10969,162 @@ export default function TradingViewChart({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Compute BUY/SELL pressure scores using already-loaded chart candles
+  useEffect(() => {
+    if (!showBuySellIndicator || data.length === 0) {
+      setBuySellData([])
+      return
+    }
+
+    setBuySellData([])
+    setBuySellLoadingProgress(5)
+
+    const endDate = new Date().toISOString().split('T')[0]
+    const startDate = new Date(data[0].timestamp).toISOString().split('T')[0]
+
+    // Fetch only SPY for relative strength; use already-loaded `data` as symbolPrices
+    fetch('/api/bulk-chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: ['SPY'], timeframe: '1d', startDate, endDate }),
+    })
+      .then(r => r.json())
+      .then(spyResult => {
+        setBuySellLoadingProgress(70)
+        const symbolPrices: ChartDataPoint[] = data
+        const spyPrices: ChartDataPoint[] = spyResult?.data?.['SPY'] || []
+        if (spyPrices.length < 30 || symbolPrices.length < 30) return
+
+        const n = symbolPrices.length
+        const closes = symbolPrices.map(d => d.close)
+        const highs = symbolPrices.map(d => d.high)
+        const lows = symbolPrices.map(d => d.low)
+        const vols = symbolPrices.map(d => d.volume || 0)
+
+        // --- EMA helper ---
+        const calcEma = (src: number[], period: number): number[] => {
+          const k = 2 / (period + 1)
+          const result: number[] = [src[0]]
+          for (let i = 1; i < src.length; i++) result.push(src[i] * k + result[i - 1] * (1 - k))
+          return result
+        }
+
+        // 1. RSI(14)
+        const RSI_P = 14
+        const rsiArr = new Array<number>(n).fill(50)
+        for (let i = RSI_P; i < n; i++) {
+          let g = 0, l = 0
+          for (let j = i - RSI_P + 1; j <= i; j++) {
+            const d = closes[j] - closes[j - 1]
+            if (d > 0) g += d; else l -= d
+          }
+          const ag = g / RSI_P, al = l / RSI_P
+          rsiArr[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al)
+        }
+
+        // 2. MACD histogram (12/26/9)
+        const ema12 = calcEma(closes, 12)
+        const ema26 = calcEma(closes, 26)
+        const macdLine = ema12.map((v, i) => v - ema26[i])
+        const signalLine = calcEma(macdLine, 9)
+        const macdHist = macdLine.map((v, i) => v - signalLine[i])
+
+        // 3. Money Flow Index(14) — RSI weighted by volume
+        const tp = symbolPrices.map(d => (d.high + d.low + d.close) / 3)
+        const mfiArr = new Array<number>(n).fill(50)
+        for (let i = RSI_P; i < n; i++) {
+          let pos = 0, neg = 0
+          for (let j = i - RSI_P + 1; j <= i; j++) {
+            const mf = tp[j] * vols[j]
+            if (tp[j] > tp[j - 1]) pos += mf; else neg += mf
+          }
+          mfiArr[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg)
+        }
+
+        // 4. Chaikin Money Flow(20) — accumulation/distribution
+        const CMF_P = 20
+        const cmfArr = new Array<number>(n).fill(0)
+        for (let i = CMF_P; i < n; i++) {
+          let mfvSum = 0, volSum = 0
+          for (let j = i - CMF_P + 1; j <= i; j++) {
+            const rng = highs[j] - lows[j]
+            const mfm = rng > 0 ? ((closes[j] - lows[j]) - (highs[j] - closes[j])) / rng : 0
+            mfvSum += mfm * vols[j]
+            volSum += vols[j]
+          }
+          cmfArr[i] = volSum > 0 ? mfvSum / volSum : 0  // -1 to +1
+        }
+
+        // 5. OBV 20-day momentum (normalised)
+        const obvArr: number[] = [0]
+        for (let i = 1; i < n; i++) {
+          if (closes[i] > closes[i - 1]) obvArr.push(obvArr[i - 1] + vols[i])
+          else if (closes[i] < closes[i - 1]) obvArr.push(obvArr[i - 1] - vols[i])
+          else obvArr.push(obvArr[i - 1])
+        }
+
+        // 6. RS vs SPY (20-day)
+        const spyMap = new Map(spyPrices.map(d => [new Date(d.timestamp).toDateString(), d]))
+
+        setBuySellLoadingProgress(90)
+
+        const scores = symbolPrices.map((candle, i) => {
+          const date = new Date(candle.timestamp).toISOString().split('T')[0]
+          if (i < 26) return { date, score: 0 }
+
+          // RSI → -100..+100 centred at 50
+          const rsiScore = (rsiArr[i] - 50) * 2
+
+          // MACD histogram normalised by close price
+          const macdScore = closes[i] > 0
+            ? Math.max(-100, Math.min(100, (macdHist[i] / closes[i]) * 5000))
+            : 0
+
+          // MFI → -100..+100
+          const mfiScore = (mfiArr[i] - 50) * 2
+
+          // CMF -1..+1 → -100..+100
+          const cmfScore = cmfArr[i] * 100
+
+          // OBV 20-day change normalised by avg daily volume
+          const obvChange = obvArr[i] - obvArr[i - 20]
+          const avgVol20 = vols.slice(Math.max(0, i - 20), i + 1).reduce((a, b) => a + b, 0) / 20
+          const obvScore = avgVol20 > 0
+            ? Math.max(-100, Math.min(100, (obvChange / (avgVol20 * 20)) * 100))
+            : 0
+
+          // RS vs SPY
+          const spyCur = spyMap.get(new Date(candle.timestamp).toDateString())
+          const spyBase = spyMap.get(new Date(symbolPrices[i - 20].timestamp).toDateString())
+          let rsScore = 0
+          if (spyCur && spyBase && spyBase.close > 0 && symbolPrices[i - 20].close > 0) {
+            const stockRet = (candle.close - symbolPrices[i - 20].close) / symbolPrices[i - 20].close
+            const spyRet = (spyCur.close - spyBase.close) / spyBase.close
+            rsScore = Math.max(-100, Math.min(100, (stockRet - spyRet) * 300))
+          }
+
+          // Weighted composite: CMF(25) + MACD(20) + MFI(20) + RSI(15) + OBV(10) + RS(10)
+          const composite =
+            cmfScore * 0.25 +
+            macdScore * 0.20 +
+            mfiScore * 0.20 +
+            rsiScore * 0.15 +
+            obvScore * 0.10 +
+            rsScore * 0.10
+
+          return { date, score: Math.max(-100, Math.min(100, composite)) }
+        })
+
+        setBuySellLoadingProgress(100)
+        setBuySellData(scores)
+      })
+      .catch(() => {
+        setBuySellLoadingProgress(0)
+        setBuySellData([])
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBuySellIndicator, config.symbol, data.length])
+
   // Chart interaction state
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 })
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0 })
@@ -10513,6 +11170,9 @@ export default function TradingViewChart({
     startScrollOffset: number
     startPriceRange: { min: number; max: number } | null
     startTimestamp: number
+    lastX: number
+    lastY: number
+    lastTimestamp: number
   }>({
     active: false,
     startX: 0,
@@ -10520,6 +11180,9 @@ export default function TradingViewChart({
     startScrollOffset: 0,
     startPriceRange: null,
     startTimestamp: 0,
+    lastX: 0,
+    lastY: 0,
+    lastTimestamp: 0,
   })
 
   const velocityRef = useRef({ x: 0, y: 0 })
@@ -11032,14 +11695,14 @@ export default function TradingViewChart({
 
           // Prefetch other timeframes for current symbol
           otherTimeframes.forEach((tf) => {
-            cache.getOrFetch(sym, tf, () => fetchSymbolData(sym, tf)).catch(() => {})
+            cache.getOrFetch(sym, tf, () => fetchSymbolData(sym, tf)).catch(() => { })
           })
 
           // Prefetch current timeframe for related symbols
           relatedSymbols.slice(0, 2).forEach((relSym) => {
             cache
               .getOrFetch(relSym, timeframe, () => fetchSymbolData(relSym, timeframe))
-              .catch(() => {})
+              .catch(() => { })
           })
         }, 100)
       } catch (error) {
@@ -11258,9 +11921,9 @@ export default function TradingViewChart({
 
     // Enable crisp rendering for sharp lines and shapes
     ctx.imageSmoothingEnabled = false
-    ;(ctx as any).webkitImageSmoothingEnabled = false
-    ;(ctx as any).mozImageSmoothingEnabled = false
-    ;(ctx as any).msImageSmoothingEnabled = false
+      ; (ctx as any).webkitImageSmoothingEnabled = false
+      ; (ctx as any).mozImageSmoothingEnabled = false
+      ; (ctx as any).msImageSmoothingEnabled = false
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height)
@@ -11535,7 +12198,7 @@ export default function TradingViewChart({
   }, [renderOverlay])
 
   // Debug: Monitor drawings state changes
-  useEffect(() => {}, [drawings])
+  useEffect(() => { }, [drawings])
 
   // Keyboard shortcuts for TradingView-like functionality
   useEffect(() => {
@@ -11685,7 +12348,10 @@ export default function TradingViewChart({
       const overlayCanvas = overlayCanvasRef.current
       const chartCanvas = chartCanvasRef.current
 
-      if (!overlayCanvas || !chartCanvas || data.length === 0) return
+      if (!overlayCanvas || !chartCanvas || data.length === 0) {
+        console.log('[WHEEL] early return — target:', (e.target as Element)?.tagName, (e.target as Element)?.className, 'data.length:', data.length, 'deltaY:', e.deltaY)
+        return
+      }
 
       const target = e.target as Element
       if (
@@ -11694,6 +12360,7 @@ export default function TradingViewChart({
         target !== overlayCanvas &&
         target !== chartCanvas
       ) {
+        console.log('[WHEEL] target not in canvas — target:', target?.tagName, target?.className)
         return
       }
 
@@ -11817,7 +12484,20 @@ export default function TradingViewChart({
 
     const overlayCanvas = overlayCanvasRef.current
     const chartCanvas = chartCanvasRef.current
+    const container = containerRef.current
 
+    // Container-level handler fires even while canvases aren't mounted yet (during loading).
+    // Only prevents default — actual zoom/pan logic stays with the canvas listeners below.
+    // When canvases are mounted, the canvas listener fires first, then this fires on bubble —
+    // calling preventDefault a second time is harmless (idempotent).
+    const handleWheelContainer = (e: WheelEvent) => {
+      console.log('[WHEEL container] target:', (e.target as Element)?.tagName, '|', (e.target as Element)?.className?.toString().slice(0, 80), '| deltaY:', e.deltaY, '| data.length:', data.length, '| overlayCanvas:', !!overlayCanvas, '| chartCanvas:', !!chartCanvas)
+      e.preventDefault()
+    }
+
+    if (container) {
+      container.addEventListener('wheel', handleWheelContainer, { passive: false })
+    }
     if (overlayCanvas) {
       overlayCanvas.addEventListener('wheel', handleWheelEvent, { passive: false })
     }
@@ -11826,6 +12506,9 @@ export default function TradingViewChart({
     }
 
     return () => {
+      if (container) {
+        container.removeEventListener('wheel', handleWheelContainer)
+      }
       if (overlayCanvas) {
         overlayCanvas.removeEventListener('wheel', handleWheelEvent)
       }
@@ -11935,9 +12618,9 @@ export default function TradingViewChart({
 
     // Enable crisp rendering for sharp lines and shapes
     ctx.imageSmoothingEnabled = false
-    ;(ctx as any).webkitImageSmoothingEnabled = false
-    ;(ctx as any).mozImageSmoothingEnabled = false
-    ;(ctx as any).msImageSmoothingEnabled = false
+      ; (ctx as any).webkitImageSmoothingEnabled = false
+      ; (ctx as any).mozImageSmoothingEnabled = false
+      ; (ctx as any).msImageSmoothingEnabled = false
 
     // Clear canvas with pure black background (force override)
     ctx.fillStyle = '#000000'
@@ -11948,6 +12631,7 @@ export default function TradingViewChart({
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
     const actualEventPanelHeight = 0 // No event panel needed
+    const actualBuySellPanelHeight = showBuySellIndicator ? buySellPanelHeight : 0
     const volumeAreaHeight = 80 // Volume bars area
     // Adjust price chart height based on active indicators
     const totalBottomSpace =
@@ -11955,6 +12639,7 @@ export default function TradingViewChart({
       actualIVPanelHeight +
       actualEventPanelHeight +
       volumeAreaHeight +
+      actualBuySellPanelHeight +
       timeAxisHeight
     const priceChartHeight = height - totalBottomSpace
 
@@ -12317,7 +13002,7 @@ export default function TradingViewChart({
       if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true) // Purple dashed
       if (isSeasonalEventActive) {
         if (seasonalEventData) {
-          seasonalEventData.forEach((pt, idx) => {})
+          seasonalEventData.forEach((pt, idx) => { })
         }
         drawSeasonalLine(seasonalEventData, '#00FF00', true, selectedSeasonalEvent || undefined) // Green dashed
       }
@@ -12595,12 +13280,39 @@ export default function TradingViewChart({
       }
     }
 
+    // BUY/SELL Pressure panel — sits below IV panels, above volume (same zone as IV/HV)
+    if (showBuySellIndicator) {
+      const buySellStartY =
+        priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight
+      if (buySellData.length > 0) {
+        drawBuySellPanel(ctx, buySellData, visibleData, chartWidth, buySellStartY, visibleCandleCount, buySellPanelHeight)
+      } else {
+        // Loading placeholder
+        ctx.fillStyle = 'rgba(0,0,0,0.85)'
+        ctx.fillRect(40, buySellStartY, chartWidth - 160, buySellPanelHeight)
+        ctx.strokeStyle = 'rgba(255,133,0,0.5)'
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(40, buySellStartY); ctx.lineTo(chartWidth - 120, buySellStartY); ctx.stroke()
+        const barW = (chartWidth - 200)
+        const barX = 100
+        const barY = buySellStartY + buySellPanelHeight / 2 - 10
+        ctx.fillStyle = 'rgba(255,133,0,0.15)'
+        ctx.fillRect(barX, barY, barW, 6)
+        ctx.fillStyle = '#FF8500'
+        ctx.fillRect(barX, barY, barW * Math.max(0.03, buySellLoadingProgress / 100), 6)
+        ctx.font = 'bold 11px JetBrains Mono, monospace'
+        ctx.fillStyle = '#FF8500'
+        ctx.textAlign = 'center'
+        ctx.fillText(`BUY/SELL PRESSURE  ${buySellLoadingProgress.toFixed(0)}%`, chartWidth / 2, buySellStartY + buySellPanelHeight / 2 + 10)
+      }
+    }
+
     // Draw volume bars above the time axis (TradingView style)
     drawVolumeProfile(
       ctx,
       visibleData,
       chartWidth,
-      priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight,
+      priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight + actualBuySellPanelHeight,
       visibleCandleCount,
       width,
       volumeAreaHeight,
@@ -12675,7 +13387,111 @@ export default function TradingViewChart({
     rrgMode,
     isExpansionLiquidationActive,
     drawings.length,
+    showBuySellIndicator,
+    buySellData,
+    buySellPanelHeight,
+    buySellLoadingProgress,
   ]) // Draw volume bars above the x-axis (TradingView style)
+
+  // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
+  const drawBuySellPanel = (
+    ctx: CanvasRenderingContext2D,
+    bsData: Array<{ date: string; score: number }>,
+    visibleData: ChartDataPoint[],
+    chartWidth: number,
+    panelStartY: number,
+    visibleCandleCount: number,
+    panelHeight: number
+  ) => {
+    if (!bsData.length || !visibleData.length) return
+
+    const padLeft = 40
+    const rightEdge = chartWidth - 80  // match main chart right boundary
+
+    // Background
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'
+    ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
+
+    // Top border
+    ctx.strokeStyle = 'rgba(255,133,0,0.6)'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(padLeft, panelStartY)
+    ctx.lineTo(rightEdge, panelStartY)
+    ctx.stroke()
+
+    // Match scored data to visible candles by date
+    const dateToScore = new Map(bsData.map(d => [d.date, d.score]))
+    const scores = visibleData.map(c =>
+      dateToScore.get(new Date(c.timestamp).toISOString().split('T')[0]) ?? null
+    )
+
+    // Use exact same spacing as main price chart so last candle aligns with final date
+    const candleSpacing = chartWidth / visibleCandleCount
+    const midY = panelStartY + panelHeight / 2
+    const amplitude = (panelHeight / 2) * 0.7
+
+    // Zone fills
+    const zoneW = rightEdge - padLeft
+    ctx.fillStyle = 'rgba(34,197,94,0.06)'
+    ctx.fillRect(padLeft, panelStartY, zoneW, panelHeight / 2)
+    ctx.fillStyle = 'rgba(239,68,68,0.06)'
+    ctx.fillRect(padLeft, midY, zoneW, panelHeight / 2)
+
+    // Zero line
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(padLeft, midY)
+    ctx.lineTo(rightEdge, midY)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    // Score line — pure RGB crispy green/red/grey, aligned to same x as price candles
+    for (let i = 1; i < scores.length; i++) {
+      if (scores[i - 1] === null || scores[i] === null) continue
+      const x0 = padLeft + (i - 1) * candleSpacing + candleSpacing / 2
+      const x1 = padLeft + i * candleSpacing + candleSpacing / 2
+      const y0 = midY - ((scores[i - 1] as number) / 100) * amplitude
+      const y1 = midY - ((scores[i] as number) / 100) * amplitude
+      const avg = ((scores[i - 1] as number) + (scores[i] as number)) / 2
+      ctx.strokeStyle = avg >= 20 ? '#00ff00' : avg <= -20 ? '#ff0000' : '#cccccc'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(x0, y0)
+      ctx.lineTo(x1, y1)
+      ctx.stroke()
+    }
+
+    // Y-axis labels — crispy colors, 18px font
+    const yAxisX = rightEdge + 4
+    ctx.font = 'bold 18px JetBrains Mono, monospace'
+    ctx.textAlign = 'left'
+    ctx.globalAlpha = 1
+    for (const [label, val] of [['100', 100], ['0', 0], ['-100', -100]] as [string, number][]) {
+      const ly = midY - (val / 100) * amplitude
+      ctx.fillStyle = val > 0 ? '#00ff00' : val < 0 ? '#ff0000' : '#ffffff'
+      ctx.fillText(label, yAxisX, ly + 6)
+    }
+
+    // Title — centered, glossy white
+    const titleX = (padLeft + rightEdge) / 2
+    const titleY = panelStartY + 18
+    ctx.font = 'bold 14px JetBrains Mono, monospace'
+    ctx.textAlign = 'center'
+    ctx.shadowColor = 'rgba(255,255,255,0.4)'
+    ctx.shadowBlur = 6
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText('BUY/SELL PRESSURE', titleX, titleY)
+    ctx.shadowBlur = 0
+    ctx.globalAlpha = 0.45
+    ctx.fillStyle = '#e0f0ff'
+    ctx.fillText('BUY/SELL PRESSURE', titleX, titleY - 1)
+    ctx.globalAlpha = 1
+    ctx.shadowBlur = 0
+  }
+
   const drawVolumeProfile = (
     ctx: CanvasRenderingContext2D,
     visibleData: ChartDataPoint[],
@@ -13633,17 +14449,17 @@ export default function TradingViewChart({
     ctx.lineWidth = 1
     ctx.font = '10px monospace'
     ctx.textAlign = 'right'
-    ;[30, 50, 70].forEach((level) => {
-      const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
-      ctx.beginPath()
-      ctx.moveTo(40, y)
-      ctx.lineTo(chartWidth - 40, y)
-      ctx.stroke()
+      ;[30, 50, 70].forEach((level) => {
+        const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
+        ctx.beginPath()
+        ctx.moveTo(40, y)
+        ctx.lineTo(chartWidth - 40, y)
+        ctx.stroke()
 
-      // Draw level labels
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
-      ctx.fillText(level.toString(), chartWidth - 45, y + 3)
-    })
+        // Draw level labels
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+        ctx.fillText(level.toString(), chartWidth - 45, y + 3)
+      })
 
     // Calculate visible data range
     const dataStartIndex = 14 // RSI needs 14 periods to calculate
@@ -14351,6 +15167,14 @@ export default function TradingViewChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rrgCandleColors, isRRGCandleActive, rrgMode, rrgLookbackPeriod, chartLayout])
 
+  // Re-render when BuySell data arrives or panel is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buySellData, showBuySellIndicator, buySellPanelHeight, chartLayout])
+
   // Re-render when drawings change
   useEffect(() => {
     if (drawings && drawings.length > 0 && chartLayout === '1x1') {
@@ -14645,6 +15469,20 @@ export default function TradingViewChart({
       const timeAxisHeight = 25
       const priceChartHeight = dimensions.height - timeAxisHeight
 
+      // BUY/SELL panel resize — check if clicking on the panel's top border
+      if (showBuySellIndicator) {
+        const _flowH = isFlowChartActive ? flowChartHeight : 0
+        const _ivH = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
+        // Panel top border — buySell is above volume (80) and time axis (25)
+        const panelTopY = dimensions.height - buySellPanelHeight - 105
+        if (Math.abs(y - panelTopY) <= 10) {
+          e.preventDefault()
+          e.stopPropagation()
+          buySellResizeDragRef.current = { startY: y, startHeight: buySellPanelHeight }
+          return
+        }
+      }
+
       if (y > priceChartHeight) {
         // Click is below the chart (in time axis area) - don't allow dragging
         return
@@ -14667,6 +15505,9 @@ export default function TradingViewChart({
         startScrollOffset: scrollOffset,
         startPriceRange: manualPriceRange || lastRenderedPriceRangeRef.current,
         startTimestamp: performance.now(),
+        lastX: x,
+        lastY: y,
+        lastTimestamp: performance.now(),
       }
 
       try {
@@ -14695,6 +15536,13 @@ export default function TradingViewChart({
       getCurrentPriceRange,
       manualPriceRange,
       setManualPriceRangeAndDisableAuto,
+      showBuySellIndicator,
+      buySellPanelHeight,
+      isFlowChartActive,
+      flowChartHeight,
+      isAnyIVHVActive,
+      activeIVPanelCount,
+      ivPanelHeight,
     ]
   )
 
@@ -15110,8 +15958,11 @@ export default function TradingViewChart({
         startScrollOffset: scrollOffset,
         startPriceRange: manualPriceRange || lastRenderedPriceRangeRef.current,
         startTimestamp: performance.now(),
+        lastX: x,
+        lastY: y,
+        lastTimestamp: performance.now(),
       }
-      ;(e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
+        ; (e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
     },
     [
       drawings,
@@ -15255,15 +16106,15 @@ export default function TradingViewChart({
           visible: true,
           ohlc: closestCandle
             ? {
-                open: closestCandle.open,
-                high: closestCandle.high,
-                low: closestCandle.low,
-                close: closestCandle.close,
-                change: closestCandle.close - closestCandle.open,
-                changePercent:
-                  ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100,
-                volume: closestCandle.volume,
-              }
+              open: closestCandle.open,
+              high: closestCandle.high,
+              low: closestCandle.low,
+              close: closestCandle.close,
+              change: closestCandle.close - closestCandle.open,
+              changePercent:
+                ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100,
+              volume: closestCandle.volume,
+            }
             : undefined,
         })
       }
@@ -15305,15 +16156,32 @@ export default function TradingViewChart({
       // ============================================================================
       // MOUSE MOVE - CHART DRAG
       // ============================================================================
+
+      // BUY/SELL panel resize drag (ref-based, no stale closure)
+      if (buySellResizeDragRef.current) {
+        const { startY: rStartY, startHeight } = buySellResizeDragRef.current
+        const delta = rStartY - y  // drag UP = increase height
+        const newH = Math.max(BUYSELL_HEIGHT_MIN, Math.min(BUYSELL_HEIGHT_MAX, startHeight + delta))
+        setBuySellPanelHeight(newH)
+        canvas.style.cursor = 'ns-resize'
+        return
+      }
+
+      // Cursor: hover over BUY/SELL top border
+      if (showBuySellIndicator && !dragRef.current.active) {
+        const panelTopY = dimensions.height - buySellPanelHeight - 105
+        if (Math.abs(y - panelTopY) <= 10) {
+          canvas.style.cursor = 'ns-resize'
+          return
+        }
+      }
+
       if (!dragRef.current.active) return
 
-      const { startX, startY, startScrollOffset, startPriceRange, startTimestamp } = dragRef.current
+      const { startX, startY, startScrollOffset, startPriceRange } = dragRef.current
 
       const dx = x - startX
       const dy = y - startY
-
-      const now = performance.now()
-      const dt = Math.max(16, now - startTimestamp)
 
       // =====================
       // X-AXIS PAN (TIME)
@@ -15354,10 +16222,17 @@ export default function TradingViewChart({
       // =====================
       // VELOCITY (MOMENTUM)
       // =====================
+      const now = performance.now()
+      const frameDt = Math.max(1, now - dragRef.current.lastTimestamp)
+      const frameDx = x - dragRef.current.lastX
+      const frameDy = y - dragRef.current.lastY
       velocityRef.current = {
-        x: (dx / dt) * 16.67,
-        y: (dy / dt) * 16.67,
+        x: (frameDx / frameDt) * 16.67,
+        y: (frameDy / frameDt) * 16.67,
       }
+      dragRef.current.lastX = x
+      dragRef.current.lastY = y
+      dragRef.current.lastTimestamp = now
 
       return
     },
@@ -15375,6 +16250,14 @@ export default function TradingViewChart({
       yAxisResizeStart,
       scrollOffset,
       manualPriceRange,
+      showBuySellIndicator,
+      buySellPanelHeight,
+      isFlowChartActive,
+      flowChartHeight,
+      isAnyIVHVActive,
+      activeIVPanelCount,
+      ivPanelHeight,
+      setBuySellPanelHeight,
     ]
   )
 
@@ -15439,7 +16322,7 @@ export default function TradingViewChart({
 
         try {
           if ((e as any).pointerId !== undefined) {
-            ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture((e as any).pointerId)
+            ; (e.currentTarget as HTMLCanvasElement).releasePointerCapture((e as any).pointerId)
           }
         } catch (err) {
           // Pointer capture not available, continue without it
@@ -15463,6 +16346,9 @@ export default function TradingViewChart({
       // TradingView: Stop Y-axis resize
       setIsResizingYAxis(false)
       setYAxisResizeStart(null)
+
+      // Clear BUY/SELL resize drag
+      buySellResizeDragRef.current = null
 
       // Handle parallel channel editing cleanup
       setIsEditingChannel(false)
@@ -15526,7 +16412,7 @@ export default function TradingViewChart({
 
           // PREVENT the editor from being closed immediately
           // Add a flag to prevent auto-closing for a few seconds
-          setTimeout(() => {}, 3000)
+          setTimeout(() => { }, 3000)
 
           return
         }
@@ -15770,8 +16656,8 @@ export default function TradingViewChart({
     const metadata: DrawingMetadata = {}
 
     switch (
-      toolType
-      // Pattern-specific metadata removed
+    toolType
+    // Pattern-specific metadata removed
     ) {
     }
 
@@ -16144,7 +17030,7 @@ export default function TradingViewChart({
     canvas.style.cursor = 'default'
   }
 
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {}
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => { }
 
   // Helper function to draw arrow heads
   const drawArrowHead = (
@@ -17215,11 +18101,10 @@ export default function TradingViewChart({
                       setTrackingTimeframe(tf)
                       setTrackingData({})
                     }}
-                    className={`px-5 py-2.5 text-sm font-bold rounded-md transition-all border ${
-                      trackingTimeframe === tf
-                        ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
-                        : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
-                    }`}
+                    className={`px-5 py-2.5 text-sm font-bold rounded-md transition-all border ${trackingTimeframe === tf
+                      ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
+                      : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
+                      }`}
                   >
                     {tf}
                   </button>
@@ -17365,8 +18250,8 @@ export default function TradingViewChart({
 
                                         const prevDayY = data.previousDayClose
                                           ? padding +
-                                            ((maxPrice - data.previousDayClose) / priceRange) *
-                                              chartHeight
+                                          ((maxPrice - data.previousDayClose) / priceRange) *
+                                          chartHeight
                                           : null
 
                                         // Only show shading for 1D timeframe (intraday data)
@@ -17529,14 +18414,14 @@ export default function TradingViewChart({
                                           const openPercent =
                                             marketOpenIndex >= 0
                                               ? (marketOpenIndex /
-                                                  (data.sparklineData.length - 1)) *
-                                                100
+                                                (data.sparklineData.length - 1)) *
+                                              100
                                               : 0
                                           const closePercent =
                                             marketCloseIndex >= 0
                                               ? (marketCloseIndex /
-                                                  (data.sparklineData.length - 1)) *
-                                                100
+                                                (data.sparklineData.length - 1)) *
+                                              100
                                               : 100
 
                                           return (
@@ -18889,10 +19774,10 @@ export default function TradingViewChart({
                                                 .filter(
                                                   (_, i) =>
                                                     i %
-                                                      Math.max(
-                                                        1,
-                                                        Math.floor(optionPremiumData.length / 20)
-                                                      ) ===
+                                                    Math.max(
+                                                      1,
+                                                      Math.floor(optionPremiumData.length / 20)
+                                                    ) ===
                                                     0
                                                 )
                                                 .map((d, i) => {
@@ -18905,12 +19790,12 @@ export default function TradingViewChart({
                                                   const x =
                                                     marginLeft +
                                                     (idx / (optionPremiumData.length - 1)) *
-                                                      plotWidth
+                                                    plotWidth
                                                   const y =
                                                     marginTop +
                                                     (plotHeight -
                                                       ((d.price - minPrice) / priceRange) *
-                                                        plotHeight)
+                                                      plotHeight)
                                                   return (
                                                     <circle
                                                       key={i}
@@ -19158,7 +20043,7 @@ export default function TradingViewChart({
                                                   marginTop +
                                                   (plotHeight -
                                                     ((stockData[i].price - minPrice) / priceRange) *
-                                                      plotHeight)
+                                                    plotHeight)
                                                 segmentPoints.push(`${x},${y}`)
                                               } else if (segmentPoints.length > 0) {
                                                 // End of market hours segment
@@ -19287,10 +20172,10 @@ export default function TradingViewChart({
                                                 .filter(
                                                   (_, i) =>
                                                     i %
-                                                      Math.max(
-                                                        1,
-                                                        Math.floor(stockData.length / 20)
-                                                      ) ===
+                                                    Math.max(
+                                                      1,
+                                                      Math.floor(stockData.length / 20)
+                                                    ) ===
                                                     0
                                                 )
                                                 .map((d, i) => {
@@ -19304,7 +20189,7 @@ export default function TradingViewChart({
                                                     marginTop +
                                                     (plotHeight -
                                                       ((d.price - minPrice) / priceRange) *
-                                                        plotHeight)
+                                                      plotHeight)
                                                   return (
                                                     <circle
                                                       key={i}
@@ -19460,7 +20345,7 @@ export default function TradingViewChart({
                                         const xScale = (i: number) =>
                                           margin.left +
                                           (i / Math.max(1, optionPremiumData.length - 1)) *
-                                            chartWidth
+                                          chartWidth
                                         const yScale = (price: number) =>
                                           margin.top +
                                           chartHeight -
@@ -19580,10 +20465,10 @@ export default function TradingViewChart({
                                               .filter(
                                                 (_, i) =>
                                                   i %
-                                                    Math.max(
-                                                      1,
-                                                      Math.floor(optionPremiumData.length / 30)
-                                                    ) ===
+                                                  Math.max(
+                                                    1,
+                                                    Math.floor(optionPremiumData.length / 30)
+                                                  ) ===
                                                   0
                                               )
                                               .map((d, i) => {
@@ -19938,10 +20823,10 @@ export default function TradingViewChart({
                                               .filter(
                                                 (_, i) =>
                                                   i %
-                                                    Math.max(
-                                                      1,
-                                                      Math.floor(stockData.length / 30)
-                                                    ) ===
+                                                  Math.max(
+                                                    1,
+                                                    Math.floor(stockData.length / 30)
+                                                  ) ===
                                                   0
                                               )
                                               .map((d, i) => {
@@ -20046,13 +20931,9 @@ export default function TradingViewChart({
   const RegimesPanel = ({
     activeTab,
     setActiveTab,
-    highlightFilter,
-    setHighlightFilter,
   }: {
     activeTab: string
     setActiveTab: (tab: string) => void
-    highlightFilter: 'all' | 'gold' | 'purple' | 'highlights'
-    setHighlightFilter: (filter: 'all' | 'gold' | 'purple' | 'highlights') => void
   }) => {
     const getCurrentTimeframeData = useCallback(() => {
       if (!marketRegimeData) {
@@ -20064,14 +20945,8 @@ export default function TradingViewChart({
         case 'life':
           data = marketRegimeData.life
           break
-        case 'developing':
-          data = marketRegimeData.developing
-          break
         case 'momentum':
           data = marketRegimeData.momentum
-          break
-        case 'legacy':
-          data = marketRegimeData.legacy
           break
         default:
           data = marketRegimeData.life
@@ -20100,451 +20975,32 @@ export default function TradingViewChart({
       [timeframeData]
     )
 
-    // For 'all' filter in INDUSTRY view, split all industries by performance (positive vs negative)
-    const allBullishIndustries = useMemo(
-      () => allIndustries.filter((industry: any) => industry.relativePerformance >= 0) || [],
-      [allIndustries]
-    )
-    const allBearishIndustries = useMemo(
-      () => allIndustries.filter((industry: any) => industry.relativePerformance < 0) || [],
-      [allIndustries]
-    )
-
-    // Memoize filtered and sorted trades to prevent re-computation on every render
+    // Memoize filtered and sorted trades — show all highlighted trades from both timeframes
     const { filteredBullishTrades, filteredBearishTrades } = useMemo(() => {
-      // When filter is 'all', show ALL industries AND highlighted trades
-      if (highlightFilter === 'all') {
-        // Show ALL industries - bullish trend goes to bullish list, everything else to bearish list
-        const industryBullish = allIndustries
-          .filter((industry: any) => industry.trend === 'bullish')
-          .map((industry: any) => [
-            industry.symbol,
-            {
-              ...industry,
-              optionType: 'call',
-              score: industry.relativePerformance || 0,
-              highlightType: null,
-              sourceTab: activeTab.toLowerCase(),
-              strike: 0,
-              expiration: null,
-              contractPrice: 0,
-              impliedVolatility: 0,
-              thetaDecay: 0,
-              delta: 0,
-              stockPrice: 0,
-              stockTarget80: 0,
-              stockTarget90: 0,
-              stopLoss: 0,
-            },
-          ])
-
-        // Put bearish AND neutral in bearish section so user sees everything
-        const industryBearish = allIndustries
-          .filter((industry: any) => industry.trend === 'bearish' || industry.trend === 'neutral')
-          .map((industry: any) => [
-            industry.symbol,
-            {
-              ...industry,
-              optionType: 'put',
-              score: industry.relativePerformance || 0,
-              highlightType: null,
-              sourceTab: activeTab.toLowerCase(),
-              strike: 0,
-              expiration: null,
-              contractPrice: 0,
-              impliedVolatility: 0,
-              thetaDecay: 0,
-              delta: 0,
-              stockPrice: 0,
-              stockTarget80: 0,
-              stockTarget90: 0,
-              stopLoss: 0,
-            },
-          ])
-
-        // Also include highlighted trades from cache
-        const allTabsHighlights = Object.entries(highlightedTradesCache).flatMap(([tab, trades]) =>
-          Object.entries(trades || {}).map(([symbol, trade]) => [symbol, trade])
-        )
-
-        const highlightBullish = allTabsHighlights.filter((item: any) => {
-          const [symbol, trade] = item as [string, any]
-          return trade.optionType?.toLowerCase() === 'call'
-        })
-
-        const highlightBearish = allTabsHighlights.filter((item: any) => {
-          const [symbol, trade] = item as [string, any]
-          return trade.optionType?.toLowerCase() === 'put'
-        })
-
-        // Combine industries and highlighted trades
-        const bullish = [...industryBullish, ...highlightBullish].sort((a, b) => {
-          const scoreA = a[1].score || 0
-          const scoreB = b[1].score || 0
-          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-        })
-
-        const bearish = [...industryBearish, ...highlightBearish].sort((a, b) => {
-          const scoreA = a[1].score || 0
-          const scoreB = b[1].score || 0
-          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-        })
-
-        return { filteredBullishTrades: bullish, filteredBearishTrades: bearish }
-      }
-
-      // For highlights filter: show trades appearing in 2+ timeframes with score > 49
-      if (highlightFilter === 'highlights') {
-        // Timeframe priority: life(0) < developing(1) < momentum(2) < legacy(3)
-        const timeframePriority: { [key: string]: number } = {
-          life: 0,
-          developing: 1,
-          momentum: 2,
-          legacy: 3,
-        }
-
-        // Group all trades by symbol and option type
-        const tradesBySymbol: { [key: string]: any[] } = {}
-
-        Object.entries(highlightedTradesCache).forEach(([tab, trades]) => {
-          Object.entries(trades || {}).forEach(([symbol, trade]) => {
-            const key = `${symbol}_${trade.optionType?.toLowerCase()}`
-            if (!tradesBySymbol[key]) {
-              tradesBySymbol[key] = []
-            }
-            tradesBySymbol[key].push({ ...trade, sourceTab: tab })
-          })
-        })
-
-        // Consolidate trades appearing in 2+ timeframes
-        const consolidatedTrades: Array<[string, any]> = []
-
-        Object.entries(tradesBySymbol).forEach(([key, trades]) => {
-          // Only include if appears in 2 or more timeframes
-          if (trades.length >= 2) {
-            // Find the highest timeframe
-            let highestTrade = trades[0]
-            let highestPriority = timeframePriority[trades[0].sourceTab] || 0
-
-            trades.forEach((trade) => {
-              const priority = timeframePriority[trade.sourceTab] || 0
-              if (priority > highestPriority) {
-                highestPriority = priority
-                highestTrade = trade
-              }
-            })
-
-            // Calculate average score
-            const avgScore = trades.reduce((sum, t) => sum + (t.score || 0), 0) / trades.length
-
-            // Create consolidated trade using highest timeframe data but with averaged score
-            const symbol = key.split('_')[0]
-            const consolidatedTrade = {
-              ...highestTrade,
-              score: avgScore,
-              timeframeCount: trades.length,
-              timeframes: trades
-                .map((t) => t.sourceTab)
-                .sort((a, b) => timeframePriority[a] - timeframePriority[b]),
-            }
-
-            consolidatedTrades.push([symbol, consolidatedTrade])
-          }
-        })
-
-        // Split into bullish and bearish
-        const bullish = consolidatedTrades
-          .filter(([symbol, trade]) => trade.optionType?.toLowerCase() === 'call')
-          .sort((a, b) => {
-            const scoreA = a[1].score || 0
-            const scoreB = b[1].score || 0
-            return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-          })
-
-        const bearish = consolidatedTrades
-          .filter(([symbol, trade]) => trade.optionType?.toLowerCase() === 'put')
-          .sort((a, b) => {
-            const scoreA = a[1].score || 0
-            const scoreB = b[1].score || 0
-            return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-          })
-
-        return { filteredBullishTrades: bullish, filteredBearishTrades: bearish }
-      }
-
-      // For other filters (gold, purple), use highlighted trades cache
+      const seen = new Set<string>()
       const allTabsHighlights: Array<[string, any]> = []
-      Object.keys(highlightedTradesCache).forEach((tab) => {
+      Object.keys(highlightedTradesCache).filter(k => k.startsWith(`${scanGroupMode}-`)).forEach((tab) => {
         Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
-          allTabsHighlights.push([symbol, trade])
+          const dedupKey = `${symbol}::${trade.sourceTab || tab}::${trade.optionType}`
+          if (!seen.has(dedupKey)) {
+            seen.add(dedupKey)
+            allTabsHighlights.push([symbol, trade])
+          }
         })
       })
-
       const bullish = allTabsHighlights
-        .filter(([symbol, trade]: [string, any]) => {
-          const matchesFilter =
-            highlightFilter === 'gold'
-              ? trade.highlightType === 'gold' || trade.highlightType === 'blue'
-              : highlightFilter === 'purple'
-                ? trade.highlightType === 'purple' || trade.highlightType === 'pink'
-                : true
-          return matchesFilter && trade.optionType?.toLowerCase() === 'call'
-        })
-        .sort((a, b) => {
-          const scoreA = a[1].score || 0
-          const scoreB = b[1].score || 0
-          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-        })
-
+        .filter(([, trade]: [string, any]) => trade.optionType?.toLowerCase() === 'call')
+        .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
       const bearish = allTabsHighlights
-        .filter(([symbol, trade]: [string, any]) => {
-          const matchesFilter =
-            highlightFilter === 'gold'
-              ? trade.highlightType === 'gold' || trade.highlightType === 'blue'
-              : highlightFilter === 'purple'
-                ? trade.highlightType === 'purple' || trade.highlightType === 'pink'
-                : true
-          return matchesFilter && trade.optionType?.toLowerCase() === 'put'
-        })
-        .sort((a, b) => {
-          const scoreA = a[1].score || 0
-          const scoreB = b[1].score || 0
-          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB
-        })
-
+        .filter(([, trade]: [string, any]) => trade.optionType?.toLowerCase() === 'put')
+        .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
       return { filteredBullishTrades: bullish, filteredBearishTrades: bearish }
-    }, [highlightedTradesCache, highlightFilter, sortByPercentage, allIndustries])
+    }, [highlightedTradesCache])
 
-    // Fetch highlights chart data when filter is 'highlights'
-    useEffect(() => {
-      if (highlightFilter !== 'highlights') {
-        // Reset fetch flag when leaving highlights
-        highlightsChartFetchedRef.current = false
-        return
-      }
-
-      // Get unique symbols from filtered trades
-      const uniqueSymbols = new Set<string>()
-      ;[...filteredBullishTrades, ...filteredBearishTrades].forEach(([symbol]) => {
-        uniqueSymbols.add(symbol)
-      })
-
-      if (uniqueSymbols.size === 0) {
-        return
-      }
-
-      // Check if symbols have changed
-      const symbolsArray = Array.from(uniqueSymbols)
-      const symbolsKey = symbolsArray.sort().join(',')
-      const prevSymbolsKey = Array.from(fetchedSymbolsRef.current).sort().join(',')
-
-      // Skip if already fetched and symbols haven't changed
-      if (highlightsChartFetchedRef.current && symbolsKey === prevSymbolsKey) {
-        return
-      }
-
-      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
-
-      const fetchHighlightsChartData = async () => {
-        try {
-          const now = new Date()
-          const year = parseInt(
-            now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric' })
-          )
-          const month = parseInt(
-            now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'numeric' })
-          )
-          const day = parseInt(
-            now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', day: 'numeric' })
-          )
-
-          const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-
-          const etDate = new Date(year, month - 1, day)
-          const startDate = new Date(etDate)
-          startDate.setDate(startDate.getDate() - 10)
-          const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
-
-          const results: any = {}
-          const BATCH_SIZE = 2
-          const DELAY_MS = 800
-
-          const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-          const fetchSymbolChart = async (symbol: string, trade: any) => {
-            try {
-              // Determine timeframe based on trade's sourceTab (highest timeframe)
-              let timeframe: '5D' | '1M' | '3M' | '6M' = '5D'
-              switch (trade.sourceTab) {
-                case 'life':
-                  timeframe = '5D'
-                  break
-                case 'developing':
-                  timeframe = '1M'
-                  break
-                case 'momentum':
-                  timeframe = '3M'
-                  break
-                case 'legacy':
-                  timeframe = '6M'
-                  break
-              }
-
-              if (timeframe === '5D') {
-                // For 5D, fetch 1D intraday data
-                const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_API_KEY}`
-                const dailyResponse = await fetchWithRetry(dailyUrl)
-                const dailyData = await dailyResponse.json()
-
-                if (!dailyData.results || dailyData.results.length < 2) {
-                  return null
-                }
-
-                const lastTradingDayTimestamp = dailyData.results[0].t
-                const lastTradingDay = new Date(lastTradingDayTimestamp)
-                const lastTradingDayStr = `${lastTradingDay.getUTCFullYear()}-${String(lastTradingDay.getUTCMonth() + 1).padStart(2, '0')}-${String(lastTradingDay.getUTCDate()).padStart(2, '0')}`
-
-                const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
-                const intradayResponse = await fetchWithRetry(intradayUrl)
-                const intradayData = await intradayResponse.json()
-
-                if (!intradayData.results || intradayData.results.length === 0) {
-                  return null
-                }
-
-                const intradayResults = intradayData.results
-                const currentPrice = intradayResults[intradayResults.length - 1].c
-                const previousDayClose = dailyData.results[1].c
-                const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100
-
-                const sparklineData = intradayResults.map((bar: any) => {
-                  const date = new Date(bar.t)
-                  const pstString = date.toLocaleString('en-US', {
-                    timeZone: 'America/Los_Angeles',
-                    hour12: false,
-                  })
-                  const pstDate = new Date(pstString)
-                  const hour = pstDate.getHours()
-                  const minute = pstDate.getMinutes()
-                  const totalMinutes = hour * 60 + minute
-
-                  return {
-                    time: bar.t,
-                    price: bar.c,
-                    etMinutes: totalMinutes,
-                  }
-                })
-
-                return {
-                  symbol,
-                  data: {
-                    symbol,
-                    price: currentPrice,
-                    change: changePercent,
-                    sparklineData,
-                    previousDayClose,
-                  },
-                }
-              } else {
-                // For 1M, 3M, 6M
-                let daysBack = 30
-                let multiplier = 1
-                let timespan = 'hour'
-
-                switch (timeframe) {
-                  case '1M':
-                    daysBack = 30
-                    multiplier = 1
-                    timespan = 'hour'
-                    break
-                  case '3M':
-                    daysBack = 90
-                    multiplier = 1
-                    timespan = 'day'
-                    break
-                  case '6M':
-                    daysBack = 180
-                    multiplier = 1
-                    timespan = 'day'
-                    break
-                }
-
-                const rangeStartDate = new Date(etDate)
-                rangeStartDate.setDate(rangeStartDate.getDate() - daysBack)
-                const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`
-
-                const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
-
-                const dataResponse = await fetchWithRetry(dataUrl)
-                const data = await dataResponse.json()
-
-                if (!data.results || data.results.length === 0) {
-                  return null
-                }
-
-                const results = data.results
-                const currentPrice = results[results.length - 1].c
-                const startPrice = results[0].c
-                const changePercent = ((currentPrice - startPrice) / startPrice) * 100
-
-                const sparklineData = results.map((bar: any) => ({
-                  time: bar.t,
-                  price: bar.c,
-                }))
-
-                return {
-                  symbol,
-                  data: {
-                    symbol,
-                    price: currentPrice,
-                    change: changePercent,
-                    sparklineData,
-                    previousDayClose: startPrice,
-                  },
-                }
-              }
-            } catch (error) {
-              return null
-            }
-          }
-
-          const symbolsArray = Array.from(uniqueSymbols)
-          const symbolTradeMap = new Map<string, any>()
-
-          // Build map of symbol to its trade data
-          ;[...filteredBullishTrades, ...filteredBearishTrades].forEach(([symbol, trade]) => {
-            symbolTradeMap.set(symbol, trade)
-          })
-
-          for (let i = 0; i < symbolsArray.length; i += BATCH_SIZE) {
-            const batch = symbolsArray.slice(i, i + BATCH_SIZE)
-            const batchResults = await Promise.all(
-              batch.map((symbol) => fetchSymbolChart(symbol, symbolTradeMap.get(symbol)))
-            )
-
-            batchResults.forEach((result) => {
-              if (result) {
-                results[result.symbol] = result.data
-              }
-            })
-
-            if (i + BATCH_SIZE < symbolsArray.length) {
-              await delay(DELAY_MS)
-            }
-          }
-
-          setHighlightsChartData(results)
-
-          // Mark as fetched and store symbols
-          highlightsChartFetchedRef.current = true
-          fetchedSymbolsRef.current = new Set(symbolsArray)
-        } catch (error) {
-          console.error('Error fetching highlights chart data:', error)
-        }
-      }
-
-      fetchHighlightsChartData()
-    }, [highlightFilter, filteredBullishTrades, filteredBearishTrades])
+    const shortTermBullish = filteredBullishTrades.filter(([, t]: [string, any]) => t.sourceTab === 'life')
+    const longTermBullish = filteredBullishTrades.filter(([, t]: [string, any]) => t.sourceTab !== 'life')
+    const shortTermBearish = filteredBearishTrades.filter(([, t]: [string, any]) => t.sourceTab === 'life')
+    const longTermBearish = filteredBearishTrades.filter(([, t]: [string, any]) => t.sourceTab !== 'life')
 
     // Preserve scroll position on re-renders
     useLayoutEffect(() => {
@@ -20631,482 +21087,6 @@ export default function TradingViewChart({
                 >
                   Market Regimes
                 </h1>
-              </div>
-            </div>
-          </div>
-
-          {/* Abstract Hexagonal Tab Navigation */}
-          <div
-            className="px-6 pb-3"
-            style={{
-              marginTop: window.innerWidth < 768 ? '-12px' : '-16px',
-            }}
-          >
-            <div
-              className="grid grid-cols-4 gap-3"
-              style={{
-                position: 'relative',
-              }}
-            >
-              {['Weekly', 'Monthly', 'Quarterly', 'Leap'].map((tab, index) => {
-                const tabConfig = {
-                  Weekly: {
-                    gradient: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
-                    glow: 'rgba(16, 185, 129, 0.4)',
-                    border: '#10b981',
-                    color: '#10b981',
-                    originalTab: 'Life',
-                  },
-                  Monthly: {
-                    gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
-                    glow: 'rgba(59, 130, 246, 0.4)',
-                    border: '#3b82f6',
-                    color: '#3b82f6',
-                    originalTab: 'Developing',
-                  },
-                  Quarterly: {
-                    gradient: 'linear-gradient(135deg, #a855f7 0%, #9333ea 50%, #7e22ce 100%)',
-                    glow: 'rgba(168, 85, 247, 0.4)',
-                    border: '#a855f7',
-                    color: '#a855f7',
-                    originalTab: 'Momentum',
-                  },
-                  Leap: {
-                    gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
-                    glow: 'rgba(245, 158, 11, 0.4)',
-                    border: '#f59e0b',
-                    color: '#f59e0b',
-                    originalTab: 'Legacy',
-                  },
-                }
-                const config = tabConfig[tab as keyof typeof tabConfig]
-                const isMobile = window.innerWidth < 768
-                const isActive = activeTab === config.originalTab
-
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(config.originalTab)}
-                    className="relative overflow-hidden transition-all duration-500 group"
-                    style={{
-                      padding: isMobile ? '10px 6px' : '16px 12px',
-                      background: isActive
-                        ? `linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)`
-                        : 'linear-gradient(135deg, rgba(15, 15, 15, 0.8) 0%, rgba(5, 5, 5, 0.95) 100%)',
-                      backdropFilter: 'blur(10px)',
-                      border: isActive
-                        ? `2px solid ${config.border}`
-                        : '2px solid rgba(40, 40, 40, 0.5)',
-                      borderRadius: '0px',
-                      clipPath: 'polygon(0 0, 95% 0, 100% 100%, 5% 100%)',
-                      boxShadow: isActive
-                        ? `0 8px 25px ${config.glow}, 
-                           0 15px 45px rgba(0, 0, 0, 0.9),
-                           inset 0 3px 15px ${config.glow},
-                           inset 0 1px 0 rgba(255, 255, 255, 0.4),
-                           inset 0 -2px 8px rgba(0, 0, 0, 0.8)`
-                        : `0 4px 12px rgba(0, 0, 0, 0.8), 
-                           0 8px 20px rgba(0, 0, 0, 0.5),
-                           inset 0 1px 0 rgba(255, 255, 255, 0.05),
-                           inset 0 -1px 3px rgba(0, 0, 0, 0.6)`,
-                      transform: isActive
-                        ? 'scale(1.05) translateY(-6px) perspective(1000px) rotateX(2deg)'
-                        : 'scale(1) perspective(1000px)',
-                      cursor: 'pointer',
-                      position: 'relative',
-                      transformStyle: 'preserve-3d',
-                    }}
-                  >
-                    {/* Glossy top highlight - stronger for 4D effect */}
-                    <div
-                      className="absolute top-0 left-0 right-0 h-1"
-                      style={{
-                        background:
-                          'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
-                        opacity: isActive ? 1 : 0.2,
-                        filter: 'blur(1px)',
-                      }}
-                    />
-
-                    {/* Bottom shadow for depth */}
-                    <div
-                      className="absolute bottom-0 left-0 right-0 h-2"
-                      style={{
-                        background:
-                          'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
-                        opacity: isActive ? 0.8 : 0.3,
-                      }}
-                    />
-
-                    {/* Side edge highlight for 3D depth */}
-                    <div
-                      className="absolute top-0 right-0 w-px h-full"
-                      style={{
-                        background: `linear-gradient(180deg, ${config.border} 0%, transparent 100%)`,
-                        opacity: isActive ? 0.6 : 0,
-                      }}
-                    />
-
-                    {/* Geometric accent line */}
-                    <div
-                      className="absolute top-0 left-0 right-0 h-0.5"
-                      style={{
-                        background: isActive
-                          ? `linear-gradient(90deg, transparent, ${config.border}, transparent)`
-                          : 'transparent',
-                        opacity: isActive ? 1 : 0,
-                        transition: 'opacity 0.3s',
-                      }}
-                    />
-
-                    <div className="relative z-10 flex flex-col items-center justify-center">
-                      <div
-                        className="font-black tracking-wider"
-                        style={{
-                          fontSize: isMobile
-                            ? tab === 'Quarterly'
-                              ? '0.68rem'
-                              : '0.85rem'
-                            : '1.1rem',
-                          color: isActive ? config.color : '#ffffff',
-                          textShadow: 'none',
-                          letterSpacing: '0.1em',
-                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                        }}
-                      >
-                        {tab.toUpperCase()}
-                      </div>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Abstract Filter Control Panel */}
-          <div className="px-6 pb-6">
-            <div
-              className="relative"
-              style={{
-                background:
-                  'linear-gradient(135deg, rgba(20, 20, 20, 0.4) 0%, rgba(10, 10, 10, 0.6) 100%)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
-                borderRadius: '16px',
-                padding: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.03)',
-              }}
-            >
-              {/* Decorative corner accents */}
-              <div
-                className="absolute top-0 left-0 w-12 h-12"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(255, 102, 0, 0.15) 0%, transparent 100%)',
-                  borderRadius: '16px 0 0 0',
-                }}
-              />
-              <div
-                className="absolute bottom-0 right-0 w-12 h-12"
-                style={{
-                  background:
-                    'linear-gradient(-45deg, rgba(255, 102, 0, 0.15) 0%, transparent 100%)',
-                  borderRadius: '0 0 16px 0',
-                }}
-              />
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 relative z-10">
-                <button
-                  onClick={() => setHighlightFilter('all')}
-                  className="group relative overflow-hidden transition-all duration-300"
-                  style={{
-                    padding: '12px 20px',
-                    background:
-                      highlightFilter === 'all'
-                        ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
-                        : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border:
-                      highlightFilter === 'all'
-                        ? '2px solid #ff6600'
-                        : '2px solid rgba(60, 60, 60, 0.4)',
-                    borderRadius: '10px',
-                    boxShadow:
-                      highlightFilter === 'all'
-                        ? '0 8px 25px rgba(255, 102, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 102, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
-                        : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
-                    transform:
-                      highlightFilter === 'all'
-                        ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)'
-                        : 'scale(1) perspective(1000px)',
-                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
-                    transformStyle: 'preserve-3d',
-                  }}
-                >
-                  {/* Glossy top highlight */}
-                  <div
-                    className="absolute top-0 left-0 right-0 h-1"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
-                      opacity: highlightFilter === 'all' ? 1 : 0.2,
-                      filter: 'blur(1px)',
-                    }}
-                  />
-                  {/* Bottom shadow */}
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-2"
-                    style={{
-                      background:
-                        'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
-                      opacity: highlightFilter === 'all' ? 0.8 : 0.3,
-                    }}
-                  />
-                  {/* Side edge */}
-                  <div
-                    className="absolute top-0 right-0 w-px h-full"
-                    style={{
-                      background: 'linear-gradient(180deg, #ff6600 0%, transparent 100%)',
-                      opacity: highlightFilter === 'all' ? 0.6 : 0,
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 relative z-10">
-                    <TbFilter
-                      size={18}
-                      style={{
-                        color: highlightFilter === 'all' ? '#ff6600' : '#ffffff',
-                      }}
-                    />
-                    <span
-                      className="font-black text-sm tracking-widest"
-                      style={{
-                        color: highlightFilter === 'all' ? '#ff6600' : '#ffffff',
-                        textShadow: 'none',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                      }}
-                    >
-                      {window.innerWidth < 768 ? 'ANALYSIS' : 'ALL'}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setHighlightFilter('gold')}
-                  className="group relative overflow-hidden transition-all duration-300"
-                  style={{
-                    padding: '12px 20px',
-                    background:
-                      highlightFilter === 'gold'
-                        ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
-                        : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border:
-                      highlightFilter === 'gold'
-                        ? '2px solid #FFFF00'
-                        : '2px solid rgba(255, 255, 0, 0.2)',
-                    borderRadius: '10px',
-                    boxShadow:
-                      highlightFilter === 'gold'
-                        ? '0 8px 25px rgba(255, 255, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 255, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
-                        : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
-                    transform:
-                      highlightFilter === 'gold'
-                        ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)'
-                        : 'scale(1) perspective(1000px)',
-                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
-                    transformStyle: 'preserve-3d',
-                  }}
-                >
-                  {/* Glossy top highlight */}
-                  <div
-                    className="absolute top-0 left-0 right-0 h-1"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
-                      opacity: highlightFilter === 'gold' ? 1 : 0.2,
-                      filter: 'blur(1px)',
-                    }}
-                  />
-                  {/* Bottom shadow */}
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-2"
-                    style={{
-                      background:
-                        'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
-                      opacity: highlightFilter === 'gold' ? 0.8 : 0.3,
-                    }}
-                  />
-                  {/* Side edge */}
-                  <div
-                    className="absolute top-0 right-0 w-px h-full"
-                    style={{
-                      background: 'linear-gradient(180deg, #FFFF00 0%, transparent 100%)',
-                      opacity: highlightFilter === 'gold' ? 0.6 : 0,
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 relative z-10">
-                    <TbTrendingUp
-                      size={18}
-                      style={{
-                        color: highlightFilter === 'gold' ? '#FFFF00' : '#ffffff',
-                      }}
-                    />
-                    <span
-                      className="font-black text-sm tracking-widest"
-                      style={{
-                        color: highlightFilter === 'gold' ? '#FFFF00' : '#ffffff',
-                        textShadow: 'none',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                      }}
-                    >
-                      {window.innerWidth < 768 ? 'BEST' : 'BEST PERFORMERS'}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setHighlightFilter('purple')}
-                  className="group relative overflow-hidden transition-all duration-300"
-                  style={{
-                    padding: '12px 20px',
-                    background:
-                      highlightFilter === 'purple'
-                        ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
-                        : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border:
-                      highlightFilter === 'purple'
-                        ? '2px solid #ffffff'
-                        : '2px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '10px',
-                    boxShadow:
-                      highlightFilter === 'purple'
-                        ? '0 8px 25px rgba(255, 255, 255, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
-                        : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
-                    transform:
-                      highlightFilter === 'purple'
-                        ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)'
-                        : 'scale(1) perspective(1000px)',
-                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
-                    transformStyle: 'preserve-3d',
-                  }}
-                >
-                  {/* Glossy top highlight */}
-                  <div
-                    className="absolute top-0 left-0 right-0 h-1"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
-                      opacity: highlightFilter === 'purple' ? 1 : 0.2,
-                      filter: 'blur(1px)',
-                    }}
-                  />
-                  {/* Bottom shadow */}
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-2"
-                    style={{
-                      background:
-                        'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
-                      opacity: highlightFilter === 'purple' ? 0.8 : 0.3,
-                    }}
-                  />
-                  {/* Side edge */}
-                  <div
-                    className="absolute top-0 right-0 w-px h-full"
-                    style={{
-                      background: 'linear-gradient(180deg, #ffffff 0%, transparent 100%)',
-                      opacity: highlightFilter === 'purple' ? 0.6 : 0,
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 relative z-10">
-                    <TbChartBar
-                      size={18}
-                      style={{
-                        color: '#ffffff',
-                      }}
-                    />
-                    <span
-                      className="font-black text-sm tracking-widest"
-                      style={{
-                        color: '#ffffff',
-                        textShadow: 'none',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                      }}
-                    >
-                      {window.innerWidth < 768 ? 'INDUSTRY PICK' : 'INDUSTRY PICKS'}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setHighlightFilter('highlights')}
-                  className="group relative overflow-hidden transition-all duration-300"
-                  style={{
-                    padding: '12px 20px',
-                    background:
-                      highlightFilter === 'highlights'
-                        ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
-                        : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border:
-                      highlightFilter === 'highlights'
-                        ? '2px solid #CD7F32'
-                        : '2px solid rgba(205, 127, 50, 0.2)',
-                    borderRadius: '10px',
-                    boxShadow:
-                      highlightFilter === 'highlights'
-                        ? '0 8px 25px rgba(205, 127, 50, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(205, 127, 50, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
-                        : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
-                    transform:
-                      highlightFilter === 'highlights'
-                        ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)'
-                        : 'scale(1) perspective(1000px)',
-                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
-                    transformStyle: 'preserve-3d',
-                  }}
-                >
-                  {/* Glossy top highlight */}
-                  <div
-                    className="absolute top-0 left-0 right-0 h-1"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
-                      opacity: highlightFilter === 'highlights' ? 1 : 0.2,
-                      filter: 'blur(1px)',
-                    }}
-                  />
-                  {/* Bottom shadow */}
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-2"
-                    style={{
-                      background:
-                        'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
-                      opacity: highlightFilter === 'highlights' ? 0.8 : 0.3,
-                    }}
-                  />
-                  {/* Side edge */}
-                  <div
-                    className="absolute top-0 right-0 w-px h-full"
-                    style={{
-                      background: 'linear-gradient(180deg, #CD7F32 0%, transparent 100%)',
-                      opacity: highlightFilter === 'highlights' ? 0.6 : 0,
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 relative z-10">
-                    <TbStarFilled
-                      size={18}
-                      style={{
-                        color: highlightFilter === 'highlights' ? '#CD7F32' : '#ffffff',
-                      }}
-                    />
-                    <span
-                      className="font-black text-sm tracking-widest"
-                      style={{
-                        color: highlightFilter === 'highlights' ? '#CD7F32' : '#ffffff',
-                        textShadow: 'none',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                      }}
-                    >
-                      {window.innerWidth < 768 ? 'HIGHLIGHTS' : 'KEY HIGHLIGHTS'}
-                    </span>
-                  </div>
-                </button>
               </div>
             </div>
           </div>
@@ -21200,2588 +21180,1082 @@ export default function TradingViewChart({
                   </div>
                 )}
 
-                {/* Conditional Rendering: Highlights View or Industry Grid */}
-                {highlightFilter !== 'all' ? (
-                  <div className="px-6 pb-6">
-                    {/* Sort Button */}
-                    <div className="flex justify-center mb-6">
-                      <button
-                        onClick={() => setSortByPercentage(!sortByPercentage)}
-                        className="px-4 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 text-xs"
-                        style={{
-                          background: '#000000',
-                          color: '#ff6600',
-                          border: '2px solid #ff6600',
-                          borderRadius: '8px',
-                          boxShadow:
-                            'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)',
-                        }}
-                      >
-                        <TbArrowsSort size={16} />{' '}
-                        {sortByPercentage ? 'Highest % First' : 'Lowest % First'}
-                      </button>
-                    </div>
-
-                    {/* Conditional Layout - Best Performers: 1+1 | Others: 2+2 = 4 columns */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {/* Bullish Section */}
-                      <div>
-                        <div
-                          className="mb-6 pb-3 border-b relative overflow-hidden"
+                {/* Best Performers */}
+                <div className="px-6 pb-6">
+                  {/* Scan Group Toggle */}
+                  <div className="flex justify-center mb-6">
+                    <div style={{ display: 'flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', overflow: 'hidden', fontFamily: '"Courier New", monospace' }}>
+                      {(['sectors', 'industries'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => setScanGroupMode(mode)}
                           style={{
-                            borderColor: '#10b981',
-                            background:
-                              'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, transparent 50%, rgba(16, 185, 129, 0.15) 100%)',
+                            padding: '6px 20px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.1em',
+                            cursor: 'pointer',
+                            background: scanGroupMode === mode ? '#ff6600' : '#000000',
+                            color: scanGroupMode === mode ? '#000000' : 'rgba(255,255,255,0.6)',
+                            border: 'none',
+                            borderRight: mode === 'sectors' ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                            transition: 'all 0.15s',
                           }}
                         >
-                          <div className="flex items-center justify-center gap-3 py-3">
-                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
-                            <h3
-                              className="font-black uppercase tracking-widest flex items-center gap-2"
-                              style={{
-                                fontSize: '1.1rem',
-                                color: '#00ff00',
-                                fontFamily: 'system-ui, -apple-system, sans-serif',
-                                letterSpacing: '0.15em',
-                              }}
-                            >
-                              <TbTrendingUp size={20} /> BULLISH
-                            </h3>
-                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
-                          </div>
-                        </div>
-                        <div className="space-y-4">
-                          {filteredBullishTrades.map((item: any, idx: number) => {
-                            const [symbol, trade] = item as [string, any]
-                            // Color logic: Gold for setup/quality, Lime Green for momentum
-                            const tickerColor = trade.strategy === 'setup' ? '#FFD700' : '#32CD32'
-                            const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`
-
-                            // Get tab label and color from trade's sourceTab
-                            const tradeTab = trade.sourceTab
-                            if (!tradeTab) {
-                            }
-                            const tabColor =
-                              tradeTab === 'life'
-                                ? '#10b981'
-                                : tradeTab === 'developing'
-                                  ? '#3b82f6'
-                                  : tradeTab === 'momentum'
-                                    ? '#a855f7'
-                                    : '#f59e0b'
-
-                            // Uniform card styling
-                            const cardBorder = '1px solid rgba(16, 185, 129, 0.3)'
-                            const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
-
-                            return (
-                              <div
-                                key={uniqueKey}
-                                className="group relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                          {mode === 'sectors' ? '11 Sectors' : 'Industries'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Trade Panels - Short Term & Long Term */}
+                  <div className="flex flex-col gap-10">
+                    {/* SHORT TERM PANEL */}
+                    <div>
+                      <div className="mb-6 pb-4 border-b" style={{ borderColor: '#ff6600', borderBottomWidth: '2px' }}>
+                        <div className="text-center font-mono font-black uppercase" style={{ color: '#ffffff', fontSize: '1.85rem', letterSpacing: '0.35em', textShadow: '0 0 20px rgba(255,102,0,0.4), 0 2px 4px rgba(0,0,0,0.8)' }}>SHORT TERM</div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Bullish Section */}
+                        <div>
+                          <div
+                            className="mb-6 pb-3 border-b relative overflow-hidden"
+                            style={{
+                              borderColor: '#10b981',
+                              background:
+                                'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, transparent 50%, rgba(16, 185, 129, 0.15) 100%)',
+                            }}
+                          >
+                            <div className="flex items-center justify-center gap-3 py-3">
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
+                              <h3
+                                className="font-black uppercase tracking-widest flex items-center gap-2"
                                 style={{
-                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-                                  border: cardBorder,
-                                  borderRadius: '8px',
-                                  boxShadow: cardShadow,
-                                }}
-                                onClick={() => {
-                                  setSelectedTradeForModal(trade)
-                                  setShowTradeModal(true)
+                                  fontSize: '1.1rem',
+                                  color: '#00ff00',
+                                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                                  letterSpacing: '0.15em',
                                 }}
                               >
-                                <div className="relative p-4">
-                                  {/* Horizontal Header: Timeframe | Symbol | Score */}
-                                  <div className="flex items-center gap-3 mb-3">
-                                    {/* Timeframe indicator - vertical colored bar */}
-                                    <div className="flex items-center gap-2">
-                                      <div
-                                        className="w-1 h-8 rounded-full"
-                                        style={{ background: tabColor }}
-                                      />
-                                      <div className="flex flex-col">
+                                <TbTrendingUp size={20} /> BULLISH
+                              </h3>
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            {shortTermBullish.map((item: any, idx: number) => {
+                              const [symbol, trade] = item as [string, any]
+                              // Conviction grade color: SS+/SS=gold, S=sky, A=lime, B=silver, C/D=muted
+                              const grade = trade.grade || ''
+                              const tickerColor =
+                                grade === 'SS+' || grade === 'SS' ? '#FFD700'
+                                  : grade === 'S' ? '#00BFFF'
+                                    : grade === 'A' ? '#84cc16'
+                                      : grade === 'B' ? '#c0c0c0'
+                                        : '#6b7280'
+                              const uniqueKey = `st-bull-${symbol}-${trade.sourceTab || 'x'}-${idx}`
+
+                              // Get tab label and color from trade's sourceTab
+                              const tradeTab = trade.sourceTab
+                              if (!tradeTab) {
+                              }
+                              const tabColor =
+                                tradeTab === 'life'
+                                  ? '#10b981'
+                                  : '#a855f7'
+
+                              // Uniform card styling
+                              const cardBorder = '1px solid rgba(16, 185, 129, 0.3)'
+                              const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
+
+                              return (
+                                <div
+                                  key={uniqueKey}
+                                  className="group relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                                  style={{
+                                    background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                    border: cardBorder,
+                                    borderRadius: '8px',
+                                    boxShadow: cardShadow,
+                                  }}
+                                  onDoubleClick={() => setTradeDetailPopup({ trade, symbol })}
+                                >
+                                  <div className="relative p-4">
+                                    {/* Horizontal Header: Timeframe | Symbol | Score */}
+                                    <div className="flex items-center gap-3 mb-3">
+                                      {/* Timeframe indicator - vertical colored bar */}
+                                      <div className="flex items-center gap-2">
                                         <div
-                                          className="text-xs font-bold uppercase tracking-wide"
+                                          className="w-1 h-8 rounded-full"
+                                          style={{ background: tabColor }}
+                                        />
+                                        <div className="flex flex-col">
+                                          <div
+                                            className="text-xs font-bold uppercase tracking-wide"
+                                            style={{
+                                              color: tabColor,
+                                              fontSize:
+                                                typeof window !== 'undefined' &&
+                                                  window.innerWidth <= 768
+                                                  ? '0.525rem'
+                                                  : '0.75rem',
+                                            }}
+                                          >
+                                            {tradeTab === 'life' ? 'Short Term' : 'Long Term'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Symbol in center */}
+                                      <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                        <span
+                                          className="font-black tracking-tight"
                                           style={{
-                                            color: tabColor,
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
-                                                ? '0.525rem'
-                                                : '0.75rem',
+                                                window.innerWidth <= 768
+                                                ? '1.05rem'
+                                                : '1.5rem',
+                                            color: tickerColor,
+                                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                                            display: 'inline-block',
                                           }}
                                         >
-                                          {highlightFilter === 'highlights' && trade.timeframeCount
-                                            ? `${trade.timeframeCount} Frame`
-                                            : tradeTab === 'life'
-                                              ? 'Weekly'
-                                              : tradeTab === 'developing'
-                                                ? 'Monthly'
-                                                : tradeTab === 'momentum'
-                                                  ? 'Quarterly'
-                                                  : 'Leap'}
-                                        </div>
-                                        <div
-                                          className="text-[0.65rem] font-medium uppercase tracking-wide"
+                                          {symbol}
+                                        </span>
+                                      </div>
+
+                                      {/* Score and Watchlist Button */}
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="font-black tabular-nums"
                                           style={{
-                                            color: '#ffffff',
-                                            marginTop: '2px',
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
-                                                ? '0.455rem'
-                                                : '0.65rem',
+                                                window.innerWidth <= 768
+                                                ? '1.05rem'
+                                                : '1.5rem',
+                                            color: '#00ff00',
+                                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                                            opacity: 1,
                                           }}
                                         >
-                                          Quality
-                                        </div>
+                                          {Math.round(trade.score)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (
+                                              trade &&
+                                              trade.strike &&
+                                              trade.expiration &&
+                                              trade.contractPrice
+                                            ) {
+                                              // Get current stock price - use strike if stockPrice not available
+                                              let currentStockPrice = trade.stockPrice
+                                              if (!currentStockPrice || currentStockPrice === 0) {
+                                                currentStockPrice = trade.strike
+                                              }
+
+                                              // Calculate targets using Black-Scholes expected move
+                                              const expiryDate = new Date(trade.expiration)
+                                              const now = new Date()
+                                              const daysToExpiry = Math.max(
+                                                1,
+                                                Math.ceil(
+                                                  (expiryDate.getTime() - now.getTime()) /
+                                                  (1000 * 60 * 60 * 24)
+                                                )
+                                              )
+                                              const T = daysToExpiry / 365
+                                              const sigma = (trade.impliedVolatility || 50) / 100
+                                              const isCall =
+                                                trade.optionType?.toLowerCase() === 'call'
+
+                                              let target80StockPrice = 0
+                                              let target90StockPrice = 0
+
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                if (isCall) {
+                                                  const expectedMove1SD =
+                                                    currentStockPrice * sigma * Math.sqrt(T)
+                                                  target80StockPrice =
+                                                    currentStockPrice + expectedMove1SD * 0.84
+                                                  target90StockPrice =
+                                                    currentStockPrice + expectedMove1SD * 1.28
+                                                } else {
+                                                  const expectedMove1SD =
+                                                    currentStockPrice * sigma * Math.sqrt(T)
+                                                  target80StockPrice =
+                                                    currentStockPrice - expectedMove1SD * 0.84
+                                                  target90StockPrice =
+                                                    currentStockPrice - expectedMove1SD * 1.28
+                                                }
+                                              }
+
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker:
+                                                  trade.optionTicker ||
+                                                  `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
+                                                symbol: symbol,
+                                                strike: trade.strike,
+                                                type: trade.optionType?.toLowerCase() || 'call',
+                                                contract_type:
+                                                  trade.optionType?.toLowerCase() || 'call',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98,
+                                                ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice,
+                                                last_price: trade.contractPrice,
+                                                delta: trade.delta || 0,
+                                                theta: trade.thetaDecay
+                                                  ? -Math.abs(trade.thetaDecay)
+                                                  : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike,
+                                                expiration_date: trade.expiration,
+                                                addedAt: new Date(),
+                                                entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice,
+                                                stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice,
+                                                stopLoss: trade.contractPrice * 0.75,
+                                              }
+                                              const saved = localStorage.getItem('optionsWatchlist')
+                                              const existing = saved ? JSON.parse(saved) : []
+                                              const alreadyExists = existing.some(
+                                                (item: any) =>
+                                                  item.symbol === watchlistItem.symbol &&
+                                                  item.strike === watchlistItem.strike &&
+                                                  item.expiration === watchlistItem.expiration
+                                              )
+                                              if (!alreadyExists) {
+                                                localStorage.setItem(
+                                                  'optionsWatchlist',
+                                                  JSON.stringify([...existing, watchlistItem])
+                                                )
+                                              }
+                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Watchlist"
+                                        >
+                                          {(() => {
+                                            const saved = localStorage.getItem('optionsWatchlist')
+                                            const existing = saved ? JSON.parse(saved) : []
+                                            const isInWatchlist = existing.some(
+                                              (item: any) =>
+                                                item.symbol === symbol &&
+                                                item.strike === trade.strike &&
+                                                item.expiration === trade.expiration
+                                            )
+                                            return isInWatchlist ? (
+                                              <TbStarFilled className="w-4 h-4 text-yellow-400" />
+                                            ) : (
+                                              <TbStar className="w-4 h-4 text-gray-500 hover:text-yellow-400" />
+                                            )
+                                          })()}
+                                        </button>
                                       </div>
                                     </div>
 
-                                    {/* Symbol in center */}
-                                    <div className="flex-1 text-center flex items-center justify-center gap-2">
-                                      <span
-                                        className="font-black tracking-tight"
-                                        style={{
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '1.05rem'
-                                              : '1.5rem',
-                                          color: tickerColor,
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          display: 'inline-block',
-                                        }}
-                                      >
-                                        {symbol}
+                                    {/* Industry */}
+                                    <div className="mb-2">
+                                      <div className="text-xs text-orange-400 text-center font-bold">
+                                        {trade.industry}
+                                      </div>
+                                    </div>
+
+                                    {/* Trade Info */}
+                                    <div className="text-xs text-center text-orange-400 mb-3 font-bold">
+                                      <span className="font-bold text-white">
+                                        ${trade.strike?.toFixed(0)}
+                                      </span>{' '}
+                                      <span style={{ color: '#10b981' }} className="font-semibold">
+                                        {trade.optionType?.toUpperCase()}
                                       </span>
-                                    </div>
-
-                                    {/* Score and Watchlist Button */}
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className="font-black tabular-nums"
-                                        style={{
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '1.05rem'
-                                              : '1.5rem',
-                                          color: '#00ff00',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          opacity: 1,
-                                        }}
-                                      >
-                                        {Math.round(trade.score)}
-                                      </span>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          if (
-                                            trade &&
-                                            trade.strike &&
-                                            trade.expiration &&
-                                            trade.contractPrice
-                                          ) {
-                                            // Get current stock price - use strike if stockPrice not available
-                                            let currentStockPrice = trade.stockPrice
-                                            if (!currentStockPrice || currentStockPrice === 0) {
-                                              currentStockPrice = trade.strike
-                                            }
-
-                                            // Calculate targets using Black-Scholes expected move
-                                            const expiryDate = new Date(trade.expiration)
-                                            const now = new Date()
-                                            const daysToExpiry = Math.max(
-                                              1,
-                                              Math.ceil(
-                                                (expiryDate.getTime() - now.getTime()) /
-                                                  (1000 * 60 * 60 * 24)
-                                              )
-                                            )
-                                            const T = daysToExpiry / 365
-                                            const sigma = (trade.impliedVolatility || 50) / 100
-                                            const isCall =
-                                              trade.optionType?.toLowerCase() === 'call'
-
-                                            let target80StockPrice = 0
-                                            let target90StockPrice = 0
-
-                                            if (T > 0 && sigma > 0 && currentStockPrice > 0) {
-                                              if (isCall) {
-                                                const expectedMove1SD =
-                                                  currentStockPrice * sigma * Math.sqrt(T)
-                                                target80StockPrice =
-                                                  currentStockPrice + expectedMove1SD * 0.84
-                                                target90StockPrice =
-                                                  currentStockPrice + expectedMove1SD * 1.28
-                                              } else {
-                                                const expectedMove1SD =
-                                                  currentStockPrice * sigma * Math.sqrt(T)
-                                                target80StockPrice =
-                                                  currentStockPrice - expectedMove1SD * 0.84
-                                                target90StockPrice =
-                                                  currentStockPrice - expectedMove1SD * 1.28
-                                              }
-                                            }
-
-                                            const watchlistItem = {
-                                              id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
-                                              ticker:
-                                                trade.optionTicker ||
-                                                `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
-                                              symbol: symbol,
-                                              strike: trade.strike,
-                                              type: trade.optionType?.toLowerCase() || 'call',
-                                              contract_type:
-                                                trade.optionType?.toLowerCase() || 'call',
-                                              expiration: trade.expiration,
-                                              bid: trade.contractPrice * 0.98,
-                                              ask: trade.contractPrice * 1.02,
-                                              lastPrice: trade.contractPrice,
-                                              last_price: trade.contractPrice,
-                                              delta: trade.delta || 0,
-                                              theta: trade.thetaDecay
-                                                ? -Math.abs(trade.thetaDecay)
-                                                : 0,
-                                              implied_volatility: trade.impliedVolatility || 0,
-                                              strike_price: trade.strike,
-                                              expiration_date: trade.expiration,
-                                              addedAt: new Date(),
-                                              entryPrice: trade.contractPrice,
-                                              stockPrice: currentStockPrice,
-                                              stockTarget80: target80StockPrice,
-                                              stockTarget90: target90StockPrice,
-                                              stopLoss: trade.contractPrice * 0.75,
-                                            }
-                                            const saved = localStorage.getItem('optionsWatchlist')
-                                            const existing = saved ? JSON.parse(saved) : []
-                                            const alreadyExists = existing.some(
-                                              (item: any) =>
-                                                item.symbol === watchlistItem.symbol &&
-                                                item.strike === watchlistItem.strike &&
-                                                item.expiration === watchlistItem.expiration
-                                            )
-                                            if (!alreadyExists) {
-                                              localStorage.setItem(
-                                                'optionsWatchlist',
-                                                JSON.stringify([...existing, watchlistItem])
-                                              )
-                                              setHighlightFilter(highlightFilter)
-                                            }
-                                          }
-                                        }}
-                                        className="hover:scale-110 transition-transform"
-                                        title="Add to Watchlist"
-                                      >
-                                        {(() => {
-                                          const saved = localStorage.getItem('optionsWatchlist')
-                                          const existing = saved ? JSON.parse(saved) : []
-                                          const isInWatchlist = existing.some(
-                                            (item: any) =>
-                                              item.symbol === symbol &&
-                                              item.strike === trade.strike &&
-                                              item.expiration === trade.expiration
-                                          )
-                                          return isInWatchlist ? (
-                                            <TbStarFilled className="w-4 h-4 text-yellow-400" />
-                                          ) : (
-                                            <TbStar className="w-4 h-4 text-gray-500 hover:text-yellow-400" />
-                                          )
-                                        })()}
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Industry */}
-                                  <div className="mb-2">
-                                    <div className="text-xs text-orange-400 text-center font-bold">
-                                      {trade.industry}
-                                    </div>
-                                  </div>
-
-                                  {/* Trade Info */}
-                                  <div className="text-xs text-center text-orange-400 mb-3 font-bold">
-                                    <span className="font-bold text-white">
-                                      ${trade.strike?.toFixed(0)}
-                                    </span>{' '}
-                                    <span style={{ color: '#10b981' }} className="font-semibold">
-                                      {trade.optionType?.toUpperCase()}
-                                    </span>
-                                    {' • '}
-                                    <span className="text-white">
-                                      {trade.expiration
-                                        ? new Date(
+                                      {' • '}
+                                      <span className="text-white">
+                                        {trade.expiration
+                                          ? new Date(
                                             trade.expiration + 'T12:00:00'
                                           ).toLocaleDateString('en-US', {
                                             month: 'short',
                                             day: 'numeric',
                                             timeZone: 'UTC',
                                           })
-                                        : ''}
-                                    </span>
+                                          : ''}
+                                      </span>
+                                    </div>
+
+                                    {/* Metrics Grid */}
+                                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">Price</div>
+                                        <div className="text-white font-mono font-bold">
+                                          $
+                                          {typeof trade.contractPrice === 'number'
+                                            ? trade.contractPrice.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">IV</div>
+                                        <div className="text-white font-mono font-bold">
+                                          {trade.impliedVolatility || 'N/A'}%
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
+                                        <div className="text-white font-mono font-bold">
+                                          $
+                                          {typeof trade.thetaDecay === 'number'
+                                            ? trade.thetaDecay.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Targets */}
+                                    <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          Target 1
+                                        </div>
+                                        <div className="text-green-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stockTarget80 === 'number'
+                                            ? trade.stockTarget80.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          Target 2
+                                        </div>
+                                        <div className="text-green-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stockTarget90 === 'number'
+                                            ? trade.stockTarget90.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          {typeof window !== 'undefined' && window.innerWidth <= 768
+                                            ? 'Stop'
+                                            : 'Stop Loss'}
+                                        </div>
+                                        <div className="text-red-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stopLoss === 'number'
+                                            ? trade.stopLoss.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
 
-                                  {/* Metrics Grid */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">Price</div>
-                                      <div className="text-white font-mono font-bold">
-                                        $
-                                        {typeof trade.contractPrice === 'number'
-                                          ? trade.contractPrice.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">IV</div>
-                                      <div className="text-white font-mono font-bold">
-                                        {trade.impliedVolatility || 'N/A'}%
-                                      </div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
-                                      <div className="text-white font-mono font-bold">
-                                        $
-                                        {typeof trade.thetaDecay === 'number'
-                                          ? trade.thetaDecay.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Targets */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        Target 1
-                                      </div>
-                                      <div className="text-green-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stockTarget80 === 'number'
-                                          ? trade.stockTarget80.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        Target 2
-                                      </div>
-                                      <div className="text-green-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stockTarget90 === 'number'
-                                          ? trade.stockTarget90.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        {typeof window !== 'undefined' && window.innerWidth <= 768
-                                          ? 'Stop'
-                                          : 'Stop Loss'}
-                                      </div>
-                                      <div className="text-red-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stopLoss === 'number'
-                                          ? trade.stopLoss.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                  </div>
                                 </div>
+                              )
+                            })}
+                            {shortTermBullish.length === 0 && (
+                              <div className="col-span-full text-center py-8">
+                                <div className="text-gray-500 font-mono text-sm">
+                                  No bullish trades
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
-                                {/* Chart Component - Same style as Tracking tab */}
-                                {highlightFilter === 'highlights' &&
-                                  highlightsChartData[symbol] && (
-                                    <div className="px-4 pb-4">
-                                      <div className="flex">
-                                        <svg
-                                          viewBox="0 0 200 50"
-                                          preserveAspectRatio="none"
-                                          className="w-[calc(100%-45px)] h-16"
+                        {/* Bearish Section */}
+                        <div>
+                          <div
+                            className="mb-6 pb-3 border-b relative overflow-hidden"
+                            style={{
+                              borderColor: '#ef4444',
+                              background:
+                                'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, transparent 50%, rgba(239, 68, 68, 0.15) 100%)',
+                            }}
+                          >
+                            <div className="flex items-center justify-center gap-3 py-3">
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
+                              <h3
+                                className="font-black uppercase tracking-widest flex items-center gap-2"
+                                style={{
+                                  fontSize: '1.1rem',
+                                  color: '#ff0000',
+                                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                                  letterSpacing: '0.15em',
+                                }}
+                              >
+                                <TbTrendingDown size={20} /> BEARISH
+                              </h3>
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            {shortTermBearish.map((item: any, idx: number) => {
+                              const [symbol, trade] = item as [string, any]
+                              // Conviction grade color: SS+/SS=gold, S=sky, A=lime, B=silver, C/D=muted
+                              const grade = trade.grade || ''
+                              const tickerColor =
+                                grade === 'SS+' || grade === 'SS' ? '#FFD700'
+                                  : grade === 'S' ? '#00BFFF'
+                                    : grade === 'A' ? '#84cc16'
+                                      : grade === 'B' ? '#c0c0c0'
+                                        : '#6b7280'
+                              const uniqueKey = `st-bear-${symbol}-${trade.sourceTab || 'x'}-${idx}`
+
+                              // Get tab label and color from trade's sourceTab
+                              const tradeTab = trade.sourceTab
+                              if (!tradeTab) {
+                              }
+                              const tabColor =
+                                tradeTab === 'life'
+                                  ? '#10b981'
+                                  : '#a855f7'
+
+                              // Determine card styling
+                              const cardBorder = '1px solid rgba(239, 68, 68, 0.3)'
+                              const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
+
+                              return (
+                                <div
+                                  key={uniqueKey}
+                                  className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+                                  style={{
+                                    background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                    border: cardBorder,
+                                    borderRadius: '8px',
+                                    boxShadow: cardShadow,
+                                  }}
+                                  onDoubleClick={() => setTradeDetailPopup({ trade, symbol })}
+                                >
+                                  <div className="relative p-4">
+                                    {/* Horizontal Header: Timeframe | Symbol | Score */}
+                                    <div className="flex items-center gap-3 mb-3">
+                                      {/* Timeframe indicator - vertical colored bar */}
+                                      <div className="flex items-center gap-2">
+                                        <div
+                                          className="w-1 h-8 rounded-full"
+                                          style={{ background: tabColor }}
+                                        />
+                                        <div className="flex flex-col">
+                                          <div
+                                            className="text-xs font-bold uppercase tracking-wide"
+                                            style={{
+                                              color: tabColor,
+                                              fontSize:
+                                                typeof window !== 'undefined' &&
+                                                  window.innerWidth <= 768
+                                                  ? '0.525rem'
+                                                  : '0.75rem',
+                                            }}
+                                          >
+                                            {tradeTab === 'life' ? 'Short Term' : 'Long Term'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Symbol in center */}
+                                      <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                        <span
+                                          className="font-black tracking-tight"
+                                          style={{
+                                            fontSize:
+                                              typeof window !== 'undefined' &&
+                                                window.innerWidth <= 768
+                                                ? '1.05rem'
+                                                : '1.5rem',
+                                            color: tickerColor,
+                                            filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+                                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                                            display: 'inline-block',
+                                          }}
                                         >
-                                          {highlightsChartData[symbol].sparklineData.length > 1 &&
-                                            (() => {
-                                              const data = highlightsChartData[symbol]
-                                              const prices = data.sparklineData.map((p) => p.price)
-                                              const minPrice = Math.min(...prices)
-                                              const maxPrice = Math.max(...prices)
-                                              const priceRange = maxPrice - minPrice || 1
-                                              const padding = 8
-                                              const chartHeight = 50 - padding * 2
+                                          {symbol}
+                                        </span>
+                                      </div>
 
-                                              const points = data.sparklineData
-                                                .map((point, i) => {
-                                                  const x =
-                                                    (i / (data.sparklineData.length - 1)) * 200
-                                                  const y =
-                                                    padding +
-                                                    ((maxPrice - point.price) / priceRange) *
-                                                      chartHeight
-                                                  return `${x.toFixed(1)},${y.toFixed(1)}`
-                                                })
-                                                .join(' ')
+                                      {/* Score and Watchlist Button */}
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="font-black tabular-nums"
+                                          style={{
+                                            fontSize:
+                                              typeof window !== 'undefined' &&
+                                                window.innerWidth <= 768
+                                                ? '1.05rem'
+                                                : '1.5rem',
+                                            color: '#ff0000',
+                                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                                            opacity: 1,
+                                          }}
+                                        >
+                                          {Math.round(trade.score)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (
+                                              trade &&
+                                              trade.strike &&
+                                              trade.expiration &&
+                                              trade.contractPrice
+                                            ) {
+                                              // Get current stock price - use strike if stockPrice not available
+                                              let currentStockPrice = trade.stockPrice
+                                              if (!currentStockPrice || currentStockPrice === 0) {
+                                                currentStockPrice = trade.strike
+                                              }
 
-                                              const prevDayY = data.previousDayClose
-                                                ? padding +
-                                                  ((maxPrice - data.previousDayClose) /
-                                                    priceRange) *
-                                                    chartHeight
-                                                : null
-
-                                              // Only show shading for 5D timeframe (intraday data)
-                                              const showShading = trade.sourceTab === 'life'
-
-                                              // Pre-calculate shading zones
-                                              const shadingZones: Array<{
-                                                x: number
-                                                width: number
-                                                color: string
-                                              }> = []
-                                              if (
-                                                showShading &&
-                                                data.sparklineData[0]?.etMinutes !== undefined
-                                              ) {
-                                                let currentZone: {
-                                                  start: number
-                                                  color: string
-                                                } | null = null
-
-                                                data.sparklineData.forEach(
-                                                  (point: any, i: number) => {
-                                                    const totalMinutes = point.etMinutes || 0
-
-                                                    const marketStart = 6 * 60 + 30
-                                                    const marketEnd = 13 * 60
-                                                    const preMarketStart = 1 * 60
-                                                    const afterHoursEnd = 17 * 60
-                                                    let fillColor: string | null = null
-                                                    if (
-                                                      totalMinutes >= preMarketStart &&
-                                                      totalMinutes < marketStart
-                                                    ) {
-                                                      fillColor = 'rgba(255, 165, 0, 0.12)'
-                                                    } else if (
-                                                      totalMinutes >= marketEnd &&
-                                                      totalMinutes < afterHoursEnd
-                                                    ) {
-                                                      fillColor = 'rgba(0, 174, 239, 0.12)'
-                                                    }
-
-                                                    if (fillColor) {
-                                                      if (
-                                                        !currentZone ||
-                                                        currentZone.color !== fillColor
-                                                      ) {
-                                                        if (currentZone !== null) {
-                                                          const x =
-                                                            (currentZone.start /
-                                                              (data.sparklineData.length - 1)) *
-                                                            200
-                                                          const endX =
-                                                            (i / (data.sparklineData.length - 1)) *
-                                                            200
-                                                          shadingZones.push({
-                                                            x,
-                                                            width: endX - x,
-                                                            color: currentZone.color,
-                                                          })
-                                                        }
-                                                        currentZone = { start: i, color: fillColor }
-                                                      }
-                                                    } else if (currentZone !== null) {
-                                                      const x =
-                                                        (currentZone.start /
-                                                          (data.sparklineData.length - 1)) *
-                                                        200
-                                                      const endX =
-                                                        (i / (data.sparklineData.length - 1)) * 200
-                                                      shadingZones.push({
-                                                        x,
-                                                        width: endX - x,
-                                                        color: currentZone.color,
-                                                      })
-                                                      currentZone = null
-                                                    }
-                                                  }
+                                              // Calculate targets using Black-Scholes expected move
+                                              const expiryDate = new Date(trade.expiration)
+                                              const now = new Date()
+                                              const daysToExpiry = Math.max(
+                                                1,
+                                                Math.ceil(
+                                                  (expiryDate.getTime() - now.getTime()) /
+                                                  (1000 * 60 * 60 * 24)
                                                 )
+                                              )
+                                              const T = daysToExpiry / 365
+                                              const sigma = (trade.impliedVolatility || 50) / 100
+                                              const isPut = trade.optionType?.toLowerCase() === 'put'
 
-                                                if (currentZone !== null) {
-                                                  const zone = currentZone as unknown as {
-                                                    start: number
-                                                    color: string
-                                                  }
-                                                  const x =
-                                                    (zone.start / (data.sparklineData.length - 1)) *
-                                                    200
-                                                  shadingZones.push({
-                                                    x,
-                                                    width: 200 - x,
-                                                    color: zone.color,
-                                                  })
+                                              let target80StockPrice = 0
+                                              let target90StockPrice = 0
+
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                if (isPut) {
+                                                  const expectedMove1SD =
+                                                    currentStockPrice * sigma * Math.sqrt(T)
+                                                  target80StockPrice =
+                                                    currentStockPrice - expectedMove1SD * 0.84
+                                                  target90StockPrice =
+                                                    currentStockPrice - expectedMove1SD * 1.28
+                                                } else {
+                                                  const expectedMove1SD =
+                                                    currentStockPrice * sigma * Math.sqrt(T)
+                                                  target80StockPrice =
+                                                    currentStockPrice + expectedMove1SD * 0.84
+                                                  target90StockPrice =
+                                                    currentStockPrice + expectedMove1SD * 1.28
                                                 }
                                               }
 
-                                              return (
-                                                <>
-                                                  {shadingZones.map((zone, idx) => (
-                                                    <rect
-                                                      key={`shade-${idx}`}
-                                                      x={zone.x}
-                                                      y="0"
-                                                      width={zone.width}
-                                                      height="50"
-                                                      fill={zone.color}
-                                                    />
-                                                  ))}
-
-                                                  {prevDayY !== null && (
-                                                    <line
-                                                      x1="0"
-                                                      y1={prevDayY.toFixed(1)}
-                                                      x2="200"
-                                                      y2={prevDayY.toFixed(1)}
-                                                      stroke="#444444"
-                                                      strokeWidth="1"
-                                                      strokeDasharray="3,2"
-                                                      opacity="0.4"
-                                                      vectorEffect="non-scaling-stroke"
-                                                    />
-                                                  )}
-
-                                                  <polyline
-                                                    fill="none"
-                                                    stroke={
-                                                      data.change >= 0 ? '#00ff00' : '#ff0000'
-                                                    }
-                                                    strokeWidth="1.5"
-                                                    points={points}
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    vectorEffect="non-scaling-stroke"
-                                                  />
-                                                </>
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker:
+                                                  trade.optionTicker ||
+                                                  `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
+                                                symbol: symbol,
+                                                strike: trade.strike,
+                                                type: trade.optionType?.toLowerCase() || 'put',
+                                                contract_type:
+                                                  trade.optionType?.toLowerCase() || 'put',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98,
+                                                ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice,
+                                                last_price: trade.contractPrice,
+                                                delta: trade.delta || 0,
+                                                theta: trade.thetaDecay
+                                                  ? -Math.abs(trade.thetaDecay)
+                                                  : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike,
+                                                expiration_date: trade.expiration,
+                                                addedAt: new Date(),
+                                                entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice,
+                                                stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice,
+                                                stopLoss: trade.contractPrice * 0.75,
+                                              }
+                                              const saved = localStorage.getItem('optionsWatchlist')
+                                              const existing = saved ? JSON.parse(saved) : []
+                                              const alreadyExists = existing.some(
+                                                (item: any) =>
+                                                  item.symbol === watchlistItem.symbol &&
+                                                  item.strike === watchlistItem.strike &&
+                                                  item.expiration === watchlistItem.expiration
                                               )
-                                            })()}
-                                        </svg>
-
-                                        {/* Y-Axis Price Labels */}
-                                        <div
-                                          className="flex flex-col justify-between h-16 ml-2 text-right"
-                                          style={{ width: '43px' }}
+                                              if (!alreadyExists) {
+                                                localStorage.setItem(
+                                                  'optionsWatchlist',
+                                                  JSON.stringify([...existing, watchlistItem])
+                                                )
+                                              }
+                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Options Watchlist"
                                         >
                                           {(() => {
-                                            const data = highlightsChartData[symbol]
-                                            const prices = data.sparklineData.map((p) => p.price)
-                                            const minPrice = Math.min(...prices)
-                                            const maxPrice = Math.max(...prices)
-                                            const midPrice = (maxPrice + minPrice) / 2
-                                            return (
-                                              <>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${maxPrice.toFixed(2)}
-                                                </span>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${midPrice.toFixed(2)}
-                                                </span>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${minPrice.toFixed(2)}
-                                                </span>
-                                              </>
+                                            const saved = localStorage.getItem('optionsWatchlist')
+                                            const existing = saved ? JSON.parse(saved) : []
+                                            const isInWatchlist = existing.some(
+                                              (item: any) =>
+                                                item.symbol === symbol &&
+                                                item.strike === trade.strike &&
+                                                item.expiration === trade.expiration
+                                            )
+                                            return isInWatchlist ? (
+                                              <TbStarFilled className="w-4 h-4 text-yellow-400" />
+                                            ) : (
+                                              <TbStar className="w-4 h-4 text-yellow-400 hover:text-yellow-300" />
                                             )
                                           })()}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Industry and Trade Details */}
+                                    <div className="mb-2">
+                                      <div className="text-xs text-orange-400 text-center font-bold">
+                                        {trade.industry}
+                                      </div>
+                                    </div>
+
+                                    <div className="text-xs text-center text-orange-400 mb-3 font-bold">
+                                      <span className="font-bold text-white">
+                                        ${trade.strike?.toFixed(0)}
+                                      </span>{' '}
+                                      <span className="text-red-400 font-semibold">
+                                        {trade.optionType?.toUpperCase()}
+                                      </span>
+                                      {' • '}
+                                      <span className="text-white">
+                                        {trade.expiration
+                                          ? new Date(
+                                            trade.expiration + 'T12:00:00'
+                                          ).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            timeZone: 'UTC',
+                                          })
+                                          : ''}
+                                      </span>
+                                    </div>
+
+                                    {/* Contract Metrics */}
+                                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">Price</div>
+                                        <div className="text-white font-mono font-bold">
+                                          $
+                                          {typeof trade.contractPrice === 'number'
+                                            ? trade.contractPrice.toFixed(2)
+                                            : 'N/A'}
                                         </div>
                                       </div>
-
-                                      <div className="flex flex-col">
-                                        {/* X-Axis Time Labels */}
-                                        <div
-                                          className="relative mt-2 px-1"
-                                          style={{ height: '14px', width: 'calc(100% - 45px)' }}
-                                        >
-                                          {highlightsChartData[symbol].sparklineData.length > 0 &&
-                                            (() => {
-                                              const data = highlightsChartData[symbol]
-                                              if (trade.sourceTab === 'life') {
-                                                let marketOpenIndex = -1
-                                                let marketCloseIndex = -1
-
-                                                data.sparklineData.forEach(
-                                                  (point: any, i: number) => {
-                                                    const totalMinutes = point.etMinutes || 0
-                                                    if (
-                                                      marketOpenIndex === -1 &&
-                                                      totalMinutes >= 6 * 60 + 30
-                                                    ) {
-                                                      marketOpenIndex = i
-                                                    }
-                                                    if (
-                                                      marketCloseIndex === -1 &&
-                                                      totalMinutes >= 13 * 60
-                                                    ) {
-                                                      marketCloseIndex = i
-                                                    }
-                                                  }
-                                                )
-
-                                                const openPercent =
-                                                  marketOpenIndex >= 0
-                                                    ? (marketOpenIndex /
-                                                        (data.sparklineData.length - 1)) *
-                                                      100
-                                                    : 0
-                                                const closePercent =
-                                                  marketCloseIndex >= 0
-                                                    ? (marketCloseIndex /
-                                                        (data.sparklineData.length - 1)) *
-                                                      100
-                                                    : 100
-
-                                                // Calculate 3 middle points evenly spaced
-                                                const spacing = (closePercent - openPercent) / 4
-                                                const mid1Percent = openPercent + spacing
-                                                const mid2Percent = openPercent + spacing * 2
-                                                const mid3Percent = openPercent + spacing * 3
-
-                                                // Calculate time labels for middle points
-                                                const getTimeLabel = (percent: number) => {
-                                                  const index = Math.round(
-                                                    (percent / 100) *
-                                                      (data.sparklineData.length - 1)
-                                                  )
-                                                  if (
-                                                    index >= 0 &&
-                                                    index < data.sparklineData.length
-                                                  ) {
-                                                    const minutes =
-                                                      data.sparklineData[index].etMinutes || 0
-                                                    const hour = Math.floor(minutes / 60)
-                                                    const min = minutes % 60
-                                                    const period = hour >= 12 ? 'PM' : 'AM'
-                                                    const displayHour =
-                                                      hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
-                                                    return `${displayHour}:${String(min).padStart(2, '0')} ${period}`
-                                                  }
-                                                  return ''
-                                                }
-
-                                                return (
-                                                  <>
-                                                    {marketOpenIndex >= 0 && (
-                                                      <span
-                                                        className="absolute text-[12px] text-white font-mono font-semibold"
-                                                        style={{
-                                                          left: `${openPercent}%`,
-                                                          transform: 'translateX(-50%)',
-                                                        }}
-                                                      >
-                                                        6:30 AM
-                                                      </span>
-                                                    )}
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid1Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid1Percent)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid2Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid2Percent)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid3Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid3Percent)}
-                                                    </span>
-                                                    {marketCloseIndex >= 0 && (
-                                                      <span
-                                                        className="absolute text-[12px] text-white font-mono font-semibold"
-                                                        style={{
-                                                          left: `${closePercent}%`,
-                                                          transform: 'translateX(-50%)',
-                                                        }}
-                                                      >
-                                                        1:00 PM
-                                                      </span>
-                                                    )}
-                                                  </>
-                                                )
-                                              } else {
-                                                const firstPoint = data.sparklineData[0]
-                                                const lastPoint =
-                                                  data.sparklineData[data.sparklineData.length - 1]
-                                                const formatDate = (timestamp: number) => {
-                                                  const date = new Date(timestamp)
-                                                  return date.toLocaleDateString('en-US', {
-                                                    month: 'numeric',
-                                                    day: 'numeric',
-                                                    timeZone: 'America/Los_Angeles',
-                                                  })
-                                                }
-
-                                                // Calculate 3 middle points
-                                                const dataLength = data.sparklineData.length
-                                                const mid1Index = Math.floor(dataLength * 0.25)
-                                                const mid2Index = Math.floor(dataLength * 0.5)
-                                                const mid3Index = Math.floor(dataLength * 0.75)
-
-                                                return (
-                                                  <>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '0%',
-                                                        transform: 'translateX(0%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(firstPoint.time)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '25%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid1Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '50%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid2Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '75%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid3Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '100%',
-                                                        transform: 'translateX(-100%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(lastPoint.time)}
-                                                    </span>
-                                                  </>
-                                                )
-                                              }
-                                            })()}
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">IV</div>
+                                        <div className="text-white font-mono font-bold">
+                                          {trade.impliedVolatility || 'N/A'}%
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
+                                        <div className="text-white font-mono font-bold">
+                                          $
+                                          {typeof trade.thetaDecay === 'number'
+                                            ? trade.thetaDecay.toFixed(2)
+                                            : 'N/A'}
                                         </div>
                                       </div>
                                     </div>
-                                  )}
+
+                                    {/* Targets */}
+                                    <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          Target 1
+                                        </div>
+                                        <div className="text-red-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stockTarget80 === 'number'
+                                            ? trade.stockTarget80.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          Target 2
+                                        </div>
+                                        <div className="text-red-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stockTarget90 === 'number'
+                                            ? trade.stockTarget90.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-orange-400 mb-0.5 font-bold">
+                                          {typeof window !== 'undefined' && window.innerWidth <= 768
+                                            ? 'Stop'
+                                            : 'Stop Loss'}
+                                        </div>
+                                        <div className="text-red-400 font-mono font-bold">
+                                          $
+                                          {typeof trade.stopLoss === 'number'
+                                            ? trade.stopLoss.toFixed(2)
+                                            : 'N/A'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                </div>
+                              )
+                            })}
+                            {shortTermBearish.length === 0 && (
+                              <div className="text-center py-8">
+                                <div className="text-gray-500 font-mono text-sm">
+                                  No bearish trades
+                                </div>
                               </div>
-                            )
-                          })}
-                          {filteredBullishTrades.length === 0 && (
-                            <div className="col-span-full text-center py-8">
-                              <div className="text-gray-500 font-mono text-sm">
-                                No bullish trades
-                              </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Bearish Section */}
-                      <div>
-                        <div
-                          className="mb-6 pb-3 border-b relative overflow-hidden"
-                          style={{
-                            borderColor: '#ef4444',
-                            background:
-                              'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, transparent 50%, rgba(239, 68, 68, 0.15) 100%)',
-                          }}
-                        >
-                          <div className="flex items-center justify-center gap-3 py-3">
-                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
-                            <h3
-                              className="font-black uppercase tracking-widest flex items-center gap-2"
-                              style={{
-                                fontSize: '1.1rem',
-                                color: '#ff0000',
-                                fontFamily: 'system-ui, -apple-system, sans-serif',
-                                letterSpacing: '0.15em',
-                              }}
-                            >
-                              <TbTrendingDown size={20} /> BEARISH
-                            </h3>
-                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
-                          </div>
-                        </div>
-                        <div className="space-y-4">
-                          {filteredBearishTrades.map((item: any, idx: number) => {
-                            const [symbol, trade] = item as [string, any]
-                            // Color logic: Cyan blue for setup/quality, Bright Red for momentum
-                            const tickerColor = trade.strategy === 'setup' ? '#00FFFF' : '#FF0000'
-                            const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`
-
-                            // Get tab label and color from trade's sourceTab
-                            const tradeTab = trade.sourceTab
-                            if (!tradeTab) {
-                            }
-                            const tabColor =
-                              tradeTab === 'life'
-                                ? '#10b981'
-                                : tradeTab === 'developing'
-                                  ? '#3b82f6'
-                                  : tradeTab === 'momentum'
-                                    ? '#a855f7'
-                                    : '#f59e0b'
-
-                            // Determine card styling
-                            const cardBorder = '1px solid rgba(239, 68, 68, 0.3)'
-                            const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
-
-                            return (
-                              <div
-                                key={uniqueKey}
-                                className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer"
-                                style={{
-                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-                                  border: cardBorder,
-                                  borderRadius: '8px',
-                                  boxShadow: cardShadow,
-                                }}
-                                onClick={() => {
-                                  setSelectedTradeForModal(trade)
-                                  setShowTradeModal(true)
-                                }}
+                    {/* LONG TERM PANEL */}
+                    <div>
+                      <div className="mb-6 pb-4 border-b" style={{ borderColor: '#ff6600', borderBottomWidth: '2px' }}>
+                        <div className="text-center font-mono font-black uppercase" style={{ color: '#ffffff', fontSize: '1.85rem', letterSpacing: '0.35em', textShadow: '0 0 20px rgba(255,102,0,0.4), 0 2px 4px rgba(0,0,0,0.8)' }}>LONG TERM</div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Bullish Section */}
+                        <div>
+                          <div
+                            className="mb-6 pb-3 border-b relative overflow-hidden"
+                            style={{
+                              borderColor: '#10b981',
+                              background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, transparent 50%, rgba(16, 185, 129, 0.15) 100%)',
+                            }}
+                          >
+                            <div className="flex items-center justify-center gap-3 py-3">
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
+                              <h3
+                                className="font-black uppercase tracking-widest flex items-center gap-2"
+                                style={{ fontSize: '1.1rem', color: '#00ff00', fontFamily: 'system-ui, -apple-system, sans-serif', letterSpacing: '0.15em' }}
                               >
-                                <div className="relative p-4">
-                                  {/* Horizontal Header: Timeframe | Symbol | Score */}
-                                  <div className="flex items-center gap-3 mb-3">
-                                    {/* Timeframe indicator - vertical colored bar */}
-                                    <div className="flex items-center gap-2">
-                                      <div
-                                        className="w-1 h-8 rounded-full"
-                                        style={{ background: tabColor }}
-                                      />
-                                      <div className="flex flex-col">
-                                        <div
-                                          className="text-xs font-bold uppercase tracking-wide"
-                                          style={{
-                                            color: tabColor,
-                                            fontSize:
-                                              typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
-                                                ? '0.525rem'
-                                                : '0.75rem',
-                                          }}
-                                        >
-                                          {highlightFilter === 'highlights' && trade.timeframeCount
-                                            ? `${trade.timeframeCount} Frame`
-                                            : tradeTab === 'life'
-                                              ? 'Weekly'
-                                              : tradeTab === 'developing'
-                                                ? 'Monthly'
-                                                : tradeTab === 'momentum'
-                                                  ? 'Quarterly'
-                                                  : 'Leap'}
-                                        </div>
-                                        <div
-                                          className="text-[0.65rem] font-medium uppercase tracking-wide"
-                                          style={{
-                                            color: '#ffffff',
-                                            marginTop: '2px',
-                                            fontSize:
-                                              typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
-                                                ? '0.455rem'
-                                                : '0.65rem',
-                                          }}
-                                        >
-                                          Quality
+                                <TbTrendingUp size={20} /> BULLISH
+                              </h3>
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            {longTermBullish.map((item: any, idx: number) => {
+                              const [symbol, trade] = item as [string, any]
+                              const grade = trade.grade || ''
+                              const tickerColor =
+                                grade === 'SS+' || grade === 'SS' ? '#FFD700'
+                                  : grade === 'S' ? '#00BFFF'
+                                    : grade === 'A' ? '#84cc16'
+                                      : grade === 'B' ? '#c0c0c0'
+                                        : '#6b7280'
+                              const uniqueKey = `lt-bull-${symbol}-${trade.sourceTab || 'x'}-${idx}`
+                              const tradeTab = trade.sourceTab
+                              const tabColor = tradeTab === 'life' ? '#10b981' : '#a855f7'
+                              const cardBorder = '1px solid rgba(16, 185, 129, 0.3)'
+                              const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
+                              return (
+                                <div
+                                  key={uniqueKey}
+                                  className="group relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                                  style={{ background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)', border: cardBorder, borderRadius: '8px', boxShadow: cardShadow }}
+                                  onDoubleClick={() => setTradeDetailPopup({ trade, symbol })}
+                                >
+                                  <div className="relative p-4">
+                                    <div className="flex items-center gap-3 mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
+                                        <div className="flex flex-col">
+                                          <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor, fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.525rem' : '0.75rem' }}>
+                                            {tradeTab === 'life' ? 'Short Term' : 'Long Term'}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-
-                                    {/* Symbol in center */}
-                                    <div className="flex-1 text-center flex items-center justify-center gap-2">
-                                      <span
-                                        className="font-black tracking-tight"
-                                        style={{
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '1.05rem'
-                                              : '1.5rem',
-                                          color: tickerColor,
-                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          display: 'inline-block',
-                                        }}
-                                      >
-                                        {symbol}
-                                      </span>
-                                    </div>
-
-                                    {/* Score and Watchlist Button */}
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className="font-black tabular-nums"
-                                        style={{
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '1.05rem'
-                                              : '1.5rem',
-                                          color: '#ff0000',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          opacity: 1,
-                                        }}
-                                      >
-                                        {Math.round(trade.score)}
-                                      </span>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          if (
-                                            trade &&
-                                            trade.strike &&
-                                            trade.expiration &&
-                                            trade.contractPrice
-                                          ) {
-                                            // Get current stock price - use strike if stockPrice not available
-                                            let currentStockPrice = trade.stockPrice
-                                            if (!currentStockPrice || currentStockPrice === 0) {
-                                              currentStockPrice = trade.strike
-                                            }
-
-                                            // Calculate targets using Black-Scholes expected move
-                                            const expiryDate = new Date(trade.expiration)
-                                            const now = new Date()
-                                            const daysToExpiry = Math.max(
-                                              1,
-                                              Math.ceil(
-                                                (expiryDate.getTime() - now.getTime()) /
-                                                  (1000 * 60 * 60 * 24)
-                                              )
-                                            )
-                                            const T = daysToExpiry / 365
-                                            const sigma = (trade.impliedVolatility || 50) / 100
-                                            const isPut = trade.optionType?.toLowerCase() === 'put'
-
-                                            let target80StockPrice = 0
-                                            let target90StockPrice = 0
-
-                                            if (T > 0 && sigma > 0 && currentStockPrice > 0) {
-                                              if (isPut) {
-                                                const expectedMove1SD =
-                                                  currentStockPrice * sigma * Math.sqrt(T)
-                                                target80StockPrice =
-                                                  currentStockPrice - expectedMove1SD * 0.84
-                                                target90StockPrice =
-                                                  currentStockPrice - expectedMove1SD * 1.28
-                                              } else {
-                                                const expectedMove1SD =
-                                                  currentStockPrice * sigma * Math.sqrt(T)
-                                                target80StockPrice =
-                                                  currentStockPrice + expectedMove1SD * 0.84
-                                                target90StockPrice =
-                                                  currentStockPrice + expectedMove1SD * 1.28
+                                      <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                        <span className="font-black tracking-tight" style={{ fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem', color: tickerColor, fontFamily: 'system-ui, -apple-system, sans-serif', display: 'inline-block' }}>
+                                          {symbol}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-black tabular-nums" style={{ fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem', color: '#00ff00', fontFamily: 'system-ui, -apple-system, sans-serif', opacity: 1 }}>
+                                          {Math.round(trade.score)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                              let currentStockPrice = trade.stockPrice
+                                              if (!currentStockPrice || currentStockPrice === 0) currentStockPrice = trade.strike
+                                              const expiryDate = new Date(trade.expiration)
+                                              const now = new Date()
+                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+                                              const T = daysToExpiry / 365
+                                              const sigma = (trade.impliedVolatility || 50) / 100
+                                              const isCall = trade.optionType?.toLowerCase() === 'call'
+                                              let target80StockPrice = 0
+                                              let target90StockPrice = 0
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T)
+                                                if (isCall) {
+                                                  target80StockPrice = currentStockPrice + expectedMove1SD * 0.84
+                                                  target90StockPrice = currentStockPrice + expectedMove1SD * 1.28
+                                                } else {
+                                                  target80StockPrice = currentStockPrice - expectedMove1SD * 0.84
+                                                  target90StockPrice = currentStockPrice - expectedMove1SD * 1.28
+                                                }
                                               }
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
+                                                symbol, strike: trade.strike, type: trade.optionType?.toLowerCase() || 'call',
+                                                contract_type: trade.optionType?.toLowerCase() || 'call',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98, ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice, last_price: trade.contractPrice,
+                                                delta: trade.delta || 0, theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike, expiration_date: trade.expiration,
+                                                addedAt: new Date(), entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice, stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice, stopLoss: trade.contractPrice * 0.75,
+                                              }
+                                              const saved = localStorage.getItem('optionsWatchlist')
+                                              const existing = saved ? JSON.parse(saved) : []
+                                              const alreadyExists = existing.some((item: any) => item.symbol === watchlistItem.symbol && item.strike === watchlistItem.strike && item.expiration === watchlistItem.expiration)
+                                              if (!alreadyExists) localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]))
                                             }
-
-                                            const watchlistItem = {
-                                              id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
-                                              ticker:
-                                                trade.optionTicker ||
-                                                `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
-                                              symbol: symbol,
-                                              strike: trade.strike,
-                                              type: trade.optionType?.toLowerCase() || 'put',
-                                              contract_type:
-                                                trade.optionType?.toLowerCase() || 'put',
-                                              expiration: trade.expiration,
-                                              bid: trade.contractPrice * 0.98,
-                                              ask: trade.contractPrice * 1.02,
-                                              lastPrice: trade.contractPrice,
-                                              last_price: trade.contractPrice,
-                                              delta: trade.delta || 0,
-                                              theta: trade.thetaDecay
-                                                ? -Math.abs(trade.thetaDecay)
-                                                : 0,
-                                              implied_volatility: trade.impliedVolatility || 0,
-                                              strike_price: trade.strike,
-                                              expiration_date: trade.expiration,
-                                              addedAt: new Date(),
-                                              entryPrice: trade.contractPrice,
-                                              stockPrice: currentStockPrice,
-                                              stockTarget80: target80StockPrice,
-                                              stockTarget90: target90StockPrice,
-                                              stopLoss: trade.contractPrice * 0.75,
-                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Watchlist"
+                                        >
+                                          {(() => {
                                             const saved = localStorage.getItem('optionsWatchlist')
                                             const existing = saved ? JSON.parse(saved) : []
-                                            const alreadyExists = existing.some(
-                                              (item: any) =>
-                                                item.symbol === watchlistItem.symbol &&
-                                                item.strike === watchlistItem.strike &&
-                                                item.expiration === watchlistItem.expiration
+                                            const isInWatchlist = existing.some((item: any) => item.symbol === symbol && item.strike === trade.strike && item.expiration === trade.expiration)
+                                            return isInWatchlist ? (
+                                              <TbStarFilled className="w-4 h-4 text-yellow-400" />
+                                            ) : (
+                                              <TbStar className="w-4 h-4 text-gray-500 hover:text-yellow-400" />
                                             )
-                                            if (!alreadyExists) {
-                                              localStorage.setItem(
-                                                'optionsWatchlist',
-                                                JSON.stringify([...existing, watchlistItem])
-                                              )
-                                              setHighlightFilter(highlightFilter)
-                                            }
-                                          }
-                                        }}
-                                        className="hover:scale-110 transition-transform"
-                                        title="Add to Options Watchlist"
-                                      >
-                                        {(() => {
-                                          const saved = localStorage.getItem('optionsWatchlist')
-                                          const existing = saved ? JSON.parse(saved) : []
-                                          const isInWatchlist = existing.some(
-                                            (item: any) =>
-                                              item.symbol === symbol &&
-                                              item.strike === trade.strike &&
-                                              item.expiration === trade.expiration
-                                          )
-                                          return isInWatchlist ? (
-                                            <TbStarFilled className="w-4 h-4 text-yellow-400" />
-                                          ) : (
-                                            <TbStar className="w-4 h-4 text-yellow-400 hover:text-yellow-300" />
-                                          )
-                                        })()}
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Industry and Trade Details */}
-                                  <div className="mb-2">
-                                    <div className="text-xs text-orange-400 text-center font-bold">
-                                      {trade.industry}
-                                    </div>
-                                  </div>
-
-                                  <div className="text-xs text-center text-orange-400 mb-3 font-bold">
-                                    <span className="font-bold text-white">
-                                      ${trade.strike?.toFixed(0)}
-                                    </span>{' '}
-                                    <span className="text-red-400 font-semibold">
-                                      {trade.optionType?.toUpperCase()}
-                                    </span>
-                                    {' • '}
-                                    <span className="text-white">
-                                      {trade.expiration
-                                        ? new Date(
-                                            trade.expiration + 'T12:00:00'
-                                          ).toLocaleDateString('en-US', {
-                                            month: 'short',
-                                            day: 'numeric',
-                                            timeZone: 'UTC',
-                                          })
-                                        : ''}
-                                    </span>
-                                  </div>
-
-                                  {/* Contract Metrics */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">Price</div>
-                                      <div className="text-white font-mono font-bold">
-                                        $
-                                        {typeof trade.contractPrice === 'number'
-                                          ? trade.contractPrice.toFixed(2)
-                                          : 'N/A'}
+                                          })()}
+                                        </button>
                                       </div>
                                     </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">IV</div>
-                                      <div className="text-white font-mono font-bold">
-                                        {trade.impliedVolatility || 'N/A'}%
-                                      </div>
+                                    <div className="mb-2">
+                                      <div className="text-xs text-orange-400 text-center font-bold">{trade.industry}</div>
                                     </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
-                                      <div className="text-white font-mono font-bold">
-                                        $
-                                        {typeof trade.thetaDecay === 'number'
-                                          ? trade.thetaDecay.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
+                                    <div className="text-xs text-center text-orange-400 mb-3 font-bold">
+                                      <span className="font-bold text-white">${trade.strike?.toFixed(0)}</span>{' '}
+                                      <span style={{ color: '#10b981' }} className="font-semibold">{trade.optionType?.toUpperCase()}</span>
+                                      {' • '}
+                                      <span className="text-white">{trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''}</span>
                                     </div>
-                                  </div>
-
-                                  {/* Targets */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        Target 1
-                                      </div>
-                                      <div className="text-red-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stockTarget80 === 'number'
-                                          ? trade.stockTarget80.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Price</div><div className="text-white font-mono font-bold">${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">IV</div><div className="text-white font-mono font-bold">{trade.impliedVolatility || 'N/A'}%</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Decay</div><div className="text-white font-mono font-bold">${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}</div></div>
                                     </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        Target 2
-                                      </div>
-                                      <div className="text-red-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stockTarget90 === 'number'
-                                          ? trade.stockTarget90.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
-                                    </div>
-                                    <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">
-                                        {typeof window !== 'undefined' && window.innerWidth <= 768
-                                          ? 'Stop'
-                                          : 'Stop Loss'}
-                                      </div>
-                                      <div className="text-red-400 font-mono font-bold">
-                                        $
-                                        {typeof trade.stopLoss === 'number'
-                                          ? trade.stopLoss.toFixed(2)
-                                          : 'N/A'}
-                                      </div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Target 1</div><div className="text-green-400 font-mono font-bold">${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Target 2</div><div className="text-green-400 font-mono font-bold">${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">{typeof window !== 'undefined' && window.innerWidth <= 768 ? 'Stop' : 'Stop Loss'}</div><div className="text-red-400 font-mono font-bold">${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}</div></div>
                                     </div>
                                   </div>
                                 </div>
+                              )
+                            })}
+                            {longTermBullish.length === 0 && (
+                              <div className="col-span-full text-center py-8">
+                                <div className="text-gray-500 font-mono text-sm">No bullish trades</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
-                                {/* Chart Component - Same style as Tracking tab */}
-                                {highlightFilter === 'highlights' &&
-                                  highlightsChartData[symbol] && (
-                                    <div className="px-4 pb-4">
-                                      <div className="flex">
-                                        <svg
-                                          viewBox="0 0 200 50"
-                                          preserveAspectRatio="none"
-                                          className="w-[calc(100%-45px)] h-16"
-                                        >
-                                          {highlightsChartData[symbol].sparklineData.length > 1 &&
-                                            (() => {
-                                              const data = highlightsChartData[symbol]
-                                              const prices = data.sparklineData.map((p) => p.price)
-                                              const minPrice = Math.min(...prices)
-                                              const maxPrice = Math.max(...prices)
-                                              const priceRange = maxPrice - minPrice || 1
-                                              const padding = 8
-                                              const chartHeight = 50 - padding * 2
-
-                                              const points = data.sparklineData
-                                                .map((point, i) => {
-                                                  const x =
-                                                    (i / (data.sparklineData.length - 1)) * 200
-                                                  const y =
-                                                    padding +
-                                                    ((maxPrice - point.price) / priceRange) *
-                                                      chartHeight
-                                                  return `${x.toFixed(1)},${y.toFixed(1)}`
-                                                })
-                                                .join(' ')
-
-                                              const prevDayY = data.previousDayClose
-                                                ? padding +
-                                                  ((maxPrice - data.previousDayClose) /
-                                                    priceRange) *
-                                                    chartHeight
-                                                : null
-
-                                              // Only show shading for 5D timeframe (intraday data)
-                                              const showShading = trade.sourceTab === 'life'
-
-                                              // Pre-calculate shading zones
-                                              const shadingZones: Array<{
-                                                x: number
-                                                width: number
-                                                color: string
-                                              }> = []
-                                              if (
-                                                showShading &&
-                                                data.sparklineData[0]?.etMinutes !== undefined
-                                              ) {
-                                                let currentZone: {
-                                                  start: number
-                                                  color: string
-                                                } | null = null
-
-                                                data.sparklineData.forEach(
-                                                  (point: any, i: number) => {
-                                                    const totalMinutes = point.etMinutes || 0
-
-                                                    const marketStart = 6 * 60 + 30
-                                                    const marketEnd = 13 * 60
-                                                    const preMarketStart = 1 * 60
-                                                    const afterHoursEnd = 17 * 60
-                                                    let fillColor: string | null = null
-                                                    if (
-                                                      totalMinutes >= preMarketStart &&
-                                                      totalMinutes < marketStart
-                                                    ) {
-                                                      fillColor = 'rgba(255, 165, 0, 0.12)'
-                                                    } else if (
-                                                      totalMinutes >= marketEnd &&
-                                                      totalMinutes < afterHoursEnd
-                                                    ) {
-                                                      fillColor = 'rgba(0, 174, 239, 0.12)'
-                                                    }
-
-                                                    if (fillColor) {
-                                                      if (
-                                                        !currentZone ||
-                                                        currentZone.color !== fillColor
-                                                      ) {
-                                                        if (currentZone !== null) {
-                                                          const x =
-                                                            (currentZone.start /
-                                                              (data.sparklineData.length - 1)) *
-                                                            200
-                                                          const endX =
-                                                            (i / (data.sparklineData.length - 1)) *
-                                                            200
-                                                          shadingZones.push({
-                                                            x,
-                                                            width: endX - x,
-                                                            color: currentZone.color,
-                                                          })
-                                                        }
-                                                        currentZone = { start: i, color: fillColor }
-                                                      }
-                                                    } else if (currentZone !== null) {
-                                                      const x =
-                                                        (currentZone.start /
-                                                          (data.sparklineData.length - 1)) *
-                                                        200
-                                                      const endX =
-                                                        (i / (data.sparklineData.length - 1)) * 200
-                                                      shadingZones.push({
-                                                        x,
-                                                        width: endX - x,
-                                                        color: currentZone.color,
-                                                      })
-                                                      currentZone = null
-                                                    }
-                                                  }
-                                                )
-
-                                                if (currentZone !== null) {
-                                                  const zone = currentZone as unknown as {
-                                                    start: number
-                                                    color: string
-                                                  }
-                                                  const x =
-                                                    (zone.start / (data.sparklineData.length - 1)) *
-                                                    200
-                                                  shadingZones.push({
-                                                    x,
-                                                    width: 200 - x,
-                                                    color: zone.color,
-                                                  })
+                        {/* Bearish Section */}
+                        <div>
+                          <div
+                            className="mb-6 pb-3 border-b relative overflow-hidden"
+                            style={{
+                              borderColor: '#ef4444',
+                              background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, transparent 50%, rgba(239, 68, 68, 0.15) 100%)',
+                            }}
+                          >
+                            <div className="flex items-center justify-center gap-3 py-3">
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
+                              <h3
+                                className="font-black uppercase tracking-widest flex items-center gap-2"
+                                style={{ fontSize: '1.1rem', color: '#ff0000', fontFamily: 'system-ui, -apple-system, sans-serif', letterSpacing: '0.15em' }}
+                              >
+                                <TbTrendingDown size={20} /> BEARISH
+                              </h3>
+                              <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            {longTermBearish.map((item: any, idx: number) => {
+                              const [symbol, trade] = item as [string, any]
+                              const grade = trade.grade || ''
+                              const tickerColor =
+                                grade === 'SS+' || grade === 'SS' ? '#FFD700'
+                                  : grade === 'S' ? '#00BFFF'
+                                    : grade === 'A' ? '#84cc16'
+                                      : grade === 'B' ? '#c0c0c0'
+                                        : '#6b7280'
+                              const uniqueKey = `lt-bear-${symbol}-${trade.sourceTab || 'x'}-${idx}`
+                              const tradeTab = trade.sourceTab
+                              const tabColor = tradeTab === 'life' ? '#10b981' : '#a855f7'
+                              const cardBorder = '1px solid rgba(239, 68, 68, 0.3)'
+                              const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
+                              return (
+                                <div
+                                  key={uniqueKey}
+                                  className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+                                  style={{ background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)', border: cardBorder, borderRadius: '8px', boxShadow: cardShadow }}
+                                  onDoubleClick={() => setTradeDetailPopup({ trade, symbol })}
+                                >
+                                  <div className="relative p-4">
+                                    <div className="flex items-center gap-3 mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
+                                        <div className="flex flex-col">
+                                          <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor, fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.525rem' : '0.75rem' }}>
+                                            {tradeTab === 'life' ? 'Short Term' : 'Long Term'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                        <span className="font-black tracking-tight" style={{ fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem', color: tickerColor, filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'inline-block' }}>
+                                          {symbol}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-black tabular-nums" style={{ fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem', color: '#ff0000', fontFamily: 'system-ui, -apple-system, sans-serif', opacity: 1 }}>
+                                          {Math.round(trade.score)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                              let currentStockPrice = trade.stockPrice
+                                              if (!currentStockPrice || currentStockPrice === 0) currentStockPrice = trade.strike
+                                              const expiryDate = new Date(trade.expiration)
+                                              const now = new Date()
+                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+                                              const T = daysToExpiry / 365
+                                              const sigma = (trade.impliedVolatility || 50) / 100
+                                              const isPut = trade.optionType?.toLowerCase() === 'put'
+                                              let target80StockPrice = 0
+                                              let target90StockPrice = 0
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T)
+                                                if (isPut) {
+                                                  target80StockPrice = currentStockPrice - expectedMove1SD * 0.84
+                                                  target90StockPrice = currentStockPrice - expectedMove1SD * 1.28
+                                                } else {
+                                                  target80StockPrice = currentStockPrice + expectedMove1SD * 0.84
+                                                  target90StockPrice = currentStockPrice + expectedMove1SD * 1.28
                                                 }
                                               }
-
-                                              return (
-                                                <>
-                                                  {shadingZones.map((zone, idx) => (
-                                                    <rect
-                                                      key={`shade-${idx}`}
-                                                      x={zone.x}
-                                                      y="0"
-                                                      width={zone.width}
-                                                      height="50"
-                                                      fill={zone.color}
-                                                    />
-                                                  ))}
-
-                                                  {prevDayY !== null && (
-                                                    <line
-                                                      x1="0"
-                                                      y1={prevDayY.toFixed(1)}
-                                                      x2="200"
-                                                      y2={prevDayY.toFixed(1)}
-                                                      stroke="#444444"
-                                                      strokeWidth="1"
-                                                      strokeDasharray="3,2"
-                                                      opacity="0.4"
-                                                      vectorEffect="non-scaling-stroke"
-                                                    />
-                                                  )}
-
-                                                  <polyline
-                                                    fill="none"
-                                                    stroke={
-                                                      data.change >= 0 ? '#00ff00' : '#ff0000'
-                                                    }
-                                                    strokeWidth="1.5"
-                                                    points={points}
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    vectorEffect="non-scaling-stroke"
-                                                  />
-                                                </>
-                                              )
-                                            })()}
-                                        </svg>
-
-                                        {/* Y-Axis Price Labels */}
-                                        <div
-                                          className="flex flex-col justify-between h-16 ml-2 text-right"
-                                          style={{ width: '43px' }}
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
+                                                symbol, strike: trade.strike, type: trade.optionType?.toLowerCase() || 'put',
+                                                contract_type: trade.optionType?.toLowerCase() || 'put',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98, ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice, last_price: trade.contractPrice,
+                                                delta: trade.delta || 0, theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike, expiration_date: trade.expiration,
+                                                addedAt: new Date(), entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice, stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice, stopLoss: trade.contractPrice * 0.75,
+                                              }
+                                              const saved = localStorage.getItem('optionsWatchlist')
+                                              const existing = saved ? JSON.parse(saved) : []
+                                              const alreadyExists = existing.some((item: any) => item.symbol === watchlistItem.symbol && item.strike === watchlistItem.strike && item.expiration === watchlistItem.expiration)
+                                              if (!alreadyExists) localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]))
+                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Options Watchlist"
                                         >
                                           {(() => {
-                                            const data = highlightsChartData[symbol]
-                                            const prices = data.sparklineData.map((p) => p.price)
-                                            const minPrice = Math.min(...prices)
-                                            const maxPrice = Math.max(...prices)
-                                            const midPrice = (maxPrice + minPrice) / 2
-                                            return (
-                                              <>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${maxPrice.toFixed(2)}
-                                                </span>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${midPrice.toFixed(2)}
-                                                </span>
-                                                <span className="text-[11px] text-white font-mono font-semibold">
-                                                  ${minPrice.toFixed(2)}
-                                                </span>
-                                              </>
+                                            const saved = localStorage.getItem('optionsWatchlist')
+                                            const existing = saved ? JSON.parse(saved) : []
+                                            const isInWatchlist = existing.some((item: any) => item.symbol === symbol && item.strike === trade.strike && item.expiration === trade.expiration)
+                                            return isInWatchlist ? (
+                                              <TbStarFilled className="w-4 h-4 text-yellow-400" />
+                                            ) : (
+                                              <TbStar className="w-4 h-4 text-yellow-400 hover:text-yellow-300" />
                                             )
                                           })()}
-                                        </div>
-                                      </div>
-
-                                      <div className="flex flex-col">
-                                        {/* X-Axis Time Labels */}
-                                        <div
-                                          className="relative mt-2 px-1"
-                                          style={{ height: '14px', width: 'calc(100% - 45px)' }}
-                                        >
-                                          {highlightsChartData[symbol].sparklineData.length > 0 &&
-                                            (() => {
-                                              const data = highlightsChartData[symbol]
-                                              if (trade.sourceTab === 'life') {
-                                                let marketOpenIndex = -1
-                                                let marketCloseIndex = -1
-
-                                                data.sparklineData.forEach(
-                                                  (point: any, i: number) => {
-                                                    const totalMinutes = point.etMinutes || 0
-                                                    if (
-                                                      marketOpenIndex === -1 &&
-                                                      totalMinutes >= 6 * 60 + 30
-                                                    ) {
-                                                      marketOpenIndex = i
-                                                    }
-                                                    if (
-                                                      marketCloseIndex === -1 &&
-                                                      totalMinutes >= 13 * 60
-                                                    ) {
-                                                      marketCloseIndex = i
-                                                    }
-                                                  }
-                                                )
-
-                                                const openPercent =
-                                                  marketOpenIndex >= 0
-                                                    ? (marketOpenIndex /
-                                                        (data.sparklineData.length - 1)) *
-                                                      100
-                                                    : 0
-                                                const closePercent =
-                                                  marketCloseIndex >= 0
-                                                    ? (marketCloseIndex /
-                                                        (data.sparklineData.length - 1)) *
-                                                      100
-                                                    : 100
-
-                                                // Calculate 3 middle points evenly spaced
-                                                const spacing = (closePercent - openPercent) / 4
-                                                const mid1Percent = openPercent + spacing
-                                                const mid2Percent = openPercent + spacing * 2
-                                                const mid3Percent = openPercent + spacing * 3
-
-                                                // Calculate time labels for middle points
-                                                const getTimeLabel = (percent: number) => {
-                                                  const index = Math.round(
-                                                    (percent / 100) *
-                                                      (data.sparklineData.length - 1)
-                                                  )
-                                                  if (
-                                                    index >= 0 &&
-                                                    index < data.sparklineData.length
-                                                  ) {
-                                                    const minutes =
-                                                      data.sparklineData[index].etMinutes || 0
-                                                    const hour = Math.floor(minutes / 60)
-                                                    const min = minutes % 60
-                                                    const period = hour >= 12 ? 'PM' : 'AM'
-                                                    const displayHour =
-                                                      hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
-                                                    return `${displayHour}:${String(min).padStart(2, '0')} ${period}`
-                                                  }
-                                                  return ''
-                                                }
-
-                                                return (
-                                                  <>
-                                                    {marketOpenIndex >= 0 && (
-                                                      <span
-                                                        className="absolute text-[12px] text-white font-mono font-semibold"
-                                                        style={{
-                                                          left: `${openPercent}%`,
-                                                          transform: 'translateX(-50%)',
-                                                        }}
-                                                      >
-                                                        6:30 AM
-                                                      </span>
-                                                    )}
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid1Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid1Percent)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid2Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid2Percent)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: `${mid3Percent}%`,
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {getTimeLabel(mid3Percent)}
-                                                    </span>
-                                                    {marketCloseIndex >= 0 && (
-                                                      <span
-                                                        className="absolute text-[12px] text-white font-mono font-semibold"
-                                                        style={{
-                                                          left: `${closePercent}%`,
-                                                          transform: 'translateX(-50%)',
-                                                        }}
-                                                      >
-                                                        1:00 PM
-                                                      </span>
-                                                    )}
-                                                  </>
-                                                )
-                                              } else {
-                                                const firstPoint = data.sparklineData[0]
-                                                const lastPoint =
-                                                  data.sparklineData[data.sparklineData.length - 1]
-                                                const formatDate = (timestamp: number) => {
-                                                  const date = new Date(timestamp)
-                                                  return date.toLocaleDateString('en-US', {
-                                                    month: 'numeric',
-                                                    day: 'numeric',
-                                                    timeZone: 'America/Los_Angeles',
-                                                  })
-                                                }
-
-                                                // Calculate 3 middle points
-                                                const dataLength = data.sparklineData.length
-                                                const mid1Index = Math.floor(dataLength * 0.25)
-                                                const mid2Index = Math.floor(dataLength * 0.5)
-                                                const mid3Index = Math.floor(dataLength * 0.75)
-
-                                                return (
-                                                  <>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '0%',
-                                                        transform: 'translateX(0%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(firstPoint.time)}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '25%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid1Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '50%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid2Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '75%',
-                                                        transform: 'translateX(-50%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(
-                                                        data.sparklineData[mid3Index].time
-                                                      )}
-                                                    </span>
-                                                    <span
-                                                      className="absolute text-[12px] text-white font-mono font-semibold"
-                                                      style={{
-                                                        left: '100%',
-                                                        transform: 'translateX(-100%)',
-                                                      }}
-                                                    >
-                                                      {formatDate(lastPoint.time)}
-                                                    </span>
-                                                  </>
-                                                )
-                                              }
-                                            })()}
-                                        </div>
+                                        </button>
                                       </div>
                                     </div>
-                                  )}
+                                    <div className="mb-2">
+                                      <div className="text-xs text-orange-400 text-center font-bold">{trade.industry}</div>
+                                    </div>
+                                    <div className="text-xs text-center text-orange-400 mb-3 font-bold">
+                                      <span className="font-bold text-white">${trade.strike?.toFixed(0)}</span>{' '}
+                                      <span className="text-red-400 font-semibold">{trade.optionType?.toUpperCase()}</span>
+                                      {' • '}
+                                      <span className="text-white">{trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''}</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Price</div><div className="text-white font-mono font-bold">${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">IV</div><div className="text-white font-mono font-bold">{trade.impliedVolatility || 'N/A'}%</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Decay</div><div className="text-white font-mono font-bold">${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}</div></div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Target 1</div><div className="text-red-400 font-mono font-bold">${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">Target 2</div><div className="text-red-400 font-mono font-bold">${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}</div></div>
+                                      <div className="text-center"><div className="text-orange-400 mb-0.5 font-bold">{typeof window !== 'undefined' && window.innerWidth <= 768 ? 'Stop' : 'Stop Loss'}</div><div className="text-red-400 font-mono font-bold">${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}</div></div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                            {longTermBearish.length === 0 && (
+                              <div className="text-center py-8">
+                                <div className="text-gray-500 font-mono text-sm">No bearish trades</div>
                               </div>
-                            )
-                          })}
-                          {filteredBearishTrades.length === 0 && (
-                            <div className="text-center py-8">
-                              <div className="text-gray-500 font-mono text-sm">
-                                No bearish trades
-                              </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <>
-                    {/* Premium Industry Analysis Grid */}
-                    <div className="px-6 pb-6 relative">
-                      {/* Loading Overlay */}
-                      {isCalculatingTrades && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black bg-opacity-90">
-                          <div className="text-center">
-                            <div className="text-orange-400 font-mono font-bold text-3xl mb-4">
-                              {Math.round(
-                                (Object.keys(highlightedTrades).length /
-                                  Math.max(
-                                    bullishIndustries.length + bearishIndustries.length,
-                                    1
-                                  )) *
-                                  100
-                              )}
-                              %
-                            </div>
-                            <div className="w-64 h-2 bg-gray-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-300"
-                                style={{
-                                  width: `${(Object.keys(highlightedTrades).length / Math.max(bullishIndustries.length + bearishIndustries.length, 1)) * 100}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div
-                        className="grid grid-cols-2 gap-6"
-                        style={{
-                          opacity: isCalculatingTrades ? 0.3 : 1,
-                          maxWidth:
-                            typeof window !== 'undefined' && window.innerWidth <= 768
-                              ? '100%'
-                              : '100%',
-                          width:
-                            typeof window !== 'undefined' && window.innerWidth <= 768
-                              ? '100%'
-                              : 'auto',
-                          margin: '0',
-                          padding:
-                            typeof window !== 'undefined' && window.innerWidth <= 768
-                              ? '0 0.5rem'
-                              : '0',
-                          gap:
-                            typeof window !== 'undefined' && window.innerWidth <= 768
-                              ? '0.5rem'
-                              : '1.5rem',
-                          gridTemplateColumns:
-                            typeof window !== 'undefined' && window.innerWidth <= 768
-                              ? '1fr 1fr'
-                              : '1fr 1fr',
-                        }}
-                      >
-                        {/* Premium Bullish Industries Section */}
-                        <div
-                          style={{
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <div
-                            className="flex items-center justify-between mb-4 pb-3 border-b"
-                            style={{ borderColor: '#00ff00' }}
-                          >
-                            <h3 className="flex items-center justify-center flex-1">
-                              <span
-                                className="font-black uppercase tracking-wider"
-                                style={{ color: '#00ff00', fontSize: '1rem' }}
-                              >
-                                BULLISH
-                              </span>
-                            </h3>
-                            <div
-                              className="font-mono text-xs font-bold px-3 py-1 rounded"
-                              style={{
-                                color: '#ff6600',
-                                background: 'rgba(255, 102, 0, 0.1)',
-                                border: '1px solid rgba(255, 102, 0, 0.3)',
-                              }}
-                            >
-                              {
-                                (highlightFilter === 'all'
-                                  ? allBullishIndustries
-                                  : bullishIndustries
-                                ).length
-                              }{' '}
-                              sectors
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            {(highlightFilter === 'all' ? allBullishIndustries : bullishIndustries)
-                              .length > 0 ? (
-                              (highlightFilter === 'all'
-                                ? allBullishIndustries
-                                : bullishIndustries
-                              ).map((industry: any, index: number) => (
-                                <div
-                                  key={industry.symbol}
-                                  className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
-                                  style={{
-                                    background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-                                    border: '1px solid rgba(0, 255, 0, 0.3)',
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(0, 255, 0, 0.6)'
-                                    e.currentTarget.style.transform = 'translateY(-2px)'
-                                    e.currentTarget.style.boxShadow =
-                                      '0 4px 12px rgba(0, 255, 0, 0.2)'
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(0, 255, 0, 0.3)'
-                                    e.currentTarget.style.transform = 'translateY(0)'
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
-                                  }}
-                                >
-                                  <div className="flex justify-between items-start mb-3">
-                                    <div className="flex-1">
-                                      <div className="flex items-center space-x-3">
-                                        <span
-                                          className="font-black text-2xl tracking-wide"
-                                          style={{ color: '#00ff00' }}
-                                        >
-                                          {industry.symbol}
-                                        </span>
-                                      </div>
-                                      <div
-                                        className="text-xs mt-1 font-bold uppercase tracking-wide"
-                                        style={{
-                                          color: '#ff6600',
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '0.6rem'
-                                              : '0.75rem',
-                                          whiteSpace: 'nowrap',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                        }}
-                                      >
-                                        {industry.name}
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <div
-                                        className="font-mono text-xl font-black"
-                                        style={{ color: '#00ff00' }}
-                                      >
-                                        +{industry.relativePerformance.toFixed(2)}%
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Top Performers */}
-                                  {industry.topPerformers && industry.topPerformers.length > 0 && (
-                                    <div
-                                      className="border-t pt-3 mt-3"
-                                      style={{ borderColor: 'rgba(0, 255, 0, 0.2)' }}
-                                    >
-                                      <div className="space-y-2">
-                                        {industry.topPerformers.slice(0, 3).map((stock: any) => {
-                                          const tradeData = highlightedTrades[stock.symbol]
-                                          // Color logic: Gold for setup/quality, Lime Green for momentum, white for non-highlighted
-                                          const symbolColor =
-                                            tradeData?.strategy === 'setup'
-                                              ? '#FFD700'
-                                              : tradeData?.strategy === 'momentum'
-                                                ? '#32CD32'
-                                                : '#ffffff'
-                                          const bgColor = 'rgba(0, 0, 0, 0.3)'
-                                          const borderColor = 'rgba(0, 255, 0, 0.3)'
-
-                                          return (
-                                            <div
-                                              key={stock.symbol}
-                                              className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200 cursor-pointer"
-                                              style={{
-                                                background: bgColor,
-                                                border: `1px solid ${borderColor}`,
-                                                boxShadow: 'none',
-                                              }}
-                                              onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-                                                e.stopPropagation()
-                                                if (tradeData) {
-                                                  setSelectedTradeForModal(tradeData)
-                                                  setShowTradeModal(true)
-                                                } else {
-                                                  if (onSymbolChange) {
-                                                    onSymbolChange(stock.symbol)
-                                                  }
-                                                  setConfig((prev) => ({
-                                                    ...prev,
-                                                    symbol: stock.symbol,
-                                                  }))
-                                                }
-                                              }}
-                                            >
-                                              <span
-                                                className="font-mono font-bold"
-                                                style={{
-                                                  color: symbolColor,
-                                                  fontSize:
-                                                    typeof window !== 'undefined' &&
-                                                    window.innerWidth <= 768
-                                                      ? '0.79625rem'
-                                                      : '0.875rem',
-                                                }}
-                                              >
-                                                {stock.symbol}
-                                              </span>
-                                              <span
-                                                className="font-mono font-black"
-                                                style={{
-                                                  color: '#00ff00',
-                                                  fontSize:
-                                                    typeof window !== 'undefined' &&
-                                                    window.innerWidth <= 768
-                                                      ? '0.79625rem'
-                                                      : '0.875rem',
-                                                }}
-                                              >
-                                                +{stock.relativePerformance.toFixed(1)}%
-                                              </span>
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="text-center py-8">
-                                <div className="text-gray-500 font-mono text-sm">
-                                  No bullish sectors detected
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Premium Bearish Industries Section */}
-                        <div
-                          style={{
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <div
-                            className="flex items-center justify-between mb-4 pb-3 border-b"
-                            style={{ borderColor: '#ff0000' }}
-                          >
-                            <h3 className="flex items-center justify-center flex-1">
-                              <span
-                                className="font-black uppercase tracking-wider"
-                                style={{ color: '#ff0000', fontSize: '1rem' }}
-                              >
-                                BEARISH
-                              </span>
-                            </h3>
-                            <div
-                              className="font-mono text-xs font-bold px-3 py-1 rounded"
-                              style={{
-                                color: '#ff6600',
-                                background: 'rgba(255, 102, 0, 0.1)',
-                                border: '1px solid rgba(255, 102, 0, 0.3)',
-                              }}
-                            >
-                              {
-                                (highlightFilter === 'all'
-                                  ? allBearishIndustries
-                                  : bearishIndustries
-                                ).length
-                              }{' '}
-                              sectors
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            {(highlightFilter === 'all' ? allBearishIndustries : bearishIndustries)
-                              .length > 0 ? (
-                              (highlightFilter === 'all'
-                                ? allBearishIndustries
-                                : bearishIndustries
-                              ).map((industry: any, index: number) => (
-                                <div
-                                  key={industry.symbol}
-                                  className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
-                                  style={{
-                                    background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-                                    border: '1px solid rgba(255, 0, 0, 0.3)',
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)'
-                                    e.currentTarget.style.transform = 'translateY(-2px)'
-                                    e.currentTarget.style.boxShadow =
-                                      '0 4px 12px rgba(255, 0, 0, 0.2)'
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.3)'
-                                    e.currentTarget.style.transform = 'translateY(0)'
-                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.6)'
-                                  }}
-                                >
-                                  <div className="flex justify-between items-start mb-3">
-                                    <div className="flex-1">
-                                      <div className="flex items-center space-x-3">
-                                        <span className="text-red-400 font-mono font-bold text-2xl tracking-wide">
-                                          {industry.symbol}
-                                        </span>
-                                      </div>
-                                      <div
-                                        className="text-xs mt-1 font-bold uppercase tracking-wide"
-                                        style={{
-                                          color: '#ff6600',
-                                          fontSize:
-                                            typeof window !== 'undefined' &&
-                                            window.innerWidth <= 768
-                                              ? '0.6rem'
-                                              : '0.75rem',
-                                          whiteSpace: 'nowrap',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                        }}
-                                      >
-                                        {industry.name}
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <div
-                                        className="font-mono text-xl font-black"
-                                        style={{ color: '#ff0000' }}
-                                      >
-                                        {industry.relativePerformance.toFixed(2)}%
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Worst Performers */}
-                                  {industry.worstPerformers &&
-                                    industry.worstPerformers.length > 0 && (
-                                      <div
-                                        className="border-t pt-3 mt-3"
-                                        style={{ borderColor: 'rgba(255, 0, 0, 0.2)' }}
-                                      >
-                                        <div className="space-y-2">
-                                          {industry.worstPerformers
-                                            .slice(0, 3)
-                                            .map((stock: any) => {
-                                              const tradeData = highlightedTrades[stock.symbol]
-                                              // Color logic: Cyan blue for setup/quality, Bright Red for momentum, white for non-highlighted
-                                              const symbolColor =
-                                                tradeData?.strategy === 'setup'
-                                                  ? '#00FFFF'
-                                                  : tradeData?.strategy === 'momentum'
-                                                    ? '#FF0000'
-                                                    : '#ffffff'
-                                              const bgColor = 'rgba(0, 0, 0, 0.3)'
-                                              const borderColor = 'rgba(255, 0, 0, 0.3)'
-
-                                              return (
-                                                <div
-                                                  key={stock.symbol}
-                                                  className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200 cursor-pointer"
-                                                  style={{
-                                                    background: bgColor,
-                                                    border: `1px solid ${borderColor}`,
-                                                    boxShadow: 'none',
-                                                  }}
-                                                  onClick={(
-                                                    e: React.MouseEvent<HTMLDivElement>
-                                                  ) => {
-                                                    e.stopPropagation()
-                                                    if (tradeData) {
-                                                      setSelectedTradeForModal(tradeData)
-                                                      setShowTradeModal(true)
-                                                    } else {
-                                                      if (onSymbolChange) {
-                                                        onSymbolChange(stock.symbol)
-                                                      }
-                                                      setConfig((prev) => ({
-                                                        ...prev,
-                                                        symbol: stock.symbol,
-                                                      }))
-                                                    }
-                                                  }}
-                                                >
-                                                  <span
-                                                    className="font-mono font-bold"
-                                                    style={{
-                                                      color: symbolColor,
-                                                      fontSize:
-                                                        typeof window !== 'undefined' &&
-                                                        window.innerWidth <= 768
-                                                          ? '0.79625rem'
-                                                          : '0.875rem',
-                                                    }}
-                                                  >
-                                                    {stock.symbol}
-                                                  </span>
-                                                  <span
-                                                    className="font-mono font-black"
-                                                    style={{
-                                                      color: '#ff0000',
-                                                      fontSize:
-                                                        typeof window !== 'undefined' &&
-                                                        window.innerWidth <= 768
-                                                          ? '0.79625rem'
-                                                          : '0.875rem',
-                                                    }}
-                                                  >
-                                                    {stock.relativePerformance.toFixed(1)}%
-                                                  </span>
-                                                </div>
-                                              )
-                                            })}
-                                        </div>
-                                      </div>
-                                    )}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="text-center py-8">
-                                <div className="text-gray-500 font-mono text-sm">
-                                  No bearish sectors detected
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Premium Trade Details Modal */}
-        {showTradeModal && selectedTradeForModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center"
-            style={{ background: 'rgba(0, 0, 0, 0.85)' }}
-            onClick={() => {
-              setShowTradeModal(false)
-              setExpandedScoreComponent(null)
-            }}
-          >
-            <div
-              className="relative rounded-xl p-8 max-w-2xl w-full mx-4 overflow-y-auto max-h-[90vh]"
-              style={{
-                background: '#000000',
-                border: '2px solid rgba(255, 255, 255, 0.3)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Close Button */}
-              <button
-                onClick={() => {
-                  setShowTradeModal(false)
-                  setExpandedScoreComponent(null)
-                }}
-                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
-              >
-                <TbX size={24} />
-              </button>
-
-              {/* Header */}
-              <div className="mb-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div
-                      className="px-3 py-1 font-mono font-bold text-2xl"
-                      style={{
-                        background: '#000000',
-                        color: '#ffffff',
-                      }}
-                    >
-                      {selectedTradeForModal.symbol}
-                    </div>
-                    <div
-                      className="px-3 py-1 font-mono text-sm font-bold uppercase"
-                      style={{
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
-                      }}
-                    >
-                      {selectedTradeForModal.strategy === 'setup'
-                        ? '📊 SETUP QUALITY'
-                        : '🚀 MOMENTUM'}
-                    </div>
-                  </div>
-                  <div
-                    className="flex-1 text-center font-mono text-base"
-                    style={{ color: '#ffffff' }}
-                  >
-                    {selectedTradeForModal.industry} • {selectedTradeForModal.industrySymbol}
-                  </div>
-                </div>
-              </div>
-
-              {/* Trade Pick */}
-              <div
-                className="mb-8 p-5 rounded-lg"
-                style={{
-                  background: '#000000',
-                  border: '1px solid rgba(255, 102, 0, 0.8)',
-                  boxShadow: '0 4px 15px rgba(255, 102, 0, 0.3)',
-                }}
-              >
-                <div className="text-white font-mono text-2xl font-bold text-center">
-                  <span style={{ color: '#ff6600' }}>Trade Pick :</span> $
-                  {selectedTradeForModal.strike?.toFixed(0)}{' '}
-                  {selectedTradeForModal.optionType.charAt(0).toUpperCase() +
-                    selectedTradeForModal.optionType.slice(1).toLowerCase()}
-                  s{' '}
-                  {new Date(selectedTradeForModal.expiration + 'T12:00:00').toLocaleDateString(
-                    'en-US',
-                    { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' }
-                  )}
-                </div>
-              </div>
-
-              {/* AI Score + Current Price + Relative Strength + IV */}
-              <div className="grid grid-cols-4 gap-4 mb-8">
-                {/* Strength Score */}
-                <div
-                  className="p-4 rounded-lg"
-                  style={{
-                    background: '#000000',
-                    border: '2px solid #ff6600',
-                  }}
-                >
-                  <div
-                    className="font-mono text-xs uppercase tracking-wide mb-2 text-center"
-                    style={{ color: '#ff6600' }}
-                  >
-                    Strength Score
-                  </div>
-                  <div className="text-white font-mono text-2xl font-bold mb-2 text-center">
-                    {selectedTradeForModal.score}
-                  </div>
-                  <div
-                    className="h-2 rounded-full overflow-hidden"
-                    style={{
-                      background: '#000000',
-                    }}
-                  >
-                    <div
-                      className="h-full transition-all duration-1000 rounded-full"
-                      style={{
-                        width: `${selectedTradeForModal.score}%`,
-                        background: 'linear-gradient(90deg, #ff6600 0%, #ff9933 100%)',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Current Price */}
-                <div
-                  className="p-4 rounded-lg"
-                  style={{
-                    background: '#000000',
-                    border: '2px solid #ffffff',
-                  }}
-                >
-                  <div
-                    className="font-mono text-xs uppercase tracking-wide mb-1 text-center"
-                    style={{ color: '#ffffff' }}
-                  >
-                    Current Price
-                  </div>
-                  <div className="text-white font-mono text-2xl font-bold text-center">
-                    ${selectedTradeForModal.currentPrice?.toFixed(2)}
-                  </div>
-                </div>
-
-                {/* Relative Strength */}
-                <div
-                  className="p-4 rounded-lg"
-                  style={{
-                    background: '#000000',
-                    border: `2px solid ${selectedTradeForModal.relativePerformance > 0 ? '#4caf50' : '#f44336'}`,
-                  }}
-                >
-                  <div
-                    className="font-mono text-xs uppercase tracking-wide mb-1 text-center"
-                    style={{ color: '#ff6600' }}
-                  >
-                    Relative Strength
-                  </div>
-                  <div
-                    className="font-mono text-2xl font-bold text-center"
-                    style={{
-                      color: selectedTradeForModal.relativePerformance > 0 ? '#4caf50' : '#f44336',
-                    }}
-                  >
-                    {selectedTradeForModal.relativePerformance > 0 ? '+' : ''}
-                    {selectedTradeForModal.relativePerformance?.toFixed(2)}%
-                  </div>
-                </div>
-
-                {/* IV */}
-                {selectedTradeForModal.impliedVolatility && (
-                  <div
-                    className="p-4 rounded-lg"
-                    style={{
-                      background: '#000000',
-                      border: '2px solid #ff6600',
-                    }}
-                  >
-                    <div
-                      className="font-mono text-xs uppercase tracking-wide mb-1 text-center"
-                      style={{ color: '#ff6600' }}
-                    >
-                      IV
-                    </div>
-                    <div className="text-white font-mono text-2xl font-bold text-center">
-                      {selectedTradeForModal.impliedVolatility}%
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Option Contract Details */}
-              <div
-                className="mb-8 p-6 rounded-lg"
-                style={{
-                  background: 'linear-gradient(135deg, #0a1628 0%, #0d0d0d 100%)',
-                  border: '1px solid #2563eb',
-                  boxShadow:
-                    '0 4px 12px rgba(37, 99, 235, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-                }}
-              >
-                <div
-                  className="text-center font-mono text-sm uppercase tracking-widest mb-4"
-                  style={{
-                    color: '#60a5fa',
-                    fontWeight: 600,
-                  }}
-                >
-                  Contract Analysis
-                </div>
-
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  {/* Contract Price */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #1e3a8a',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#60a5fa' }}
-                    >
-                      Price
-                    </div>
-                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
-                      $
-                      {selectedTradeForModal.contractPrice
-                        ? selectedTradeForModal.contractPrice.toFixed(2)
-                        : 'N/A'}
-                    </div>
-                  </div>
-
-                  {/* IV */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #7c3aed',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#a78bfa' }}
-                    >
-                      IV
-                    </div>
-                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
-                      {selectedTradeForModal.impliedVolatility
-                        ? `${selectedTradeForModal.impliedVolatility}%`
-                        : 'N/A'}
-                    </div>
-                  </div>
-
-                  {/* Theta Decay */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #dc2626',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#f87171' }}
-                    >
-                      Decay/Day
-                    </div>
-                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
-                      $
-                      {selectedTradeForModal.thetaDecay
-                        ? selectedTradeForModal.thetaDecay.toFixed(2)
-                        : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Targets & Stop Loss */}
-                <div className="grid grid-cols-3 gap-4">
-                  {/* Target #1 (Stock Price) */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #059669',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#34d399' }}
-                    >
-                      Target #1
-                    </div>
-                    <div className="text-lg font-bold font-mono" style={{ color: '#10b981' }}>
-                      $
-                      {selectedTradeForModal.stockTarget80
-                        ? selectedTradeForModal.stockTarget80.toFixed(2)
-                        : 'N/A'}
-                    </div>
-                  </div>
-
-                  {/* Target #2 (Stock Price) */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #059669',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#34d399' }}
-                    >
-                      Target #2
-                    </div>
-                    <div className="text-lg font-bold font-mono" style={{ color: '#10b981' }}>
-                      $
-                      {selectedTradeForModal.stockTarget90
-                        ? selectedTradeForModal.stockTarget90.toFixed(2)
-                        : 'N/A'}
-                    </div>
-                  </div>
-
-                  {/* Stop Loss (Option Price) */}
-                  <div
-                    className="text-center p-3 rounded"
-                    style={{
-                      background: '#000000',
-                      border: '1px solid #dc2626',
-                    }}
-                  >
-                    <div
-                      className="text-xs font-mono uppercase tracking-wide mb-1"
-                      style={{ color: '#f87171' }}
-                    >
-                      Stop Loss
-                    </div>
-                    <div className="text-lg font-bold font-mono" style={{ color: '#ef4444' }}>
-                      $
-                      {selectedTradeForModal.stopLoss
-                        ? selectedTradeForModal.stopLoss.toFixed(2)
-                        : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Add to Watchlist Button */}
-                <button
-                  onClick={() => {
-                    // Add to options watchlist
-                    const saved = localStorage.getItem('optionsWatchlist')
-                    const watchlist = saved ? JSON.parse(saved) : []
-
-                    const newOption = {
-                      id: `${selectedTradeForModal.symbol}-${selectedTradeForModal.strike}-${selectedTradeForModal.optionType}-${selectedTradeForModal.expiration}`,
-                      symbol: selectedTradeForModal.symbol,
-                      type: selectedTradeForModal.optionType,
-                      strike: selectedTradeForModal.strike,
-                      expiration: selectedTradeForModal.expiration,
-                      bid: selectedTradeForModal.contractBid || 0,
-                      ask: selectedTradeForModal.contractAsk || 0,
-                      entryPrice: selectedTradeForModal.contractPrice || 0,
-                      delta: selectedTradeForModal.delta || 0,
-                      gamma: selectedTradeForModal.gamma || 0,
-                      theta: selectedTradeForModal.theta || 0,
-                      vega: selectedTradeForModal.vega || 0,
-                      implied_volatility: selectedTradeForModal.impliedVolatility / 100 || 0,
-                      stockPrice: selectedTradeForModal.currentPrice || 0,
-                      addedAt: new Date().toISOString(),
-                    }
-
-                    // Check if already exists
-                    const exists = watchlist.some((opt: any) => opt.id === newOption.id)
-                    if (!exists) {
-                      watchlist.push(newOption)
-                      localStorage.setItem('optionsWatchlist', JSON.stringify(watchlist))
-
-                      // Switch to plan panel (Options tab)
-                      setActiveSidebarPanel('plan')
-                      setShowTradeModal(false)
-                    }
-                  }}
-                  className="mt-4 w-full py-3 rounded-lg font-mono font-bold uppercase tracking-wider transition-all duration-200"
-                  style={{
-                    background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-                    color: '#ffffff',
-                    border: '1px solid #3b82f6',
-                    boxShadow:
-                      '0 4px 12px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
-                  }}
-                >
-                  Add to Watchlist
-                </button>
-              </div>
-
-              {/* Score Breakdown */}
-              {selectedTradeForModal.details && (
-                <div
-                  className="p-6 rounded-lg"
-                  style={{
-                    background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
-                    border: '2px solid #ff6600',
-                    boxShadow:
-                      '0 8px 25px rgba(255, 102, 0, 0.5), inset 0 2px 8px rgba(255, 102, 0, 0.2)',
-                  }}
-                >
-                  <div
-                    className="text-center font-mono text-lg uppercase tracking-wide mb-5"
-                    style={{
-                      color: '#ff6600',
-                    }}
-                  >
-                    {selectedTradeForModal.strategy === 'setup'
-                      ? 'Price Structure Score Breakdown'
-                      : 'Momentum-Volatility Score Breakdown'}
-                  </div>
-
-                  {selectedTradeForModal.strategy === 'setup' ? (
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Trend Structure:</span>
-                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.trendStructure || 0}/3
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#4ECDC4', fontSize: '15px' }}>
-                          Location in Range:
-                        </span>
-                        <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.locationInRange || 0}/3
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Compression:</span>
-                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.compression || 0}/2
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#F38181', fontSize: '15px' }}>Level Respect:</span>
-                        <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.levelRespect || 0}/2
-                        </span>
-                      </div>
-                      <div
-                        className="flex items-center col-span-2 justify-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#AA96DA', fontSize: '15px' }}>
-                          Total Structure Score:
-                        </span>
-                        <span
-                          className="font-bold ml-3"
-                          style={{ color: '#AA96DA', fontSize: '16px' }}
-                        >
-                          {selectedTradeForModal.details.structureScore || 0}/10
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#FF8C00', fontSize: '15px' }}>Trend Structure:</span>
-                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.trendStructure || 0}/3
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#FFD700', fontSize: '15px' }}>
-                          Location Near Highs:
-                        </span>
-                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.locationNearHighs || 0}/3
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#00FFFF', fontSize: '15px' }}>Expansion:</span>
-                        <span className="font-bold" style={{ color: '#00FFFF', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.expansion || 0}/2
-                        </span>
-                      </div>
-                      <div
-                        className="flex justify-between items-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Level Breakout:</span>
-                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>
-                          {selectedTradeForModal.details.levelBreakout || 0}/2
-                        </span>
-                      </div>
-                      <div
-                        className="flex items-center col-span-2 justify-center p-3 rounded"
-                        style={{ background: '#000000', border: '1px solid #333' }}
-                      >
-                        <span style={{ color: '#FF1493', fontSize: '15px' }}>
-                          Total Momentum Score:
-                        </span>
-                        <span
-                          className="font-bold ml-3"
-                          style={{ color: '#FF1493', fontSize: '16px' }}
-                        >
-                          {selectedTradeForModal.details.momentumScore || 0}/10
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Additional Context */}
-                  <div className="mt-5 pt-4 border-t border-gray-700">
-                    <div className="grid grid-cols-1 gap-4 text-xs font-mono text-gray-400">
-                      <div>
-                        <div className="text-gray-500">Current Price</div>
-                        <div className="text-white font-bold">
-                          ${selectedTradeForModal.details.currentPrice?.toFixed(2) || 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Trade Detail Popup — double-click any card to open */}
+        {tradeDetailPopup && (
+          <TradeDetailPopup
+            trade={tradeDetailPopup.trade}
+            symbol={tradeDetailPopup.symbol}
+            onClose={() => setTradeDetailPopup(null)}
+            scanPricesCache={scanPricesCacheRef.current}
+            scanAllScored={scanAllScoredRef.current}
+          />
         )}
+
       </>
     )
   }
@@ -24053,6 +22527,7 @@ export default function TradingViewChart({
         >
           {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
           <div
+            ref={topBarRef}
             className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium flex-shrink-0"
             style={{
               background: '#000000',
@@ -25065,13 +23540,12 @@ export default function TradingViewChart({
                                   }
                                 }
                               }}
-                              className={`btn-3d-carved ${
-                                (years === 20 && isSeasonal20YActive) ||
+                              className={`btn-3d-carved ${(years === 20 && isSeasonal20YActive) ||
                                 (years === 15 && isSeasonal15YActive) ||
                                 (years === 10 && isSeasonal10YActive)
-                                  ? 'active'
-                                  : ''
-                              }`}
+                                ? 'active'
+                                : ''
+                                }`}
                               style={{
                                 padding: '10px 16px',
                                 fontWeight: '700',
@@ -26398,59 +24872,59 @@ export default function TradingViewChart({
                         <div style={{ display: 'flex', gap: '6px' }}>
                           {rrgMode === 'price'
                             ? // Price mode: 10d, 31d, 87d
-                              [
-                                { value: 10, label: '10d' },
-                                { value: 31, label: '31d' },
-                                { value: 87, label: '87d' },
-                              ].map(({ value, label }) => (
-                                <button
-                                  key={value}
-                                  onClick={() => {
-                                    setRrgLookbackPeriod(value as 10 | 31 | 87)
-                                    if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    padding: '8px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    borderRadius: '4px',
-                                    border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                    background: 'transparent',
-                                    color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {label}
-                                </button>
-                              ))
+                            [
+                              { value: 10, label: '10d' },
+                              { value: 31, label: '31d' },
+                              { value: 87, label: '87d' },
+                            ].map(({ value, label }) => (
+                              <button
+                                key={value}
+                                onClick={() => {
+                                  setRrgLookbackPeriod(value as 10 | 31 | 87)
+                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  borderRadius: '4px',
+                                  border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                  background: 'transparent',
+                                  color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))
                             : // IV mode: 1mo, 4mo, 1yr
-                              [
-                                { value: 30, label: '1mo' },
-                                { value: 120, label: '4mo' },
-                                { value: 365, label: '1yr' },
-                              ].map(({ value, label }) => (
-                                <button
-                                  key={value}
-                                  onClick={() => {
-                                    setRrgIvLookbackPeriod(value as 30 | 120 | 365)
-                                    if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    padding: '8px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    borderRadius: '4px',
-                                    border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                    background: 'transparent',
-                                    color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {label}
-                                </button>
-                              ))}
+                            [
+                              { value: 30, label: '1mo' },
+                              { value: 120, label: '4mo' },
+                              { value: 365, label: '1yr' },
+                            ].map(({ value, label }) => (
+                              <button
+                                key={value}
+                                onClick={() => {
+                                  setRrgIvLookbackPeriod(value as 30 | 120 | 365)
+                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  borderRadius: '4px',
+                                  border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                  background: 'transparent',
+                                  color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
                         </div>
                       </div>
 
@@ -26498,6 +24972,12 @@ export default function TradingViewChart({
                     document.body
                   )}
               </div>
+
+              {/* BUY/SELL Button */}
+              <BuySellButton
+                isActive={showBuySellIndicator}
+                onClick={() => setShowBuySellIndicator(v => !v)}
+              />
 
               {/* Drawing Tools - Individual Buttons */}
               <div
@@ -27585,21 +26065,19 @@ export default function TradingViewChart({
                 <div className="flex space-x-3">
                   <button
                     onClick={() => setConfig((prev) => ({ ...prev, theme: 'dark' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      config.theme === 'dark'
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                        : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                    }`}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                      }`}
                   >
                     🌙 Dark
                   </button>
                   <button
                     onClick={() => setConfig((prev) => ({ ...prev, theme: 'light' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      config.theme === 'light'
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                        : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                    }`}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                      }`}
                   >
                     ☀️ Light
                   </button>
@@ -28137,7 +26615,7 @@ export default function TradingViewChart({
                   setVisibleCandleCount={setVisibleCandleCount}
                   setManualPriceRange={setManualPriceRange}
                   setIsAutoScale={setIsAutoScale}
-                  setIsDragging={() => {}}
+                  setIsDragging={() => { }}
                   handleTimeframeChange={handleTimeframeChange}
                   handleMouseMove={handleMouseMove}
                   drawings={drawings}
@@ -28356,7 +26834,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${flowChartHeight + 80 + 25}px`,
+                        bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
                         height: '3px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingFlowChart
@@ -28397,7 +26875,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
                         height: '4px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
@@ -28428,13 +26906,52 @@ export default function TradingViewChart({
                     </div>
                   )}
 
+                  {/* BuySell Panel Resize Handle */}
+                  {showBuySellIndicator && (
+                    <div
+                      onMouseDown={handleBuySellDragStart}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: `${buySellPanelHeight + 105}px`,
+                        height: '4px',
+                        cursor: 'ns-resize',
+                        backgroundColor: isDraggingBuySellPanel ? '#FF8500' : 'rgba(255, 133, 0, 0.3)',
+                        transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
+                        zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#FF8500'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isDraggingBuySellPanel) {
+                          e.currentTarget.style.backgroundColor = 'rgba(255, 133, 0, 0.3)'
+                        }
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: '40px',
+                          height: '2px',
+                          backgroundColor: '#FF8500',
+                          borderRadius: '1px',
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
                   {isFlowChartActive && (
                     <div
                       className="absolute flex flex-col z-[1001]"
                       style={{
                         left: '60px',
-                        bottom: `${flowChartHeight - 120}px`,
+                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25 + 8}px`,
                         transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         gap: '8px',
                       }}
@@ -28638,6 +27155,30 @@ export default function TradingViewChart({
                     </button>
                   )}
 
+                  {/* Close button for BuySell panel */}
+                  {showBuySellIndicator && (
+                    <button
+                      onClick={() => setShowBuySellIndicator(false)}
+                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+                      style={{
+                        right: '85px',
+                        bottom: `${buySellPanelHeight + 87}px`,
+                        width: '18px',
+                        height: '18px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: '3px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        lineHeight: '1',
+                      }}
+                      title="Close Buy/Sell Pressure panel"
+                    >
+                      ×
+                    </button>
+                  )}
+
                   {/* Close button for Live FlowMoves panel - TradingView style X button */}
                   {isFlowChartActive && (
                     <button
@@ -28759,8 +27300,6 @@ export default function TradingViewChart({
                   <RegimesPanel
                     activeTab={regimesTab}
                     setActiveTab={setRegimesTab}
-                    highlightFilter={highlightFilter}
-                    setHighlightFilter={setHighlightFilter}
                   />
                 )}
                 {activeSidebarPanel === 'flow' && (
@@ -31000,131 +29539,197 @@ export default function TradingViewChart({
                           {/* Hide on mobile when Month button is active */}
                           {(!seasonalShowMonthly ||
                             (typeof window !== 'undefined' && window.innerWidth > 768)) && (
-                            <div
-                              className="seasonality-monthly-row"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                marginBottom: '16px',
-                                padding: '6px 16px',
-                                background:
-                                  'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
-                                border: '1px solid rgba(255, 107, 0, 0.3)',
-                                borderRadius: '4px',
-                                boxShadow:
-                                  'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                              }}
-                            >
-                              {/* Sweet Spot Button - Mobile Only */}
-                              {typeof window !== 'undefined' && window.innerWidth <= 768 && (
-                                <button
-                                  className="sweet-spot-btn-mobile"
-                                  onClick={() => {
-                                    const newState = !seasonalSweetSpotActive
-                                    setSeasonalSweetSpotActive(newState)
-
-                                    // Trigger sweet spot calculation in the chart below
-                                    const chartContainer = document.querySelector(
-                                      '.seasonality-custom-panel .seasonax-container'
-                                    )
-                                    if (chartContainer) {
-                                      const sweetSpotBtn = chartContainer.querySelector(
-                                        '.sweet-spot-btn'
-                                      ) as HTMLButtonElement
-                                      if (sweetSpotBtn) sweetSpotBtn.click()
-                                    }
-                                  }}
-                                  style={{
-                                    padding: '8px 12px',
-                                    background: seasonalSweetSpotActive
-                                      ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
-                                      : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
-                                    border: seasonalSweetSpotActive
-                                      ? '1px solid rgba(0, 255, 100, 0.8)'
-                                      : '1px solid rgba(0, 255, 100, 0.4)',
-                                    borderRadius: '3px',
-                                    color: '#00ff66',
-                                    fontSize: '10px',
-                                    fontWeight: '700',
-                                    textTransform: 'uppercase',
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.5px',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: seasonalSweetSpotActive
-                                      ? '0 0 15px rgba(0, 255, 100, 0.4)'
-                                      : 'none',
-                                    flex: 1,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (!seasonalSweetSpotActive) {
-                                      e.currentTarget.style.background =
-                                        'linear-gradient(135deg, #006d00 0%, #003600 100%)'
-                                      e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)'
-                                    }
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!seasonalSweetSpotActive) {
-                                      e.currentTarget.style.background =
-                                        'linear-gradient(135deg, #004d00 0%, #002600 100%)'
-                                      e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)'
-                                    }
-                                  }}
-                                >
-                                  {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
-                                </button>
-                              )}
-
-                              {/* Bullish 30-Day */}
                               <div
-                                className="bullish-30-day-mobile"
+                                className="seasonality-monthly-row"
                                 style={{
-                                  padding: '6px 12px',
-                                  background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
-                                  border: '1px solid rgba(0, 255, 100, 0.4)',
-                                  borderRadius: '3px',
-                                  textAlign: 'center',
-                                  minWidth: '100px',
-                                  flex: 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  marginBottom: '16px',
+                                  padding: '6px 16px',
+                                  background:
+                                    'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
+                                  border: '1px solid rgba(255, 107, 0, 0.3)',
+                                  borderRadius: '4px',
+                                  boxShadow:
+                                    'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
                                 }}
                               >
-                                <div
-                                  style={{
-                                    fontSize: '14px',
-                                    color: '#00ff66',
-                                    fontWeight: '700',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    marginBottom: '2px',
-                                  }}
-                                >
-                                  BULLISH
-                                </div>
-                                <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
-                                  {seasonalBest30Day
-                                    ? seasonalBest30Day.period.replace(' - ', ' - ')
-                                    : 'Loading...'}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: '15px',
-                                    color: '#00ff66',
-                                    fontWeight: '700',
-                                    marginTop: '2px',
-                                  }}
-                                >
-                                  {seasonalBest30Day
-                                    ? `+${seasonalBest30Day.return.toFixed(2)}%`
-                                    : '--'}
-                                </div>
-                              </div>
+                                {/* Sweet Spot Button - Mobile Only */}
+                                {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                  <button
+                                    className="sweet-spot-btn-mobile"
+                                    onClick={() => {
+                                      const newState = !seasonalSweetSpotActive
+                                      setSeasonalSweetSpotActive(newState)
 
-                              {/* 12 Monthly Returns */}
-                              {seasonalMonthlyData &&
-                                seasonalMonthlyData.map((monthData, i) => {
-                                  const ret = monthData.outperformance
-                                  const isPositive = ret > 0
-                                  const monthNames = [
+                                      // Trigger sweet spot calculation in the chart below
+                                      const chartContainer = document.querySelector(
+                                        '.seasonality-custom-panel .seasonax-container'
+                                      )
+                                      if (chartContainer) {
+                                        const sweetSpotBtn = chartContainer.querySelector(
+                                          '.sweet-spot-btn'
+                                        ) as HTMLButtonElement
+                                        if (sweetSpotBtn) sweetSpotBtn.click()
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '8px 12px',
+                                      background: seasonalSweetSpotActive
+                                        ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                        : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
+                                      border: seasonalSweetSpotActive
+                                        ? '1px solid rgba(0, 255, 100, 0.8)'
+                                        : '1px solid rgba(0, 255, 100, 0.4)',
+                                      borderRadius: '3px',
+                                      color: '#00ff66',
+                                      fontSize: '10px',
+                                      fontWeight: '700',
+                                      textTransform: 'uppercase',
+                                      cursor: 'pointer',
+                                      letterSpacing: '0.5px',
+                                      transition: 'all 0.2s ease',
+                                      boxShadow: seasonalSweetSpotActive
+                                        ? '0 0 15px rgba(0, 255, 100, 0.4)'
+                                        : 'none',
+                                      flex: 1,
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!seasonalSweetSpotActive) {
+                                        e.currentTarget.style.background =
+                                          'linear-gradient(135deg, #006d00 0%, #003600 100%)'
+                                        e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)'
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!seasonalSweetSpotActive) {
+                                        e.currentTarget.style.background =
+                                          'linear-gradient(135deg, #004d00 0%, #002600 100%)'
+                                        e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)'
+                                      }
+                                    }}
+                                  >
+                                    {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
+                                  </button>
+                                )}
+
+                                {/* Bullish 30-Day */}
+                                <div
+                                  className="bullish-30-day-mobile"
+                                  style={{
+                                    padding: '6px 12px',
+                                    background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
+                                    border: '1px solid rgba(0, 255, 100, 0.4)',
+                                    borderRadius: '3px',
+                                    textAlign: 'center',
+                                    minWidth: '100px',
+                                    flex: 1,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: '14px',
+                                      color: '#00ff66',
+                                      fontWeight: '700',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px',
+                                      marginBottom: '2px',
+                                    }}
+                                  >
+                                    BULLISH
+                                  </div>
+                                  <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
+                                    {seasonalBest30Day
+                                      ? seasonalBest30Day.period.replace(' - ', ' - ')
+                                      : 'Loading...'}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: '15px',
+                                      color: '#00ff66',
+                                      fontWeight: '700',
+                                      marginTop: '2px',
+                                    }}
+                                  >
+                                    {seasonalBest30Day
+                                      ? `+${seasonalBest30Day.return.toFixed(2)}%`
+                                      : '--'}
+                                  </div>
+                                </div>
+
+                                {/* 12 Monthly Returns */}
+                                {seasonalMonthlyData &&
+                                  seasonalMonthlyData.map((monthData, i) => {
+                                    const ret = monthData.outperformance
+                                    const isPositive = ret > 0
+                                    const monthNames = [
+                                      'JAN',
+                                      'FEB',
+                                      'MAR',
+                                      'APR',
+                                      'MAY',
+                                      'JUN',
+                                      'JUL',
+                                      'AUG',
+                                      'SEP',
+                                      'OCT',
+                                      'NOV',
+                                      'DEC',
+                                    ]
+                                    return (
+                                      <div
+                                        key={monthData.month}
+                                        className="monthly-return-box"
+                                        style={{
+                                          padding: '6px 8px',
+                                          background: '#0a0a0a',
+                                          border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
+                                          borderRadius: '3px',
+                                          textAlign: 'center',
+                                          minWidth: '60px',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.background = '#1a1a1a'
+                                          e.currentTarget.style.borderColor = isPositive
+                                            ? 'rgba(0, 255, 100, 0.5)'
+                                            : 'rgba(255, 0, 0, 0.5)'
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.background = '#0a0a0a'
+                                          e.currentTarget.style.borderColor = isPositive
+                                            ? 'rgba(0, 255, 100, 0.3)'
+                                            : 'rgba(255, 0, 0, 0.3)'
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            fontSize: '11px',
+                                            color: '#ffffff',
+                                            fontWeight: '700',
+                                            marginBottom: '2px',
+                                            opacity: 1,
+                                          }}
+                                        >
+                                          {monthNames[i]}
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: '12px',
+                                            color: isPositive ? '#00ff66' : '#ff0044',
+                                            fontWeight: '700',
+                                          }}
+                                        >
+                                          {isPositive ? '+' : ''}
+                                          {ret.toFixed(2)}%
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                {!seasonalMonthlyData &&
+                                  [
                                     'JAN',
                                     'FEB',
                                     'MAR',
@@ -31137,212 +29742,146 @@ export default function TradingViewChart({
                                     'OCT',
                                     'NOV',
                                     'DEC',
-                                  ]
-                                  return (
+                                  ].map((month) => (
                                     <div
-                                      key={monthData.month}
+                                      key={month}
                                       className="monthly-return-box"
                                       style={{
                                         padding: '6px 8px',
                                         background: '#0a0a0a',
-                                        border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
+                                        border: '1px solid rgba(100, 100, 100, 0.3)',
                                         borderRadius: '3px',
                                         textAlign: 'center',
                                         minWidth: '60px',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = '#1a1a1a'
-                                        e.currentTarget.style.borderColor = isPositive
-                                          ? 'rgba(0, 255, 100, 0.5)'
-                                          : 'rgba(255, 0, 0, 0.5)'
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = '#0a0a0a'
-                                        e.currentTarget.style.borderColor = isPositive
-                                          ? 'rgba(0, 255, 100, 0.3)'
-                                          : 'rgba(255, 0, 0, 0.3)'
                                       }}
                                     >
                                       <div
                                         style={{
                                           fontSize: '11px',
-                                          color: '#ffffff',
+                                          color: '#666',
                                           fontWeight: '700',
                                           marginBottom: '2px',
-                                          opacity: 1,
                                         }}
                                       >
-                                        {monthNames[i]}
+                                        {month}
                                       </div>
                                       <div
-                                        style={{
-                                          fontSize: '12px',
-                                          color: isPositive ? '#00ff66' : '#ff0044',
-                                          fontWeight: '700',
-                                        }}
+                                        style={{ fontSize: '12px', color: '#666', fontWeight: '700' }}
                                       >
-                                        {isPositive ? '+' : ''}
-                                        {ret.toFixed(2)}%
+                                        --
                                       </div>
                                     </div>
-                                  )
-                                })}
-                              {!seasonalMonthlyData &&
-                                [
-                                  'JAN',
-                                  'FEB',
-                                  'MAR',
-                                  'APR',
-                                  'MAY',
-                                  'JUN',
-                                  'JUL',
-                                  'AUG',
-                                  'SEP',
-                                  'OCT',
-                                  'NOV',
-                                  'DEC',
-                                ].map((month) => (
-                                  <div
-                                    key={month}
-                                    className="monthly-return-box"
-                                    style={{
-                                      padding: '6px 8px',
-                                      background: '#0a0a0a',
-                                      border: '1px solid rgba(100, 100, 100, 0.3)',
-                                      borderRadius: '3px',
-                                      textAlign: 'center',
-                                      minWidth: '60px',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontSize: '11px',
-                                        color: '#666',
-                                        fontWeight: '700',
-                                        marginBottom: '2px',
-                                      }}
-                                    >
-                                      {month}
-                                    </div>
-                                    <div
-                                      style={{ fontSize: '12px', color: '#666', fontWeight: '700' }}
-                                    >
-                                      --
-                                    </div>
-                                  </div>
-                                ))}
+                                  ))}
 
-                              {/* Bearish 30-Day */}
-                              <div
-                                className="bearish-30-day-mobile"
-                                style={{
-                                  padding: '6px 12px',
-                                  background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
-                                  border: '1px solid rgba(255, 0, 0, 0.4)',
-                                  borderRadius: '3px',
-                                  textAlign: 'center',
-                                  minWidth: '100px',
-                                  flex: 1,
-                                }}
-                              >
+                                {/* Bearish 30-Day */}
                                 <div
+                                  className="bearish-30-day-mobile"
                                   style={{
-                                    fontSize: '14px',
-                                    color: '#ff0044',
-                                    fontWeight: '700',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    marginBottom: '2px',
-                                  }}
-                                >
-                                  BEARISH
-                                </div>
-                                <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
-                                  {seasonalWorst30Day
-                                    ? seasonalWorst30Day.period.replace(' - ', ' - ')
-                                    : 'Loading...'}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: '15px',
-                                    color: '#ff0044',
-                                    fontWeight: '700',
-                                    marginTop: '2px',
-                                  }}
-                                >
-                                  {seasonalWorst30Day
-                                    ? `${seasonalWorst30Day.return.toFixed(2)}%`
-                                    : '--'}
-                                </div>
-                              </div>
-
-                              {/* Pain Point Button - Mobile Only */}
-                              {typeof window !== 'undefined' && window.innerWidth <= 768 && (
-                                <button
-                                  className="pain-point-btn-mobile"
-                                  onClick={() => {
-                                    const newState = !seasonalPainPointActive
-                                    setSeasonalPainPointActive(newState)
-
-                                    // Trigger pain point calculation in the chart below
-                                    const chartContainer = document.querySelector(
-                                      '.seasonality-custom-panel .seasonax-container'
-                                    )
-                                    if (chartContainer) {
-                                      const painPointBtn = chartContainer.querySelector(
-                                        '.pain-point-btn'
-                                      ) as HTMLButtonElement
-                                      if (painPointBtn) painPointBtn.click()
-                                    }
-                                  }}
-                                  style={{
-                                    padding: '8px 12px',
-                                    background: seasonalPainPointActive
-                                      ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
-                                      : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
-                                    border: seasonalPainPointActive
-                                      ? '1px solid rgba(255, 0, 0, 0.8)'
-                                      : '1px solid rgba(255, 0, 0, 0.4)',
+                                    padding: '6px 12px',
+                                    background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
+                                    border: '1px solid rgba(255, 0, 0, 0.4)',
                                     borderRadius: '3px',
-                                    color: '#ff0044',
-                                    fontSize: '10px',
-                                    fontWeight: '700',
-                                    textTransform: 'uppercase',
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.5px',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: seasonalPainPointActive
-                                      ? '0 0 15px rgba(255, 0, 0, 0.4)'
-                                      : 'none',
+                                    textAlign: 'center',
+                                    minWidth: '100px',
                                     flex: 1,
                                   }}
-                                  onMouseEnter={(e) => {
-                                    if (!seasonalPainPointActive) {
-                                      e.currentTarget.style.background =
-                                        'linear-gradient(135deg, #6d0000 0%, #360000 100%)'
-                                      e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)'
-                                    }
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!seasonalPainPointActive) {
-                                      e.currentTarget.style.background =
-                                        'linear-gradient(135deg, #4d0000 0%, #260000 100%)'
-                                      e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)'
-                                    }
-                                  }}
                                 >
-                                  {seasonalPainPointActive ? '✓ ' : ''}Pain Point
-                                </button>
-                              )}
-                            </div>
-                          )}
+                                  <div
+                                    style={{
+                                      fontSize: '14px',
+                                      color: '#ff0044',
+                                      fontWeight: '700',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px',
+                                      marginBottom: '2px',
+                                    }}
+                                  >
+                                    BEARISH
+                                  </div>
+                                  <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
+                                    {seasonalWorst30Day
+                                      ? seasonalWorst30Day.period.replace(' - ', ' - ')
+                                      : 'Loading...'}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: '15px',
+                                      color: '#ff0044',
+                                      fontWeight: '700',
+                                      marginTop: '2px',
+                                    }}
+                                  >
+                                    {seasonalWorst30Day
+                                      ? `${seasonalWorst30Day.return.toFixed(2)}%`
+                                      : '--'}
+                                  </div>
+                                </div>
+
+                                {/* Pain Point Button - Mobile Only */}
+                                {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                  <button
+                                    className="pain-point-btn-mobile"
+                                    onClick={() => {
+                                      const newState = !seasonalPainPointActive
+                                      setSeasonalPainPointActive(newState)
+
+                                      // Trigger pain point calculation in the chart below
+                                      const chartContainer = document.querySelector(
+                                        '.seasonality-custom-panel .seasonax-container'
+                                      )
+                                      if (chartContainer) {
+                                        const painPointBtn = chartContainer.querySelector(
+                                          '.pain-point-btn'
+                                        ) as HTMLButtonElement
+                                        if (painPointBtn) painPointBtn.click()
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '8px 12px',
+                                      background: seasonalPainPointActive
+                                        ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                        : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
+                                      border: seasonalPainPointActive
+                                        ? '1px solid rgba(255, 0, 0, 0.8)'
+                                        : '1px solid rgba(255, 0, 0, 0.4)',
+                                      borderRadius: '3px',
+                                      color: '#ff0044',
+                                      fontSize: '10px',
+                                      fontWeight: '700',
+                                      textTransform: 'uppercase',
+                                      cursor: 'pointer',
+                                      letterSpacing: '0.5px',
+                                      transition: 'all 0.2s ease',
+                                      boxShadow: seasonalPainPointActive
+                                        ? '0 0 15px rgba(255, 0, 0, 0.4)'
+                                        : 'none',
+                                      flex: 1,
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!seasonalPainPointActive) {
+                                        e.currentTarget.style.background =
+                                          'linear-gradient(135deg, #6d0000 0%, #360000 100%)'
+                                        e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)'
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!seasonalPainPointActive) {
+                                        e.currentTarget.style.background =
+                                          'linear-gradient(135deg, #4d0000 0%, #260000 100%)'
+                                        e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)'
+                                      }
+                                    }}
+                                  >
+                                    {seasonalPainPointActive ? '✓ ' : ''}Pain Point
+                                  </button>
+                                )}
+                              </div>
+                            )}
 
                           {/* Conditionally render either Monthly Chart or Seasonality Chart - MOBILE ONLY */}
                           {seasonalShowMonthly &&
-                          typeof window !== 'undefined' &&
-                          window.innerWidth <= 768 ? (
+                            typeof window !== 'undefined' &&
+                            window.innerWidth <= 768 ? (
                             <div
                               className="seasonality-custom-panel"
                               style={{
@@ -31764,11 +30303,10 @@ export default function TradingViewChart({
             {/* Magnet Mode Toggle */}
             <button
               onClick={() => setMagnetMode(!magnetMode)}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${
-                magnetMode
-                  ? 'bg-[#2962ff] text-white'
-                  : 'bg-[#1e222d] text-[#868993] hover:text-white'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${magnetMode
+                ? 'bg-[#2962ff] text-white'
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                }`}
               title="Magnet Mode - Snap to OHLC values"
             >
               ?? Magnet
@@ -31777,11 +30315,10 @@ export default function TradingViewChart({
             {/* Show Handles Toggle */}
             <button
               onClick={() => setShowDrawingHandles(!showDrawingHandles)}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${
-                showDrawingHandles
-                  ? 'bg-[#2962ff] text-white'
-                  : 'bg-[#1e222d] text-[#868993] hover:text-white'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${showDrawingHandles
+                ? 'bg-[#2962ff] text-white'
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                }`}
               title="Show/Hide Drawing Handles"
             >
               ?? Handles
