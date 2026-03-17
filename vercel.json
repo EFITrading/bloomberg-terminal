@@ -1,18 +1,7 @@
 {
   "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/cron/amd-flow",
-      "schedule": "*/15 * * * *"
-    }
-  ],
+  "crons": [],
   "functions": {
-    "src/app/api/cron/amd-flow/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/scan-chunk/route.ts": {
-      "maxDuration": 300
-    },
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
     },
