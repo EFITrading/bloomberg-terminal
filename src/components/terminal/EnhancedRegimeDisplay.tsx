@@ -23,6 +23,23 @@ let _historyCacheTs = 0
 const CLIENT_HISTORY_TTL = 30 * 60 * 1000 // 30 min — matches API cache
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Exported prefetch — call this on app mount so the chart data is ready
+// before the user opens the watchlist panel for the first time.
+// ─────────────────────────────────────────────────────────────────────────────
+export function prefetchCompositeHistory() {
+  if (Date.now() - _historyCacheTs < CLIENT_HISTORY_TTL && _historyModuleCache.length > 0) return
+  fetch('/api/composite-history')
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.history && data.history.length > 0) {
+        _historyModuleCache = data.history
+        _historyCacheTs = Date.now()
+      }
+    })
+    .catch(() => { })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Composite History Chart — all hover interaction is 100% imperative DOM
 // mutation (no useState for hover). Mouse move never triggers ANY React render.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -665,7 +682,7 @@ function EnhancedRegimeDisplay({
       const next = !prev
       try {
         localStorage.setItem('enhancedRegime_showSummary', String(next))
-      } catch {}
+      } catch { }
       return next
     })
   const [selectedTimeframe, setSelectedTimeframe] = useState(selectedPeriod)
@@ -686,13 +703,13 @@ function EnhancedRegimeDisplay({
     try {
       const s = localStorage.getItem('compositeTfRange')
       if (s === '1Y' || s === '3Y' || s === '5Y') return s
-    } catch {}
+    } catch { }
     return '1Y'
   })
   const handleSetTfRange = useCallback((v: '1Y' | '3Y' | '5Y') => {
     try {
       localStorage.setItem('compositeTfRange', v)
-    } catch {}
+    } catch { }
     setTfRange(v)
   }, [])
 
@@ -718,7 +735,7 @@ function EnhancedRegimeDisplay({
   const handleSetCompositeView = (v: 'gauge' | 'chart') => {
     try {
       localStorage.setItem('compositeView', v)
-    } catch {}
+    } catch { }
     setCompositeView(v)
   }
 
@@ -769,7 +786,7 @@ function EnhancedRegimeDisplay({
           const price = data.results[0].underlying_asset.value
           setVixPrice(price)
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     fetchVix()
     // Refresh VIX every 5 minutes

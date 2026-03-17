@@ -429,7 +429,6 @@ export default function OptionsFlowPage() {
                     const incoming: OptionsFlowData[] = d.trades || [];
                     trades.push(...incoming);
                     scannedCount++;
-                    console.log(`[ALL SCAN] ${scannedCount}${totalSymbols ? '/' + totalSymbols : ''} tickers scanned — ${d.ticker}: ${incoming.length} trades`);
                     break;
                   }
                   case 'complete':

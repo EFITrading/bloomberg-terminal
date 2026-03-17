@@ -7876,8 +7876,6 @@ export default function TradingViewChart({
 
         const newVelocityY = Math.abs(prevVelocity.y) > threshold ? prevVelocity.y * friction : 0;
 
-
-
         // Apply velocity to scroll offset (horizontal momentum)
 
         if (Math.abs(newVelocityX) > threshold) {
@@ -10466,377 +10464,321 @@ export default function TradingViewChart({
 
     // ALWAYS log volume data check for debugging
 
-      totalCandles: visibleData.length,
+    totalCandles: visibleData.length,
 
       volumesFound: volumes.length,
 
-      firstCandleFullData: visibleData[0],
+        firstCandleFullData: visibleData[0],
 
-      dataKeys: visibleData[0] ? Object.keys(visibleData[0]) : 'NO_DATA',
+          dataKeys: visibleData[0] ? Object.keys(visibleData[0]) : 'NO_DATA',
 
-      maxVolume: volumes.length > 0 ? Math.max(...volumes) : 'NO_VOLUMES',
+            maxVolume: volumes.length > 0 ? Math.max(...volumes) : 'NO_VOLUMES',
 
-      firstFewCandlesWithVolume: visibleData.slice(0, 3).map(d => ({
+              firstFewCandlesWithVolume: visibleData.slice(0, 3).map(d => ({
 
-        timestamp: new Date(d.timestamp).toISOString().slice(11, 19),
+                timestamp: new Date(d.timestamp).toISOString().slice(11, 19),
 
-        volume: d.volume,
+                volume: d.volume,
 
-        hasVolume: d.hasOwnProperty('volume'),
+                hasVolume: d.hasOwnProperty('volume'),
 
-        volumeType: typeof d.volume
+                volumeType: typeof d.volume
 
-      }))
+              }))
 
-    });
+  });
 
 
 
-    // Require real volume data - no fallback
+  // Require real volume data - no fallback
 
-    if (volumes.length === 0) {
+  if (volumes.length === 0) {
 
-      console.error('❌ NO VOLUME DATA - Cannot render volume chart');
+    console.error('❌ NO VOLUME DATA - Cannot render volume chart');
 
-      return;
+    return;
+
+  }
+
+
+
+  const maxVolume = Math.max(...volumes);
+
+  const candleSpacing = chartWidth / visibleCandleCount;
+
+  const candleWidth = Math.max(1, candleSpacing * 0.8);
+
+
+
+  // Remove volume border - commented out for cleaner look
+
+  // ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+
+  // ctx.lineWidth = 1;
+
+  // ctx.strokeRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
+
+
+
+  // Draw volume bars
+
+  visibleData.forEach((candle, index) => {
+
+    const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
+
+
+
+    // Use only real volume data
+
+    const volumeValue = candle.volume;
+
+    if (!volumeValue || volumeValue <= 0) return;
+
+
+
+    const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight;
+
+    const barY = volumeEndY - volumeHeight;
+
+
+
+    // Color volume bars based on price movement and user settings
+
+    const isGreen = candle.close > candle.open;
+
+    const volumeColor = isGreen ? config.colors.volume.bullish : config.colors.volume.bearish;
+
+
+
+    // Convert hex to rgba with transparency
+
+    const hexToRgba = (hex: string, alpha: number) => {
+
+      const r = parseInt(hex.slice(1, 3), 16);
+
+      const g = parseInt(hex.slice(3, 5), 16);
+
+      const b = parseInt(hex.slice(5, 7), 16);
+
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+    };
+
+
+
+    ctx.fillStyle = hexToRgba(volumeColor, 0.7);
+
+
+
+    // Draw volume bar
+
+    ctx.fillRect(x, barY, Math.round(candleWidth), volumeHeight);
+
+
+
+    // Add subtle border to volume bars for better definition
+
+    ctx.strokeStyle = hexToRgba(volumeColor, 0.9);
+
+    ctx.lineWidth = 0.5;
+
+    ctx.strokeRect(x, barY, Math.round(candleWidth), volumeHeight);
+
+  });
+
+
+
+  // Draw volume scale labels on the right
+
+  ctx.fillStyle = '#ffffff';
+
+  ctx.font = '13px Arial';
+
+  ctx.textAlign = 'left';
+
+
+
+  // Draw volume labels (3 levels: 0, 50%, 100%)
+
+  for (let i = 0; i <= 2; i++) {
+
+    const volumeLevel = (maxVolume / 2) * i;
+
+    const y = volumeEndY - (i * volumeAreaHeight / 2);
+
+
+
+    // Format volume for display
+
+    let volumeText = '';
+
+    if (volumeLevel >= 1000000) {
+
+      volumeText = `${(volumeLevel / 1000000).toFixed(1)}M`;
+
+    } else if (volumeLevel >= 1000) {
+
+      volumeText = `${(volumeLevel / 1000).toFixed(1)}K`;
+
+    } else {
+
+      volumeText = volumeLevel.toFixed(0);
 
     }
 
 
 
-    const maxVolume = Math.max(...volumes);
-
-    const candleSpacing = chartWidth / visibleCandleCount;
-
-    const candleWidth = Math.max(1, candleSpacing * 0.8);
-
-
-
-    // Remove volume border - commented out for cleaner look
-
-    // ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-
-    // ctx.lineWidth = 1;
-
-    // ctx.strokeRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
-
-
-
-    // Draw volume bars
-
-    visibleData.forEach((candle, index) => {
-
-      const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
-
-
-
-      // Use only real volume data
-
-      const volumeValue = candle.volume;
-
-      if (!volumeValue || volumeValue <= 0) return;
-
-
-
-      const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight;
-
-      const barY = volumeEndY - volumeHeight;
-
-
-
-      // Color volume bars based on price movement and user settings
-
-      const isGreen = candle.close > candle.open;
-
-      const volumeColor = isGreen ? config.colors.volume.bullish : config.colors.volume.bearish;
-
-
-
-      // Convert hex to rgba with transparency
-
-      const hexToRgba = (hex: string, alpha: number) => {
-
-        const r = parseInt(hex.slice(1, 3), 16);
-
-        const g = parseInt(hex.slice(3, 5), 16);
-
-        const b = parseInt(hex.slice(5, 7), 16);
-
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-
-      };
-
-
-
-      ctx.fillStyle = hexToRgba(volumeColor, 0.7);
-
-
-
-      // Draw volume bar
-
-      ctx.fillRect(x, barY, Math.round(candleWidth), volumeHeight);
-
-
-
-      // Add subtle border to volume bars for better definition
-
-      ctx.strokeStyle = hexToRgba(volumeColor, 0.9);
-
-      ctx.lineWidth = 0.5;
-
-      ctx.strokeRect(x, barY, Math.round(candleWidth), volumeHeight);
-
-    });
-
-
-
-    // Draw volume scale labels on the right
+    // Position volume labels even MORE RIGHT 
 
     ctx.fillStyle = '#ffffff';
 
-    ctx.font = '13px Arial';
+    ctx.textAlign = 'right';
 
-    ctx.textAlign = 'left';
+    ctx.fillText(volumeText, chartWidth + 80, y + 3); // Much further beyond chart edge
 
 
 
-    // Draw volume labels (3 levels: 0, 50%, 100%)
+    // Draw tick mark at edge
 
-    for (let i = 0; i <= 2; i++) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
 
-      const volumeLevel = (maxVolume / 2) * i;
+    ctx.lineWidth = 1;
 
-      const y = volumeEndY - (i * volumeAreaHeight / 2);
+    ctx.beginPath();
 
+    ctx.moveTo(chartWidth - 10, y);
 
+    ctx.lineTo(chartWidth - 5, y);
 
-      // Format volume for display
+    ctx.stroke();
 
-      let volumeText = '';
+  }
 
-      if (volumeLevel >= 1000000) {
 
-        volumeText = `${(volumeLevel / 1000000).toFixed(1)}M`;
 
-      } else if (volumeLevel >= 1000) {
+  // Remove volume label - text removed for cleaner look
 
-        volumeText = `${(volumeLevel / 1000).toFixed(1)}K`;
+  // ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
 
-      } else {
+  // ctx.font = 'bold 10px Arial';
 
-        volumeText = volumeLevel.toFixed(0);
+};
 
-      }
 
 
+// Draw 4-line flow chart indicator (like AlgoFlow screener)
 
-      // Position volume labels even MORE RIGHT 
+const drawFlowChart = (
 
-      ctx.fillStyle = '#ffffff';
+  ctx: CanvasRenderingContext2D,
 
-      ctx.textAlign = 'right';
+  flowData: Array<{ time: number; timeLabel: string; callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>,
 
-      ctx.fillText(volumeText, chartWidth + 80, y + 3); // Much further beyond chart edge
+  visibleData: ChartDataPoint[],
 
+  chartWidth: number,
 
+  priceChartHeight: number,
 
-      // Draw tick mark at edge
+  visibleCandleCount: number,
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  flowChartHeight: number
 
-      ctx.lineWidth = 1;
+) => {
 
-      ctx.beginPath();
+  if (!flowData.length || !visibleData.length) return;
 
-      ctx.moveTo(chartWidth - 10, y);
 
-      ctx.lineTo(chartWidth - 5, y);
 
-      ctx.stroke();
+  const flowStartY = priceChartHeight;
 
-    }
+  const flowEndY = priceChartHeight + flowChartHeight;
 
 
 
-    // Remove volume label - text removed for cleaner look
+  // Draw background
 
-    // ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
 
-    // ctx.font = 'bold 10px Arial';
+  ctx.fillRect(40, flowStartY, chartWidth - 80, flowChartHeight);
 
-  };
 
 
+  // Find max value for scaling (across all 4 lines)
 
-  // Draw 4-line flow chart indicator (like AlgoFlow screener)
+  const allValues = flowData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus]);
 
-  const drawFlowChart = (
+  const maxValue = Math.max(...allValues, 1);
 
-    ctx: CanvasRenderingContext2D,
 
-    flowData: Array<{ time: number; timeLabel: string; callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>,
 
-    visibleData: ChartDataPoint[],
+  // Calculate candle spacing to align with price chart
 
-    chartWidth: number,
+  const candleSpacing = chartWidth / visibleCandleCount;
 
-    priceChartHeight: number,
 
-    visibleCandleCount: number,
 
-    flowChartHeight: number
+  // Create a map of candlestick timestamps to x positions
 
-  ) => {
+  const candlePositions = new Map<number, number>();
 
-    if (!flowData.length || !visibleData.length) return;
+  visibleData.forEach((candle, index) => {
 
+    const candleTime = new Date(candle.timestamp).getTime();
 
+    const x = 40 + (index * candleSpacing) + (candleSpacing / 2); // Center of candle
 
-    const flowStartY = priceChartHeight;
+    candlePositions.set(candleTime, x);
 
-    const flowEndY = priceChartHeight + flowChartHeight;
+  });
 
 
 
-    // Draw background
+  // Draw 4 lines
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  const lines = [
 
-    ctx.fillRect(40, flowStartY, chartWidth - 80, flowChartHeight);
+    { key: 'callsPlus', color: '#22c55e', name: 'Bullish Calls' },
 
+    { key: 'callsMinus', color: '#ef4444', name: 'Bearish Calls' },
 
+    { key: 'putsPlus', color: '#3b82f6', name: 'Bullish Puts' },
 
-    // Find max value for scaling (across all 4 lines)
+    { key: 'putsMinus', color: '#f59e0b', name: 'Bearish Puts' }
 
-    const allValues = flowData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus]);
+  ];
 
-    const maxValue = Math.max(...allValues, 1);
 
 
+  lines.forEach(line => {
 
-    // Calculate candle spacing to align with price chart
+    ctx.strokeStyle = line.color;
 
-    const candleSpacing = chartWidth / visibleCandleCount;
+    ctx.lineWidth = 3;
 
+    ctx.lineCap = 'round';
 
-
-    // Create a map of candlestick timestamps to x positions
-
-    const candlePositions = new Map<number, number>();
-
-    visibleData.forEach((candle, index) => {
-
-      const candleTime = new Date(candle.timestamp).getTime();
-
-      const x = 40 + (index * candleSpacing) + (candleSpacing / 2); // Center of candle
-
-      candlePositions.set(candleTime, x);
-
-    });
-
-
-
-    // Draw 4 lines
-
-    const lines = [
-
-      { key: 'callsPlus', color: '#22c55e', name: 'Bullish Calls' },
-
-      { key: 'callsMinus', color: '#ef4444', name: 'Bearish Calls' },
-
-      { key: 'putsPlus', color: '#3b82f6', name: 'Bullish Puts' },
-
-      { key: 'putsMinus', color: '#f59e0b', name: 'Bearish Puts' }
-
-    ];
-
-
-
-    lines.forEach(line => {
-
-      ctx.strokeStyle = line.color;
-
-      ctx.lineWidth = 3;
-
-      ctx.lineCap = 'round';
-
-      ctx.lineJoin = 'round';
-
-      ctx.globalAlpha = 1.0;
-
-      ctx.beginPath();
-
-
-
-      let firstPoint = true;
-
-      flowData.forEach((point) => {
-
-        // Find matching candlestick position
-
-        const x = candlePositions.get(point.time);
-
-
-
-        if (x !== undefined) {
-
-          const value = (point as any)[line.key];
-
-          const normalizedValue = (value / maxValue) * flowChartHeight;
-
-          const y = flowEndY - normalizedValue;
-
-
-
-          if (firstPoint) {
-
-            ctx.moveTo(x, y);
-
-            firstPoint = false;
-
-          } else {
-
-            ctx.lineTo(x, y);
-
-          }
-
-        }
-
-      });
-
-
-
-      ctx.stroke();
-
-    });
-
-
-
-    // Reset alpha
+    ctx.lineJoin = 'round';
 
     ctx.globalAlpha = 1.0;
 
-
-
-    // Draw line labels at the end of each line
-
-    const lastPoint = flowData[flowData.length - 1];
-
-    const lastCandleX = candlePositions.get(lastPoint.time);
+    ctx.beginPath();
 
 
 
-    if (lastCandleX !== undefined) {
+    let firstPoint = true;
 
-      ctx.font = 'bold 11px Arial';
+    flowData.forEach((point) => {
 
-      ctx.textAlign = 'left';
+      // Find matching candlestick position
+
+      const x = candlePositions.get(point.time);
 
 
 
-      lines.forEach(line => {
+      if (x !== undefined) {
 
-        const value = (lastPoint as any)[line.key];
+        const value = (point as any)[line.key];
 
         const normalizedValue = (value / maxValue) * flowChartHeight;
 
@@ -10844,385 +10786,579 @@ export default function TradingViewChart({
 
 
 
-        // Draw background box for better readability
+        if (firstPoint) {
 
-        const textWidth = ctx.measureText(line.name).width;
+          ctx.moveTo(x, y);
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          firstPoint = false;
 
-        ctx.fillRect(lastCandleX + 5, y - 10, textWidth + 8, 18);
+        } else {
 
+          ctx.lineTo(x, y);
 
+        }
 
-        // Draw colored label at the end of the line
+      }
 
-        ctx.fillStyle = line.color;
-
-        ctx.fillText(line.name, lastCandleX + 9, y + 3);
-
-      });
-
-    }
+    });
 
 
 
+    ctx.stroke();
+
+  });
 
 
-    // Draw scale labels (max value at top)
 
-    ctx.fillStyle = '#ffffff';
+  // Reset alpha
 
-    ctx.font = '11px Arial';
+  ctx.globalAlpha = 1.0;
+
+
+
+  // Draw line labels at the end of each line
+
+  const lastPoint = flowData[flowData.length - 1];
+
+  const lastCandleX = candlePositions.get(lastPoint.time);
+
+
+
+  if (lastCandleX !== undefined) {
+
+    ctx.font = 'bold 11px Arial';
 
     ctx.textAlign = 'left';
 
 
 
-    for (let i = 0; i <= 2; i++) {
+    lines.forEach(line => {
 
-      const valueLevel = (maxValue / 2) * i;
+      const value = (lastPoint as any)[line.key];
 
-      const y = flowEndY - (i * flowChartHeight / 2);
+      const normalizedValue = (value / maxValue) * flowChartHeight;
 
-
-
-      let valueText = '';
-
-      if (valueLevel >= 1000000) {
-
-        valueText = `$${(valueLevel / 1000000).toFixed(1)}M`;
-
-      } else if (valueLevel >= 1000) {
-
-        valueText = `$${(valueLevel / 1000).toFixed(0)}K`;
-
-      } else {
-
-        valueText = `$${valueLevel.toFixed(0)}`;
-
-      }
+      const y = flowEndY - normalizedValue;
 
 
 
-      ctx.fillText(valueText, chartWidth + 10, y + 3);
+      // Draw background box for better readability
 
-    }
+      const textWidth = ctx.measureText(line.name).width;
 
-  };
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
 
-
-
-  // Draw grid lines for price chart area only
-
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, priceHeight: number) => {
-
-    ctx.strokeStyle = colors.grid;
-
-    ctx.lineWidth = 1;
+      ctx.fillRect(lastCandleX + 5, y - 10, textWidth + 8, 18);
 
 
 
-    // Horizontal grid lines (price levels) - only in price chart area
+      // Draw colored label at the end of the line
 
-    for (let i = 0; i <= 10; i++) {
+      ctx.fillStyle = line.color;
 
-      const y = (priceHeight / 10) * i;
+      ctx.fillText(line.name, lastCandleX + 9, y + 3);
 
-      ctx.beginPath();
+    });
 
-      ctx.moveTo(50, y);
-
-      ctx.lineTo(width - 20, y);
-
-      ctx.stroke();
-
-    }
+  }
 
 
 
-    // Vertical grid lines (time)
 
-    const gridSpacing = Math.max(50, (width - 70) / 20);
 
-    for (let x = 50; x < width - 20; x += gridSpacing) {
+  // Draw scale labels (max value at top)
 
-      ctx.beginPath();
+  ctx.fillStyle = '#ffffff';
 
-      ctx.moveTo(x, 0);
+  ctx.font = '11px Arial';
 
-      ctx.lineTo(x, priceHeight);
+  ctx.textAlign = 'left';
 
-      ctx.stroke();
+
+
+  for (let i = 0; i <= 2; i++) {
+
+    const valueLevel = (maxValue / 2) * i;
+
+    const y = flowEndY - (i * flowChartHeight / 2);
+
+
+
+    let valueText = '';
+
+    if (valueLevel >= 1000000) {
+
+      valueText = `$${(valueLevel / 1000000).toFixed(1)}M`;
+
+    } else if (valueLevel >= 1000) {
+
+      valueText = `$${(valueLevel / 1000).toFixed(0)}K`;
+
+    } else {
+
+      valueText = `$${valueLevel.toFixed(0)}`;
 
     }
 
-  };
+
+
+    ctx.fillText(valueText, chartWidth + 10, y + 3);
+
+  }
+
+};
 
 
 
-  // Helper function to calculate future periods for 4 weeks
+// Draw grid lines for price chart area only
 
-  const getFuturePeriods = (timeframe: string): number => {
+const drawGrid = (ctx: CanvasRenderingContext2D, width: number, priceHeight: number) => {
 
-    // EXPANDED: Allow much more future scrolling like TradingView
+  ctx.strokeStyle = colors.grid;
 
-    switch (timeframe) {
+  ctx.lineWidth = 1;
 
-      case '1m': return 52 * 7 * 24 * 60; // 1 year of minute data for future scrolling
 
-      case '5m': return 52 * 7 * 24 * 12; // 1 year of 5-minute data
 
-      case '15m': return 52 * 7 * 24 * 4; // 1 year of 15-minute data
+  // Horizontal grid lines (price levels) - only in price chart area
 
-      case '30m': return 52 * 7 * 24 * 2; // 1 year of 30-minute data
+  for (let i = 0; i <= 10; i++) {
 
-      case '1h': return 52 * 7 * 24; // 1 year of hourly data
+    const y = (priceHeight / 10) * i;
 
-      case '4h': return 52 * 7 * 6; // 1 year of 4-hour data
+    ctx.beginPath();
 
-      case '1d': return 365 * 5; // 5 YEARS of daily future scrolling (MUCH more space)
+    ctx.moveTo(50, y);
 
-      case '1w': return 52 * 5; // 5 years of weekly data
+    ctx.lineTo(width - 20, y);
 
-      case '1mo': return 12 * 5; // 5 years of monthly data
+    ctx.stroke();
 
-      default: return 365 * 2; // Default to 2 years in days
+  }
+
+
+
+  // Vertical grid lines (time)
+
+  const gridSpacing = Math.max(50, (width - 70) / 20);
+
+  for (let x = 50; x < width - 20; x += gridSpacing) {
+
+    ctx.beginPath();
+
+    ctx.moveTo(x, 0);
+
+    ctx.lineTo(x, priceHeight);
+
+    ctx.stroke();
+
+  }
+
+};
+
+
+
+// Helper function to calculate future periods for 4 weeks
+
+const getFuturePeriods = (timeframe: string): number => {
+
+  // EXPANDED: Allow much more future scrolling like TradingView
+
+  switch (timeframe) {
+
+    case '1m': return 52 * 7 * 24 * 60; // 1 year of minute data for future scrolling
+
+    case '5m': return 52 * 7 * 24 * 12; // 1 year of 5-minute data
+
+    case '15m': return 52 * 7 * 24 * 4; // 1 year of 15-minute data
+
+    case '30m': return 52 * 7 * 24 * 2; // 1 year of 30-minute data
+
+    case '1h': return 52 * 7 * 24; // 1 year of hourly data
+
+    case '4h': return 52 * 7 * 6; // 1 year of 4-hour data
+
+    case '1d': return 365 * 5; // 5 YEARS of daily future scrolling (MUCH more space)
+
+    case '1w': return 52 * 5; // 5 years of weekly data
+
+    case '1mo': return 12 * 5; // 5 years of monthly data
+
+    default: return 365 * 2; // Default to 2 years in days
+
+  }
+
+};
+
+
+
+// Technical Indicator Calculations
+
+const calculateRSI = (data: ChartDataPoint[], period = 14): number[] => {
+
+  if (data.length < period + 1) return [];
+
+
+
+  const rsi: number[] = [];
+
+  const gains: number[] = [];
+
+  const losses: number[] = [];
+
+
+
+  for (let i = 1; i < data.length; i++) {
+
+    const change = data[i].close - data[i - 1].close;
+
+    gains.push(change > 0 ? change : 0);
+
+    losses.push(change < 0 ? Math.abs(change) : 0);
+
+  }
+
+
+
+  for (let i = period - 1; i < gains.length; i++) {
+
+    const avgGain = gains.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
+
+    const avgLoss = losses.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
+
+
+
+    if (avgLoss === 0) {
+
+      rsi.push(100);
+
+    } else {
+
+      const rs = avgGain / avgLoss;
+
+      rsi.push(100 - (100 / (1 + rs)));
 
     }
 
-  };
+  }
 
 
 
-  // Technical Indicator Calculations
+  return rsi;
 
-  const calculateRSI = (data: ChartDataPoint[], period = 14): number[] => {
-
-    if (data.length < period + 1) return [];
+};
 
 
 
-    const rsi: number[] = [];
+const calculateSMA = (data: ChartDataPoint[], period: number): number[] => {
 
-    const gains: number[] = [];
+  const sma: number[] = [];
 
-    const losses: number[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+
+    const sum = data.slice(i - period + 1, i + 1).reduce((acc, candle) => acc + candle.close, 0);
+
+    sma.push(sum / period);
+
+  }
+
+  return sma;
+
+};
 
 
 
-    for (let i = 1; i < data.length; i++) {
+const calculateEMA = (data: ChartDataPoint[], period: number): number[] => {
 
-      const change = data[i].close - data[i - 1].close;
+  const ema: number[] = [];
 
-      gains.push(change > 0 ? change : 0);
+  const multiplier = 2 / (period + 1);
 
-      losses.push(change < 0 ? Math.abs(change) : 0);
+
+
+  // Start with SMA for first value
+
+  const firstSMA = data.slice(0, period).reduce((acc, candle) => acc + candle.close, 0) / period;
+
+  ema.push(firstSMA);
+
+
+
+  for (let i = period; i < data.length; i++) {
+
+    const currentEMA: number = (data[i].close * multiplier) + (ema[ema.length - 1] * (1 - multiplier));
+
+    ema.push(currentEMA);
+
+  }
+
+
+
+  return ema;
+
+};
+
+
+
+const calculateMACD = (data: ChartDataPoint[]): { macdLine: number[], signalLine: number[] } => {
+
+  const ema12 = calculateEMA(data, 12);
+
+  const ema26 = calculateEMA(data, 26);
+
+
+
+  const macdLine: number[] = [];
+
+  const startIndex = Math.max(0, ema26.length - ema12.length);
+
+
+
+  for (let i = startIndex; i < ema12.length; i++) {
+
+    macdLine.push(ema12[i] - ema26[i - startIndex]);
+
+  }
+
+
+
+  // Signal line (9-period EMA of MACD)
+
+  const signalLine = calculateEMA(macdLine.map((value, index) => ({ close: value })) as ChartDataPoint[], 9);
+
+
+
+  return { macdLine, signalLine };
+
+};
+
+
+
+const calculateBollingerBands = (data: ChartDataPoint[], period = 20, stdDev = 2): Array<{ upper: number, middle: number, lower: number }> => {
+
+  const sma = calculateSMA(data, period);
+
+  const bands: Array<{ upper: number, middle: number, lower: number }> = [];
+
+
+
+  for (let i = period - 1; i < data.length; i++) {
+
+    const slice = data.slice(i - period + 1, i + 1);
+
+    const mean = sma[i - period + 1];
+
+    const variance = slice.reduce((acc, candle) => acc + Math.pow(candle.close - mean, 2), 0) / period;
+
+    const standardDeviation = Math.sqrt(variance);
+
+
+
+    bands.push({
+
+      upper: mean + (standardDeviation * stdDev),
+
+      middle: mean,
+
+      lower: mean - (standardDeviation * stdDev)
+
+    });
+
+  }
+
+
+
+  return bands;
+
+};
+
+
+
+const drawSMA = (
+
+  ctx: CanvasRenderingContext2D,
+
+  visibleData: ChartDataPoint[],
+
+  chartWidth: number,
+
+  chartHeight: number,
+
+  minPrice: number,
+
+  maxPrice: number,
+
+  candleSpacing: number,
+
+  period: number,
+
+  color: string
+
+) => {
+
+  const sma = calculateSMA(visibleData, period);
+
+
+
+  if (sma.length < 2) {
+
+    return;
+
+  }
+
+
+
+  ctx.strokeStyle = color;
+
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+
+
+
+  const startOffset = period - 1;
+
+  sma.forEach((value, index) => {
+
+    const x = 40 + ((index + startOffset) * candleSpacing) + candleSpacing / 2;
+
+    const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight;
+
+
+
+    if (index === 0) {
+
+      ctx.moveTo(x, y);
+
+    } else {
+
+      ctx.lineTo(x, y);
 
     }
 
-
-
-    for (let i = period - 1; i < gains.length; i++) {
-
-      const avgGain = gains.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
-
-      const avgLoss = losses.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
+  });
 
 
 
-      if (avgLoss === 0) {
+  ctx.stroke();
 
-        rsi.push(100);
-
-      } else {
-
-        const rs = avgGain / avgLoss;
-
-        rsi.push(100 - (100 / (1 + rs)));
-
-      }
-
-    }
+};
 
 
 
-    return rsi;
+const drawEMA = (
 
-  };
+  ctx: CanvasRenderingContext2D,
 
+  visibleData: ChartDataPoint[],
 
+  chartWidth: number,
 
-  const calculateSMA = (data: ChartDataPoint[], period: number): number[] => {
+  chartHeight: number,
 
-    const sma: number[] = [];
+  minPrice: number,
 
-    for (let i = period - 1; i < data.length; i++) {
+  maxPrice: number,
 
-      const sum = data.slice(i - period + 1, i + 1).reduce((acc, candle) => acc + candle.close, 0);
+  candleSpacing: number,
 
-      sma.push(sum / period);
+  period: number,
 
-    }
+  color: string
 
-    return sma;
+) => {
 
-  };
+  const ema = calculateEMA(visibleData, period);
 
-
-
-  const calculateEMA = (data: ChartDataPoint[], period: number): number[] => {
-
-    const ema: number[] = [];
-
-    const multiplier = 2 / (period + 1);
+  if (ema.length < 2) return;
 
 
 
-    // Start with SMA for first value
+  ctx.strokeStyle = color;
 
-    const firstSMA = data.slice(0, period).reduce((acc, candle) => acc + candle.close, 0) / period;
+  ctx.lineWidth = 2;
 
-    ema.push(firstSMA);
+  ctx.beginPath();
 
 
 
-    for (let i = period; i < data.length; i++) {
+  const startOffset = period - 1;
 
-      const currentEMA: number = (data[i].close * multiplier) + (ema[ema.length - 1] * (1 - multiplier));
+  ema.forEach((value, index) => {
 
-      ema.push(currentEMA);
+    const x = 40 + ((index + startOffset) * candleSpacing) + candleSpacing / 2;
+
+    const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight;
+
+
+
+    if (index === 0) {
+
+      ctx.moveTo(x, y);
+
+    } else {
+
+      ctx.lineTo(x, y);
 
     }
 
+  });
 
 
-    return ema;
 
-  };
+  ctx.stroke();
 
+};
 
 
-  const calculateMACD = (data: ChartDataPoint[]): { macdLine: number[], signalLine: number[] } => {
 
-    const ema12 = calculateEMA(data, 12);
+const drawBollingerBands = (
 
-    const ema26 = calculateEMA(data, 26);
+  ctx: CanvasRenderingContext2D,
 
+  visibleData: ChartDataPoint[],
 
+  chartWidth: number,
 
-    const macdLine: number[] = [];
+  chartHeight: number,
 
-    const startIndex = Math.max(0, ema26.length - ema12.length);
+  minPrice: number,
 
+  maxPrice: number,
 
+  candleSpacing: number
 
-    for (let i = startIndex; i < ema12.length; i++) {
+) => {
 
-      macdLine.push(ema12[i] - ema26[i - startIndex]);
+  const bands = calculateBollingerBands(visibleData);
 
-    }
+  if (bands.length < 2) return;
 
 
 
-    // Signal line (9-period EMA of MACD)
+  const bandColors = ['#e91e63', '#4caf50', '#e91e63']; // Upper, Middle, Lower
 
-    const signalLine = calculateEMA(macdLine.map((value, index) => ({ close: value })) as ChartDataPoint[], 9);
+  const lines = ['upper', 'middle', 'lower'];
 
 
 
-    return { macdLine, signalLine };
+  lines.forEach((line, lineIndex) => {
 
-  };
+    ctx.strokeStyle = bandColors[lineIndex];
 
+    ctx.lineWidth = 1.5;
 
-
-  const calculateBollingerBands = (data: ChartDataPoint[], period = 20, stdDev = 2): Array<{ upper: number, middle: number, lower: number }> => {
-
-    const sma = calculateSMA(data, period);
-
-    const bands: Array<{ upper: number, middle: number, lower: number }> = [];
-
-
-
-    for (let i = period - 1; i < data.length; i++) {
-
-      const slice = data.slice(i - period + 1, i + 1);
-
-      const mean = sma[i - period + 1];
-
-      const variance = slice.reduce((acc, candle) => acc + Math.pow(candle.close - mean, 2), 0) / period;
-
-      const standardDeviation = Math.sqrt(variance);
-
-
-
-      bands.push({
-
-        upper: mean + (standardDeviation * stdDev),
-
-        middle: mean,
-
-        lower: mean - (standardDeviation * stdDev)
-
-      });
-
-    }
-
-
-
-    return bands;
-
-  };
-
-
-
-  const drawSMA = (
-
-    ctx: CanvasRenderingContext2D,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    chartHeight: number,
-
-    minPrice: number,
-
-    maxPrice: number,
-
-    candleSpacing: number,
-
-    period: number,
-
-    color: string
-
-  ) => {
-
-    const sma = calculateSMA(visibleData, period);
-
-
-
-    if (sma.length < 2) {
-
-      return;
-
-    }
-
-
-
-    ctx.strokeStyle = color;
-
-    ctx.lineWidth = 2;
+    ctx.setLineDash(line === 'middle' ? [] : [5, 5]);
 
     ctx.beginPath();
 
 
 
-    const startOffset = period - 1;
+    bands.forEach((band, index) => {
 
-    sma.forEach((value, index) => {
+      const value = band[line as keyof typeof band];
 
-      const x = 40 + ((index + startOffset) * candleSpacing) + candleSpacing / 2;
+      const x = 40 + ((index + 19) * candleSpacing) + candleSpacing / 2;
 
       const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight;
 
@@ -11241,1736 +11377,1154 @@ export default function TradingViewChart({
     });
 
 
-
-    ctx.stroke();
-
-  };
-
-
-
-  const drawEMA = (
-
-    ctx: CanvasRenderingContext2D,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    chartHeight: number,
-
-    minPrice: number,
-
-    maxPrice: number,
-
-    candleSpacing: number,
-
-    period: number,
-
-    color: string
-
-  ) => {
-
-    const ema = calculateEMA(visibleData, period);
-
-    if (ema.length < 2) return;
-
-
-
-    ctx.strokeStyle = color;
-
-    ctx.lineWidth = 2;
-
-    ctx.beginPath();
-
-
-
-    const startOffset = period - 1;
-
-    ema.forEach((value, index) => {
-
-      const x = 40 + ((index + startOffset) * candleSpacing) + candleSpacing / 2;
-
-      const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight;
-
-
-
-      if (index === 0) {
-
-        ctx.moveTo(x, y);
-
-      } else {
-
-        ctx.lineTo(x, y);
-
-      }
-
-    });
-
-
-
-    ctx.stroke();
-
-  };
-
-
-
-  const drawBollingerBands = (
-
-    ctx: CanvasRenderingContext2D,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    chartHeight: number,
-
-    minPrice: number,
-
-    maxPrice: number,
-
-    candleSpacing: number
-
-  ) => {
-
-    const bands = calculateBollingerBands(visibleData);
-
-    if (bands.length < 2) return;
-
-
-
-    const bandColors = ['#e91e63', '#4caf50', '#e91e63']; // Upper, Middle, Lower
-
-    const lines = ['upper', 'middle', 'lower'];
-
-
-
-    lines.forEach((line, lineIndex) => {
-
-      ctx.strokeStyle = bandColors[lineIndex];
-
-      ctx.lineWidth = 1.5;
-
-      ctx.setLineDash(line === 'middle' ? [] : [5, 5]);
-
-      ctx.beginPath();
-
-
-
-      bands.forEach((band, index) => {
-
-        const value = band[line as keyof typeof band];
-
-        const x = 40 + ((index + 19) * candleSpacing) + candleSpacing / 2;
-
-        const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight;
-
-
-
-        if (index === 0) {
-
-          ctx.moveTo(x, y);
-
-        } else {
-
-          ctx.lineTo(x, y);
-
-        }
-
-      });
-
-
-
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-    });
-
-  };
-
-
-
-  const drawRSI = (
-
-    ctx: CanvasRenderingContext2D,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    candleSpacing: number,
-
-    panelStartY: number,
-
-    panelEndY: number
-
-  ) => {
-
-    const rsi = calculateRSI(visibleData);
-
-    if (rsi.length < 2) return;
-
-
-
-    // Calculate RSI panel dimensions with proper margins
-
-    const margin = 5;
-
-    const rsiStartY = panelStartY + margin;
-
-    const rsiHeight = panelEndY - panelStartY - (margin * 2);
-
-
-
-    // Draw RSI panel background
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-
-    ctx.fillRect(40, rsiStartY, chartWidth - 80, rsiHeight);
-
-
-
-    // Draw RSI panel border
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-
-    ctx.lineWidth = 1;
-
-    ctx.strokeRect(40, rsiStartY, chartWidth - 80, rsiHeight);
-
-
-
-    // RSI reference lines (30, 50, 70) with proper scaling
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-
-    ctx.lineWidth = 1;
-
-    ctx.font = '10px monospace';
-
-    ctx.textAlign = 'right';
-
-
-
-    [30, 50, 70].forEach(level => {
-
-      const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight;
-
-      ctx.beginPath();
-
-      ctx.moveTo(40, y);
-
-      ctx.lineTo(chartWidth - 40, y);
-
-      ctx.stroke();
-
-
-
-      // Draw level labels
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-
-      ctx.fillText(level.toString(), chartWidth - 45, y + 3);
-
-    });
-
-
-
-    // Calculate visible data range
-
-    const dataStartIndex = 14; // RSI needs 14 periods to calculate
-
-
-
-    if (rsi.length === 0) return;
-
-
-
-    // RSI line - start from the beginning of visible area
-
-    ctx.strokeStyle = '#ff9800';
-
-    ctx.lineWidth = 2;
-
-    ctx.beginPath();
-
-
-
-    // Map RSI values to the visible chart area
-
-    rsi.forEach((value, index) => {
-
-      // Calculate x position to align with the candlestick data
-
-      // RSI index 0 corresponds to candlestick at dataStartIndex (14th candle)
-
-      const candlestickIndex = index + dataStartIndex;
-
-      const x = 40 + (candlestickIndex * candleSpacing) + candleSpacing / 2;
-
-      const y = rsiStartY + rsiHeight - (value / 100) * rsiHeight;
-
-
-
-      // Only draw if within chart bounds and we have valid data
-
-      if (x >= 40 && x <= chartWidth - 40 && candlestickIndex < visibleData.length) {
-
-        if (index === 0) {
-
-          ctx.moveTo(x, y);
-
-        } else {
-
-          ctx.lineTo(x, y);
-
-        }
-
-      }
-
-    });
-
-
-
-    ctx.stroke();
-
-
-
-    // Draw RSI label and current value
-
-    ctx.fillStyle = '#ff9800';
-
-    ctx.font = 'bold 12px monospace';
-
-    ctx.textAlign = 'left';
-
-    ctx.fillText('RSI', 45, rsiStartY + 18);
-
-
-
-    // Show current RSI value
-
-    if (rsi.length > 0) {
-
-      const currentRSI = rsi[rsi.length - 1];
-
-      ctx.fillStyle = currentRSI > 70 ? '#f44336' : currentRSI < 30 ? '#4caf50' : '#ff9800';
-
-      ctx.fillText(currentRSI.toFixed(1), 80, rsiStartY + 18);
-
-    }
-
-  };
-
-
-
-  const drawMACD = (
-
-    ctx: CanvasRenderingContext2D,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    candleSpacing: number,
-
-    panelStartY: number,
-
-    panelEndY: number
-
-  ) => {
-
-    const { macdLine, signalLine } = calculateMACD(visibleData);
-
-    if (macdLine.length < 2) return;
-
-
-
-    // Calculate MACD panel dimensions with proper margins
-
-    const margin = 5;
-
-    const macdStartY = panelStartY + margin;
-
-    const macdHeight = panelEndY - panelStartY - (margin * 2);
-
-
-
-    // Draw MACD panel background
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-
-    ctx.fillRect(40, macdStartY, chartWidth - 80, macdHeight);
-
-
-
-    // Draw MACD panel border
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-
-    ctx.lineWidth = 1;
-
-    ctx.strokeRect(40, macdStartY, chartWidth - 80, macdHeight);
-
-
-
-    // Find MACD range for scaling
-
-    const allValues = [...macdLine, ...signalLine];
-
-    const macdMin = Math.min(...allValues);
-
-    const macdMax = Math.max(...allValues);
-
-    const macdRange = macdMax - macdMin || 1; // Prevent division by zero
-
-
-
-    // Draw zero line
-
-    const zeroY = macdStartY + macdHeight - ((0 - macdMin) / macdRange) * macdHeight;
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-
-    ctx.lineWidth = 1;
-
-    ctx.setLineDash([2, 2]);
-
-    ctx.beginPath();
-
-    ctx.moveTo(40, zeroY);
-
-    ctx.lineTo(chartWidth - 40, zeroY);
 
     ctx.stroke();
 
     ctx.setLineDash([]);
 
+  });
 
-
-    // Draw MACD histogram (bars)
-
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
-
-    macdLine.forEach((macdValue, index) => {
-
-      if (index < signalLine.length) {
-
-        const histogram = macdValue - signalLine[index];
-
-        const dataIndex = index + 26; // MACD calculation offset
-
-        const x = 40 + (dataIndex * candleSpacing) + candleSpacing / 2;
+};
 
 
 
-        // Only draw if within chart bounds and we have valid data
+const drawRSI = (
 
-        if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+  ctx: CanvasRenderingContext2D,
 
-          const barHeight = Math.abs((histogram / macdRange) * macdHeight);
+  visibleData: ChartDataPoint[],
 
-          const barY = histogram >= 0
+  chartWidth: number,
 
-            ? zeroY - barHeight
+  candleSpacing: number,
 
-            : zeroY;
+  panelStartY: number,
 
+  panelEndY: number
 
+) => {
 
-          ctx.fillStyle = histogram >= 0 ? 'rgba(76, 175, 80, 0.3)' : 'rgba(244, 67, 54, 0.3)';
+  const rsi = calculateRSI(visibleData);
 
-          ctx.fillRect(x - candleSpacing / 4, barY, candleSpacing / 2, barHeight);
-
-        }
-
-      }
-
-    });
+  if (rsi.length < 2) return;
 
 
 
-    // MACD line (blue)
+  // Calculate RSI panel dimensions with proper margins
 
-    ctx.strokeStyle = '#2196f3';
+  const margin = 5;
 
-    ctx.lineWidth = 2;
+  const rsiStartY = panelStartY + margin;
+
+  const rsiHeight = panelEndY - panelStartY - (margin * 2);
+
+
+
+  // Draw RSI panel background
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+
+  ctx.fillRect(40, rsiStartY, chartWidth - 80, rsiHeight);
+
+
+
+  // Draw RSI panel border
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+
+  ctx.lineWidth = 1;
+
+  ctx.strokeRect(40, rsiStartY, chartWidth - 80, rsiHeight);
+
+
+
+  // RSI reference lines (30, 50, 70) with proper scaling
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+
+  ctx.lineWidth = 1;
+
+  ctx.font = '10px monospace';
+
+  ctx.textAlign = 'right';
+
+
+
+  [30, 50, 70].forEach(level => {
+
+    const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight;
 
     ctx.beginPath();
 
+    ctx.moveTo(40, y);
+
+    ctx.lineTo(chartWidth - 40, y);
+
+    ctx.stroke();
 
 
-    macdLine.forEach((value, index) => {
+
+    // Draw level labels
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+
+    ctx.fillText(level.toString(), chartWidth - 45, y + 3);
+
+  });
+
+
+
+  // Calculate visible data range
+
+  const dataStartIndex = 14; // RSI needs 14 periods to calculate
+
+
+
+  if (rsi.length === 0) return;
+
+
+
+  // RSI line - start from the beginning of visible area
+
+  ctx.strokeStyle = '#ff9800';
+
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+
+
+
+  // Map RSI values to the visible chart area
+
+  rsi.forEach((value, index) => {
+
+    // Calculate x position to align with the candlestick data
+
+    // RSI index 0 corresponds to candlestick at dataStartIndex (14th candle)
+
+    const candlestickIndex = index + dataStartIndex;
+
+    const x = 40 + (candlestickIndex * candleSpacing) + candleSpacing / 2;
+
+    const y = rsiStartY + rsiHeight - (value / 100) * rsiHeight;
+
+
+
+    // Only draw if within chart bounds and we have valid data
+
+    if (x >= 40 && x <= chartWidth - 40 && candlestickIndex < visibleData.length) {
+
+      if (index === 0) {
+
+        ctx.moveTo(x, y);
+
+      } else {
+
+        ctx.lineTo(x, y);
+
+      }
+
+    }
+
+  });
+
+
+
+  ctx.stroke();
+
+
+
+  // Draw RSI label and current value
+
+  ctx.fillStyle = '#ff9800';
+
+  ctx.font = 'bold 12px monospace';
+
+  ctx.textAlign = 'left';
+
+  ctx.fillText('RSI', 45, rsiStartY + 18);
+
+
+
+  // Show current RSI value
+
+  if (rsi.length > 0) {
+
+    const currentRSI = rsi[rsi.length - 1];
+
+    ctx.fillStyle = currentRSI > 70 ? '#f44336' : currentRSI < 30 ? '#4caf50' : '#ff9800';
+
+    ctx.fillText(currentRSI.toFixed(1), 80, rsiStartY + 18);
+
+  }
+
+};
+
+
+
+const drawMACD = (
+
+  ctx: CanvasRenderingContext2D,
+
+  visibleData: ChartDataPoint[],
+
+  chartWidth: number,
+
+  candleSpacing: number,
+
+  panelStartY: number,
+
+  panelEndY: number
+
+) => {
+
+  const { macdLine, signalLine } = calculateMACD(visibleData);
+
+  if (macdLine.length < 2) return;
+
+
+
+  // Calculate MACD panel dimensions with proper margins
+
+  const margin = 5;
+
+  const macdStartY = panelStartY + margin;
+
+  const macdHeight = panelEndY - panelStartY - (margin * 2);
+
+
+
+  // Draw MACD panel background
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+
+  ctx.fillRect(40, macdStartY, chartWidth - 80, macdHeight);
+
+
+
+  // Draw MACD panel border
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+
+  ctx.lineWidth = 1;
+
+  ctx.strokeRect(40, macdStartY, chartWidth - 80, macdHeight);
+
+
+
+  // Find MACD range for scaling
+
+  const allValues = [...macdLine, ...signalLine];
+
+  const macdMin = Math.min(...allValues);
+
+  const macdMax = Math.max(...allValues);
+
+  const macdRange = macdMax - macdMin || 1; // Prevent division by zero
+
+
+
+  // Draw zero line
+
+  const zeroY = macdStartY + macdHeight - ((0 - macdMin) / macdRange) * macdHeight;
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+
+  ctx.lineWidth = 1;
+
+  ctx.setLineDash([2, 2]);
+
+  ctx.beginPath();
+
+  ctx.moveTo(40, zeroY);
+
+  ctx.lineTo(chartWidth - 40, zeroY);
+
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+
+
+
+  // Draw MACD histogram (bars)
+
+  ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
+
+  macdLine.forEach((macdValue, index) => {
+
+    if (index < signalLine.length) {
+
+      const histogram = macdValue - signalLine[index];
 
       const dataIndex = index + 26; // MACD calculation offset
 
       const x = 40 + (dataIndex * candleSpacing) + candleSpacing / 2;
 
-      const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight;
-
-
-
-      // Only draw if within chart bounds and we have valid data
-
-      if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
-
-        if (index === 0) {
-
-          ctx.moveTo(x, y);
-
-        } else {
-
-          ctx.lineTo(x, y);
-
-        }
-
-      }
-
-    });
-
-
-
-    ctx.stroke();
-
-
-
-    // Signal line (red)
-
-    ctx.strokeStyle = '#f44336';
-
-    ctx.lineWidth = 2;
-
-    ctx.beginPath();
-
-
-
-    signalLine.forEach((value, index) => {
-
-      const dataIndex = index + 35; // Signal line calculation offset (26 + 9)
-
-      const x = 40 + (dataIndex * candleSpacing) + candleSpacing / 2;
-
-      const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight;
-
 
 
       // Only draw if within chart bounds and we have valid data
 
       if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
 
-        if (index === 0) {
+        const barHeight = Math.abs((histogram / macdRange) * macdHeight);
 
-          ctx.moveTo(x, y);
+        const barY = histogram >= 0
 
-        } else {
+          ? zeroY - barHeight
 
-          ctx.lineTo(x, y);
+          : zeroY;
 
-        }
+
+
+        ctx.fillStyle = histogram >= 0 ? 'rgba(76, 175, 80, 0.3)' : 'rgba(244, 67, 54, 0.3)';
+
+        ctx.fillRect(x - candleSpacing / 4, barY, candleSpacing / 2, barHeight);
 
       }
 
-    });
+    }
+
+  });
 
 
 
-    ctx.stroke();
+  // MACD line (blue)
+
+  ctx.strokeStyle = '#2196f3';
+
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
 
 
 
-    // Draw MACD labels and current values
+  macdLine.forEach((value, index) => {
 
-    ctx.font = 'bold 12px monospace';
+    const dataIndex = index + 26; // MACD calculation offset
 
-    ctx.textAlign = 'left';
+    const x = 40 + (dataIndex * candleSpacing) + candleSpacing / 2;
+
+    const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight;
+
+
+
+    // Only draw if within chart bounds and we have valid data
+
+    if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+
+      if (index === 0) {
+
+        ctx.moveTo(x, y);
+
+      } else {
+
+        ctx.lineTo(x, y);
+
+      }
+
+    }
+
+  });
+
+
+
+  ctx.stroke();
+
+
+
+  // Signal line (red)
+
+  ctx.strokeStyle = '#f44336';
+
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+
+
+
+  signalLine.forEach((value, index) => {
+
+    const dataIndex = index + 35; // Signal line calculation offset (26 + 9)
+
+    const x = 40 + (dataIndex * candleSpacing) + candleSpacing / 2;
+
+    const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight;
+
+
+
+    // Only draw if within chart bounds and we have valid data
+
+    if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+
+      if (index === 0) {
+
+        ctx.moveTo(x, y);
+
+      } else {
+
+        ctx.lineTo(x, y);
+
+      }
+
+    }
+
+  });
+
+
+
+  ctx.stroke();
+
+
+
+  // Draw MACD labels and current values
+
+  ctx.font = 'bold 12px monospace';
+
+  ctx.textAlign = 'left';
+
+
+
+  ctx.fillStyle = '#2196f3';
+
+  ctx.fillText('MACD', 45, macdStartY + 18);
+
+
+
+  ctx.fillStyle = '#f44336';
+
+  ctx.fillText('Signal', 90, macdStartY + 18);
+
+
+
+  // Show current values
+
+  if (macdLine.length > 0 && signalLine.length > 0) {
+
+    const currentMACD = macdLine[macdLine.length - 1];
+
+    const currentSignal = signalLine[signalLine.length - 1];
+
+    const currentHistogram = currentMACD - currentSignal;
 
 
 
     ctx.fillStyle = '#2196f3';
 
-    ctx.fillText('MACD', 45, macdStartY + 18);
+    ctx.fillText(currentMACD.toFixed(3), 140, macdStartY + 18);
 
 
 
     ctx.fillStyle = '#f44336';
 
-    ctx.fillText('Signal', 90, macdStartY + 18);
+    ctx.fillText(currentSignal.toFixed(3), 200, macdStartY + 18);
 
 
 
-    // Show current values
+    ctx.fillStyle = currentHistogram >= 0 ? '#4caf50' : '#f44336';
 
-    if (macdLine.length > 0 && signalLine.length > 0) {
+    ctx.fillText(currentHistogram.toFixed(3), 260, macdStartY + 18);
 
-      const currentMACD = macdLine[macdLine.length - 1];
+  }
 
-      const currentSignal = signalLine[signalLine.length - 1];
+};
 
-      const currentHistogram = currentMACD - currentSignal;
 
 
+// Draw individual candle
 
-      ctx.fillStyle = '#2196f3';
+const drawCandle = (
 
-      ctx.fillText(currentMACD.toFixed(3), 140, macdStartY + 18);
+  ctx: CanvasRenderingContext2D,
 
+  candle: ChartDataPoint,
 
+  x: number,
 
-      ctx.fillStyle = '#f44336';
+  width: number,
 
-      ctx.fillText(currentSignal.toFixed(3), 200, macdStartY + 18);
+  height: number,
 
+  minPrice: number,
 
+  maxPrice: number
 
-      ctx.fillStyle = currentHistogram >= 0 ? '#4caf50' : '#f44336';
+) => {
 
-      ctx.fillText(currentHistogram.toFixed(3), 260, macdStartY + 18);
+  const { open, high, low, close } = candle;
 
-    }
+  const isGreen = close > open;
 
-  };
 
 
+  // Get custom colors
 
-  // Draw individual candle
+  const candleColors = isGreen ? config.colors.bullish : config.colors.bearish;
 
-  const drawCandle = (
 
-    ctx: CanvasRenderingContext2D,
 
-    candle: ChartDataPoint,
+  // Convert prices to canvas coordinates
 
-    x: number,
+  const priceToY = (price: number) => {
 
-    width: number,
-
-    height: number,
-
-    minPrice: number,
-
-    maxPrice: number
-
-  ) => {
-
-    const { open, high, low, close } = candle;
-
-    const isGreen = close > open;
-
-
-
-    // Get custom colors
-
-    const candleColors = isGreen ? config.colors.bullish : config.colors.bearish;
-
-
-
-    // Convert prices to canvas coordinates
-
-    const priceToY = (price: number) => {
-
-      const ratio = (price - minPrice) / (maxPrice - minPrice);
-
-      const chartArea = height - 25; // Reserve 25px at bottom for time labels
-
-      return Math.round(chartArea - (ratio * (chartArea - 20)) - 10); // Round to crisp pixels
-
-    };
-
-
-
-    const openY = priceToY(open);
-
-    const closeY = priceToY(close);
-
-    const highY = priceToY(high);
-
-    const lowY = priceToY(low);
-
-
-
-    // Round x position for crisp rendering
-
-    const crispX = Math.round(x);
-
-    const crispWidth = Math.max(1, Math.round(width));
-
-
-
-    // Draw wick (high-low line)
-
-    ctx.strokeStyle = candleColors.wick;
-
-    ctx.lineWidth = Math.max(1, Math.round(width * 0.05)); // Reduced from 0.1 to 0.05 for thinner wicks
-
-    ctx.beginPath();
-
-    ctx.moveTo(crispX + crispWidth / 2, highY);
-
-    ctx.lineTo(crispX + crispWidth / 2, lowY);
-
-    ctx.stroke();
-
-
-
-    // Draw body (open-close rectangle)
-
-    if (config.chartType === 'candlestick') {
-
-      const bodyHeight = Math.max(1, Math.abs(closeY - openY));
-
-      const bodyY = Math.min(openY, closeY);
-
-      const bodyWidth = Math.max(2, crispWidth - 2);
-
-
-
-      // Fill the body
-
-      ctx.fillStyle = candleColors.body;
-
-      ctx.fillRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
-
-
-
-      // Draw body border
-
-      ctx.strokeStyle = candleColors.border;
-
-      ctx.lineWidth = 1;
-
-      ctx.strokeRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
-
-    }
-
-  };
-
-
-
-  // Draw price scale on the right
-
-  const drawPriceScale = (
-
-    ctx: CanvasRenderingContext2D,
-
-    width: number,
-
-    height: number,
-
-    minPrice: number,
-
-    maxPrice: number
-
-  ) => {
-
-    ctx.fillStyle = config.axisStyle.yAxis.textColor;
-
-    ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-
-    ctx.textAlign = 'left';
-
-
+    const ratio = (price - minPrice) / (maxPrice - minPrice);
 
     const chartArea = height - 25; // Reserve 25px at bottom for time labels
 
-    const steps = 10;
+    return Math.round(chartArea - (ratio * (chartArea - 20)) - 10); // Round to crisp pixels
+
+  };
 
 
 
-    // DEBUG LOG
+  const openY = priceToY(open);
+
+  const closeY = priceToY(close);
+
+  const highY = priceToY(high);
+
+  const lowY = priceToY(low);
 
 
 
-    for (let i = 0; i <= steps; i++) {
+  // Round x position for crisp rendering
 
-      const ratio = i / steps;
+  const crispX = Math.round(x);
 
-      const price = minPrice + (maxPrice - minPrice) * (1 - ratio);
-
-      const y = 20 + ((chartArea - 40) / steps) * i;
+  const crispWidth = Math.max(1, Math.round(width));
 
 
 
-      // DEBUG LOG for first few
+  // Draw wick (high-low line)
 
-      if (i <= 2 || i >= 8) {
+  ctx.strokeStyle = candleColors.wick;
+
+  ctx.lineWidth = Math.max(1, Math.round(width * 0.05)); // Reduced from 0.1 to 0.05 for thinner wicks
+
+  ctx.beginPath();
+
+  ctx.moveTo(crispX + crispWidth / 2, highY);
+
+  ctx.lineTo(crispX + crispWidth / 2, lowY);
+
+  ctx.stroke();
+
+
+
+  // Draw body (open-close rectangle)
+
+  if (config.chartType === 'candlestick') {
+
+    const bodyHeight = Math.max(1, Math.abs(closeY - openY));
+
+    const bodyY = Math.min(openY, closeY);
+
+    const bodyWidth = Math.max(2, crispWidth - 2);
+
+
+
+    // Fill the body
+
+    ctx.fillStyle = candleColors.body;
+
+    ctx.fillRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
+
+
+
+    // Draw body border
+
+    ctx.strokeStyle = candleColors.border;
+
+    ctx.lineWidth = 1;
+
+    ctx.strokeRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
+
+  }
+
+};
+
+
+
+// Draw price scale on the right
+
+const drawPriceScale = (
+
+  ctx: CanvasRenderingContext2D,
+
+  width: number,
+
+  height: number,
+
+  minPrice: number,
+
+  maxPrice: number
+
+) => {
+
+  ctx.fillStyle = config.axisStyle.yAxis.textColor;
+
+  ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+  ctx.textAlign = 'left';
+
+
+
+  const chartArea = height - 25; // Reserve 25px at bottom for time labels
+
+  const steps = 10;
+
+
+
+  // DEBUG LOG
+
+
+
+  for (let i = 0; i <= steps; i++) {
+
+    const ratio = i / steps;
+
+    const price = minPrice + (maxPrice - minPrice) * (1 - ratio);
+
+    const y = 20 + ((chartArea - 40) / steps) * i;
+
+
+
+    // DEBUG LOG for first few
+
+    if (i <= 2 || i >= 8) {
+
+    }
+
+
+
+    // Draw price label
+
+    ctx.fillText(`$${price.toFixed(2)}`, width - 70, y + 4);
+
+
+
+    // Draw tick mark
+
+    ctx.strokeStyle = colors.grid;
+
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+
+    ctx.moveTo(width - 75, y);
+
+    ctx.lineTo(width - 70, y);
+
+    ctx.stroke();
+
+  }
+
+
+
+  // Reset styles after drawing Y-axis
+
+  ctx.fillStyle = config.axisStyle.yAxis.textColor;
+
+  ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+  ctx.textAlign = 'left';
+
+};
+
+
+
+// Draw time axis at the bottom
+
+const drawTimeAxis = (
+
+  ctx: CanvasRenderingContext2D,
+
+  width: number,
+
+  height: number,
+
+  visibleData: ChartDataPoint[],
+
+  chartWidth: number,
+
+  visibleCandleCount: number,
+
+  scrollOffset: number,
+
+  allData: ChartDataPoint[]
+
+) => {
+
+  if (visibleData.length === 0) return;
+
+
+
+  ctx.fillStyle = config.axisStyle.xAxis.textColor;
+
+  ctx.font = `${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+  ctx.textAlign = 'center';
+
+
+
+  // TradingView-style adaptive labeling based on zoom level
+
+  const getOptimalLabelFormat = (timeframe: string, visibleCandleCount: number, timeSpan: number) => {
+
+    const isIntraday = timeframe.includes('m') || timeframe.includes('h');
+
+    const hoursSpan = timeSpan / (1000 * 60 * 60);
+
+    const daysSpan = timeSpan / (1000 * 60 * 60 * 24);
+
+    const monthsSpan = daysSpan / 30;
+
+    const yearsSpan = daysSpan / 365;
+
+
+
+    // Very zoomed in (intraday with small time span)
+
+    if (isIntraday && hoursSpan <= 24) {
+
+      return {
+
+        format: 'time',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+
+      };
+
+    }
+
+    // Intraday but longer span
+
+    else if (isIntraday && hoursSpan <= 168) { // 1 week
+
+      return {
+
+        format: 'datetime',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+
+      };
+
+    }
+
+    // Daily view, short term
+
+    else if (daysSpan <= 30) {
+
+      return {
+
+        format: 'date',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+
+      };
+
+    }
+
+    // Medium term (months)
+
+    else if (monthsSpan <= 12) {
+
+      return {
+
+        format: 'monthday',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+
+      };
+
+    }
+
+    // Long term (years)
+
+    else if (yearsSpan <= 5) {
+
+      return {
+
+        format: 'monthyear',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 10))
+
+      };
+
+    }
+
+    // Very long term
+
+    else {
+
+      return {
+
+        format: 'year',
+
+        spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
+
+      };
+
+    }
+
+  };
+
+
+
+  // Calculate time span of visible data
+
+  const timeSpan = visibleData.length > 1 ?
+
+    visibleData[visibleData.length - 1].timestamp - visibleData[0].timestamp :
+
+    24 * 60 * 60 * 1000; // 1 day fallback
+
+
+
+  const labelConfig = getOptimalLabelFormat(config.timeframe, visibleCandleCount, timeSpan);
+
+
+
+  // Format date based on adaptive format
+
+  const formatDateLabel = (timestamp: number, format: string): string => {
+
+    const date = new Date(timestamp);
+
+
+
+    switch (format) {
+
+      case 'time':
+
+        return date.toLocaleTimeString('en-US', {
+
+          hour: '2-digit',
+
+          minute: '2-digit',
+
+          hour12: false
+
+        });
+
+      case 'datetime':
+
+        return date.toLocaleDateString('en-US', {
+
+          month: 'short',
+
+          day: 'numeric'
+
+        }) + ' ' + date.toLocaleTimeString('en-US', {
+
+          hour: '2-digit',
+
+          minute: '2-digit',
+
+          hour12: false
+
+        });
+
+      case 'date':
+
+        return date.toLocaleDateString('en-US', {
+
+          month: 'short',
+
+          day: 'numeric'
+
+        });
+
+      case 'monthday':
+
+        return date.toLocaleDateString('en-US', {
+
+          month: 'short',
+
+          day: 'numeric'
+
+        });
+
+      case 'monthyear':
+
+        return date.toLocaleDateString('en-US', {
+
+          month: 'short',
+
+          year: 'numeric'
+
+        });
+
+      case 'year':
+
+        return date.getFullYear().toString();
+
+      default:
+
+        return date.toLocaleDateString('en-US', {
+
+          month: 'short',
+
+          day: 'numeric'
+
+        });
+
+    }
+
+  };
+
+
+
+  // Calculate how many labels we can fit - enhanced with overlap prevention
+
+
+
+  // Track label positions to prevent overlap
+
+  const labelPositions: { x: number; width: number; text: string }[] = [];
+
+
+
+  const canPlaceLabel = (x: number, text: string): boolean => {
+
+    const textWidth = ctx.measureText(text).width;
+
+    const labelLeft = x - textWidth / 2;
+
+    const labelRight = x + textWidth / 2;
+
+
+
+    // Check if this label would overlap with any existing labels
+
+    for (const existing of labelPositions) {
+
+      const existingLeft = existing.x - existing.width / 2;
+
+      const existingRight = existing.x + existing.width / 2;
+
+
+
+      if (!(labelRight < existingLeft - 10 || labelLeft > existingRight + 10)) {
+
+        return false; // Overlap detected
 
       }
 
+    }
 
 
-      // Draw price label
 
-      ctx.fillText(`$${price.toFixed(2)}`, width - 70, y + 4);
+    // Check if label is too close to chart edges
+
+    if (labelLeft < 45 || labelRight > width - 10) {
+
+      return false;
+
+    }
+
+
+
+    return true;
+
+  };
+
+
+
+  const addLabel = (x: number, text: string, isFuture: boolean = false) => {
+
+    if (canPlaceLabel(x, text)) {
+
+      const textWidth = ctx.measureText(text).width;
+
+      labelPositions.push({ x, width: textWidth, text });
+
+
+
+      // Set appropriate color
+
+      ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
+
+
+
+      // Draw the label
+
+      ctx.fillText(text, x, height - 5);
 
 
 
       // Draw tick mark
 
-      ctx.strokeStyle = colors.grid;
+      ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
 
       ctx.lineWidth = 1;
 
       ctx.beginPath();
 
-      ctx.moveTo(width - 75, y);
+      ctx.moveTo(x, height - 17);
 
-      ctx.lineTo(width - 70, y);
+      ctx.lineTo(x, height - 12);
 
       ctx.stroke();
 
     }
 
+  };
 
 
-    // Reset styles after drawing Y-axis
 
-    ctx.fillStyle = config.axisStyle.yAxis.textColor;
+  // Calculate how many labels we can fit (old method as fallback)
 
-    ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  const maxLabels = Math.floor(chartWidth / 80); // One label every 80px
 
-    ctx.textAlign = 'left';
+  const labelStep = labelConfig.spacing;
+
+
+
+  const candleSpacing = chartWidth / visibleCandleCount;
+
+
+
+  // Calculate if we're showing future area
+
+  const startIndex = Math.max(0, Math.floor(scrollOffset));
+
+  const actualDataEnd = Math.min(allData.length, startIndex + visibleCandleCount);
+
+  const showingFutureArea = (startIndex + visibleCandleCount) > allData.length;
+
+  const futurePeriodsShown = showingFutureArea ? (startIndex + visibleCandleCount) - allData.length : 0;
+
+
+
+  // Helper function to calculate future timestamp
+
+  const getFutureTimestamp = (baseTimestamp: number, periodsAhead: number): number => {
+
+    const timeframe = config.timeframe;
+
+    let milliseconds = 0;
+
+
+
+    switch (timeframe) {
+
+      case '1m': milliseconds = 60 * 1000; break;
+
+      case '5m': milliseconds = 5 * 60 * 1000; break;
+
+      case '15m': milliseconds = 15 * 60 * 1000; break;
+
+      case '30m': milliseconds = 30 * 60 * 1000; break;
+
+      case '1h': milliseconds = 60 * 60 * 1000; break;
+
+      case '4h': milliseconds = 4 * 60 * 60 * 1000; break;
+
+      case '1d': milliseconds = 24 * 60 * 60 * 1000; break;
+
+      case '1w': milliseconds = 7 * 24 * 60 * 60 * 1000; break;
+
+      case '1mo': milliseconds = 30 * 24 * 60 * 60 * 1000; break;
+
+      default: milliseconds = 24 * 60 * 60 * 1000; break;
+
+    }
+
+
+
+    return baseTimestamp + (periodsAhead * milliseconds);
 
   };
 
 
 
-  // Draw time axis at the bottom
+  // Draw labels for actual data with overlap prevention
 
-  const drawTimeAxis = (
+  visibleData.forEach((candle, index) => {
 
-    ctx: CanvasRenderingContext2D,
+    if (index % labelStep === 0) {
 
-    width: number,
+      const x = 40 + (index * candleSpacing) + candleSpacing / 2;
 
-    height: number,
-
-    visibleData: ChartDataPoint[],
-
-    chartWidth: number,
-
-    visibleCandleCount: number,
-
-    scrollOffset: number,
-
-    allData: ChartDataPoint[]
-
-  ) => {
-
-    if (visibleData.length === 0) return;
-
-
-
-    ctx.fillStyle = config.axisStyle.xAxis.textColor;
-
-    ctx.font = `${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-
-    ctx.textAlign = 'center';
-
-
-
-    // TradingView-style adaptive labeling based on zoom level
-
-    const getOptimalLabelFormat = (timeframe: string, visibleCandleCount: number, timeSpan: number) => {
-
-      const isIntraday = timeframe.includes('m') || timeframe.includes('h');
-
-      const hoursSpan = timeSpan / (1000 * 60 * 60);
-
-      const daysSpan = timeSpan / (1000 * 60 * 60 * 24);
-
-      const monthsSpan = daysSpan / 30;
-
-      const yearsSpan = daysSpan / 365;
-
-
-
-      // Very zoomed in (intraday with small time span)
-
-      if (isIntraday && hoursSpan <= 24) {
-
-        return {
-
-          format: 'time',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
-
-        };
-
-      }
-
-      // Intraday but longer span
-
-      else if (isIntraday && hoursSpan <= 168) { // 1 week
-
-        return {
-
-          format: 'datetime',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
-
-        };
-
-      }
-
-      // Daily view, short term
-
-      else if (daysSpan <= 30) {
-
-        return {
-
-          format: 'date',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
-
-        };
-
-      }
-
-      // Medium term (months)
-
-      else if (monthsSpan <= 12) {
-
-        return {
-
-          format: 'monthday',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
-
-        };
-
-      }
-
-      // Long term (years)
-
-      else if (yearsSpan <= 5) {
-
-        return {
-
-          format: 'monthyear',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 10))
-
-        };
-
-      }
-
-      // Very long term
-
-      else {
-
-        return {
-
-          format: 'year',
-
-          spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
-
-        };
-
-      }
-
-    };
-
-
-
-    // Calculate time span of visible data
-
-    const timeSpan = visibleData.length > 1 ?
-
-      visibleData[visibleData.length - 1].timestamp - visibleData[0].timestamp :
-
-      24 * 60 * 60 * 1000; // 1 day fallback
-
-
-
-    const labelConfig = getOptimalLabelFormat(config.timeframe, visibleCandleCount, timeSpan);
-
-
-
-    // Format date based on adaptive format
-
-    const formatDateLabel = (timestamp: number, format: string): string => {
-
-      const date = new Date(timestamp);
-
-
-
-      switch (format) {
-
-        case 'time':
-
-          return date.toLocaleTimeString('en-US', {
-
-            hour: '2-digit',
-
-            minute: '2-digit',
-
-            hour12: false
-
-          });
-
-        case 'datetime':
-
-          return date.toLocaleDateString('en-US', {
-
-            month: 'short',
-
-            day: 'numeric'
-
-          }) + ' ' + date.toLocaleTimeString('en-US', {
-
-            hour: '2-digit',
-
-            minute: '2-digit',
-
-            hour12: false
-
-          });
-
-        case 'date':
-
-          return date.toLocaleDateString('en-US', {
-
-            month: 'short',
-
-            day: 'numeric'
-
-          });
-
-        case 'monthday':
-
-          return date.toLocaleDateString('en-US', {
-
-            month: 'short',
-
-            day: 'numeric'
-
-          });
-
-        case 'monthyear':
-
-          return date.toLocaleDateString('en-US', {
-
-            month: 'short',
-
-            year: 'numeric'
-
-          });
-
-        case 'year':
-
-          return date.getFullYear().toString();
-
-        default:
-
-          return date.toLocaleDateString('en-US', {
-
-            month: 'short',
-
-            day: 'numeric'
-
-          });
-
-      }
-
-    };
-
-
-
-    // Calculate how many labels we can fit - enhanced with overlap prevention
-
-
-
-    // Track label positions to prevent overlap
-
-    const labelPositions: { x: number; width: number; text: string }[] = [];
-
-
-
-    const canPlaceLabel = (x: number, text: string): boolean => {
-
-      const textWidth = ctx.measureText(text).width;
-
-      const labelLeft = x - textWidth / 2;
-
-      const labelRight = x + textWidth / 2;
-
-
-
-      // Check if this label would overlap with any existing labels
-
-      for (const existing of labelPositions) {
-
-        const existingLeft = existing.x - existing.width / 2;
-
-        const existingRight = existing.x + existing.width / 2;
-
-
-
-        if (!(labelRight < existingLeft - 10 || labelLeft > existingRight + 10)) {
-
-          return false; // Overlap detected
-
-        }
-
-      }
-
-
-
-      // Check if label is too close to chart edges
-
-      if (labelLeft < 45 || labelRight > width - 10) {
-
-        return false;
-
-      }
-
-
-
-      return true;
-
-    };
-
-
-
-    const addLabel = (x: number, text: string, isFuture: boolean = false) => {
-
-      if (canPlaceLabel(x, text)) {
-
-        const textWidth = ctx.measureText(text).width;
-
-        labelPositions.push({ x, width: textWidth, text });
-
-
-
-        // Set appropriate color
-
-        ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
-
-
-
-        // Draw the label
-
-        ctx.fillText(text, x, height - 5);
-
-
-
-        // Draw tick mark
-
-        ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
-
-        ctx.lineWidth = 1;
-
-        ctx.beginPath();
-
-        ctx.moveTo(x, height - 17);
-
-        ctx.lineTo(x, height - 12);
-
-        ctx.stroke();
-
-      }
-
-    };
-
-
-
-    // Calculate how many labels we can fit (old method as fallback)
-
-    const maxLabels = Math.floor(chartWidth / 80); // One label every 80px
-
-    const labelStep = labelConfig.spacing;
-
-
-
-    const candleSpacing = chartWidth / visibleCandleCount;
-
-
-
-    // Calculate if we're showing future area
-
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-
-    const actualDataEnd = Math.min(allData.length, startIndex + visibleCandleCount);
-
-    const showingFutureArea = (startIndex + visibleCandleCount) > allData.length;
-
-    const futurePeriodsShown = showingFutureArea ? (startIndex + visibleCandleCount) - allData.length : 0;
-
-
-
-    // Helper function to calculate future timestamp
-
-    const getFutureTimestamp = (baseTimestamp: number, periodsAhead: number): number => {
-
-      const timeframe = config.timeframe;
-
-      let milliseconds = 0;
-
-
-
-      switch (timeframe) {
-
-        case '1m': milliseconds = 60 * 1000; break;
-
-        case '5m': milliseconds = 5 * 60 * 1000; break;
-
-        case '15m': milliseconds = 15 * 60 * 1000; break;
-
-        case '30m': milliseconds = 30 * 60 * 1000; break;
-
-        case '1h': milliseconds = 60 * 60 * 1000; break;
-
-        case '4h': milliseconds = 4 * 60 * 60 * 1000; break;
-
-        case '1d': milliseconds = 24 * 60 * 60 * 1000; break;
-
-        case '1w': milliseconds = 7 * 24 * 60 * 60 * 1000; break;
-
-        case '1mo': milliseconds = 30 * 24 * 60 * 60 * 1000; break;
-
-        default: milliseconds = 24 * 60 * 60 * 1000; break;
-
-      }
-
-
-
-      return baseTimestamp + (periodsAhead * milliseconds);
-
-    };
-
-
-
-    // Draw labels for actual data with overlap prevention
-
-    visibleData.forEach((candle, index) => {
-
-      if (index % labelStep === 0) {
-
-        const x = 40 + (index * candleSpacing) + candleSpacing / 2;
-
-        const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format);
-
-        addLabel(x, timeLabel, false);
-
-      }
-
-    });
-
-
-
-    // Always try to add the last visible data point if not already added
-
-    if (visibleData.length > 0) {
-
-      const lastIndex = visibleData.length - 1;
-
-      const x = 40 + (lastIndex * candleSpacing) + candleSpacing / 2;
-
-      const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format);
+      const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format);
 
       addLabel(x, timeLabel, false);
 
     }
 
-
-
-    // Draw future labels if we're showing future area
-
-    if (showingFutureArea && futurePeriodsShown > 0 && allData.length > 0) {
-
-      const lastDataTimestamp = allData[allData.length - 1].timestamp;
+  });
 
 
 
-      for (let i = 1; i <= futurePeriodsShown; i++) {
+  // Always try to add the last visible data point if not already added
 
-        if (i % labelStep === 0) {
+  if (visibleData.length > 0) {
 
-          const futureIndex = visibleData.length + i - 1;
+    const lastIndex = visibleData.length - 1;
 
-          const x = 40 + (futureIndex * candleSpacing) + candleSpacing / 2;
+    const x = 40 + (lastIndex * candleSpacing) + candleSpacing / 2;
 
-          const futureTimestamp = getFutureTimestamp(lastDataTimestamp, i);
+    const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format);
 
-          const timeLabel = formatDateLabel(futureTimestamp, labelConfig.format);
+    addLabel(x, timeLabel, false);
 
-          addLabel(x, timeLabel, true);
+  }
 
-        }
+
+
+  // Draw future labels if we're showing future area
+
+  if (showingFutureArea && futurePeriodsShown > 0 && allData.length > 0) {
+
+    const lastDataTimestamp = allData[allData.length - 1].timestamp;
+
+
+
+    for (let i = 1; i <= futurePeriodsShown; i++) {
+
+      if (i % labelStep === 0) {
+
+        const futureIndex = visibleData.length + i - 1;
+
+        const x = 40 + (futureIndex * candleSpacing) + candleSpacing / 2;
+
+        const futureTimestamp = getFutureTimestamp(lastDataTimestamp, i);
+
+        const timeLabel = formatDateLabel(futureTimestamp, labelConfig.format);
+
+        addLabel(x, timeLabel, true);
 
       }
 
     }
 
+  }
 
 
-    // Draw horizontal rays on the main chart canvas - they will NEVER disappear
 
-    if (horizontalRays.length > 0) {
+  // Draw horizontal rays on the main chart canvas - they will NEVER disappear
 
-      horizontalRays.forEach(ray => {
+  if (horizontalRays.length > 0) {
 
-        const y = priceToScreenForDrawings(ray.price);
+    horizontalRays.forEach(ray => {
 
+      const y = priceToScreenForDrawings(ray.price);
 
 
-        if (y >= 0 && y <= dimensions.height) {
 
-          // Draw the horizontal line
+      if (y >= 0 && y <= dimensions.height) {
 
-          ctx.strokeStyle = ray.color || '#00ff00';
+        // Draw the horizontal line
 
-          ctx.lineWidth = ray.lineWidth || 2;
+        ctx.strokeStyle = ray.color || '#00ff00';
 
+        ctx.lineWidth = ray.lineWidth || 2;
 
 
-          // Set line style based on ray properties
 
-          const lineStyle = ray.lineStyle || 'solid';
+        // Set line style based on ray properties
 
-          switch (lineStyle) {
-
-            case 'dashed':
-
-              ctx.setLineDash([10, 5]);
-
-              break;
-
-            case 'dotted':
-
-              ctx.setLineDash([2, 3]);
-
-              break;
-
-            default:
-
-              ctx.setLineDash([]);
-
-              break;
-
-          }
-
-
-
-          ctx.beginPath();
-
-          ctx.moveTo(40, y);
-
-          ctx.lineTo(dimensions.width - 80, y); // Stop before Y-axis
-
-          ctx.stroke();
-
-
-
-          // Draw price label on Y-axis (like in your image)
-
-          const priceText = ray.price.toFixed(2);
-
-          ctx.font = '20px Arial';
-
-          const textWidth = ctx.measureText(priceText).width;
-
-          const textHeight = 24;
-
-
-
-          // Background box on Y-axis
-
-          ctx.fillStyle = ray.color || '#00ff00';
-
-          ctx.fillRect(dimensions.width - 80, y - textHeight / 2, textWidth + 8, textHeight);
-
-
-
-          // Price text in white
-
-          ctx.fillStyle = '#ffffff';
-
-          ctx.textAlign = 'left';
-
-          ctx.fillText(priceText, dimensions.width - 76, y + 4);
-
-        }
-
-      });
-
-    }
-
-
-
-    // Draw current channel being created (visual feedback with live preview)
-
-    if (isParallelChannelMode && (currentChannelPoints.length > 0 || channelPreviewPoint)) {
-
-      // Save current context state
-
-      ctx.save();
-
-
-
-      // Draw placed points with precise alignment markers (use independent styling)
-
-      currentChannelPoints.forEach((point, index) => {
-
-        const x = timeToScreen(point.timestamp);
-
-        const y = priceToScreenForDrawings(point.price);
-
-
-
-        // Draw larger, more visible point marker with proper context isolation
-
-        ctx.save(); // Save state before drawing each point
-
-
-
-        // Main point circle
-
-        ctx.fillStyle = '#00BFFF';
-
-        ctx.beginPath();
-
-        ctx.arc(x, y, 8, 0, 2 * Math.PI);
-
-        ctx.fill();
-
-
-
-        // Add white border for better visibility
-
-        ctx.strokeStyle = '#FFFFFF';
-
-        ctx.lineWidth = 2;
-
-        ctx.stroke();
-
-
-
-        // Add precision center dot to show exact placement
-
-        ctx.fillStyle = '#FFFFFF';
-
-        ctx.beginPath();
-
-        ctx.arc(x, y, 2, 0, 2 * Math.PI);
-
-        ctx.fill();
-
-
-
-        // Draw point label with black text 
-
-        ctx.fillStyle = '#000000';
-
-        ctx.font = 'bold 14px Arial';
-
-        ctx.textAlign = 'center';
-
-        ctx.fillText((index + 1).toString(), x, y + 20); // Move label below point
-
-        ctx.restore(); // Restore state after each point
-
-      });
-
-
-
-      // Show progress indicator in top-left corner (save context first)
-
-      ctx.save();
-
-      ctx.fillStyle = '#FFD700';
-
-      ctx.font = 'bold 16px Arial';
-
-      ctx.textAlign = 'left';
-
-      const stepText = currentChannelPoints.length === 0 ? 'STEP 1: Click first point' :
-
-        currentChannelPoints.length === 1 ? 'STEP 2: Click second point' : 'STEP 3: Click third point';
-
-      ctx.fillText(stepText, 20, 40);
-
-
-
-      // Show current crosshair coordinates for precision
-
-      if (channelPreviewPoint && crosshairInfo.visible) {
-
-        ctx.fillStyle = '#00BFFF';
-
-        ctx.font = 'bold 14px Arial';
-
-        ctx.fillText(`Crosshair: ${crosshairInfo.price} @ ${crosshairInfo.time}`, 20, 85);
-
-      }
-
-
-
-      // Show click debug counter to track responsiveness
-
-      ctx.fillStyle = '#FF0000';
-
-      ctx.font = 'bold 14px Arial';
-
-      ctx.fillText(`Clicks detected: ${clickDebugCount}`, 20, 65);
-
-      ctx.restore();
-
-
-
-      // Preview logic based on current step (with proper context management)
-
-      if (channelPreviewPoint) {
-
-        const previewX = timeToScreen(channelPreviewPoint.timestamp);
-
-        const previewY = priceToScreenForDrawings(channelPreviewPoint.price);
-
-
-
-        if (currentChannelPoints.length === 1) {
-
-          // Show preview line from point 1 to mouse position
-
-          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
-
-          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
-
-
-
-          ctx.save(); // Save context for line drawing
-
-          ctx.strokeStyle = '#00BFFF';
-
-          ctx.lineWidth = 2;
-
-          ctx.setLineDash([3, 3]);
-
-          ctx.beginPath();
-
-          ctx.moveTo(point1X, point1Y);
-
-          ctx.lineTo(previewX, previewY);
-
-          ctx.stroke();
-
-          ctx.restore(); // Restore after line
-
-
-
-          // Draw preview point
-
-          ctx.save(); // Save context for preview point
-
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
-
-          ctx.beginPath();
-
-          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
-
-          ctx.fill();
-
-          ctx.restore(); // Restore after preview point
-
-
-
-          // Show instruction text
-
-          ctx.save();
-
-          ctx.fillStyle = '#FFFFFF';
-
-          ctx.font = 'bold 12px Arial';
-
-          ctx.fillText('Click to set trend line end', previewX + 10, previewY + 20);
-
-          ctx.restore();
-
-
-
-        } else if (currentChannelPoints.length === 2) {
-
-          // Show preview of complete channel with mouse position as width point
-
-          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
-
-          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
-
-          const point2X = timeToScreen(currentChannelPoints[1].timestamp);
-
-          const point2Y = priceToScreenForDrawings(currentChannelPoints[1].price);
-
-
-
-          // Draw main trend line (solid) with proper context
-
-          ctx.save();
-
-          ctx.strokeStyle = '#00BFFF';
-
-          ctx.lineWidth = 2;
-
-          ctx.setLineDash([]);
-
-          ctx.beginPath();
-
-          ctx.moveTo(point1X, point1Y);
-
-          ctx.lineTo(point2X, point2Y);
-
-          ctx.stroke();
-
-          ctx.restore();
-
-
-
-          // Calculate and draw preview parallel line
-
-          const A = point2Y - point1Y;
-
-          const B = point1X - point2X;
-
-          const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
-
-          const distance = Math.abs(A * previewX + B * previewY + C) / Math.sqrt(A * A + B * B);
-
-
-
-          const crossProduct = (point2X - point1X) * (previewY - point1Y) - (point2Y - point1Y) * (previewX - point1X);
-
-          const isAbove = crossProduct > 0;
-
-
-
-          const lineLength = Math.sqrt(A * A + B * B);
-
-          const normalX = A / lineLength;
-
-          const normalY = -B / lineLength;
-
-
-
-          const finalNormalX = isAbove ? normalX : -normalX;
-
-          const finalNormalY = isAbove ? normalY : -normalY;
-
-
-
-          const parallelStartX = point1X + finalNormalX * distance;
-
-          const parallelStartY = point1Y + finalNormalY * distance;
-
-          const parallelEndX = point2X + finalNormalX * distance;
-
-          const parallelEndY = point2Y + finalNormalY * distance;
-
-
-
-          // Draw preview parallel line (dashed) with context
-
-          ctx.save();
-
-          ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
-
-          ctx.lineWidth = 2;
-
-          ctx.setLineDash([5, 5]);
-
-          ctx.beginPath();
-
-          ctx.moveTo(parallelStartX, parallelStartY);
-
-          ctx.lineTo(parallelEndX, parallelEndY);
-
-          ctx.stroke();
-
-          ctx.restore();
-
-
-
-          // Draw preview fill with context
-
-          ctx.save();
-
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.1)';
-
-          ctx.beginPath();
-
-          ctx.moveTo(point1X, point1Y);
-
-          ctx.lineTo(point2X, point2Y);
-
-          ctx.lineTo(parallelEndX, parallelEndY);
-
-          ctx.lineTo(parallelStartX, parallelStartY);
-
-          ctx.closePath();
-
-          ctx.fill();
-
-          ctx.restore();
-
-
-
-          // Draw preview point with context
-
-          ctx.save();
-
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
-
-          ctx.beginPath();
-
-          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
-
-          ctx.fill();
-
-          ctx.restore();
-
-
-
-          // Show instruction text with context
-
-          ctx.save();
-
-          ctx.fillStyle = '#FFFFFF';
-
-          ctx.font = 'bold 12px Arial';
-
-          ctx.fillText('Click to set channel width', previewX + 10, previewY + 20);
-
-          ctx.restore();
-
-        }
-
-      }
-
-
-
-      // Restore the main context state after all channel preview drawing
-
-      ctx.restore();
-
-    }
-
-
-
-    // Draw parallel channels (3-point system)
-
-    if (parallelChannels.length > 0) {
-
-      parallelChannels.forEach(channel => {
-
-        const isSelected = selectedChannel === channel.id;
-
-        ctx.strokeStyle = isSelected ? '#FFFF00' : (channel.color || '#00BFFF'); // Yellow when selected
-
-        ctx.lineWidth = isSelected ? 3 : (channel.lineWidth || 2); // Thicker when selected
-
-
-
-        // Set line style
-
-        const lineStyle = channel.lineStyle || 'solid';
+        const lineStyle = ray.lineStyle || 'solid';
 
         switch (lineStyle) {
 
@@ -12996,37 +12550,279 @@ export default function TradingViewChart({
 
 
 
-        // Convert points to screen coordinates using the drawing-specific function
+        ctx.beginPath();
 
-        const point1X = timeToScreen(channel.point1.timestamp);
+        ctx.moveTo(40, y);
 
-        const point1Y = priceToScreenForDrawings(channel.point1.price);
+        ctx.lineTo(dimensions.width - 80, y); // Stop before Y-axis
 
-        const point2X = timeToScreen(channel.point2.timestamp);
-
-        const point2Y = priceToScreenForDrawings(channel.point2.price);
-
-        const point3X = timeToScreen(channel.point3.timestamp);
-
-        const point3Y = priceToScreenForDrawings(channel.point3.price);
+        ctx.stroke();
 
 
 
-        // Calculate the main trend line (point1 to point2)
+        // Draw price label on Y-axis (like in your image)
 
-        const mainLineStartX = point1X;
+        const priceText = ray.price.toFixed(2);
 
-        const mainLineStartY = point1Y;
+        ctx.font = '20px Arial';
 
-        const mainLineEndX = point2X;
+        const textWidth = ctx.measureText(priceText).width;
 
-        const mainLineEndY = point2Y;
+        const textHeight = 24;
 
 
 
-        // Calculate perpendicular distance from point3 to the main line
+        // Background box on Y-axis
 
-        // Formula for distance from point to line: |ax + by + c| / sqrt(a� + b�)
+        ctx.fillStyle = ray.color || '#00ff00';
+
+        ctx.fillRect(dimensions.width - 80, y - textHeight / 2, textWidth + 8, textHeight);
+
+
+
+        // Price text in white
+
+        ctx.fillStyle = '#ffffff';
+
+        ctx.textAlign = 'left';
+
+        ctx.fillText(priceText, dimensions.width - 76, y + 4);
+
+      }
+
+    });
+
+  }
+
+
+
+  // Draw current channel being created (visual feedback with live preview)
+
+  if (isParallelChannelMode && (currentChannelPoints.length > 0 || channelPreviewPoint)) {
+
+    // Save current context state
+
+    ctx.save();
+
+
+
+    // Draw placed points with precise alignment markers (use independent styling)
+
+    currentChannelPoints.forEach((point, index) => {
+
+      const x = timeToScreen(point.timestamp);
+
+      const y = priceToScreenForDrawings(point.price);
+
+
+
+      // Draw larger, more visible point marker with proper context isolation
+
+      ctx.save(); // Save state before drawing each point
+
+
+
+      // Main point circle
+
+      ctx.fillStyle = '#00BFFF';
+
+      ctx.beginPath();
+
+      ctx.arc(x, y, 8, 0, 2 * Math.PI);
+
+      ctx.fill();
+
+
+
+      // Add white border for better visibility
+
+      ctx.strokeStyle = '#FFFFFF';
+
+      ctx.lineWidth = 2;
+
+      ctx.stroke();
+
+
+
+      // Add precision center dot to show exact placement
+
+      ctx.fillStyle = '#FFFFFF';
+
+      ctx.beginPath();
+
+      ctx.arc(x, y, 2, 0, 2 * Math.PI);
+
+      ctx.fill();
+
+
+
+      // Draw point label with black text 
+
+      ctx.fillStyle = '#000000';
+
+      ctx.font = 'bold 14px Arial';
+
+      ctx.textAlign = 'center';
+
+      ctx.fillText((index + 1).toString(), x, y + 20); // Move label below point
+
+      ctx.restore(); // Restore state after each point
+
+    });
+
+
+
+    // Show progress indicator in top-left corner (save context first)
+
+    ctx.save();
+
+    ctx.fillStyle = '#FFD700';
+
+    ctx.font = 'bold 16px Arial';
+
+    ctx.textAlign = 'left';
+
+    const stepText = currentChannelPoints.length === 0 ? 'STEP 1: Click first point' :
+
+      currentChannelPoints.length === 1 ? 'STEP 2: Click second point' : 'STEP 3: Click third point';
+
+    ctx.fillText(stepText, 20, 40);
+
+
+
+    // Show current crosshair coordinates for precision
+
+    if (channelPreviewPoint && crosshairInfo.visible) {
+
+      ctx.fillStyle = '#00BFFF';
+
+      ctx.font = 'bold 14px Arial';
+
+      ctx.fillText(`Crosshair: ${crosshairInfo.price} @ ${crosshairInfo.time}`, 20, 85);
+
+    }
+
+
+
+    // Show click debug counter to track responsiveness
+
+    ctx.fillStyle = '#FF0000';
+
+    ctx.font = 'bold 14px Arial';
+
+    ctx.fillText(`Clicks detected: ${clickDebugCount}`, 20, 65);
+
+    ctx.restore();
+
+
+
+    // Preview logic based on current step (with proper context management)
+
+    if (channelPreviewPoint) {
+
+      const previewX = timeToScreen(channelPreviewPoint.timestamp);
+
+      const previewY = priceToScreenForDrawings(channelPreviewPoint.price);
+
+
+
+      if (currentChannelPoints.length === 1) {
+
+        // Show preview line from point 1 to mouse position
+
+        const point1X = timeToScreen(currentChannelPoints[0].timestamp);
+
+        const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
+
+
+
+        ctx.save(); // Save context for line drawing
+
+        ctx.strokeStyle = '#00BFFF';
+
+        ctx.lineWidth = 2;
+
+        ctx.setLineDash([3, 3]);
+
+        ctx.beginPath();
+
+        ctx.moveTo(point1X, point1Y);
+
+        ctx.lineTo(previewX, previewY);
+
+        ctx.stroke();
+
+        ctx.restore(); // Restore after line
+
+
+
+        // Draw preview point
+
+        ctx.save(); // Save context for preview point
+
+        ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
+
+        ctx.beginPath();
+
+        ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
+
+        ctx.fill();
+
+        ctx.restore(); // Restore after preview point
+
+
+
+        // Show instruction text
+
+        ctx.save();
+
+        ctx.fillStyle = '#FFFFFF';
+
+        ctx.font = 'bold 12px Arial';
+
+        ctx.fillText('Click to set trend line end', previewX + 10, previewY + 20);
+
+        ctx.restore();
+
+
+
+      } else if (currentChannelPoints.length === 2) {
+
+        // Show preview of complete channel with mouse position as width point
+
+        const point1X = timeToScreen(currentChannelPoints[0].timestamp);
+
+        const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
+
+        const point2X = timeToScreen(currentChannelPoints[1].timestamp);
+
+        const point2Y = priceToScreenForDrawings(currentChannelPoints[1].price);
+
+
+
+        // Draw main trend line (solid) with proper context
+
+        ctx.save();
+
+        ctx.strokeStyle = '#00BFFF';
+
+        ctx.lineWidth = 2;
+
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+
+        ctx.moveTo(point1X, point1Y);
+
+        ctx.lineTo(point2X, point2Y);
+
+        ctx.stroke();
+
+        ctx.restore();
+
+
+
+        // Calculate and draw preview parallel line
 
         const A = point2Y - point1Y;
 
@@ -13034,19 +12830,15 @@ export default function TradingViewChart({
 
         const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
 
-        const distance = Math.abs(A * point3X + B * point3Y + C) / Math.sqrt(A * A + B * B);
+        const distance = Math.abs(A * previewX + B * previewY + C) / Math.sqrt(A * A + B * B);
 
 
 
-        // Determine if point3 is above or below the main line
-
-        const crossProduct = (point2X - point1X) * (point3Y - point1Y) - (point2Y - point1Y) * (point3X - point1X);
+        const crossProduct = (point2X - point1X) * (previewY - point1Y) - (point2Y - point1Y) * (previewX - point1X);
 
         const isAbove = crossProduct > 0;
 
 
-
-        // Calculate unit normal vector (perpendicular to main line)
 
         const lineLength = Math.sqrt(A * A + B * B);
 
@@ -13056,15 +12848,11 @@ export default function TradingViewChart({
 
 
 
-        // Adjust normal direction based on which side point3 is on
-
         const finalNormalX = isAbove ? normalX : -normalX;
 
         const finalNormalY = isAbove ? normalY : -normalY;
 
 
-
-        // Calculate parallel line points
 
         const parallelStartX = point1X + finalNormalX * distance;
 
@@ -13076,19 +12864,15 @@ export default function TradingViewChart({
 
 
 
-        // Draw main trend line (point1 to point2)
+        // Draw preview parallel line (dashed) with context
 
-        ctx.beginPath();
+        ctx.save();
 
-        ctx.moveTo(mainLineStartX, mainLineStartY);
+        ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
 
-        ctx.lineTo(mainLineEndX, mainLineEndY);
+        ctx.lineWidth = 2;
 
-        ctx.stroke();
-
-
-
-        // Draw parallel line
+        ctx.setLineDash([5, 5]);
 
         ctx.beginPath();
 
@@ -13098,625 +12882,431 @@ export default function TradingViewChart({
 
         ctx.stroke();
 
+        ctx.restore();
 
 
-        // Fill the channel with semi-transparent color (if enabled)
 
-        if (channel.showFill !== false) {
+        // Draw preview fill with context
 
-          ctx.fillStyle = channel.fillColor || `${channel.color || '#00BFFF'}33`; // Use fillColor or add transparency to line color
+        ctx.save();
 
-          ctx.beginPath();
+        ctx.fillStyle = 'rgba(0, 191, 255, 0.1)';
 
-          ctx.moveTo(mainLineStartX, mainLineStartY);
+        ctx.beginPath();
 
-          ctx.lineTo(mainLineEndX, mainLineEndY);
+        ctx.moveTo(point1X, point1Y);
 
-          ctx.lineTo(parallelEndX, parallelEndY);
+        ctx.lineTo(point2X, point2Y);
 
-          ctx.lineTo(parallelStartX, parallelStartY);
+        ctx.lineTo(parallelEndX, parallelEndY);
 
-          ctx.closePath();
+        ctx.lineTo(parallelStartX, parallelStartY);
 
-          ctx.fill();
+        ctx.closePath();
 
-        }
+        ctx.fill();
 
+        ctx.restore();
 
 
-        // Draw point markers for visual feedback (optional)
 
-        if (channel.isSelected) {
+        // Draw preview point with context
 
-          ctx.fillStyle = channel.color || '#00BFFF';
+        ctx.save();
 
-          ctx.beginPath();
+        ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
 
-          ctx.arc(point1X, point1Y, 4, 0, 2 * Math.PI);
+        ctx.beginPath();
 
-          ctx.fill();
+        ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
 
-          ctx.beginPath();
+        ctx.fill();
 
-          ctx.arc(point2X, point2Y, 4, 0, 2 * Math.PI);
+        ctx.restore();
 
-          ctx.fill();
 
-          ctx.beginPath();
 
-          ctx.arc(point3X, point3Y, 4, 0, 2 * Math.PI);
+        // Show instruction text with context
 
-          ctx.fill();
+        ctx.save();
 
-        }
+        ctx.fillStyle = '#FFFFFF';
 
-      });
+        ctx.font = 'bold 12px Arial';
 
-    }
+        ctx.fillText('Click to set channel width', previewX + 10, previewY + 20);
 
-
-
-    // Draw drawing brushes
-
-    if (drawingBrushes.length > 0) {
-
-      drawingBrushes.forEach((brush, index) => {
-
-        if (brush.strokes.length >= 2) {
-
-          ctx.strokeStyle = brush.color || '#FF69B4';
-
-          ctx.lineWidth = brush.lineWidth || 3;
-
-          ctx.globalAlpha = brush.opacity || 0.8;
-
-          ctx.lineCap = 'round';
-
-          ctx.lineJoin = 'round';
-
-          ctx.setLineDash([]);
-
-
-
-          ctx.beginPath();
-
-          for (let i = 0; i < brush.strokes.length; i++) {
-
-            const stroke = brush.strokes[i];
-
-            const x = timeToScreen(stroke.timestamp);
-
-            const y = priceToScreenForDrawings(stroke.price);
-
-
-
-            if (i === 0) {
-
-              ctx.moveTo(x, y);
-
-            } else {
-
-              ctx.lineTo(x, y);
-
-            }
-
-          }
-
-          ctx.stroke();
-
-          ctx.globalAlpha = 1.0; // Reset alpha
-
-        }
-
-      });
-
-    }
-
-
-
-    // Draw current brush stroke being drawn
-
-    if (isBrushing && currentBrushStroke.length > 0) {
-
-      ctx.strokeStyle = '#FF69B4';
-
-      ctx.lineWidth = 3;
-
-      ctx.globalAlpha = 0.8;
-
-      ctx.lineCap = 'round';
-
-      ctx.lineJoin = 'round';
-
-      ctx.setLineDash([]);
-
-
-
-      ctx.beginPath();
-
-      for (let i = 0; i < currentBrushStroke.length; i++) {
-
-        const stroke = currentBrushStroke[i];
-
-        const x = timeToScreen(stroke.timestamp);
-
-        const y = priceToScreenForDrawings(stroke.price);
-
-
-
-        if (i === 0) {
-
-          ctx.moveTo(x, y);
-
-        } else {
-
-          ctx.lineTo(x, y);
-
-        }
+        ctx.restore();
 
       }
 
+    }
+
+
+
+    // Restore the main context state after all channel preview drawing
+
+    ctx.restore();
+
+  }
+
+
+
+  // Draw parallel channels (3-point system)
+
+  if (parallelChannels.length > 0) {
+
+    parallelChannels.forEach(channel => {
+
+      const isSelected = selectedChannel === channel.id;
+
+      ctx.strokeStyle = isSelected ? '#FFFF00' : (channel.color || '#00BFFF'); // Yellow when selected
+
+      ctx.lineWidth = isSelected ? 3 : (channel.lineWidth || 2); // Thicker when selected
+
+
+
+      // Set line style
+
+      const lineStyle = channel.lineStyle || 'solid';
+
+      switch (lineStyle) {
+
+        case 'dashed':
+
+          ctx.setLineDash([10, 5]);
+
+          break;
+
+        case 'dotted':
+
+          ctx.setLineDash([2, 3]);
+
+          break;
+
+        default:
+
+          ctx.setLineDash([]);
+
+          break;
+
+      }
+
+
+
+      // Convert points to screen coordinates using the drawing-specific function
+
+      const point1X = timeToScreen(channel.point1.timestamp);
+
+      const point1Y = priceToScreenForDrawings(channel.point1.price);
+
+      const point2X = timeToScreen(channel.point2.timestamp);
+
+      const point2Y = priceToScreenForDrawings(channel.point2.price);
+
+      const point3X = timeToScreen(channel.point3.timestamp);
+
+      const point3Y = priceToScreenForDrawings(channel.point3.price);
+
+
+
+      // Calculate the main trend line (point1 to point2)
+
+      const mainLineStartX = point1X;
+
+      const mainLineStartY = point1Y;
+
+      const mainLineEndX = point2X;
+
+      const mainLineEndY = point2Y;
+
+
+
+      // Calculate perpendicular distance from point3 to the main line
+
+      // Formula for distance from point to line: |ax + by + c| / sqrt(a� + b�)
+
+      const A = point2Y - point1Y;
+
+      const B = point1X - point2X;
+
+      const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
+
+      const distance = Math.abs(A * point3X + B * point3Y + C) / Math.sqrt(A * A + B * B);
+
+
+
+      // Determine if point3 is above or below the main line
+
+      const crossProduct = (point2X - point1X) * (point3Y - point1Y) - (point2Y - point1Y) * (point3X - point1X);
+
+      const isAbove = crossProduct > 0;
+
+
+
+      // Calculate unit normal vector (perpendicular to main line)
+
+      const lineLength = Math.sqrt(A * A + B * B);
+
+      const normalX = A / lineLength;
+
+      const normalY = -B / lineLength;
+
+
+
+      // Adjust normal direction based on which side point3 is on
+
+      const finalNormalX = isAbove ? normalX : -normalX;
+
+      const finalNormalY = isAbove ? normalY : -normalY;
+
+
+
+      // Calculate parallel line points
+
+      const parallelStartX = point1X + finalNormalX * distance;
+
+      const parallelStartY = point1Y + finalNormalY * distance;
+
+      const parallelEndX = point2X + finalNormalX * distance;
+
+      const parallelEndY = point2Y + finalNormalY * distance;
+
+
+
+      // Draw main trend line (point1 to point2)
+
+      ctx.beginPath();
+
+      ctx.moveTo(mainLineStartX, mainLineStartY);
+
+      ctx.lineTo(mainLineEndX, mainLineEndY);
+
       ctx.stroke();
 
-      ctx.globalAlpha = 1.0; // Reset alpha
+
+
+      // Draw parallel line
+
+      ctx.beginPath();
+
+      ctx.moveTo(parallelStartX, parallelStartY);
+
+      ctx.lineTo(parallelEndX, parallelEndY);
+
+      ctx.stroke();
+
+
+
+      // Fill the channel with semi-transparent color (if enabled)
+
+      if (channel.showFill !== false) {
+
+        ctx.fillStyle = channel.fillColor || `${channel.color || '#00BFFF'}33`; // Use fillColor or add transparency to line color
+
+        ctx.beginPath();
+
+        ctx.moveTo(mainLineStartX, mainLineStartY);
+
+        ctx.lineTo(mainLineEndX, mainLineEndY);
+
+        ctx.lineTo(parallelEndX, parallelEndY);
+
+        ctx.lineTo(parallelStartX, parallelStartY);
+
+        ctx.closePath();
+
+        ctx.fill();
+
+      }
+
+
+
+      // Draw point markers for visual feedback (optional)
+
+      if (channel.isSelected) {
+
+        ctx.fillStyle = channel.color || '#00BFFF';
+
+        ctx.beginPath();
+
+        ctx.arc(point1X, point1Y, 4, 0, 2 * Math.PI);
+
+        ctx.fill();
+
+        ctx.beginPath();
+
+        ctx.arc(point2X, point2Y, 4, 0, 2 * Math.PI);
+
+        ctx.fill();
+
+        ctx.beginPath();
+
+        ctx.arc(point3X, point3Y, 4, 0, 2 * Math.PI);
+
+        ctx.fill();
+
+      }
+
+    });
+
+  }
+
+
+
+  // Draw drawing brushes
+
+  if (drawingBrushes.length > 0) {
+
+    drawingBrushes.forEach((brush, index) => {
+
+      if (brush.strokes.length >= 2) {
+
+        ctx.strokeStyle = brush.color || '#FF69B4';
+
+        ctx.lineWidth = brush.lineWidth || 3;
+
+        ctx.globalAlpha = brush.opacity || 0.8;
+
+        ctx.lineCap = 'round';
+
+        ctx.lineJoin = 'round';
+
+        ctx.setLineDash([]);
+
+
+
+        ctx.beginPath();
+
+        for (let i = 0; i < brush.strokes.length; i++) {
+
+          const stroke = brush.strokes[i];
+
+          const x = timeToScreen(stroke.timestamp);
+
+          const y = priceToScreenForDrawings(stroke.price);
+
+
+
+          if (i === 0) {
+
+            ctx.moveTo(x, y);
+
+          } else {
+
+            ctx.lineTo(x, y);
+
+          }
+
+        }
+
+        ctx.stroke();
+
+        ctx.globalAlpha = 1.0; // Reset alpha
+
+      }
+
+    });
+
+  }
+
+
+
+  // Draw current brush stroke being drawn
+
+  if (isBrushing && currentBrushStroke.length > 0) {
+
+    ctx.strokeStyle = '#FF69B4';
+
+    ctx.lineWidth = 3;
+
+    ctx.globalAlpha = 0.8;
+
+    ctx.lineCap = 'round';
+
+    ctx.lineJoin = 'round';
+
+    ctx.setLineDash([]);
+
+
+
+    ctx.beginPath();
+
+    for (let i = 0; i < currentBrushStroke.length; i++) {
+
+      const stroke = currentBrushStroke[i];
+
+      const x = timeToScreen(stroke.timestamp);
+
+      const y = priceToScreenForDrawings(stroke.price);
+
+
+
+      if (i === 0) {
+
+        ctx.moveTo(x, y);
+
+      } else {
+
+        ctx.lineTo(x, y);
+
+      }
 
     }
 
-  };
+    ctx.stroke();
+
+    ctx.globalAlpha = 1.0; // Reset alpha
+
+  }
+
+};
 
 
 
-  // Re-render when data or settings change
+// Re-render when data or settings change
 
-  useEffect(() => {
+useEffect(() => {
 
-    if (dimensions.width > 0 && dimensions.height > 0) {
+  if (dimensions.width > 0 && dimensions.height > 0) {
 
-      renderChart();
+    renderChart();
 
-    }
+  }
 
-  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing]);
+}, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing]);
 
 
 
-  // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
+// ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
 
-  useEffect(() => {
+useEffect(() => {
+
+  if (!isParallelChannelMode) return;
+
+
+
+  const canvas = overlayCanvasRef.current;
+
+  if (!canvas) return;
+
+
+
+
+
+  const forceClickHandler = (e: MouseEvent) => {
 
     if (!isParallelChannelMode) return;
 
 
 
-    const canvas = overlayCanvasRef.current;
+    e.preventDefault();
 
-    if (!canvas) return;
+    e.stopPropagation();
 
+    e.stopImmediatePropagation();
 
 
-
-
-    const forceClickHandler = (e: MouseEvent) => {
-
-      if (!isParallelChannelMode) return;
-
-
-
-      e.preventDefault();
-
-      e.stopPropagation();
-
-      e.stopImmediatePropagation();
-
-
-
-      const rect = canvas.getBoundingClientRect();
-
-      const x = e.clientX - rect.left;
-
-      const y = e.clientY - rect.top;
-
-
-
-      // Force increment click counter
-
-      setClickDebugCount(prev => {
-
-        return prev + 1;
-
-      });
-
-
-
-      // Use EXACT same coordinate conversion as main click handler
-
-      const newPoint = screenToTimePriceCoordinates(x, y);
-
-
-
-      // FORCE the state update regardless of React lifecycle
-
-      setCurrentChannelPoints(currentPoints => {
-
-        const currentCount = currentPoints.length;
-
-
-
-        if (currentCount === 0) {
-
-          setChannelDrawingStep(1);
-
-          return [newPoint];
-
-        } else if (currentCount === 1) {
-
-          setChannelDrawingStep(2);
-
-          return [...currentPoints, newPoint];
-
-        } else if (currentCount === 2) {
-
-          const allPoints = [...currentPoints, newPoint];
-
-
-
-          const newChannel: ParallelChannel = {
-
-            id: Date.now().toString(),
-
-            point1: allPoints[0],
-
-            point2: allPoints[1],
-
-            point3: allPoints[2],
-
-            color: '#00BFFF',
-
-            lineWidth: 2,
-
-            lineStyle: 'solid',
-
-            fillOpacity: 0.1,
-
-            fillColor: '#00BFFF33',
-
-            showFill: true,
-
-            label: `Channel ${parallelChannels.length + 1}`
-
-          };
-
-
-
-          setParallelChannels(prev => [...prev, newChannel]);
-
-          setChannelDrawingStep(0);
-
-          setChannelPreviewPoint(null);
-
-
-
-          if (!isDrawingLocked) {
-
-            activateToolExclusively('none'); // Clear all tools instead of just this one
-
-          }
-
-
-
-          return [];
-
-        }
-
-
-
-        return currentPoints;
-
-      });
-
-    };
-
-
-
-    // Add the raw DOM listener with capture=true to intercept before React
-
-    canvas.addEventListener('mousedown', forceClickHandler, true);
-
-
-
-    // Cleanup
-
-    return () => {
-
-      canvas.removeEventListener('mousedown', forceClickHandler, true);
-
-    };
-
-  }, [isParallelChannelMode, dimensions, scrollOffset, data, parallelChannels.length, isDrawingLocked]);
-
-
-
-  // TradingView-style interaction handlers
-
-  const [lastMouseX, setLastMouseX] = useState(0);
-
-  const [dragStartX, setDragStartX] = useState(0);
-
-  const [dragStartOffset, setDragStartOffset] = useState(0);
-
-
-
-  // Stable helper function to get EXACT same priceChartHeight as renderChart function
-
-  const actualPriceChartHeight = useMemo((): number => {
-
-    const timeAxisHeight = 25;
-
-    const volumeAreaHeight = 80;
-
-    const totalBottomSpace = volumeAreaHeight + timeAxisHeight;
-
-    return dimensions.height - totalBottomSpace;
-
-  }, [dimensions.height]);
-
-
-
-  // Coordinate conversion functions (optimized to avoid recreating helper functions)
-
-  const screenToPrice = useCallback((y: number): number => {
-
-    const priceChartHeight = actualPriceChartHeight;
-
-
-
-    // Use the ACTUAL rendered price range (same as Expected Range uses)
-
-    const adjustedMin = lastRenderedPriceRangeRef.current.min;
-
-    const adjustedMax = lastRenderedPriceRangeRef.current.max;
-
-
-
-    if (adjustedMax === adjustedMin) return 0;
-
-
-
-    // Use EXACT same formula as Expected Range and chart rendering
-
-    return adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
-
-  }, [actualPriceChartHeight]);
-
-
-
-  // Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
-
-  const getStablePriceRange = (): { min: number; max: number } => {
-
-    if (!data || data.length === 0) return { min: 0, max: 100 };
-
-
-
-    const allPrices = data.flatMap(d => [d.high, d.low]);
-
-    const minPrice = Math.min(...allPrices);
-
-    const maxPrice = Math.max(...allPrices);
-
-    const padding = (maxPrice - minPrice) * 0.1;
-
-    return {
-
-      min: minPrice - padding,
-
-      max: maxPrice + padding
-
-    };
-
-  };
-
-
-
-  const priceToScreen = useCallback((price: number): number => {
-
-    const priceChartHeight = actualPriceChartHeight;
-
-
-
-    // Use the ACTUAL rendered price range (same as Expected Range uses)
-
-    const adjustedMin = lastRenderedPriceRangeRef.current.min;
-
-    const adjustedMax = lastRenderedPriceRangeRef.current.max;
-
-
-
-    if (adjustedMax === adjustedMin) return priceChartHeight / 2;
-
-
-
-    // Use EXACT same formula as Expected Range: chartHeight - ((price - minPrice) / priceRange) * chartHeight
-
-    // This is mathematically equivalent to: ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight
-
-    return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
-
-  }, [actualPriceChartHeight]);
-
-
-
-  const timeToScreen = useCallback((timestamp: number): number => {
-
-    const candleWidth = (dimensions.width - 100) / visibleCandleCount;
-
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-
-    const visibleData = data.slice(startIndex, startIndex + visibleCandleCount);
-
-
-
-    // Find the index of the timestamp in visible data
-
-    const dataIndex = visibleData.findIndex(d => d.timestamp >= timestamp);
-
-    const relativeIndex = dataIndex >= 0 ? dataIndex : visibleData.length - 1;
-
-
-
-    return 40 + (relativeIndex * candleWidth);
-
-  }, [dimensions.width, visibleCandleCount, scrollOffset, data]);
-
-
-
-  // Specialized coordinate functions for drawings that use STABLE price range (not viewport dependent)
-
-  const priceToScreenForDrawings = useCallback((price: number): number => {
-
-    const priceChartHeight = actualPriceChartHeight;
-
-
-
-    // Get visible data for current price range calculation
-
-    const startIndex = Math.max(0, scrollOffset);
-
-    const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
-
-    const visibleData = data.slice(startIndex, endIndex);
-
-
-
-    if (visibleData.length === 0) {
-
-      return priceChartHeight / 2;
-
-    }
-
-
-
-    // Use the EXACT same price range calculation that the chart rendering uses
-
-    const currentRange = getCurrentPriceRange(visibleData);
-
-
-
-    if (currentRange.min === currentRange.max) {
-
-      // Fallback if range is invalid
-
-      return priceChartHeight / 2;
-
-    }
-
-
-
-    const adjustedMin = currentRange.min;
-
-    const adjustedMax = currentRange.max;
-
-
-
-    // Convert price to Y coordinate using the current chart range
-
-    return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
-
-  }, [actualPriceChartHeight, scrollOffset, data.length, visibleCandleCount, data, getCurrentPriceRange]);
-
-
-
-  // Memoized coordinate conversion with performance optimization
-
-  const screenToTimePriceCoordinates = useCallback((screenX: number, screenY: number): { timestamp: number; price: number } => {
-
-    const canvas = overlayCanvasRef.current;
-
-    if (!canvas || !data.length) return { timestamp: Date.now(), price: 0 };
-
-
-
-    // Use EXACT same coordinate system as crosshair calculation for perfect alignment
-
-    const priceChartHeight = actualPriceChartHeight;
-
-
-
-    // Convert screen X to actual timestamp - using same logic as crosshair
-
-    const chartWidth = dimensions.width - 100; // Match crosshair calculation
-
-    const candleWidth = chartWidth / visibleCandleCount;
-
-    const relativeX = Math.max(0, screenX - 40); // Account for left margin (match crosshair)
-
-    const visibleCandleIndex = Math.floor(relativeX / candleWidth);
-
-    const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
-
-    const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
-
-    const timestamp = data[boundedIndex]?.timestamp || Date.now();
-
-
-
-    // Convert screen Y to actual price using EXACT same logic as crosshair calculation
-
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-
-    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-
-    const visibleData = data.slice(startIndex, endIndex);
-
-
-
-    if (visibleData.length === 0) return { timestamp, price: 0 };
-
-
-
-    // Use EXACT same price calculation as crosshair (from handleMouseMove)
-
-    const prices = visibleData.flatMap(d => [d.high, d.low]);
-
-    const minPrice = Math.min(...prices);
-
-    const maxPrice = Math.max(...prices);
-
-    const padding = (maxPrice - minPrice) * 0.1;
-
-    const adjustedMin = minPrice - padding;
-
-    const adjustedMax = maxPrice + padding;
-
-
-
-    // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
-
-    // Only consider mouse position within the price chart area (match crosshair behavior)
-
-    const price = screenY <= priceChartHeight ?
-
-      adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin)) :
-
-      adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin));
-
-
-
-    return { timestamp, price };
-
-  }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data]);
-
-
-
-  // Unified mouse handler that prioritizes drawing interaction over chart panning
-
-  const handleUnifiedMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-
-    if (e.button !== 0) return; // Only left mouse button
-
-
-
-    const canvas = e.currentTarget;
 
     const rect = canvas.getBoundingClientRect();
 
@@ -13726,479 +13316,989 @@ export default function TradingViewChart({
 
 
 
+    // Force increment click counter
 
+    setClickDebugCount(prev => {
 
-    // Increment click counter for debugging when in channel mode
+      return prev + 1;
 
-    if (isParallelChannelMode) {
-
-      setClickDebugCount(prev => prev + 1);
-
-    }
+    });
 
 
 
-    // Visual click feedback - briefly flash the click location
+    // Use EXACT same coordinate conversion as main click handler
 
-    if (isParallelChannelMode) {
+    const newPoint = screenToTimePriceCoordinates(x, y);
 
-      const canvas = overlayCanvasRef.current;
 
-      if (canvas) {
 
-        const ctx = canvas.getContext('2d');
+    // FORCE the state update regardless of React lifecycle
 
-        if (ctx) {
+    setCurrentChannelPoints(currentPoints => {
 
-          ctx.fillStyle = '#FF0000';
+      const currentCount = currentPoints.length;
 
-          ctx.beginPath();
 
-          ctx.arc(x, y, 10, 0, 2 * Math.PI);
 
-          ctx.fill();
+      if (currentCount === 0) {
 
-          setTimeout(() => {
+        setChannelDrawingStep(1);
 
-            // This will be cleared on next render
+        return [newPoint];
 
-          }, 100);
+      } else if (currentCount === 1) {
+
+        setChannelDrawingStep(2);
+
+        return [...currentPoints, newPoint];
+
+      } else if (currentCount === 2) {
+
+        const allPoints = [...currentPoints, newPoint];
+
+
+
+        const newChannel: ParallelChannel = {
+
+          id: Date.now().toString(),
+
+          point1: allPoints[0],
+
+          point2: allPoints[1],
+
+          point3: allPoints[2],
+
+          color: '#00BFFF',
+
+          lineWidth: 2,
+
+          lineStyle: 'solid',
+
+          fillOpacity: 0.1,
+
+          fillColor: '#00BFFF33',
+
+          showFill: true,
+
+          label: `Channel ${parallelChannels.length + 1}`
+
+        };
+
+
+
+        setParallelChannels(prev => [...prev, newChannel]);
+
+        setChannelDrawingStep(0);
+
+        setChannelPreviewPoint(null);
+
+
+
+        if (!isDrawingLocked) {
+
+          activateToolExclusively('none'); // Clear all tools instead of just this one
 
         }
+
+
+
+        return [];
+
+      }
+
+
+
+      return currentPoints;
+
+    });
+
+  };
+
+
+
+  // Add the raw DOM listener with capture=true to intercept before React
+
+  canvas.addEventListener('mousedown', forceClickHandler, true);
+
+
+
+  // Cleanup
+
+  return () => {
+
+    canvas.removeEventListener('mousedown', forceClickHandler, true);
+
+  };
+
+}, [isParallelChannelMode, dimensions, scrollOffset, data, parallelChannels.length, isDrawingLocked]);
+
+
+
+// TradingView-style interaction handlers
+
+const [lastMouseX, setLastMouseX] = useState(0);
+
+const [dragStartX, setDragStartX] = useState(0);
+
+const [dragStartOffset, setDragStartOffset] = useState(0);
+
+
+
+// Stable helper function to get EXACT same priceChartHeight as renderChart function
+
+const actualPriceChartHeight = useMemo((): number => {
+
+  const timeAxisHeight = 25;
+
+  const volumeAreaHeight = 80;
+
+  const totalBottomSpace = volumeAreaHeight + timeAxisHeight;
+
+  return dimensions.height - totalBottomSpace;
+
+}, [dimensions.height]);
+
+
+
+// Coordinate conversion functions (optimized to avoid recreating helper functions)
+
+const screenToPrice = useCallback((y: number): number => {
+
+  const priceChartHeight = actualPriceChartHeight;
+
+
+
+  // Use the ACTUAL rendered price range (same as Expected Range uses)
+
+  const adjustedMin = lastRenderedPriceRangeRef.current.min;
+
+  const adjustedMax = lastRenderedPriceRangeRef.current.max;
+
+
+
+  if (adjustedMax === adjustedMin) return 0;
+
+
+
+  // Use EXACT same formula as Expected Range and chart rendering
+
+  return adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
+
+}, [actualPriceChartHeight]);
+
+
+
+// Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
+
+const getStablePriceRange = (): { min: number; max: number } => {
+
+  if (!data || data.length === 0) return { min: 0, max: 100 };
+
+
+
+  const allPrices = data.flatMap(d => [d.high, d.low]);
+
+  const minPrice = Math.min(...allPrices);
+
+  const maxPrice = Math.max(...allPrices);
+
+  const padding = (maxPrice - minPrice) * 0.1;
+
+  return {
+
+    min: minPrice - padding,
+
+    max: maxPrice + padding
+
+  };
+
+};
+
+
+
+const priceToScreen = useCallback((price: number): number => {
+
+  const priceChartHeight = actualPriceChartHeight;
+
+
+
+  // Use the ACTUAL rendered price range (same as Expected Range uses)
+
+  const adjustedMin = lastRenderedPriceRangeRef.current.min;
+
+  const adjustedMax = lastRenderedPriceRangeRef.current.max;
+
+
+
+  if (adjustedMax === adjustedMin) return priceChartHeight / 2;
+
+
+
+  // Use EXACT same formula as Expected Range: chartHeight - ((price - minPrice) / priceRange) * chartHeight
+
+  // This is mathematically equivalent to: ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight
+
+  return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
+
+}, [actualPriceChartHeight]);
+
+
+
+const timeToScreen = useCallback((timestamp: number): number => {
+
+  const candleWidth = (dimensions.width - 100) / visibleCandleCount;
+
+  const startIndex = Math.max(0, Math.floor(scrollOffset));
+
+  const visibleData = data.slice(startIndex, startIndex + visibleCandleCount);
+
+
+
+  // Find the index of the timestamp in visible data
+
+  const dataIndex = visibleData.findIndex(d => d.timestamp >= timestamp);
+
+  const relativeIndex = dataIndex >= 0 ? dataIndex : visibleData.length - 1;
+
+
+
+  return 40 + (relativeIndex * candleWidth);
+
+}, [dimensions.width, visibleCandleCount, scrollOffset, data]);
+
+
+
+// Specialized coordinate functions for drawings that use STABLE price range (not viewport dependent)
+
+const priceToScreenForDrawings = useCallback((price: number): number => {
+
+  const priceChartHeight = actualPriceChartHeight;
+
+
+
+  // Get visible data for current price range calculation
+
+  const startIndex = Math.max(0, scrollOffset);
+
+  const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
+
+  const visibleData = data.slice(startIndex, endIndex);
+
+
+
+  if (visibleData.length === 0) {
+
+    return priceChartHeight / 2;
+
+  }
+
+
+
+  // Use the EXACT same price range calculation that the chart rendering uses
+
+  const currentRange = getCurrentPriceRange(visibleData);
+
+
+
+  if (currentRange.min === currentRange.max) {
+
+    // Fallback if range is invalid
+
+    return priceChartHeight / 2;
+
+  }
+
+
+
+  const adjustedMin = currentRange.min;
+
+  const adjustedMax = currentRange.max;
+
+
+
+  // Convert price to Y coordinate using the current chart range
+
+  return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
+
+}, [actualPriceChartHeight, scrollOffset, data.length, visibleCandleCount, data, getCurrentPriceRange]);
+
+
+
+// Memoized coordinate conversion with performance optimization
+
+const screenToTimePriceCoordinates = useCallback((screenX: number, screenY: number): { timestamp: number; price: number } => {
+
+  const canvas = overlayCanvasRef.current;
+
+  if (!canvas || !data.length) return { timestamp: Date.now(), price: 0 };
+
+
+
+  // Use EXACT same coordinate system as crosshair calculation for perfect alignment
+
+  const priceChartHeight = actualPriceChartHeight;
+
+
+
+  // Convert screen X to actual timestamp - using same logic as crosshair
+
+  const chartWidth = dimensions.width - 100; // Match crosshair calculation
+
+  const candleWidth = chartWidth / visibleCandleCount;
+
+  const relativeX = Math.max(0, screenX - 40); // Account for left margin (match crosshair)
+
+  const visibleCandleIndex = Math.floor(relativeX / candleWidth);
+
+  const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
+
+  const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
+
+  const timestamp = data[boundedIndex]?.timestamp || Date.now();
+
+
+
+  // Convert screen Y to actual price using EXACT same logic as crosshair calculation
+
+  const startIndex = Math.max(0, Math.floor(scrollOffset));
+
+  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+
+  const visibleData = data.slice(startIndex, endIndex);
+
+
+
+  if (visibleData.length === 0) return { timestamp, price: 0 };
+
+
+
+  // Use EXACT same price calculation as crosshair (from handleMouseMove)
+
+  const prices = visibleData.flatMap(d => [d.high, d.low]);
+
+  const minPrice = Math.min(...prices);
+
+  const maxPrice = Math.max(...prices);
+
+  const padding = (maxPrice - minPrice) * 0.1;
+
+  const adjustedMin = minPrice - padding;
+
+  const adjustedMax = maxPrice + padding;
+
+
+
+  // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
+
+  // Only consider mouse position within the price chart area (match crosshair behavior)
+
+  const price = screenY <= priceChartHeight ?
+
+    adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin)) :
+
+    adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin));
+
+
+
+  return { timestamp, price };
+
+}, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data]);
+
+
+
+// Unified mouse handler that prioritizes drawing interaction over chart panning
+
+const handleUnifiedMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+
+  if (e.button !== 0) return; // Only left mouse button
+
+
+
+  const canvas = e.currentTarget;
+
+  const rect = canvas.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+
+
+  // Increment click counter for debugging when in channel mode
+
+  if (isParallelChannelMode) {
+
+    setClickDebugCount(prev => prev + 1);
+
+  }
+
+
+
+  // Visual click feedback - briefly flash the click location
+
+  if (isParallelChannelMode) {
+
+    const canvas = overlayCanvasRef.current;
+
+    if (canvas) {
+
+      const ctx = canvas.getContext('2d');
+
+      if (ctx) {
+
+        ctx.fillStyle = '#FF0000';
+
+        ctx.beginPath();
+
+        ctx.arc(x, y, 10, 0, 2 * Math.PI);
+
+        ctx.fill();
+
+        setTimeout(() => {
+
+          // This will be cleared on next render
+
+        }, 100);
 
       }
 
     }
 
-
-
-    // ?????? NUCLEAR OPTION: PARALLEL CHANNEL MODE - NOTHING ELSE MATTERS! ??????
-
-    if (isParallelChannelMode) {
+  }
 
 
 
-      // NUCLEAR STOP - BLOCK EVERYTHING
+  // ?????? NUCLEAR OPTION: PARALLEL CHANNEL MODE - NOTHING ELSE MATTERS! ??????
 
-      e.preventDefault();
-
-      e.stopPropagation();
-
-      (e.nativeEvent as Event).stopImmediatePropagation?.();
+  if (isParallelChannelMode) {
 
 
 
-      // Use EXACT same coordinate system as crosshair
+    // NUCLEAR STOP - BLOCK EVERYTHING
 
-      const newPoint = screenToTimePriceCoordinates(x, y);
+    e.preventDefault();
 
+    e.stopPropagation();
 
-
-      // FORCE IMMEDIATE UPDATE - USE FUNCTIONAL STATE TO AVOID STALE CLOSURES
-
-      setCurrentChannelPoints(currentPoints => {
+    (e.nativeEvent as Event).stopImmediatePropagation?.();
 
 
 
-        if (currentPoints.length === 0) {
+    // Use EXACT same coordinate system as crosshair
 
-          setChannelDrawingStep(1);
-
-          return [newPoint];
-
-        } else if (currentPoints.length === 1) {
-
-          setChannelDrawingStep(2);
-
-          return [...currentPoints, newPoint];
-
-        } else if (currentPoints.length === 2) {
-
-          const allPoints = [...currentPoints, newPoint];
+    const newPoint = screenToTimePriceCoordinates(x, y);
 
 
 
-          // IMMEDIATE CHANNEL CREATION
+    // FORCE IMMEDIATE UPDATE - USE FUNCTIONAL STATE TO AVOID STALE CLOSURES
 
-          const newChannel: ParallelChannel = {
-
-            id: Date.now().toString(),
-
-            point1: allPoints[0],
-
-            point2: allPoints[1],
-
-            point3: allPoints[2],
-
-            color: '#00BFFF',
-
-            lineWidth: 2,
-
-            lineStyle: 'solid',
-
-            fillOpacity: 0.1,
-
-            fillColor: '#00BFFF33',
-
-            showFill: true,
-
-            label: `Channel ${parallelChannels.length + 1}`
-
-          };
+    setCurrentChannelPoints(currentPoints => {
 
 
 
-          // FORCE ADD CHANNEL
+      if (currentPoints.length === 0) {
 
-          setParallelChannels(prev => [...prev, newChannel]);
+        setChannelDrawingStep(1);
 
-          setChannelDrawingStep(0);
+        return [newPoint];
 
-          setChannelPreviewPoint(null);
+      } else if (currentPoints.length === 1) {
+
+        setChannelDrawingStep(2);
+
+        return [...currentPoints, newPoint];
+
+      } else if (currentPoints.length === 2) {
+
+        const allPoints = [...currentPoints, newPoint];
 
 
 
-          if (!isDrawingLocked) {
+        // IMMEDIATE CHANNEL CREATION
 
-            activateToolExclusively('none'); // Clear all tools instead of just this one
+        const newChannel: ParallelChannel = {
+
+          id: Date.now().toString(),
+
+          point1: allPoints[0],
+
+          point2: allPoints[1],
+
+          point3: allPoints[2],
+
+          color: '#00BFFF',
+
+          lineWidth: 2,
+
+          lineStyle: 'solid',
+
+          fillOpacity: 0.1,
+
+          fillColor: '#00BFFF33',
+
+          showFill: true,
+
+          label: `Channel ${parallelChannels.length + 1}`
+
+        };
+
+
+
+        // FORCE ADD CHANNEL
+
+        setParallelChannels(prev => [...prev, newChannel]);
+
+        setChannelDrawingStep(0);
+
+        setChannelPreviewPoint(null);
+
+
+
+        if (!isDrawingLocked) {
+
+          activateToolExclusively('none'); // Clear all tools instead of just this one
+
+        }
+
+
+
+        return []; // Clear points
+
+      }
+
+
+
+      return currentPoints; // Fallback
+
+    });
+
+
+
+    // NUCLEAR STOP - RETURN IMMEDIATELY
+
+    return;
+
+  }
+
+
+
+  // Check if we're in horizontal ray drawing mode
+
+  if (isHorizontalRayMode) {
+
+    // Use EXACT same coordinate system as crosshair
+
+    const price = screenToPrice(y);
+
+
+
+    const newRay: HorizontalRay = {
+
+      id: Date.now().toString(),
+
+      price: price,
+
+      startX: x,
+
+      color: '#00ff00', // Simple green color
+
+      lineWidth: 2,
+
+      lineStyle: 'solid',
+
+      extendLeft: true,
+
+      extendRight: true,
+
+      label: `Ray ${horizontalRays.length + 1}`
+
+    };
+
+
+
+    setHorizontalRays(prev => [...prev, newRay]);
+
+
+
+    if (!isDrawingLocked) {
+
+      activateToolExclusively('none'); // Clear all tools instead of just this one
+
+    }
+
+
+
+    return;
+
+  }
+
+
+
+  // Drawing Brush mode - CLICK AND HOLD to draw (prepare for drawing)
+
+  if (isDrawingBrushMode) {
+
+    // Track that mouse is pressed and prepare for drawing
+
+    setIsMousePressed(true);
+
+    setIsBrushing(true);
+
+    setCurrentBrushStroke([]); // Start with empty stroke
+
+    setLastBrushTime(Date.now());
+
+
+
+    return;
+
+  }
+
+
+
+  // Check for horizontal ray hits (for editing/selecting)
+
+  for (const ray of horizontalRays) {
+
+    const rayY = priceToScreenForDrawings(ray.price);
+
+    if (Math.abs(y - rayY) <= 5) { // 5px tolerance
+
+      setSelectedRay(ray.id);
+
+      setIsEditingRay(true);
+
+      setRayDragStart({ x, y, originalPrice: ray.price });
+
+      return;
+
+    }
+
+  }
+
+
+
+  // Check for parallel channel hits (for editing/selecting)
+
+  for (const channel of parallelChannels) {
+
+    // Check if click is near any of the channel lines
+
+    const point1Y = priceToScreenForDrawings(channel.point1.price);
+
+    const point2Y = priceToScreenForDrawings(channel.point2.price);
+
+    const point3Y = priceToScreenForDrawings(channel.point3.price);
+
+
+
+    // Calculate the parallel line (point4) coordinates
+
+    const deltaY = point2Y - point1Y;
+
+    const point4Y = point3Y + deltaY;
+
+
+
+    // Check if click is near either channel line (5px tolerance)
+
+    const nearFirstLine = Math.abs(y - point1Y) <= 5 || Math.abs(y - point2Y) <= 5;
+
+    const nearSecondLine = Math.abs(y - point3Y) <= 5 || Math.abs(y - point4Y) <= 5;
+
+
+
+    if (nearFirstLine || nearSecondLine) {
+
+      setSelectedChannel(channel.id);
+
+      setIsEditingChannel(true);
+
+      setChannelDragStart({ x, y, originalChannel: { ...channel } });
+
+      return;
+
+    }
+
+  }
+
+
+
+  // Clear selections if clicking on empty area
+
+  if (selectedRay) {
+
+    setSelectedRay(null);
+
+    setIsEditingRay(false);
+
+    setRayDragStart(null);
+
+  }
+
+  if (selectedChannel) {
+
+    setSelectedChannel(null);
+
+    setIsEditingChannel(false);
+
+    setChannelDragStart(null);
+
+  }
+
+
+
+  // Default chart panning behavior
+
+  setIsDragging(true);
+
+  setLastMouseX(x);
+
+  setDragStartX(x);
+
+  setDragStartOffset(scrollOffset);
+
+}, [
+
+  isHorizontalRayMode, horizontalRays, rayProperties, scrollOffset,
+
+  isParallelChannelMode, isDrawingBrushMode,
+
+  parallelChannels, isBrushing, isMousePressed,
+
+  drawingBrushes, dimensions, data, visibleCandleCount, isDrawingLocked,
+
+  screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings, activateToolExclusively,
+
+  selectedRay, selectedChannel
+
+]);
+
+
+
+// ? NEW: Advanced Hit Detection System
+
+const getDrawingHandles = useCallback((drawing: Drawing): Array<{ x: number, y: number, type: string, cursor: string }> => {
+
+  if (!drawing.startTimestamp || !drawing.startPrice) return [];
+
+
+
+  const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
+
+  const handles = [
+
+    { x: startCoords.x, y: startCoords.y, type: 'start', cursor: 'grab' }
+
+  ];
+
+
+
+  if (drawing.endTimestamp && drawing.endPrice) {
+
+    const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+
+    handles.push({ x: endCoords.x, y: endCoords.y, type: 'end', cursor: 'grab' });
+
+
+
+    // Add corner handles for rectangles
+
+    if (['rectangle', 'ellipse'].includes(drawing.type)) {
+
+      handles.push(
+
+        { x: startCoords.x, y: endCoords.y, type: 'corner1', cursor: 'nw-resize' },
+
+        { x: endCoords.x, y: startCoords.y, type: 'corner2', cursor: 'ne-resize' }
+
+      );
+
+    }
+
+
+
+    // Add midpoint handles for lines
+
+    if (['trend_line', 'extended_line', 'arrow'].includes(drawing.type)) {
+
+      const midX = (startCoords.x + endCoords.x) / 2;
+
+      const midY = (startCoords.y + endCoords.y) / 2;
+
+      handles.push({ x: midX, y: midY, type: 'midpoint', cursor: 'grab' });
+
+    }
+
+  }
+
+
+
+  return handles;
+
+}, []);
+
+
+
+const detectDrawingHit = useCallback((x: number, y: number, drawing: Drawing): { hit: boolean, type: string, handle?: any } => {
+
+  const HANDLE_SIZE = 8;
+
+  const LINE_TOLERANCE = 10;
+
+
+
+  // Check handles first
+
+  if (showDrawingHandles && drawing.isSelected) {
+
+    const handles = getDrawingHandles(drawing);
+
+    for (const handle of handles) {
+
+      const distance = Math.sqrt(Math.pow(x - handle.x, 2) + Math.pow(y - handle.y, 2));
+
+      if (distance <= HANDLE_SIZE) {
+
+        return { hit: true, type: 'handle', handle };
+
+      }
+
+    }
+
+  }
+
+
+
+  // Check drawing body
+
+  if (!drawing.startTimestamp || !drawing.startPrice) return { hit: false, type: 'none' };
+
+
+
+  const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
+
+
+
+  switch (drawing.type) {
+
+    case 'trend_line':
+
+    case 'extended_line':
+
+    case 'arrow':
+
+      if (drawing.endTimestamp && drawing.endPrice) {
+
+        const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+
+        const distance = distanceToLine(x, y, startCoords.x, startCoords.y, endCoords.x, endCoords.y);
+
+        if (distance <= LINE_TOLERANCE) {
+
+          return { hit: true, type: 'body' };
+
+        }
+
+      }
+
+      break;
+
+
+
+    case 'horizontal_line':
+
+      if (Math.abs(y - startCoords.y) <= LINE_TOLERANCE) {
+
+        return { hit: true, type: 'body' };
+
+      }
+
+      break;
+
+
+
+    case 'vertical_line':
+
+      if (Math.abs(x - startCoords.x) <= LINE_TOLERANCE) {
+
+        return { hit: true, type: 'body' };
+
+      }
+
+      break;
+
+
+
+    case 'rectangle':
+
+    case 'ellipse':
+
+      if (drawing.endTimestamp && drawing.endPrice) {
+
+        const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+
+        const minX = Math.min(startCoords.x, endCoords.x);
+
+        const maxX = Math.max(startCoords.x, endCoords.x);
+
+        const minY = Math.min(startCoords.y, endCoords.y);
+
+        const maxY = Math.max(startCoords.y, endCoords.y);
+
+
+
+        if (drawing.type === 'rectangle') {
+
+          // Rectangle border hit test
+
+          const onBorder = (
+
+            (x >= minX && x <= maxX && (Math.abs(y - minY) <= LINE_TOLERANCE || Math.abs(y - maxY) <= LINE_TOLERANCE)) ||
+
+            (y >= minY && y <= maxY && (Math.abs(x - minX) <= LINE_TOLERANCE || Math.abs(x - maxX) <= LINE_TOLERANCE))
+
+          );
+
+
+
+          // Interior hit test (if filled)
+
+          const interior = x >= minX && x <= maxX && y >= minY && y <= maxY;
+
+
+
+          if (onBorder || (interior && drawing.style?.fillOpacity && drawing.style.fillOpacity > 0)) {
+
+            return { hit: true, type: 'body' };
 
           }
 
+        } else if (drawing.type === 'ellipse') {
 
+          // Ellipse hit test
 
-          return []; // Clear points
+          const centerX = (minX + maxX) / 2;
 
-        }
+          const centerY = (minY + maxY) / 2;
 
+          const radiusX = (maxX - minX) / 2;
 
+          const radiusY = (maxY - minY) / 2;
 
-        return currentPoints; // Fallback
 
-      });
 
+          const normalizedX = (x - centerX) / radiusX;
 
+          const normalizedY = (y - centerY) / radiusY;
 
-      // NUCLEAR STOP - RETURN IMMEDIATELY
+          const distance = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
 
-      return;
 
-    }
 
-
-
-    // Check if we're in horizontal ray drawing mode
-
-    if (isHorizontalRayMode) {
-
-      // Use EXACT same coordinate system as crosshair
-
-      const price = screenToPrice(y);
-
-
-
-      const newRay: HorizontalRay = {
-
-        id: Date.now().toString(),
-
-        price: price,
-
-        startX: x,
-
-        color: '#00ff00', // Simple green color
-
-        lineWidth: 2,
-
-        lineStyle: 'solid',
-
-        extendLeft: true,
-
-        extendRight: true,
-
-        label: `Ray ${horizontalRays.length + 1}`
-
-      };
-
-
-
-      setHorizontalRays(prev => [...prev, newRay]);
-
-
-
-      if (!isDrawingLocked) {
-
-        activateToolExclusively('none'); // Clear all tools instead of just this one
-
-      }
-
-
-
-      return;
-
-    }
-
-
-
-    // Drawing Brush mode - CLICK AND HOLD to draw (prepare for drawing)
-
-    if (isDrawingBrushMode) {
-
-      // Track that mouse is pressed and prepare for drawing
-
-      setIsMousePressed(true);
-
-      setIsBrushing(true);
-
-      setCurrentBrushStroke([]); // Start with empty stroke
-
-      setLastBrushTime(Date.now());
-
-
-
-      return;
-
-    }
-
-
-
-    // Check for horizontal ray hits (for editing/selecting)
-
-    for (const ray of horizontalRays) {
-
-      const rayY = priceToScreenForDrawings(ray.price);
-
-      if (Math.abs(y - rayY) <= 5) { // 5px tolerance
-
-        setSelectedRay(ray.id);
-
-        setIsEditingRay(true);
-
-        setRayDragStart({ x, y, originalPrice: ray.price });
-
-        return;
-
-      }
-
-    }
-
-
-
-    // Check for parallel channel hits (for editing/selecting)
-
-    for (const channel of parallelChannels) {
-
-      // Check if click is near any of the channel lines
-
-      const point1Y = priceToScreenForDrawings(channel.point1.price);
-
-      const point2Y = priceToScreenForDrawings(channel.point2.price);
-
-      const point3Y = priceToScreenForDrawings(channel.point3.price);
-
-
-
-      // Calculate the parallel line (point4) coordinates
-
-      const deltaY = point2Y - point1Y;
-
-      const point4Y = point3Y + deltaY;
-
-
-
-      // Check if click is near either channel line (5px tolerance)
-
-      const nearFirstLine = Math.abs(y - point1Y) <= 5 || Math.abs(y - point2Y) <= 5;
-
-      const nearSecondLine = Math.abs(y - point3Y) <= 5 || Math.abs(y - point4Y) <= 5;
-
-
-
-      if (nearFirstLine || nearSecondLine) {
-
-        setSelectedChannel(channel.id);
-
-        setIsEditingChannel(true);
-
-        setChannelDragStart({ x, y, originalChannel: { ...channel } });
-
-        return;
-
-      }
-
-    }
-
-
-
-    // Clear selections if clicking on empty area
-
-    if (selectedRay) {
-
-      setSelectedRay(null);
-
-      setIsEditingRay(false);
-
-      setRayDragStart(null);
-
-    }
-
-    if (selectedChannel) {
-
-      setSelectedChannel(null);
-
-      setIsEditingChannel(false);
-
-      setChannelDragStart(null);
-
-    }
-
-
-
-    // Default chart panning behavior
-
-    setIsDragging(true);
-
-    setLastMouseX(x);
-
-    setDragStartX(x);
-
-    setDragStartOffset(scrollOffset);
-
-  }, [
-
-    isHorizontalRayMode, horizontalRays, rayProperties, scrollOffset,
-
-    isParallelChannelMode, isDrawingBrushMode,
-
-    parallelChannels, isBrushing, isMousePressed,
-
-    drawingBrushes, dimensions, data, visibleCandleCount, isDrawingLocked,
-
-    screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings, activateToolExclusively,
-
-    selectedRay, selectedChannel
-
-  ]);
-
-
-
-  // ? NEW: Advanced Hit Detection System
-
-  const getDrawingHandles = useCallback((drawing: Drawing): Array<{ x: number, y: number, type: string, cursor: string }> => {
-
-    if (!drawing.startTimestamp || !drawing.startPrice) return [];
-
-
-
-    const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
-
-    const handles = [
-
-      { x: startCoords.x, y: startCoords.y, type: 'start', cursor: 'grab' }
-
-    ];
-
-
-
-    if (drawing.endTimestamp && drawing.endPrice) {
-
-      const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
-
-      handles.push({ x: endCoords.x, y: endCoords.y, type: 'end', cursor: 'grab' });
-
-
-
-      // Add corner handles for rectangles
-
-      if (['rectangle', 'ellipse'].includes(drawing.type)) {
-
-        handles.push(
-
-          { x: startCoords.x, y: endCoords.y, type: 'corner1', cursor: 'nw-resize' },
-
-          { x: endCoords.x, y: startCoords.y, type: 'corner2', cursor: 'ne-resize' }
-
-        );
-
-      }
-
-
-
-      // Add midpoint handles for lines
-
-      if (['trend_line', 'extended_line', 'arrow'].includes(drawing.type)) {
-
-        const midX = (startCoords.x + endCoords.x) / 2;
-
-        const midY = (startCoords.y + endCoords.y) / 2;
-
-        handles.push({ x: midX, y: midY, type: 'midpoint', cursor: 'grab' });
-
-      }
-
-    }
-
-
-
-    return handles;
-
-  }, []);
-
-
-
-  const detectDrawingHit = useCallback((x: number, y: number, drawing: Drawing): { hit: boolean, type: string, handle?: any } => {
-
-    const HANDLE_SIZE = 8;
-
-    const LINE_TOLERANCE = 10;
-
-
-
-    // Check handles first
-
-    if (showDrawingHandles && drawing.isSelected) {
-
-      const handles = getDrawingHandles(drawing);
-
-      for (const handle of handles) {
-
-        const distance = Math.sqrt(Math.pow(x - handle.x, 2) + Math.pow(y - handle.y, 2));
-
-        if (distance <= HANDLE_SIZE) {
-
-          return { hit: true, type: 'handle', handle };
-
-        }
-
-      }
-
-    }
-
-
-
-    // Check drawing body
-
-    if (!drawing.startTimestamp || !drawing.startPrice) return { hit: false, type: 'none' };
-
-
-
-    const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
-
-
-
-    switch (drawing.type) {
-
-      case 'trend_line':
-
-      case 'extended_line':
-
-      case 'arrow':
-
-        if (drawing.endTimestamp && drawing.endPrice) {
-
-          const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
-
-          const distance = distanceToLine(x, y, startCoords.x, startCoords.y, endCoords.x, endCoords.y);
-
-          if (distance <= LINE_TOLERANCE) {
+          if (distance <= 1.1 && distance >= 0.9) { // Border tolerance
 
             return { hit: true, type: 'body' };
 
@@ -14206,379 +14306,231 @@ export default function TradingViewChart({
 
         }
 
-        break;
+      }
 
+      break;
 
 
-      case 'horizontal_line':
 
-        if (Math.abs(y - startCoords.y) <= LINE_TOLERANCE) {
+    case 'text':
 
-          return { hit: true, type: 'body' };
+    case 'note':
 
-        }
+      // Text hit test (approximate)
 
-        break;
+      const textWidth = (drawing.text?.length || 0) * 8;
 
+      const textHeight = drawing.style?.fontSize || 12;
 
+      if (x >= startCoords.x && x <= startCoords.x + textWidth &&
 
-      case 'vertical_line':
+        y >= startCoords.y - textHeight && y <= startCoords.y) {
 
-        if (Math.abs(x - startCoords.x) <= LINE_TOLERANCE) {
-
-          return { hit: true, type: 'body' };
-
-        }
-
-        break;
-
-
-
-      case 'rectangle':
-
-      case 'ellipse':
-
-        if (drawing.endTimestamp && drawing.endPrice) {
-
-          const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
-
-          const minX = Math.min(startCoords.x, endCoords.x);
-
-          const maxX = Math.max(startCoords.x, endCoords.x);
-
-          const minY = Math.min(startCoords.y, endCoords.y);
-
-          const maxY = Math.max(startCoords.y, endCoords.y);
-
-
-
-          if (drawing.type === 'rectangle') {
-
-            // Rectangle border hit test
-
-            const onBorder = (
-
-              (x >= minX && x <= maxX && (Math.abs(y - minY) <= LINE_TOLERANCE || Math.abs(y - maxY) <= LINE_TOLERANCE)) ||
-
-              (y >= minY && y <= maxY && (Math.abs(x - minX) <= LINE_TOLERANCE || Math.abs(x - maxX) <= LINE_TOLERANCE))
-
-            );
-
-
-
-            // Interior hit test (if filled)
-
-            const interior = x >= minX && x <= maxX && y >= minY && y <= maxY;
-
-
-
-            if (onBorder || (interior && drawing.style?.fillOpacity && drawing.style.fillOpacity > 0)) {
-
-              return { hit: true, type: 'body' };
-
-            }
-
-          } else if (drawing.type === 'ellipse') {
-
-            // Ellipse hit test
-
-            const centerX = (minX + maxX) / 2;
-
-            const centerY = (minY + maxY) / 2;
-
-            const radiusX = (maxX - minX) / 2;
-
-            const radiusY = (maxY - minY) / 2;
-
-
-
-            const normalizedX = (x - centerX) / radiusX;
-
-            const normalizedY = (y - centerY) / radiusY;
-
-            const distance = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
-
-
-
-            if (distance <= 1.1 && distance >= 0.9) { // Border tolerance
-
-              return { hit: true, type: 'body' };
-
-            }
-
-          }
-
-        }
-
-        break;
-
-
-
-      case 'text':
-
-      case 'note':
-
-        // Text hit test (approximate)
-
-        const textWidth = (drawing.text?.length || 0) * 8;
-
-        const textHeight = drawing.style?.fontSize || 12;
-
-        if (x >= startCoords.x && x <= startCoords.x + textWidth &&
-
-          y >= startCoords.y - textHeight && y <= startCoords.y) {
-
-          return { hit: true, type: 'body' };
-
-        }
-
-        break;
-
-    }
-
-
-
-    return { hit: false, type: 'none' };
-
-  }, [showDrawingHandles, getDrawingHandles]);
-
-
-
-  // Helper function for line distance calculation
-
-  const distanceToLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
-
-    const A = px - x1;
-
-    const B = py - y1;
-
-    const C = x2 - x1;
-
-    const D = y2 - y1;
-
-
-
-    const dot = A * C + B * D;
-
-    const lenSq = C * C + D * D;
-
-
-
-    if (lenSq === 0) return Math.sqrt(A * A + B * B);
-
-
-
-    let param = dot / lenSq;
-
-    param = Math.max(0, Math.min(1, param));
-
-
-
-    const xx = x1 + param * C;
-
-    const yy = y1 + param * D;
-
-
-
-    const dx = px - xx;
-
-    const dy = py - yy;
-
-
-
-    return Math.sqrt(dx * dx + dy * dy);
-
-  };
-
-
-
-  // ? NEW: Magnet Mode for OHLC Snapping
-
-  const snapToOHLC = useCallback((timestamp: number, price: number): { timestamp: number, price: number } => {
-
-    if (!magnetMode || !data.length) return { timestamp, price };
-
-
-
-    // Find nearest candle
-
-    const candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
-
-    if (candleIndex === -1) return { timestamp, price };
-
-
-
-    const candle = data[candleIndex];
-
-    const ohlcValues = [candle.open, candle.high, candle.low, candle.close];
-
-
-
-    // Find closest OHLC value
-
-    let closestPrice = price;
-
-    let minDistance = Infinity;
-
-
-
-    ohlcValues.forEach(ohlcPrice => {
-
-      const distance = Math.abs(price - ohlcPrice);
-
-      if (distance < minDistance) {
-
-        minDistance = distance;
-
-        closestPrice = ohlcPrice;
+        return { hit: true, type: 'body' };
 
       }
 
-    });
+      break;
+
+  }
 
 
 
-    // Only snap if within reasonable distance
+  return { hit: false, type: 'none' };
 
-    const priceRange = Math.abs(candle.high - candle.low);
+}, [showDrawingHandles, getDrawingHandles]);
 
-    if (minDistance < priceRange * 0.1) { // Within 10% of candle range
 
-      return { timestamp: candle.timestamp, price: closestPrice };
+
+// Helper function for line distance calculation
+
+const distanceToLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+
+  const A = px - x1;
+
+  const B = py - y1;
+
+  const C = x2 - x1;
+
+  const D = y2 - y1;
+
+
+
+  const dot = A * C + B * D;
+
+  const lenSq = C * C + D * D;
+
+
+
+  if (lenSq === 0) return Math.sqrt(A * A + B * B);
+
+
+
+  let param = dot / lenSq;
+
+  param = Math.max(0, Math.min(1, param));
+
+
+
+  const xx = x1 + param * C;
+
+  const yy = y1 + param * D;
+
+
+
+  const dx = px - xx;
+
+  const dy = py - yy;
+
+
+
+  return Math.sqrt(dx * dx + dy * dy);
+
+};
+
+
+
+// ? NEW: Magnet Mode for OHLC Snapping
+
+const snapToOHLC = useCallback((timestamp: number, price: number): { timestamp: number, price: number } => {
+
+  if (!magnetMode || !data.length) return { timestamp, price };
+
+
+
+  // Find nearest candle
+
+  const candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
+
+  if (candleIndex === -1) return { timestamp, price };
+
+
+
+  const candle = data[candleIndex];
+
+  const ohlcValues = [candle.open, candle.high, candle.low, candle.close];
+
+
+
+  // Find closest OHLC value
+
+  let closestPrice = price;
+
+  let minDistance = Infinity;
+
+
+
+  ohlcValues.forEach(ohlcPrice => {
+
+    const distance = Math.abs(price - ohlcPrice);
+
+    if (distance < minDistance) {
+
+      minDistance = distance;
+
+      closestPrice = ohlcPrice;
 
     }
 
+  });
 
 
-    return { timestamp, price };
 
-  }, [magnetMode, data]);
+  // Only snap if within reasonable distance
 
+  const priceRange = Math.abs(candle.high - candle.low);
 
+  if (minDistance < priceRange * 0.1) { // Within 10% of candle range
 
-  // ? NEW: Enhanced Drawing Handle Rendering
+    return { timestamp: candle.timestamp, price: closestPrice };
 
-  const renderDrawingHandles = useCallback((ctx: CanvasRenderingContext2D, drawing: Drawing) => {
+  }
 
-    if (!drawing.isSelected || !showDrawingHandles) return;
 
 
+  return { timestamp, price };
 
-    const handles = getDrawingHandles(drawing);
+}, [magnetMode, data]);
 
 
 
-    handles.forEach(handle => {
+// ? NEW: Enhanced Drawing Handle Rendering
 
-      // Handle appearance
+const renderDrawingHandles = useCallback((ctx: CanvasRenderingContext2D, drawing: Drawing) => {
 
-      ctx.fillStyle = '#2962ff';
+  if (!drawing.isSelected || !showDrawingHandles) return;
 
-      ctx.strokeStyle = '#ffffff';
 
-      ctx.lineWidth = 2;
 
+  const handles = getDrawingHandles(drawing);
 
 
-      // Draw handle based on type
 
-      if (handle.type === 'start' || handle.type === 'end') {
+  handles.forEach(handle => {
 
-        // Circle handles for start/end points
+    // Handle appearance
 
-        ctx.beginPath();
+    ctx.fillStyle = '#2962ff';
 
-        ctx.arc(handle.x, handle.y, 6, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#ffffff';
 
-        ctx.fill();
+    ctx.lineWidth = 2;
 
-        ctx.stroke();
 
-      } else if (handle.type.startsWith('corner')) {
 
-        // Square handles for corners
+    // Draw handle based on type
 
-        ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+    if (handle.type === 'start' || handle.type === 'end') {
 
-        ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+      // Circle handles for start/end points
 
-      } else if (handle.type === 'midpoint') {
+      ctx.beginPath();
 
-        // Diamond handle for midpoint
+      ctx.arc(handle.x, handle.y, 6, 0, 2 * Math.PI);
 
-        ctx.save();
+      ctx.fill();
 
-        ctx.translate(handle.x, handle.y);
+      ctx.stroke();
 
-        ctx.rotate(Math.PI / 4);
+    } else if (handle.type.startsWith('corner')) {
 
-        ctx.fillRect(-4, -4, 8, 8);
+      // Square handles for corners
 
-        ctx.strokeRect(-4, -4, 8, 8);
+      ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
 
-        ctx.restore();
+      ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
 
-      }
+    } else if (handle.type === 'midpoint') {
 
-    });
+      // Diamond handle for midpoint
 
-  }, [showDrawingHandles, getDrawingHandles]);
+      ctx.save();
 
+      ctx.translate(handle.x, handle.y);
 
+      ctx.rotate(Math.PI / 4);
 
-  // ? ENHANCED: Mouse handlers with advanced hit detection
+      ctx.fillRect(-4, -4, 8, 8);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+      ctx.strokeRect(-4, -4, 8, 8);
 
-    if (e.button === 2) { // Right click
-
-      e.preventDefault();
-
-      const rect = e.currentTarget.getBoundingClientRect();
-
-      const x = e.clientX - rect.left;
-
-      const y = e.clientY - rect.top;
-
-
-
-      // Check if right-clicking on a drawing
-
-      const hitDrawing = drawings.find(drawing => {
-
-        const hitResult = detectDrawingHit(x, y, drawing);
-
-        return hitResult.hit;
-
-      });
-
-
-
-      if (hitDrawing) {
-
-        setContextMenuDrawing(hitDrawing);
-
-        setSelectedDrawing(hitDrawing);
-
-        setContextMenuPosition({ x: e.clientX, y: e.clientY });
-
-        setShowContextMenu(true);
-
-      } else {
-
-        setShowContextMenu(false);
-
-      }
-
-      return;
+      ctx.restore();
 
     }
 
+  });
+
+}, [showDrawingHandles, getDrawingHandles]);
 
 
-    if (e.button !== 0) return; // Only left mouse button for other actions
 
+// ? ENHANCED: Mouse handlers with advanced hit detection
 
+const handleMouseDown = useCallback((e: React.MouseEvent) => {
+
+  if (e.button === 2) { // Right click
+
+    e.preventDefault();
 
     const rect = e.currentTarget.getBoundingClientRect();
 
@@ -14588,191 +14540,615 @@ export default function TradingViewChart({
 
 
 
-    // Close any open menus
+    // Check if right-clicking on a drawing
 
-    setShowContextMenu(false);
+    const hitDrawing = drawings.find(drawing => {
 
-    setShowPropertiesPanel(false);
+      const hitResult = detectDrawingHit(x, y, drawing);
 
+      return hitResult.hit;
 
-
-    // Check for box zoom mode (Shift key held)
-
-    if (e.shiftKey && !activeTool) {
-
-      setIsBoxZooming(true);
-
-      setBoxZoomStart({ x, y });
-
-      setBoxZoomEnd({ x, y });
-
-      return;
-
-    }
-
-
-
-    // Check for drawing interaction first
-
-    let hitDrawing: Drawing | null = null;
-
-    let hitResult: { hit: boolean, type: string, handle?: any } = { hit: false, type: 'none' };
-
-
-
-    // Check drawings in reverse order (front to back)
-
-    for (let i = drawings.length - 1; i >= 0; i--) {
-
-      const drawing = drawings[i];
-
-      if (drawing.isLocked) continue; // Skip locked drawings
-
-
-
-      const result = detectDrawingHit(x, y, drawing);
-
-      if (result.hit) {
-
-        hitDrawing = drawing;
-
-        hitResult = result;
-
-        break;
-
-      }
-
-    }
+    });
 
 
 
     if (hitDrawing) {
 
-      // Multi-select with Ctrl/Cmd
+      setContextMenuDrawing(hitDrawing);
 
-      const isMultiSelect = e.ctrlKey || e.metaKey;
+      setSelectedDrawing(hitDrawing);
 
-      handleDrawingSelection(hitDrawing, isMultiSelect);
+      setContextMenuPosition({ x: e.clientX, y: e.clientY });
 
+      setShowContextMenu(true);
 
+    } else {
 
-      if (hitResult.type === 'handle' && hitResult.handle) {
+      setShowContextMenu(false);
 
-        // Start handle dragging
+    }
 
-        setIsDraggingDrawing(true);
+    return;
 
-        setSelectedDrawing(hitDrawing);
-
-        setOriginalDrawing({ ...hitDrawing });
-
-        // Store which handle is being dragged
-
-        setDragOffset({ x: hitResult.handle.x - x, y: hitResult.handle.y - y });
-
-      } else if (hitResult.type === 'body') {
-
-        // Start drawing dragging
-
-        setIsDraggingDrawing(true);
-
-        setSelectedDrawing(hitDrawing);
-
-        setOriginalDrawing({ ...hitDrawing });
+  }
 
 
 
-        // Calculate offset from drawing start point to click point
+  if (e.button !== 0) return; // Only left mouse button for other actions
 
-        if (hitDrawing.startTimestamp && hitDrawing.startPrice) {
 
-          const startCoords = timePriceToScreenCoordinates(hitDrawing.startTimestamp, hitDrawing.startPrice);
 
-          setDragOffset({ x: startCoords.x - x, y: startCoords.y - y });
+  const rect = e.currentTarget.getBoundingClientRect();
 
-        }
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+  // Close any open menus
+
+  setShowContextMenu(false);
+
+  setShowPropertiesPanel(false);
+
+
+
+  // Check for box zoom mode (Shift key held)
+
+  if (e.shiftKey && !activeTool) {
+
+    setIsBoxZooming(true);
+
+    setBoxZoomStart({ x, y });
+
+    setBoxZoomEnd({ x, y });
+
+    return;
+
+  }
+
+
+
+  // Check for drawing interaction first
+
+  let hitDrawing: Drawing | null = null;
+
+  let hitResult: { hit: boolean, type: string, handle?: any } = { hit: false, type: 'none' };
+
+
+
+  // Check drawings in reverse order (front to back)
+
+  for (let i = drawings.length - 1; i >= 0; i--) {
+
+    const drawing = drawings[i];
+
+    if (drawing.isLocked) continue; // Skip locked drawings
+
+
+
+    const result = detectDrawingHit(x, y, drawing);
+
+    if (result.hit) {
+
+      hitDrawing = drawing;
+
+      hitResult = result;
+
+      break;
+
+    }
+
+  }
+
+
+
+  if (hitDrawing) {
+
+    // Multi-select with Ctrl/Cmd
+
+    const isMultiSelect = e.ctrlKey || e.metaKey;
+
+    handleDrawingSelection(hitDrawing, isMultiSelect);
+
+
+
+    if (hitResult.type === 'handle' && hitResult.handle) {
+
+      // Start handle dragging
+
+      setIsDraggingDrawing(true);
+
+      setSelectedDrawing(hitDrawing);
+
+      setOriginalDrawing({ ...hitDrawing });
+
+      // Store which handle is being dragged
+
+      setDragOffset({ x: hitResult.handle.x - x, y: hitResult.handle.y - y });
+
+    } else if (hitResult.type === 'body') {
+
+      // Start drawing dragging
+
+      setIsDraggingDrawing(true);
+
+      setSelectedDrawing(hitDrawing);
+
+      setOriginalDrawing({ ...hitDrawing });
+
+
+
+      // Calculate offset from drawing start point to click point
+
+      if (hitDrawing.startTimestamp && hitDrawing.startPrice) {
+
+        const startCoords = timePriceToScreenCoordinates(hitDrawing.startTimestamp, hitDrawing.startPrice);
+
+        setDragOffset({ x: startCoords.x - x, y: startCoords.y - y });
 
       }
-
-
-
-      // Double-click detection for properties panel
-
-      const now = Date.now();
-
-      if (lastClickDrawing?.id === hitDrawing.id && now - lastClickTime < 500) {
-
-        setShowPropertiesPanel(true);
-
-        setPropertiesPanelPosition({ x: e.clientX, y: e.clientY });
-
-      }
-
-      setLastClickDrawing(hitDrawing);
-
-      setLastClickTime(now);
-
-
-
-      return; // Don't proceed with chart dragging
 
     }
 
 
 
-    // No drawing hit, proceed with chart navigation
-
-    setSelectedDrawing(null);
-
-    setSelectedDrawings([]);
-
-
-
-    // Check if mouse is over Y-axis area for Y-axis dragging
-
-    const canvas = e.currentTarget as HTMLCanvasElement;
-
-    const canvasWidth = canvas.width / window.devicePixelRatio;
-
-    const isOverYAxis = isInYAxisArea(x, canvasWidth);
-
-
-
-    // Stop any ongoing momentum animation when starting new interaction
-
-    stopMomentumAnimation();
-
-
-
-    // Initialize velocity tracking
+    // Double-click detection for properties panel
 
     const now = Date.now();
 
-    setLastMouseTimestamp(now);
+    if (lastClickDrawing?.id === hitDrawing.id && now - lastClickTime < 500) {
 
-    setLastMousePosition({ x, y });
+      setShowPropertiesPanel(true);
 
+      setPropertiesPanelPosition({ x: e.clientX, y: e.clientY });
 
+    }
 
-    // Start full chart panning (both X and Y axes) - Tradytics style
+    setLastClickDrawing(hitDrawing);
 
-    setIsDragging(true);
-
-    setIsDraggingYAxis(true); // Enable Y-axis dragging for all chart areas
-
-    setLastMouseX(x);
-
-    setDragStartX(x);
-
-    setDragStartOffset(scrollOffset);
+    setLastClickTime(now);
 
 
 
+    return; // Don't proceed with chart dragging
+
+  }
+
+
+
+  // No drawing hit, proceed with chart navigation
+
+  setSelectedDrawing(null);
+
+  setSelectedDrawings([]);
+
+
+
+  // Check if mouse is over Y-axis area for Y-axis dragging
+
+  const canvas = e.currentTarget as HTMLCanvasElement;
+
+  const canvasWidth = canvas.width / window.devicePixelRatio;
+
+  const isOverYAxis = isInYAxisArea(x, canvasWidth);
+
+
+
+  // Stop any ongoing momentum animation when starting new interaction
+
+  stopMomentumAnimation();
+
+
+
+  // Initialize velocity tracking
+
+  const now = Date.now();
+
+  setLastMouseTimestamp(now);
+
+  setLastMousePosition({ x, y });
+
+
+
+  // Start full chart panning (both X and Y axes) - Tradytics style
+
+  setIsDragging(true);
+
+  setIsDraggingYAxis(true); // Enable Y-axis dragging for all chart areas
+
+  setLastMouseX(x);
+
+  setDragStartX(x);
+
+  setDragStartOffset(scrollOffset);
 
 
 
 
-    // Get current visible data for price range calculation
+
+
+
+  // Get current visible data for price range calculation
+
+  const startIndex = Math.max(0, Math.floor(scrollOffset));
+
+  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+
+  const visibleData = data.slice(startIndex, endIndex);
+
+
+
+  if (visibleData.length > 0) {
+
+    // CRITICAL: Always use manual price range if it exists to preserve previous drag positions
+
+    // This prevents the chart from "snapping back" to original position
+
+    let currentRange;
+
+    if (manualPriceRange) {
+
+      // Use the current manual price range (which includes any previous drag adjustments)
+
+      currentRange = manualPriceRange;
+
+    } else {
+
+      // Only calculate from visible data if no manual range exists
+
+      currentRange = getCurrentPriceRange(visibleData);
+
+    }
+
+    setYAxisDragStart({ y, priceRange: currentRange });
+
+  }
+
+
+
+}, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange]);
+
+
+
+const handleMouseMove = useCallback((e: React.MouseEvent) => {
+
+  const rect = e.currentTarget.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+  // ALWAYS update crosshair position first
+
+  setCrosshairPosition({ x, y });
+
+
+
+  // Update crosshair info with price and date/time
+
+  if (data.length > 0) {
+
+    const coords = screenToTimePriceCoordinates(x, y);
+
+    const price = coords.price;
+
+    const timestamp = coords.timestamp;
+
+
+
+    // Find the closest candle for OHLC data
+
+    const candleIndex = data.findIndex(d => d.timestamp >= timestamp);
+
+    const closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
+
+
+
+    // Format date and time
+
+    const date = new Date(timestamp);
+
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+
+
+    setCrosshairInfo({
+
+      price: `$${price.toFixed(2)}`,
+
+      date: dateStr,
+
+      time: timeStr,
+
+      visible: true,
+
+      ohlc: closestCandle ? {
+
+        open: closestCandle.open,
+
+        high: closestCandle.high,
+
+        low: closestCandle.low,
+
+        close: closestCandle.close,
+
+        change: closestCandle.close - closestCandle.open,
+
+        changePercent: ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100
+
+      } : undefined
+
+    });
+
+  }
+
+
+
+  // Handle horizontal ray dragging
+
+  if (isEditingRay && selectedRay && rayDragStart) {
+
+    const newPrice = screenToPrice(y);
+
+    setHorizontalRays(prev =>
+
+      prev.map(ray =>
+
+        ray.id === selectedRay
+
+          ? { ...ray, price: newPrice }
+
+          : ray
+
+      )
+
+    );
+
+    return;
+
+  }
+
+
+
+  // Handle parallel channel dragging
+
+  if (isEditingChannel && selectedChannel && channelDragStart) {
+
+    // Calculate price change for vertical dragging
+
+    const newPrice = screenToPrice(y);
+
+    const originalPrice = screenToPrice(channelDragStart.y);
+
+    const deltaPrice = newPrice - originalPrice;
+
+
+
+    // Calculate time change for horizontal dragging
+
+    const newTimestamp = screenToTimePriceCoordinates(x, y).timestamp;
+
+    const originalTimestamp = screenToTimePriceCoordinates(channelDragStart.x, channelDragStart.y).timestamp;
+
+    const deltaTime = newTimestamp - originalTimestamp;
+
+
+
+    setParallelChannels(prev =>
+
+      prev.map(channel =>
+
+        channel.id === selectedChannel
+
+          ? {
+
+            ...channel,
+
+            point1: {
+
+              timestamp: channelDragStart.originalChannel.point1.timestamp + deltaTime,
+
+              price: channelDragStart.originalChannel.point1.price + deltaPrice
+
+            },
+
+            point2: {
+
+              timestamp: channelDragStart.originalChannel.point2.timestamp + deltaTime,
+
+              price: channelDragStart.originalChannel.point2.price + deltaPrice
+
+            },
+
+            point3: {
+
+              timestamp: channelDragStart.originalChannel.point3.timestamp + deltaTime,
+
+              price: channelDragStart.originalChannel.point3.price + deltaPrice
+
+            }
+
+          }
+
+          : channel
+
+      )
+
+    );
+
+    return;
+
+  }
+
+
+
+  // Handle drawing brush stroke - CLICK AND HOLD behavior
+
+  if (isBrushing && isDrawingBrushMode && isMousePressed) {
+
+    const now = Date.now();
+
+
+
+    // Throttle brush points to prevent too many updates (max 60 FPS)
+
+    if (now - lastBrushTime < 16) {
+
+      return; // Skip this update
+
+    }
+
+
+
+    // Use EXACT same coordinate system as crosshair for perfect alignment
+
+    const coords = screenToTimePriceCoordinates(x, y);
+
+
+
+    // Add point to current brush stroke with smooth interpolation
+
+    setCurrentBrushStroke(prev => {
+
+      // If this is the first point (empty array), always add it to start drawing
+
+      if (prev.length === 0) {
+
+        return [coords];
+
+      }
+
+
+
+      // For subsequent points, avoid duplicates that are too close together (less than 2 pixels distance)
+
+      const lastPoint = prev[prev.length - 1];
+
+      const lastX = timeToScreen(lastPoint.timestamp);
+
+      const lastY = priceToScreenForDrawings(lastPoint.price);
+
+      const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+
+
+
+      // Only add point if it's far enough from the last point for smoother drawing
+
+      if (distance < 2) {
+
+        return prev;
+
+      }
+
+
+
+      return [...prev, coords];
+
+    });
+
+
+
+    setLastBrushTime(now);
+
+    // Note: Don't return here so crosshair continues to update
+
+  }
+
+
+
+  // Handle channel preview (show live preview as mouse moves) - use EXACT same coordinate system as crosshair
+
+  if (isParallelChannelMode && currentChannelPoints.length > 0) {
+
+    // Throttle preview updates to improve performance
+
+    const now = Date.now();
+
+    if (!lastPreviewUpdate || now - lastPreviewUpdate > 16) { // ~60fps throttling
+
+      const previewCoords = screenToTimePriceCoordinates(x, y);
+
+      setChannelPreviewPoint(previewCoords);
+
+      setLastPreviewUpdate(now);
+
+    }
+
+    // Note: Don't return here so crosshair continues to update
+
+  }
+
+
+
+  // Track velocity for momentum scrolling (only when dragging)
+
+  if (isDragging || isDraggingYAxis) {
+
+    const now = Date.now();
+
+    const deltaTime = now - lastMouseTimestamp;
+
+
+
+    if (deltaTime > 0) {
+
+      const deltaX = x - lastMousePosition.x;
+
+      const deltaY = y - lastMousePosition.y;
+
+
+
+      // Calculate velocity (pixels per millisecond)
+
+      const velocityX = deltaX / deltaTime * 16; // Convert to 60fps frame rate
+
+      const velocityY = deltaY / deltaTime * 16;
+
+
+
+      setVelocity({ x: velocityX, y: velocityY });
+
+      setLastMouseTimestamp(now);
+
+      setLastMousePosition({ x, y });
+
+    }
+
+  }
+
+
+
+  // Handle box zoom dragging
+
+  if (isBoxZooming && boxZoomStart) {
+
+    setBoxZoomEnd({ x, y });
+
+    return;
+
+  }
+
+
+
+  // Handle drawing dragging
+
+  if (isDraggingDrawing && selectedDrawing) {
+
+    // Convert Y to price using the same calculation as chart rendering
+
+    const timeAxisHeight = 25;
+
+    const priceChartHeight = dimensions.height - timeAxisHeight;
+
+
+
+    // Calculate visible data range for accurate price conversion
 
     const startIndex = Math.max(0, Math.floor(scrollOffset));
 
@@ -14784,365 +15160,311 @@ export default function TradingViewChart({
 
     if (visibleData.length > 0) {
 
-      // CRITICAL: Always use manual price range if it exists to preserve previous drag positions
+      const prices = visibleData.flatMap(d => [d.high, d.low]);
 
-      // This prevents the chart from "snapping back" to original position
+      const minPrice = Math.min(...prices);
 
-      let currentRange;
+      const maxPrice = Math.max(...prices);
 
-      if (manualPriceRange) {
+      const padding = (maxPrice - minPrice) * 0.1;
 
-        // Use the current manual price range (which includes any previous drag adjustments)
+      const adjustedMin = minPrice - padding;
 
-        currentRange = manualPriceRange;
+      const adjustedMax = maxPrice + padding;
 
-      } else {
 
-        // Only calculate from visible data if no manual range exists
 
-        currentRange = getCurrentPriceRange(visibleData);
+      const newPrice = adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
 
-      }
 
-      setYAxisDragStart({ y, priceRange: currentRange });
+
+      setDrawings(prev => prev.map((d: any) =>
+
+        d.id === selectedDrawing.id
+
+          ? { ...d, price: newPrice, y }
+
+          : d
+
+      ));
+
+    }
+
+    return;
+
+  }
+
+
+
+  // Handle full chart panning (both X and Y axes simultaneously)
+
+  if ((isDragging || isDraggingYAxis) && yAxisDragStart) {
+
+    // Handle Y-axis dragging (vertical movement)
+
+    const deltaY = y - yAxisDragStart.y;
+
+    const timeAxisHeight = 25;
+
+    const priceChartHeight = dimensions.height - timeAxisHeight;
+
+
+
+    // Calculate price change based on drag distance
+
+    const originalRange = yAxisDragStart.priceRange;
+
+    const priceHeight = originalRange.max - originalRange.min;
+
+    const pricePerPixel = priceHeight / priceChartHeight;
+
+    // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
+
+    const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
+
+    const newRange = {
+
+      min: originalRange.min + priceShift,
+
+      max: originalRange.max + priceShift
+
+    };
+
+
+
+    setManualPriceRangeAndDisableAuto(newRange);
+
+
+
+    // Handle X-axis dragging (horizontal movement)
+
+    const deltaX = x - lastMouseX;
+
+    const currentOffset = scrollOffset;
+
+
+
+    // Calculate drag movement - preserve sign for correct direction
+
+    const chartWidth = dimensions.width - 100; // Account for margins
+
+    const candleWidth = chartWidth / visibleCandleCount;
+
+    const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
+
+
+
+    // Allow extending beyond data for future view
+
+    const futurePeriods = getFuturePeriods(config.timeframe);
+
+    const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+
+    const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+
+    // Drag RIGHT (positive deltaX) should DECREASE offset (move forward in time)
+
+    // Drag LEFT (negative deltaX) should INCREASE offset (move backward in time)
+
+    const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
+
+
+
+    if (newOffset !== currentOffset) {
+
+      setScrollOffset(newOffset);
 
     }
 
 
 
-  }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange]);
+    setLastMouseX(x);
+
+    return;
+
+  }
 
 
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  // Alternative Y-axis dragging when yAxisDragStart is not set but we're in manual mode
 
-    const rect = e.currentTarget.getBoundingClientRect();
+  if ((isDragging || isDraggingYAxis) && !isAutoScale && manualPriceRange) {
 
-    const x = e.clientX - rect.left;
+    // Handle Y-axis dragging using current manual price range
 
-    const y = e.clientY - rect.top;
+    const deltaY = y - (lastMousePosition.y || y);
 
+    const timeAxisHeight = 25;
 
-
-    // ALWAYS update crosshair position first
-
-    setCrosshairPosition({ x, y });
+    const priceChartHeight = dimensions.height - timeAxisHeight;
 
 
 
-    // Update crosshair info with price and date/time
+    // Get current manual price range
 
-    if (data.length > 0) {
+    const priceHeight = manualPriceRange.max - manualPriceRange.min;
 
-      const coords = screenToTimePriceCoordinates(x, y);
+    const pricePerPixel = priceHeight / priceChartHeight;
 
-      const price = coords.price;
+    // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
 
-      const timestamp = coords.timestamp;
+    const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
 
+    const newRange = {
 
+      min: manualPriceRange.min + priceShift,
 
-      // Find the closest candle for OHLC data
+      max: manualPriceRange.max + priceShift
 
-      const candleIndex = data.findIndex(d => d.timestamp >= timestamp);
-
-      const closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
-
-
-
-      // Format date and time
-
-      const date = new Date(timestamp);
-
-      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-      const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    };
 
 
 
-      setCrosshairInfo({
-
-        price: `$${price.toFixed(2)}`,
-
-        date: dateStr,
-
-        time: timeStr,
-
-        visible: true,
-
-        ohlc: closestCandle ? {
-
-          open: closestCandle.open,
-
-          high: closestCandle.high,
-
-          low: closestCandle.low,
-
-          close: closestCandle.close,
-
-          change: closestCandle.close - closestCandle.open,
-
-          changePercent: ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100
-
-        } : undefined
-
-      });
-
-    }
+    setManualPriceRangeAndDisableAuto(newRange);
 
 
 
-    // Handle horizontal ray dragging
+    // Handle X-axis dragging (horizontal movement)
 
-    if (isEditingRay && selectedRay && rayDragStart) {
+    const deltaX = x - lastMouseX;
 
-      const newPrice = screenToPrice(y);
+    const currentOffset = scrollOffset;
 
-      setHorizontalRays(prev =>
 
-        prev.map(ray =>
 
-          ray.id === selectedRay
+    // Calculate drag movement - preserve sign for correct direction
 
-            ? { ...ray, price: newPrice }
+    const chartWidth = dimensions.width - 100; // Account for margins
 
-            : ray
+    const candleWidth = chartWidth / visibleCandleCount;
 
-        )
+    const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
 
-      );
 
-      return;
+
+    // Allow extending beyond data for future view
+
+    const futurePeriods = getFuturePeriods(config.timeframe);
+
+    const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+
+    const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+
+    const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
+
+
+
+    if (newOffset !== currentOffset) {
+
+      setScrollOffset(newOffset);
 
     }
 
 
 
-    // Handle parallel channel dragging
+    setLastMouseX(x);
 
-    if (isEditingChannel && selectedChannel && channelDragStart) {
+    return;
 
-      // Calculate price change for vertical dragging
-
-      const newPrice = screenToPrice(y);
-
-      const originalPrice = screenToPrice(channelDragStart.y);
-
-      const deltaPrice = newPrice - originalPrice;
+  }
 
 
 
-      // Calculate time change for horizontal dragging
+  // Fallback: Handle horizontal dragging only (if Y-axis drag start wasn't set)
 
-      const newTimestamp = screenToTimePriceCoordinates(x, y).timestamp;
+  if (isDragging) {
 
-      const originalTimestamp = screenToTimePriceCoordinates(channelDragStart.x, channelDragStart.y).timestamp;
+    const deltaX = x - lastMouseX;
 
-      const deltaTime = newTimestamp - originalTimestamp;
+    const currentOffset = scrollOffset;
 
 
 
-      setParallelChannels(prev =>
+    // Calculate drag movement - preserve sign for correct direction
 
-        prev.map(channel =>
+    const chartWidth = dimensions.width - 100; // Account for margins
 
-          channel.id === selectedChannel
+    const candleWidth = chartWidth / visibleCandleCount;
 
-            ? {
+    const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
 
-              ...channel,
 
-              point1: {
 
-                timestamp: channelDragStart.originalChannel.point1.timestamp + deltaTime,
+    // Allow extending beyond data for future view
 
-                price: channelDragStart.originalChannel.point1.price + deltaPrice
+    const futurePeriods = getFuturePeriods(config.timeframe);
 
-              },
+    const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
 
-              point2: {
+    const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
 
-                timestamp: channelDragStart.originalChannel.point2.timestamp + deltaTime,
 
-                price: channelDragStart.originalChannel.point2.price + deltaPrice
 
-              },
+    if (newOffset !== currentOffset) {
 
-              point3: {
-
-                timestamp: channelDragStart.originalChannel.point3.timestamp + deltaTime,
-
-                price: channelDragStart.originalChannel.point3.price + deltaPrice
-
-              }
-
-            }
-
-            : channel
-
-        )
-
-      );
-
-      return;
+      setScrollOffset(newOffset);
 
     }
 
 
 
-    // Handle drawing brush stroke - CLICK AND HOLD behavior
+    setLastMouseX(x);
 
-    if (isBrushing && isDrawingBrushMode && isMousePressed) {
+    return;
 
-      const now = Date.now();
+  }
 
+}, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight]);
 
 
-      // Throttle brush points to prevent too many updates (max 60 FPS)
 
-      if (now - lastBrushTime < 16) {
+const handleMouseUp = useCallback(() => {
 
-        return; // Skip this update
+  // Handle box zoom completion
 
-      }
+  if (isBoxZooming && boxZoomStart && boxZoomEnd) {
 
+    const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
 
+    const endX = Math.max(boxZoomStart.x, boxZoomEnd.x);
 
-      // Use EXACT same coordinate system as crosshair for perfect alignment
+    const startY = Math.min(boxZoomStart.y, boxZoomEnd.y);
 
-      const coords = screenToTimePriceCoordinates(x, y);
+    const endY = Math.max(boxZoomStart.y, boxZoomEnd.y);
 
 
 
-      // Add point to current brush stroke with smooth interpolation
+    // Only proceed if the box is large enough (minimum 20x20 pixels)
 
-      setCurrentBrushStroke(prev => {
+    if (Math.abs(endX - startX) > 20 && Math.abs(endY - startY) > 20) {
 
-        // If this is the first point (empty array), always add it to start drawing
+      // Convert screen coordinates to chart data coordinates
 
-        if (prev.length === 0) {
+      const chartWidth = dimensions.width - 100; // Account for margins
 
-          return [coords];
+      const candleWidth = chartWidth / visibleCandleCount;
 
-        }
 
 
+      // Calculate new time range (X-axis)
 
-        // For subsequent points, avoid duplicates that are too close together (less than 2 pixels distance)
+      const startCandleIndex = Math.floor((startX - 40) / candleWidth);
 
-        const lastPoint = prev[prev.length - 1];
+      const endCandleIndex = Math.floor((endX - 40) / candleWidth);
 
-        const lastX = timeToScreen(lastPoint.timestamp);
+      const newVisibleCount = Math.max(20, Math.min(300, endCandleIndex - startCandleIndex));
 
-        const lastY = priceToScreenForDrawings(lastPoint.price);
+      const newScrollOffset = Math.max(0, Math.min(
 
-        const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+        data.length - newVisibleCount,
 
+        scrollOffset + startCandleIndex
 
+      ));
 
-        // Only add point if it's far enough from the last point for smoother drawing
 
-        if (distance < 2) {
 
-          return prev;
-
-        }
-
-
-
-        return [...prev, coords];
-
-      });
-
-
-
-      setLastBrushTime(now);
-
-      // Note: Don't return here so crosshair continues to update
-
-    }
-
-
-
-    // Handle channel preview (show live preview as mouse moves) - use EXACT same coordinate system as crosshair
-
-    if (isParallelChannelMode && currentChannelPoints.length > 0) {
-
-      // Throttle preview updates to improve performance
-
-      const now = Date.now();
-
-      if (!lastPreviewUpdate || now - lastPreviewUpdate > 16) { // ~60fps throttling
-
-        const previewCoords = screenToTimePriceCoordinates(x, y);
-
-        setChannelPreviewPoint(previewCoords);
-
-        setLastPreviewUpdate(now);
-
-      }
-
-      // Note: Don't return here so crosshair continues to update
-
-    }
-
-
-
-    // Track velocity for momentum scrolling (only when dragging)
-
-    if (isDragging || isDraggingYAxis) {
-
-      const now = Date.now();
-
-      const deltaTime = now - lastMouseTimestamp;
-
-
-
-      if (deltaTime > 0) {
-
-        const deltaX = x - lastMousePosition.x;
-
-        const deltaY = y - lastMousePosition.y;
-
-
-
-        // Calculate velocity (pixels per millisecond)
-
-        const velocityX = deltaX / deltaTime * 16; // Convert to 60fps frame rate
-
-        const velocityY = deltaY / deltaTime * 16;
-
-
-
-        setVelocity({ x: velocityX, y: velocityY });
-
-        setLastMouseTimestamp(now);
-
-        setLastMousePosition({ x, y });
-
-      }
-
-    }
-
-
-
-    // Handle box zoom dragging
-
-    if (isBoxZooming && boxZoomStart) {
-
-      setBoxZoomEnd({ x, y });
-
-      return;
-
-    }
-
-
-
-    // Handle drawing dragging
-
-    if (isDraggingDrawing && selectedDrawing) {
-
-      // Convert Y to price using the same calculation as chart rendering
+      // Calculate new price range (Y-axis)
 
       const timeAxisHeight = 25;
 
@@ -15150,7 +15472,7 @@ export default function TradingViewChart({
 
 
 
-      // Calculate visible data range for accurate price conversion
+      // Get current price range for conversion
 
       const startIndex = Math.max(0, Math.floor(scrollOffset));
 
@@ -15158,385 +15480,31 @@ export default function TradingViewChart({
 
       const visibleData = data.slice(startIndex, endIndex);
 
-
-
-      if (visibleData.length > 0) {
-
-        const prices = visibleData.flatMap(d => [d.high, d.low]);
-
-        const minPrice = Math.min(...prices);
-
-        const maxPrice = Math.max(...prices);
-
-        const padding = (maxPrice - minPrice) * 0.1;
-
-        const adjustedMin = minPrice - padding;
-
-        const adjustedMax = maxPrice + padding;
+      const currentRange = getCurrentPriceRange(visibleData);
 
 
 
-        const newPrice = adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
+      // Convert Y coordinates to prices
+
+      const maxPrice = currentRange.max - ((startY / priceChartHeight) * (currentRange.max - currentRange.min));
+
+      const minPrice = currentRange.max - ((endY / priceChartHeight) * (currentRange.max - currentRange.min));
 
 
 
-        setDrawings(prev => prev.map((d: any) =>
+      // Apply zoom
 
-          d.id === selectedDrawing.id
+      setVisibleCandleCount(newVisibleCount);
 
-            ? { ...d, price: newPrice, y }
+      setScrollOffset(newScrollOffset);
 
-            : d
-
-        ));
-
-      }
-
-      return;
+      setManualPriceRangeAndDisableAuto({ min: minPrice, max: maxPrice });
 
     }
 
 
 
-    // Handle full chart panning (both X and Y axes simultaneously)
-
-    if ((isDragging || isDraggingYAxis) && yAxisDragStart) {
-
-      // Handle Y-axis dragging (vertical movement)
-
-      const deltaY = y - yAxisDragStart.y;
-
-      const timeAxisHeight = 25;
-
-      const priceChartHeight = dimensions.height - timeAxisHeight;
-
-
-
-      // Calculate price change based on drag distance
-
-      const originalRange = yAxisDragStart.priceRange;
-
-      const priceHeight = originalRange.max - originalRange.min;
-
-      const pricePerPixel = priceHeight / priceChartHeight;
-
-      // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
-
-      const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
-
-      const newRange = {
-
-        min: originalRange.min + priceShift,
-
-        max: originalRange.max + priceShift
-
-      };
-
-
-
-      setManualPriceRangeAndDisableAuto(newRange);
-
-
-
-      // Handle X-axis dragging (horizontal movement)
-
-      const deltaX = x - lastMouseX;
-
-      const currentOffset = scrollOffset;
-
-
-
-      // Calculate drag movement - preserve sign for correct direction
-
-      const chartWidth = dimensions.width - 100; // Account for margins
-
-      const candleWidth = chartWidth / visibleCandleCount;
-
-      const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
-
-
-
-      // Allow extending beyond data for future view
-
-      const futurePeriods = getFuturePeriods(config.timeframe);
-
-      const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
-
-      const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
-
-      // Drag RIGHT (positive deltaX) should DECREASE offset (move forward in time)
-
-      // Drag LEFT (negative deltaX) should INCREASE offset (move backward in time)
-
-      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
-
-
-
-      if (newOffset !== currentOffset) {
-
-        setScrollOffset(newOffset);
-
-      }
-
-
-
-      setLastMouseX(x);
-
-      return;
-
-    }
-
-
-
-    // Alternative Y-axis dragging when yAxisDragStart is not set but we're in manual mode
-
-    if ((isDragging || isDraggingYAxis) && !isAutoScale && manualPriceRange) {
-
-      // Handle Y-axis dragging using current manual price range
-
-      const deltaY = y - (lastMousePosition.y || y);
-
-      const timeAxisHeight = 25;
-
-      const priceChartHeight = dimensions.height - timeAxisHeight;
-
-
-
-      // Get current manual price range
-
-      const priceHeight = manualPriceRange.max - manualPriceRange.min;
-
-      const pricePerPixel = priceHeight / priceChartHeight;
-
-      // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
-
-      const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
-
-      const newRange = {
-
-        min: manualPriceRange.min + priceShift,
-
-        max: manualPriceRange.max + priceShift
-
-      };
-
-
-
-      setManualPriceRangeAndDisableAuto(newRange);
-
-
-
-      // Handle X-axis dragging (horizontal movement)
-
-      const deltaX = x - lastMouseX;
-
-      const currentOffset = scrollOffset;
-
-
-
-      // Calculate drag movement - preserve sign for correct direction
-
-      const chartWidth = dimensions.width - 100; // Account for margins
-
-      const candleWidth = chartWidth / visibleCandleCount;
-
-      const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
-
-
-
-      // Allow extending beyond data for future view
-
-      const futurePeriods = getFuturePeriods(config.timeframe);
-
-      const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
-
-      const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
-
-      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
-
-
-
-      if (newOffset !== currentOffset) {
-
-        setScrollOffset(newOffset);
-
-      }
-
-
-
-      setLastMouseX(x);
-
-      return;
-
-    }
-
-
-
-    // Fallback: Handle horizontal dragging only (if Y-axis drag start wasn't set)
-
-    if (isDragging) {
-
-      const deltaX = x - lastMouseX;
-
-      const currentOffset = scrollOffset;
-
-
-
-      // Calculate drag movement - preserve sign for correct direction
-
-      const chartWidth = dimensions.width - 100; // Account for margins
-
-      const candleWidth = chartWidth / visibleCandleCount;
-
-      const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
-
-
-
-      // Allow extending beyond data for future view
-
-      const futurePeriods = getFuturePeriods(config.timeframe);
-
-      const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
-
-      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
-
-
-
-      if (newOffset !== currentOffset) {
-
-        setScrollOffset(newOffset);
-
-      }
-
-
-
-      setLastMouseX(x);
-
-      return;
-
-    }
-
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight]);
-
-
-
-  const handleMouseUp = useCallback(() => {
-
-    // Handle box zoom completion
-
-    if (isBoxZooming && boxZoomStart && boxZoomEnd) {
-
-      const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
-
-      const endX = Math.max(boxZoomStart.x, boxZoomEnd.x);
-
-      const startY = Math.min(boxZoomStart.y, boxZoomEnd.y);
-
-      const endY = Math.max(boxZoomStart.y, boxZoomEnd.y);
-
-
-
-      // Only proceed if the box is large enough (minimum 20x20 pixels)
-
-      if (Math.abs(endX - startX) > 20 && Math.abs(endY - startY) > 20) {
-
-        // Convert screen coordinates to chart data coordinates
-
-        const chartWidth = dimensions.width - 100; // Account for margins
-
-        const candleWidth = chartWidth / visibleCandleCount;
-
-
-
-        // Calculate new time range (X-axis)
-
-        const startCandleIndex = Math.floor((startX - 40) / candleWidth);
-
-        const endCandleIndex = Math.floor((endX - 40) / candleWidth);
-
-        const newVisibleCount = Math.max(20, Math.min(300, endCandleIndex - startCandleIndex));
-
-        const newScrollOffset = Math.max(0, Math.min(
-
-          data.length - newVisibleCount,
-
-          scrollOffset + startCandleIndex
-
-        ));
-
-
-
-        // Calculate new price range (Y-axis)
-
-        const timeAxisHeight = 25;
-
-        const priceChartHeight = dimensions.height - timeAxisHeight;
-
-
-
-        // Get current price range for conversion
-
-        const startIndex = Math.max(0, Math.floor(scrollOffset));
-
-        const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-
-        const visibleData = data.slice(startIndex, endIndex);
-
-        const currentRange = getCurrentPriceRange(visibleData);
-
-
-
-        // Convert Y coordinates to prices
-
-        const maxPrice = currentRange.max - ((startY / priceChartHeight) * (currentRange.max - currentRange.min));
-
-        const minPrice = currentRange.max - ((endY / priceChartHeight) * (currentRange.max - currentRange.min));
-
-
-
-        // Apply zoom
-
-        setVisibleCandleCount(newVisibleCount);
-
-        setScrollOffset(newScrollOffset);
-
-        setManualPriceRangeAndDisableAuto({ min: minPrice, max: maxPrice });
-
-      }
-
-
-
-      // Reset box zoom state
-
-      setIsBoxZooming(false);
-
-      setBoxZoomStart(null);
-
-      setBoxZoomEnd(null);
-
-      return;
-
-    }
-
-
-
-    // If we were dragging and have significant velocity, start momentum animation
-
-    if ((isDragging || isDraggingYAxis) && (Math.abs(velocity.x) > 1 || Math.abs(velocity.y) > 1)) {
-
-      startMomentumAnimation();
-
-    }
-
-
-
-    setIsDragging(false);
-
-    setIsDraggingDrawing(false);
-
-    setIsDraggingYAxis(false);
-
-    setYAxisDragStart(null);
+    // Reset box zoom state
 
     setIsBoxZooming(false);
 
@@ -15544,585 +15512,239 @@ export default function TradingViewChart({
 
     setBoxZoomEnd(null);
 
-
-
-    // Handle drawing brush stroke completion - CLICK AND HOLD behavior
-
-    if (isBrushing && currentBrushStroke.length > 0) {
-
-
-
-      // Only save if we have enough points for a meaningful stroke
-
-      if (currentBrushStroke.length >= 2) {
-
-        const newBrush: DrawingBrush = {
-
-          id: Date.now().toString(),
-
-          strokes: currentBrushStroke,
-
-          color: '#FF69B4',
-
-          lineWidth: 3,
-
-          opacity: 0.8,
-
-          label: `Brush ${drawingBrushes.length + 1}`
-
-        };
-
-        setDrawingBrushes(prev => {
-
-
-
-          const updated = [...prev, newBrush];
-
-
-
-          // Verify all brushes have valid stroke data
-
-          const validBrushes = updated.filter(b => b.strokes && b.strokes.length >= 2);
-
-          if (validBrushes.length !== updated.length) {
-
-            console.warn('? Some brushes have invalid stroke data!');
-
-          }
-
-
-
-          return updated;
-
-        });
-
-      } else {
-
-      }
-
-
-
-      // Always clear current stroke and stop brushing
-
-      setCurrentBrushStroke([]);
-
-      setIsBrushing(false);
-
-
-
-      // Keep brush tool active for multiple drawings unless drawing lock is disabled
-
-      if (!isDrawingLocked) {
-
-        // Don't clear the brush tool - keep it active for multiple drawings
-
-        // Only clear the current drawing state
-
-      }
-
-    }
-
-
-
-    // Always clear mouse pressed state on mouse up (critical for brush tool)
-
-    setIsMousePressed(false);
-
-
-
-    // Handle horizontal ray editing cleanup
-
-    setIsEditingRay(false);
-
-    setRayDragStart(null);
-
-
-
-    // Handle parallel channel editing cleanup
-
-    setIsEditingChannel(false);
-
-    setChannelDragStart(null);
-
-
-
-    // DON'T clear selectedDrawing here - it closes the Property Editor!
-
-    // setSelectedDrawing(null);
-
-  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
-
-
-
-  // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
-
-  useEffect(() => {
-
-    // This system is completely disabled because it conflicts with the main comprehensive drawing system
-
-    // The main drawing system is in the drawStoredDrawings function
-
     return;
 
-  }, [drawings]);
+  }
 
 
 
-  const handleMouseLeave = useCallback(() => {
+  // If we were dragging and have significant velocity, start momentum animation
 
-    // Hide crosshair info when mouse leaves chart area
+  if ((isDragging || isDraggingYAxis) && (Math.abs(velocity.x) > 1 || Math.abs(velocity.y) > 1)) {
 
-    setCrosshairInfo(prev => ({ ...prev, visible: false }));
+    startMomentumAnimation();
 
+  }
 
 
-    // Clear mouse pressed state when leaving canvas (important for brush tool)
 
-    setIsMousePressed(false);
+  setIsDragging(false);
 
-  }, []);
+  setIsDraggingDrawing(false);
 
+  setIsDraggingYAxis(false);
 
+  setYAxisDragStart(null);
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  setIsBoxZooming(false);
 
+  setBoxZoomStart(null);
 
+  setBoxZoomEnd(null);
 
-    const canvas = e.currentTarget;
 
-    const rect = canvas.getBoundingClientRect();
 
-    const x = e.clientX - rect.left;
+  // Handle drawing brush stroke completion - CLICK AND HOLD behavior
 
-    const y = e.clientY - rect.top;
+  if (isBrushing && currentBrushStroke.length > 0) {
 
 
 
-    // Check if double-clicking on Y-axis area for auto-fit
+    // Only save if we have enough points for a meaningful stroke
 
-    const canvasWidth = canvas.width / window.devicePixelRatio;
+    if (currentBrushStroke.length >= 2) {
 
-    const isOverYAxis = isInYAxisArea(x, canvasWidth);
+      const newBrush: DrawingBrush = {
 
+        id: Date.now().toString(),
 
+        strokes: currentBrushStroke,
 
-    if (isOverYAxis) {
+        color: '#FF69B4',
 
-      // Double-click on Y-axis: reset to auto-scale
+        lineWidth: 3,
 
-      resetToAutoScale();
+        opacity: 0.8,
 
-      return;
+        label: `Brush ${drawingBrushes.length + 1}`
 
-    }
+      };
 
+      setDrawingBrushes(prev => {
 
 
-    // Check if we're double-clicking on a drawing
 
-    if (!activeTool) {
+        const updated = [...prev, newBrush];
 
-      const clickedDrawing = findDrawingAtPoint({ x, y });
 
 
+        // Verify all brushes have valid stroke data
 
-      if (clickedDrawing) {
+        const validBrushes = updated.filter(b => b.strokes && b.strokes.length >= 2);
 
-        // Open property editor on double-click on drawing
+        if (validBrushes.length !== updated.length) {
 
-        setSelectedDrawing(clickedDrawing);
+          console.warn('? Some brushes have invalid stroke data!');
 
+        }
 
 
-        // Property editor removed - drawing tools were removed as requested
 
-
-
-
-
-        // PREVENT the editor from being closed immediately
-
-        // Add a flag to prevent auto-closing for a few seconds
-
-        setTimeout(() => {
-
-        }, 3000);
-
-
-
-        return;
-
-      }
-
-    }
-
-
-
-    // If no drawing was clicked, reset chart view
-
-    setVisibleCandleCount(Math.min(200, data.length));
-
-    setScrollOffset(Math.max(0, data.length - Math.min(200, data.length)));
-
-  }, [data.length, activeTool, isInYAxisArea, resetToAutoScale]);
-
-
-
-  // Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
-
-  const handleTimeframeChange = (timeframe: string) => {
-
-
-
-    // ALWAYS fetch fresh data - no caching to ensure accurate prices
-
-    fetchData(symbol, timeframe);
-
-
-
-    // Update config
-
-    setConfig(prev => ({ ...prev, timeframe }));
-
-    onTimeframeChange?.(timeframe);
-
-  };
-
-
-
-  // Handle chart type change
-
-  const handleChartTypeChange = (chartType: ChartConfig['chartType']) => {
-
-    setConfig(prev => ({ ...prev, chartType }));
-
-  };
-
-
-
-  // Handle symbol change with instant preloading
-
-  const handleSymbolChange = (newSymbol: string) => {
-
-    setConfig(prev => ({ ...prev, symbol: newSymbol }));
-
-    onSymbolChange?.(newSymbol);
-
-
-
-    // Trigger instant preload for new symbol to speed up loading
-
-    if (newSymbol && newSymbol.trim().length > 0) {
-
-      triggerInstantPreload(newSymbol.trim().toUpperCase());
-
-    }
-
-  };
-
-
-
-  // Trigger instant preload for symbol (non-blocking)
-
-  const triggerInstantPreload = async (symbol: string) => {
-
-    try {
-
-
-
-      const response = await fetch('/api/instant-preload', {
-
-        method: 'POST',
-
-        headers: {
-
-          'Content-Type': 'application/json',
-
-        },
-
-        body: JSON.stringify({ symbol })
+        return updated;
 
       });
 
-
-
-      const result = await response.json();
-
-
-
-      if (result.success) {
-
-      } else {
-
-        console.warn(`?? Instant preload failed for ${symbol}:`, result.error);
-
-      }
-
-    } catch (error) {
-
-      console.warn(`?? Instant preload request failed for ${symbol}:`, error);
-
-      // Don't throw - this is a background optimization
+    } else {
 
     }
 
-  };
 
 
+    // Always clear current stroke and stop brushing
 
-  // Drawing Tools Functions
+    setCurrentBrushStroke([]);
 
-  const selectDrawingTool = (toolValue: string) => {
+    setIsBrushing(false);
 
-    setActiveTool(toolValue);
 
-    setShowToolsDropdown(false);
 
+    // Keep brush tool active for multiple drawings unless drawing lock is disabled
 
+    if (!isDrawingLocked) {
 
-    // Reset any ongoing drawing
+      // Don't clear the brush tool - keep it active for multiple drawings
 
-    setIsDrawing(false);
-
-    setDrawingStartPoint(null);
-
-  };
-
-
-
-  const clearActiveTool = () => {
-
-    setActiveTool(null);
-
-    setIsDrawing(false);
-
-    setDrawingStartPoint(null);
-
-  };
-
-
-
-  const clearAllDrawings = () => {
-
-    setDrawings([]);
-
-    setConfig(prev => ({ ...prev, drawings: [] }));
-
-  };
-
-
-
-  // Helper functions for coordinate conversion
-
-  const canvasToPrice = (canvasY: number, minPrice: number, maxPrice: number, chartHeight: number): number => {
-
-    const padding = (maxPrice - minPrice) * 0.1;
-
-    const adjustedMin = minPrice - padding;
-
-    const adjustedMax = maxPrice + padding;
-
-    const priceRange = adjustedMax - adjustedMin;
-
-    return adjustedMax - (canvasY / chartHeight) * priceRange;
-
-  };
-
-
-
-  const priceToCanvas = (price: number, minPrice: number, maxPrice: number, chartHeight: number): number => {
-
-    const padding = (maxPrice - minPrice) * 0.1;
-
-    const adjustedMin = minPrice - padding;
-
-    const adjustedMax = maxPrice + padding;
-
-    const priceRange = adjustedMax - adjustedMin;
-
-    return ((adjustedMax - price) / priceRange) * chartHeight;
-
-  };
-
-
-
-  const canvasToTime = (canvasX: number, chartWidth: number, visibleDataLength: number, startIndex: number): number => {
-
-    const index = Math.floor((canvasX / chartWidth) * visibleDataLength) + startIndex;
-
-    return Math.max(0, Math.min(data.length - 1, index));
-
-  };
-
-
-
-  const timeToCanvas = (timeIndex: number, chartWidth: number, visibleDataLength: number, startIndex: number): number => {
-
-    const relativeIndex = timeIndex - startIndex;
-
-    return (relativeIndex / visibleDataLength) * chartWidth;
-
-  };
-
-
-
-  // Horizontal Ray Drawing Functions
-
-  const addHorizontalRay = (price: number, startX: number) => {
-
-    const newRay: HorizontalRay = {
-
-      id: `ray_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-
-      price,
-
-      color: '#2196F3',
-
-      lineWidth: 2,
-
-      lineStyle: 'solid',
-
-      extendLeft: true,
-
-      extendRight: true,
-
-      label: '',
-
-      startX,
-
-      isSelected: false
-
-    };
-
-
-
-    setHorizontalRays(prev => [...prev, newRay]);
-
-  };
-
-
-
-  const selectHorizontalRay = (rayId: string) => {
-
-    setHorizontalRays(prev => prev.map(ray => ({
-
-      ...ray,
-
-      isSelected: ray.id === rayId
-
-    })));
-
-    setSelectedRay(rayId);
-
-  };
-
-
-
-  const updateHorizontalRayPrice = (rayId: string, newPrice: number) => {
-
-    setHorizontalRays(prev => prev.map(ray =>
-
-      ray.id === rayId ? { ...ray, price: newPrice } : ray
-
-    ));
-
-  };
-
-
-
-  const updateHorizontalRayStyle = (rayId: string, newStyle: Partial<HorizontalRay>) => {
-
-    setHorizontalRays(prev => prev.map(ray =>
-
-      ray.id === rayId ? { ...ray, ...newStyle } : ray
-
-    ));
-
-  };
-
-
-
-  const deleteHorizontalRay = (rayId: string) => {
-
-    setHorizontalRays(prev => prev.filter(ray => ray.id !== rayId));
-
-    if (selectedRay === rayId) {
-
-      setSelectedRay(null);
-
-      setIsEditingRay(false);
+      // Only clear the current drawing state
 
     }
 
-  };
+  }
 
 
 
-  // Enhanced Canvas Drawing Interaction Handlers
+  // Always clear mouse pressed state on mouse up (critical for brush tool)
 
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-
-    const canvas = e.currentTarget;
-
-    const rect = canvas.getBoundingClientRect();
-
-    const x = e.clientX - rect.left;
-
-    const y = e.clientY - rect.top;
+  setIsMousePressed(false);
 
 
 
+  // Handle horizontal ray editing cleanup
 
+  setIsEditingRay(false);
 
-    // Handle horizontal ray mode
-
-    if (isHorizontalRayMode) {
-
-      // Calculate visible data range
-
-      const startIndex = Math.max(0, Math.floor(scrollOffset));
-
-      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-
-      const currentVisibleData = data.slice(startIndex, endIndex);
+  setRayDragStart(null);
 
 
 
-      if (!currentVisibleData.length) return;
+  // Handle parallel channel editing cleanup
+
+  setIsEditingChannel(false);
+
+  setChannelDragStart(null);
 
 
 
-      const timeAxisHeight = 25;
+  // DON'T clear selectedDrawing here - it closes the Property Editor!
 
-      const volumeAreaHeight = 80;
+  // setSelectedDrawing(null);
 
-      const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
-
-      const minPrice = Math.min(...currentVisibleData.map(d => d.low));
-
-      const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
+}, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
 
 
 
-      // Convert canvas Y to price
+// Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
 
-      const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
+useEffect(() => {
+
+  // This system is completely disabled because it conflicts with the main comprehensive drawing system
+
+  // The main drawing system is in the drawStoredDrawings function
+
+  return;
+
+}, [drawings]);
 
 
 
-      // Add horizontal ray
+const handleMouseLeave = useCallback(() => {
 
-      addHorizontalRay(price, x);
+  // Hide crosshair info when mouse leaves chart area
+
+  setCrosshairInfo(prev => ({ ...prev, visible: false }));
 
 
 
-      // If not locked, exit ray mode after placing one ray
+  // Clear mouse pressed state when leaving canvas (important for brush tool)
 
-      if (!isDrawingLocked) {
+  setIsMousePressed(false);
 
-        setIsHorizontalRayMode(false);
+}, []);
 
-      }
+
+
+const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+
+
+
+  const canvas = e.currentTarget;
+
+  const rect = canvas.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+  // Check if double-clicking on Y-axis area for auto-fit
+
+  const canvasWidth = canvas.width / window.devicePixelRatio;
+
+  const isOverYAxis = isInYAxisArea(x, canvasWidth);
+
+
+
+  if (isOverYAxis) {
+
+    // Double-click on Y-axis: reset to auto-scale
+
+    resetToAutoScale();
+
+    return;
+
+  }
+
+
+
+  // Check if we're double-clicking on a drawing
+
+  if (!activeTool) {
+
+    const clickedDrawing = findDrawingAtPoint({ x, y });
+
+
+
+    if (clickedDrawing) {
+
+      // Open property editor on double-click on drawing
+
+      setSelectedDrawing(clickedDrawing);
+
+
+
+      // Property editor removed - drawing tools were removed as requested
+
+
+
+
+
+      // PREVENT the editor from being closed immediately
+
+      // Add a flag to prevent auto-closing for a few seconds
+
+      setTimeout(() => {
+
+      }, 3000);
 
 
 
@@ -16130,9 +15752,329 @@ export default function TradingViewChart({
 
     }
 
+  }
 
 
-    // Check if clicking on existing horizontal ray
+
+  // If no drawing was clicked, reset chart view
+
+  setVisibleCandleCount(Math.min(200, data.length));
+
+  setScrollOffset(Math.max(0, data.length - Math.min(200, data.length)));
+
+}, [data.length, activeTool, isInYAxisArea, resetToAutoScale]);
+
+
+
+// Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
+
+const handleTimeframeChange = (timeframe: string) => {
+
+
+
+  // ALWAYS fetch fresh data - no caching to ensure accurate prices
+
+  fetchData(symbol, timeframe);
+
+
+
+  // Update config
+
+  setConfig(prev => ({ ...prev, timeframe }));
+
+  onTimeframeChange?.(timeframe);
+
+};
+
+
+
+// Handle chart type change
+
+const handleChartTypeChange = (chartType: ChartConfig['chartType']) => {
+
+  setConfig(prev => ({ ...prev, chartType }));
+
+};
+
+
+
+// Handle symbol change with instant preloading
+
+const handleSymbolChange = (newSymbol: string) => {
+
+  setConfig(prev => ({ ...prev, symbol: newSymbol }));
+
+  onSymbolChange?.(newSymbol);
+
+
+
+  // Trigger instant preload for new symbol to speed up loading
+
+  if (newSymbol && newSymbol.trim().length > 0) {
+
+    triggerInstantPreload(newSymbol.trim().toUpperCase());
+
+  }
+
+};
+
+
+
+// Trigger instant preload for symbol (non-blocking)
+
+const triggerInstantPreload = async (symbol: string) => {
+
+  try {
+
+
+
+    const response = await fetch('/api/instant-preload', {
+
+      method: 'POST',
+
+      headers: {
+
+        'Content-Type': 'application/json',
+
+      },
+
+      body: JSON.stringify({ symbol })
+
+    });
+
+
+
+    const result = await response.json();
+
+
+
+    if (result.success) {
+
+    } else {
+
+      console.warn(`?? Instant preload failed for ${symbol}:`, result.error);
+
+    }
+
+  } catch (error) {
+
+    console.warn(`?? Instant preload request failed for ${symbol}:`, error);
+
+    // Don't throw - this is a background optimization
+
+  }
+
+};
+
+
+
+// Drawing Tools Functions
+
+const selectDrawingTool = (toolValue: string) => {
+
+  setActiveTool(toolValue);
+
+  setShowToolsDropdown(false);
+
+
+
+  // Reset any ongoing drawing
+
+  setIsDrawing(false);
+
+  setDrawingStartPoint(null);
+
+};
+
+
+
+const clearActiveTool = () => {
+
+  setActiveTool(null);
+
+  setIsDrawing(false);
+
+  setDrawingStartPoint(null);
+
+};
+
+
+
+const clearAllDrawings = () => {
+
+  setDrawings([]);
+
+  setConfig(prev => ({ ...prev, drawings: [] }));
+
+};
+
+
+
+// Helper functions for coordinate conversion
+
+const canvasToPrice = (canvasY: number, minPrice: number, maxPrice: number, chartHeight: number): number => {
+
+  const padding = (maxPrice - minPrice) * 0.1;
+
+  const adjustedMin = minPrice - padding;
+
+  const adjustedMax = maxPrice + padding;
+
+  const priceRange = adjustedMax - adjustedMin;
+
+  return adjustedMax - (canvasY / chartHeight) * priceRange;
+
+};
+
+
+
+const priceToCanvas = (price: number, minPrice: number, maxPrice: number, chartHeight: number): number => {
+
+  const padding = (maxPrice - minPrice) * 0.1;
+
+  const adjustedMin = minPrice - padding;
+
+  const adjustedMax = maxPrice + padding;
+
+  const priceRange = adjustedMax - adjustedMin;
+
+  return ((adjustedMax - price) / priceRange) * chartHeight;
+
+};
+
+
+
+const canvasToTime = (canvasX: number, chartWidth: number, visibleDataLength: number, startIndex: number): number => {
+
+  const index = Math.floor((canvasX / chartWidth) * visibleDataLength) + startIndex;
+
+  return Math.max(0, Math.min(data.length - 1, index));
+
+};
+
+
+
+const timeToCanvas = (timeIndex: number, chartWidth: number, visibleDataLength: number, startIndex: number): number => {
+
+  const relativeIndex = timeIndex - startIndex;
+
+  return (relativeIndex / visibleDataLength) * chartWidth;
+
+};
+
+
+
+// Horizontal Ray Drawing Functions
+
+const addHorizontalRay = (price: number, startX: number) => {
+
+  const newRay: HorizontalRay = {
+
+    id: `ray_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+
+    price,
+
+    color: '#2196F3',
+
+    lineWidth: 2,
+
+    lineStyle: 'solid',
+
+    extendLeft: true,
+
+    extendRight: true,
+
+    label: '',
+
+    startX,
+
+    isSelected: false
+
+  };
+
+
+
+  setHorizontalRays(prev => [...prev, newRay]);
+
+};
+
+
+
+const selectHorizontalRay = (rayId: string) => {
+
+  setHorizontalRays(prev => prev.map(ray => ({
+
+    ...ray,
+
+    isSelected: ray.id === rayId
+
+  })));
+
+  setSelectedRay(rayId);
+
+};
+
+
+
+const updateHorizontalRayPrice = (rayId: string, newPrice: number) => {
+
+  setHorizontalRays(prev => prev.map(ray =>
+
+    ray.id === rayId ? { ...ray, price: newPrice } : ray
+
+  ));
+
+};
+
+
+
+const updateHorizontalRayStyle = (rayId: string, newStyle: Partial<HorizontalRay>) => {
+
+  setHorizontalRays(prev => prev.map(ray =>
+
+    ray.id === rayId ? { ...ray, ...newStyle } : ray
+
+  ));
+
+};
+
+
+
+const deleteHorizontalRay = (rayId: string) => {
+
+  setHorizontalRays(prev => prev.filter(ray => ray.id !== rayId));
+
+  if (selectedRay === rayId) {
+
+    setSelectedRay(null);
+
+    setIsEditingRay(false);
+
+  }
+
+};
+
+
+
+// Enhanced Canvas Drawing Interaction Handlers
+
+const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+
+  const canvas = e.currentTarget;
+
+  const rect = canvas.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+
+
+  // Handle horizontal ray mode
+
+  if (isHorizontalRayMode) {
 
     // Calculate visible data range
 
@@ -16160,155 +16102,211 @@ export default function TradingViewChart({
 
 
 
-    for (const ray of horizontalRays) {
+    // Convert canvas Y to price
 
-      const rayY = priceToCanvas(ray.price, minPrice, maxPrice, chartHeight);
+    const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
 
 
 
-      // Check if click is near the ray line (within 5 pixels)
+    // Add horizontal ray
 
-      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
+    addHorizontalRay(price, x);
 
-        selectHorizontalRay(ray.id);
 
-        setIsEditingRay(true);
 
-        return;
+    // If not locked, exit ray mode after placing one ray
 
-      }
+    if (!isDrawingLocked) {
+
+      setIsHorizontalRayMode(false);
 
     }
-
-
-
-    // If clicking elsewhere, deselect rays
-
-    setSelectedRay(null);
-
-    setIsEditingRay(false);
-
-    setHorizontalRays(prev => prev.map(ray => ({ ...ray, isSelected: false })));
 
 
 
     return;
 
-  };
+  }
 
 
 
-  // Helper function to get current chart price range (for chart rendering - changes with scrolling)
+  // Check if clicking on existing horizontal ray
 
-  const getCurrentChartPriceRange = (): { min: number; max: number } => {
+  // Calculate visible data range
 
-    if (!data || data.length === 0) return { min: 0, max: 100 };
+  const startIndex = Math.max(0, Math.floor(scrollOffset));
 
+  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
 
-
-    // Get visible data range
-
-    const startIndex = Math.max(0, scrollOffset);
-
-    const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
-
-    const visibleData = data.slice(startIndex, endIndex);
+  const currentVisibleData = data.slice(startIndex, endIndex);
 
 
 
-    if (visibleData.length === 0) return { min: 0, max: 100 };
+  if (!currentVisibleData.length) return;
 
 
 
-    // Use the new Y-axis scaling logic
+  const timeAxisHeight = 25;
 
-    return getCurrentPriceRange(visibleData);
+  const volumeAreaHeight = 80;
 
-  };
+  const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
 
+  const minPrice = Math.min(...currentVisibleData.map(d => d.low));
 
-
-  // TradingView-style coordinate conversion: Time/Price ? Screen
-
-  const timePriceToScreenCoordinates = (timestamp: number, price: number, useStableRange: boolean = false): { x: number; y: number } => {
-
-    const canvas = overlayCanvasRef.current;
-
-    if (!canvas || !data.length) return { x: 0, y: 0 };
+  const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
 
 
 
-    const rect = canvas.getBoundingClientRect();
+  for (const ray of horizontalRays) {
 
-    const chartWidth = rect.width - 80; // Account for margins
-
-
-
-    // Find the candle index for this timestamp
-
-    let candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
-
-    if (candleIndex === -1) candleIndex = data.length - 1; // If not found, use last candle
+    const rayY = priceToCanvas(ray.price, minPrice, maxPrice, chartHeight);
 
 
 
-    // MATCH the timeToScreenX logic exactly for consistency
+    // Check if click is near the ray line (within 5 pixels)
 
-    const candleWidth = chartWidth / visibleCandleCount;
+    if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
 
-    const visibleStartIndex = scrollOffset;
+      selectHorizontalRay(ray.id);
 
-    const visibleEndIndex = scrollOffset + visibleCandleCount;
+      setIsEditingRay(true);
 
-
-
-    let x: number;
-
-    if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
-
-      // Drawing is outside visible range - position it off-screen but proportionally
-
-      const relativePosition = candleIndex - scrollOffset;
-
-      x = relativePosition * candleWidth + candleWidth / 2 + 40;
-
-    } else {
-
-      // Drawing is in visible range - position it correctly
-
-      const positionInVisibleRange = candleIndex - visibleStartIndex;
-
-      x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
+      return;
 
     }
 
-
-
-    // Convert price to screen Y - use current range for all drawings to match chart
-
-    // For horizontal rays, we'll handle absolute positioning differently
-
-    const priceChartHeight = rect.height * 0.7;
-
-    const currentPriceRange = getCurrentChartPriceRange();
-
-    const relativePrice = (price - currentPriceRange.min) / (currentPriceRange.max - currentPriceRange.min);
-
-    const y = priceChartHeight - (relativePrice * priceChartHeight);
+  }
 
 
 
-      timestamp,
+  // If clicking elsewhere, deselect rays
 
-      price,
+  setSelectedRay(null);
 
-      useStableRange,
+  setIsEditingRay(false);
 
-      candleIndex,
+  setHorizontalRays(prev => prev.map(ray => ({ ...ray, isSelected: false })));
 
-      scrollOffset,
 
-      visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
+
+  return;
+
+};
+
+
+
+// Helper function to get current chart price range (for chart rendering - changes with scrolling)
+
+const getCurrentChartPriceRange = (): { min: number; max: number } => {
+
+  if (!data || data.length === 0) return { min: 0, max: 100 };
+
+
+
+  // Get visible data range
+
+  const startIndex = Math.max(0, scrollOffset);
+
+  const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
+
+  const visibleData = data.slice(startIndex, endIndex);
+
+
+
+  if (visibleData.length === 0) return { min: 0, max: 100 };
+
+
+
+  // Use the new Y-axis scaling logic
+
+  return getCurrentPriceRange(visibleData);
+
+};
+
+
+
+// TradingView-style coordinate conversion: Time/Price ? Screen
+
+const timePriceToScreenCoordinates = (timestamp: number, price: number, useStableRange: boolean = false): { x: number; y: number } => {
+
+  const canvas = overlayCanvasRef.current;
+
+  if (!canvas || !data.length) return { x: 0, y: 0 };
+
+
+
+  const rect = canvas.getBoundingClientRect();
+
+  const chartWidth = rect.width - 80; // Account for margins
+
+
+
+  // Find the candle index for this timestamp
+
+  let candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
+
+  if (candleIndex === -1) candleIndex = data.length - 1; // If not found, use last candle
+
+
+
+  // MATCH the timeToScreenX logic exactly for consistency
+
+  const candleWidth = chartWidth / visibleCandleCount;
+
+  const visibleStartIndex = scrollOffset;
+
+  const visibleEndIndex = scrollOffset + visibleCandleCount;
+
+
+
+  let x: number;
+
+  if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
+
+    // Drawing is outside visible range - position it off-screen but proportionally
+
+    const relativePosition = candleIndex - scrollOffset;
+
+    x = relativePosition * candleWidth + candleWidth / 2 + 40;
+
+  } else {
+
+    // Drawing is in visible range - position it correctly
+
+    const positionInVisibleRange = candleIndex - visibleStartIndex;
+
+    x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
+
+  }
+
+
+
+  // Convert price to screen Y - use current range for all drawings to match chart
+
+  // For horizontal rays, we'll handle absolute positioning differently
+
+  const priceChartHeight = rect.height * 0.7;
+
+  const currentPriceRange = getCurrentChartPriceRange();
+
+  const relativePrice = (price - currentPriceRange.min) / (currentPriceRange.max - currentPriceRange.min);
+
+  const y = priceChartHeight - (relativePrice * priceChartHeight);
+
+
+
+  timestamp,
+
+    price,
+
+    useStableRange,
+
+    candleIndex,
+
+    scrollOffset,
+
+    visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
 
       x,
 
@@ -16318,1073 +16316,469 @@ export default function TradingViewChart({
 
       rangeType: 'CURRENT'
 
-    });
+});
 
 
 
-    return { x, y };
-
-  };
-
-
-
-  // Legacy helper functions for backward compatibility
-
-  const getPriceAtY = (y: number): number => {
-
-    return screenToTimePriceCoordinates(0, y).price;
+return { x, y };
 
   };
 
 
 
-  const screenToDataCoordinates = (screenX: number, screenY: number): { candleIndex: number; price: number } => {
+// Legacy helper functions for backward compatibility
 
-    const timePrice = screenToTimePriceCoordinates(screenX, screenY);
+const getPriceAtY = (y: number): number => {
 
-    // Find candle index for the timestamp
+  return screenToTimePriceCoordinates(0, y).price;
 
-    const candleIndex = data.findIndex(candle => candle.timestamp >= timePrice.timestamp);
+};
 
-    return {
 
-      candleIndex: candleIndex === -1 ? data.length - 1 : candleIndex,
 
-      price: timePrice.price
+const screenToDataCoordinates = (screenX: number, screenY: number): { candleIndex: number; price: number } => {
+
+  const timePrice = screenToTimePriceCoordinates(screenX, screenY);
+
+  // Find candle index for the timestamp
+
+  const candleIndex = data.findIndex(candle => candle.timestamp >= timePrice.timestamp);
+
+  return {
+
+    candleIndex: candleIndex === -1 ? data.length - 1 : candleIndex,
+
+    price: timePrice.price
+
+  };
+
+};
+
+
+
+const dataToScreenCoordinates = (candleIndex: number, price: number): { x: number; y: number } => {
+
+  if (candleIndex >= data.length) return { x: 0, y: 0 };
+
+  const timestamp = data[candleIndex]?.timestamp || Date.now();
+
+  return timePriceToScreenCoordinates(timestamp, price);
+
+};
+
+
+
+// Helper function to calculate drawing metadata
+
+const calculateDrawingMetadata = (toolType: string, start: { x: number, y: number }, end: { x: number, y: number }) => {
+
+  const metadata: DrawingMetadata = {};
+
+
+
+  switch (toolType) {
+
+    case 'ruler':
+
+      metadata.distance = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+
+      metadata.angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+
+      metadata.priceDistance = Math.abs(getPriceAtY(end.y) - getPriceAtY(start.y));
+
+      break;
+
+    case 'regression':
+
+      metadata.slope = (end.y - start.y) / (end.x - start.x);
+
+      break;
+
+  }
+
+
+
+  return metadata;
+
+};
+
+
+
+// Helper function to get tool-specific metadata
+
+const getToolMetadata = (toolType: string, points: { x: number, y: number }[]) => {
+
+  const metadata: DrawingMetadata = {};
+
+
+
+  switch (toolType) {
+
+    // Pattern-specific metadata removed
+
+  }
+
+
+
+  return metadata;
+
+};
+
+
+
+// Handle text input submission
+
+const handleTextSubmit = () => {
+
+  if (textInputPosition && drawingText) {
+
+    const newDrawing = {
+
+      id: Date.now(),
+
+      type: activeTool || 'unknown',
+
+      startPoint: textInputPosition,
+
+      endPoint: textInputPosition,
+
+      timestamp: Date.now(),
+
+      style: drawingStyle,
+
+      text: drawingText
 
     };
 
-  };
+
+
+    setDrawings(prev => [...prev, newDrawing]);
+
+    setShowTextInput(false);
+
+    setDrawingText('');
+
+    setTextInputPosition(null);
+
+    setActiveTool(null);
+
+  }
+
+};
 
 
 
-  const dataToScreenCoordinates = (candleIndex: number, price: number): { x: number; y: number } => {
+// Helper function to test if a point is near a drawing (hit testing)
 
-    if (candleIndex >= data.length) return { x: 0, y: 0 };
+const isPointNearDrawing = (point: { x: number; y: number }, drawing: Drawing, tolerance = 8): boolean => {
 
-    const timestamp = data[candleIndex]?.timestamp || Date.now();
-
-    return timePriceToScreenCoordinates(timestamp, price);
-
-  };
+  const { x, y } = point;
 
 
 
-  // Helper function to calculate drawing metadata
+  // Get current screen coordinates for the drawing
 
-  const calculateDrawingMetadata = (toolType: string, start: { x: number, y: number }, end: { x: number, y: number }) => {
+  let startPoint = drawing.startPoint;
 
-    const metadata: DrawingMetadata = {};
+  let endPoint = drawing.endPoint;
+
+  let points = drawing.points;
 
 
 
-    switch (toolType) {
+  // If data coordinates exist, convert them to current screen coordinates
 
-      case 'ruler':
+  if (drawing.startDataPoint) {
 
-        metadata.distance = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+    const screenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
 
-        metadata.angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+    startPoint = screenCoords;
 
-        metadata.priceDistance = Math.abs(getPriceAtY(end.y) - getPriceAtY(start.y));
+  }
 
-        break;
+  if (drawing.endDataPoint) {
 
-      case 'regression':
+    const screenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
 
-        metadata.slope = (end.y - start.y) / (end.x - start.x);
+    endPoint = screenCoords;
 
-        break;
+  }
+
+  if (drawing.dataPoints && drawing.dataPoints.length > 0) {
+
+    points = drawing.dataPoints.map(dataPoint =>
+
+      dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price)
+
+    );
+
+  }
+
+
+
+  switch (drawing.type) {
+
+    case 'trend_line':
+
+    case 'extended_line':
+
+      return startPoint && endPoint ?
+
+        isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
+
+
+
+    case 'horizontal_line':
+
+      return startPoint ? Math.abs(y - startPoint.y) <= tolerance : false;
+
+
+
+    case 'vertical_line':
+
+      return startPoint ? Math.abs(x - startPoint.x) <= tolerance : false;
+
+
+
+    case 'rectangle':
+
+      return startPoint && endPoint ?
+
+        isPointInRectangle(x, y, startPoint, endPoint, tolerance) : false;
+
+
+
+    case 'ellipse':
+
+    case 'circle':
+
+      return startPoint && endPoint ?
+
+        isPointNearEllipse(x, y, startPoint, endPoint, tolerance) : false;
+
+
+
+    case 'text':
+
+    case 'note':
+
+    case 'callout':
+
+      return startPoint ?
+
+        isPointInTextBox(x, y, startPoint, drawing.text || '', tolerance) : false;
+
+
+
+    default:
+
+      return startPoint && endPoint ?
+
+        isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
+
+  }
+
+};
+
+
+
+// Utility functions for hit testing
+
+const isPointNearLine = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
+
+  const A = x - start.x;
+
+  const B = y - start.y;
+
+  const C = end.x - start.x;
+
+  const D = end.y - start.y;
+
+
+
+  const dot = A * C + B * D;
+
+  const lenSq = C * C + D * D;
+
+
+
+  if (lenSq === 0) return Math.sqrt(A * A + B * B) <= tolerance;
+
+
+
+  const param = dot / lenSq;
+
+
+
+  let xx, yy;
+
+  if (param < 0) {
+
+    xx = start.x;
+
+    yy = start.y;
+
+  } else if (param > 1) {
+
+    xx = end.x;
+
+    yy = end.y;
+
+  } else {
+
+    xx = start.x + param * C;
+
+    yy = start.y + param * D;
+
+  }
+
+
+
+  const dx = x - xx;
+
+  const dy = y - yy;
+
+  return Math.sqrt(dx * dx + dy * dy) <= tolerance;
+
+};
+
+
+
+const isPointInRectangle = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
+
+  const minX = Math.min(start.x, end.x) - tolerance;
+
+  const maxX = Math.max(start.x, end.x) + tolerance;
+
+  const minY = Math.min(start.y, end.y) - tolerance;
+
+  const maxY = Math.max(start.y, end.y) + tolerance;
+
+
+
+  return x >= minX && x <= maxX && y >= minY && y <= maxY;
+
+};
+
+
+
+const isPointNearEllipse = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
+
+  const centerX = (start.x + end.x) / 2;
+
+  const centerY = (start.y + end.y) / 2;
+
+  const radiusX = Math.abs(end.x - start.x) / 2;
+
+  const radiusY = Math.abs(end.y - start.y) / 2;
+
+
+
+  const dx = x - centerX;
+
+  const dy = y - centerY;
+
+  const distance = Math.sqrt((dx * dx) / (radiusX * radiusX) + (dy * dy) / (radiusY * radiusY));
+
+
+
+  return Math.abs(distance - 1) <= tolerance / Math.min(radiusX, radiusY);
+
+};
+
+
+
+const isPointInTextBox = (x: number, y: number, position: { x: number; y: number }, text: string, tolerance: number): boolean => {
+
+  const textWidth = text.length * 8; // Approximate
+
+  const textHeight = 16;
+
+
+
+  return x >= position.x - tolerance &&
+
+    x <= position.x + textWidth + tolerance &&
+
+    y >= position.y - textHeight - tolerance &&
+
+    y <= position.y + tolerance;
+
+};
+
+
+
+// Function to find drawing at point
+
+const findDrawingAtPoint = (point: { x: number; y: number }): Drawing | null => {
+
+  for (let i = drawings.length - 1; i >= 0; i--) {
+
+    if (isPointNearDrawing(point, drawings[i])) {
+
+      return drawings[i];
 
     }
 
+  }
 
+  return null;
 
-    return metadata;
+};
 
-  };
 
 
+// Function to move a drawing to absolute position based on original drawing
 
-  // Helper function to get tool-specific metadata
+const moveDrawingToPosition = (drawingId: number, deltaX: number, deltaY: number, originalDrawing: any) => {
 
-  const getToolMetadata = (toolType: string, points: { x: number, y: number }[]) => {
+  setDrawings(prev => prev.map(drawing => {
 
-    const metadata: DrawingMetadata = {};
+    if (drawing.id === drawingId) {
 
+      const updatedDrawing = { ...originalDrawing }; // Start with the original drawing
 
 
-    switch (toolType) {
 
-      // Pattern-specific metadata removed
+      // Move data coordinates (TradingView-style absolute coordinates)
 
-    }
+      if (originalDrawing.startDataPoint) {
 
+        const originalScreenCoords = dataToScreenCoordinates(originalDrawing.startDataPoint.candleIndex, originalDrawing.startDataPoint.price);
 
+        const newScreenCoords = { x: originalScreenCoords.x + deltaX, y: originalScreenCoords.y + deltaY };
 
-    return metadata;
+        const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
 
-  };
-
-
-
-  // Handle text input submission
-
-  const handleTextSubmit = () => {
-
-    if (textInputPosition && drawingText) {
-
-      const newDrawing = {
-
-        id: Date.now(),
-
-        type: activeTool || 'unknown',
-
-        startPoint: textInputPosition,
-
-        endPoint: textInputPosition,
-
-        timestamp: Date.now(),
-
-        style: drawingStyle,
-
-        text: drawingText
-
-      };
-
-
-
-      setDrawings(prev => [...prev, newDrawing]);
-
-      setShowTextInput(false);
-
-      setDrawingText('');
-
-      setTextInputPosition(null);
-
-      setActiveTool(null);
-
-    }
-
-  };
-
-
-
-  // Helper function to test if a point is near a drawing (hit testing)
-
-  const isPointNearDrawing = (point: { x: number; y: number }, drawing: Drawing, tolerance = 8): boolean => {
-
-    const { x, y } = point;
-
-
-
-    // Get current screen coordinates for the drawing
-
-    let startPoint = drawing.startPoint;
-
-    let endPoint = drawing.endPoint;
-
-    let points = drawing.points;
-
-
-
-    // If data coordinates exist, convert them to current screen coordinates
-
-    if (drawing.startDataPoint) {
-
-      const screenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
-
-      startPoint = screenCoords;
-
-    }
-
-    if (drawing.endDataPoint) {
-
-      const screenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
-
-      endPoint = screenCoords;
-
-    }
-
-    if (drawing.dataPoints && drawing.dataPoints.length > 0) {
-
-      points = drawing.dataPoints.map(dataPoint =>
-
-        dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price)
-
-      );
-
-    }
-
-
-
-    switch (drawing.type) {
-
-      case 'trend_line':
-
-      case 'extended_line':
-
-        return startPoint && endPoint ?
-
-          isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
-
-
-
-      case 'horizontal_line':
-
-        return startPoint ? Math.abs(y - startPoint.y) <= tolerance : false;
-
-
-
-      case 'vertical_line':
-
-        return startPoint ? Math.abs(x - startPoint.x) <= tolerance : false;
-
-
-
-      case 'rectangle':
-
-        return startPoint && endPoint ?
-
-          isPointInRectangle(x, y, startPoint, endPoint, tolerance) : false;
-
-
-
-      case 'ellipse':
-
-      case 'circle':
-
-        return startPoint && endPoint ?
-
-          isPointNearEllipse(x, y, startPoint, endPoint, tolerance) : false;
-
-
-
-      case 'text':
-
-      case 'note':
-
-      case 'callout':
-
-        return startPoint ?
-
-          isPointInTextBox(x, y, startPoint, drawing.text || '', tolerance) : false;
-
-
-
-      default:
-
-        return startPoint && endPoint ?
-
-          isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
-
-    }
-
-  };
-
-
-
-  // Utility functions for hit testing
-
-  const isPointNearLine = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
-
-    const A = x - start.x;
-
-    const B = y - start.y;
-
-    const C = end.x - start.x;
-
-    const D = end.y - start.y;
-
-
-
-    const dot = A * C + B * D;
-
-    const lenSq = C * C + D * D;
-
-
-
-    if (lenSq === 0) return Math.sqrt(A * A + B * B) <= tolerance;
-
-
-
-    const param = dot / lenSq;
-
-
-
-    let xx, yy;
-
-    if (param < 0) {
-
-      xx = start.x;
-
-      yy = start.y;
-
-    } else if (param > 1) {
-
-      xx = end.x;
-
-      yy = end.y;
-
-    } else {
-
-      xx = start.x + param * C;
-
-      yy = start.y + param * D;
-
-    }
-
-
-
-    const dx = x - xx;
-
-    const dy = y - yy;
-
-    return Math.sqrt(dx * dx + dy * dy) <= tolerance;
-
-  };
-
-
-
-  const isPointInRectangle = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
-
-    const minX = Math.min(start.x, end.x) - tolerance;
-
-    const maxX = Math.max(start.x, end.x) + tolerance;
-
-    const minY = Math.min(start.y, end.y) - tolerance;
-
-    const maxY = Math.max(start.y, end.y) + tolerance;
-
-
-
-    return x >= minX && x <= maxX && y >= minY && y <= maxY;
-
-  };
-
-
-
-  const isPointNearEllipse = (x: number, y: number, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number): boolean => {
-
-    const centerX = (start.x + end.x) / 2;
-
-    const centerY = (start.y + end.y) / 2;
-
-    const radiusX = Math.abs(end.x - start.x) / 2;
-
-    const radiusY = Math.abs(end.y - start.y) / 2;
-
-
-
-    const dx = x - centerX;
-
-    const dy = y - centerY;
-
-    const distance = Math.sqrt((dx * dx) / (radiusX * radiusX) + (dy * dy) / (radiusY * radiusY));
-
-
-
-    return Math.abs(distance - 1) <= tolerance / Math.min(radiusX, radiusY);
-
-  };
-
-
-
-  const isPointInTextBox = (x: number, y: number, position: { x: number; y: number }, text: string, tolerance: number): boolean => {
-
-    const textWidth = text.length * 8; // Approximate
-
-    const textHeight = 16;
-
-
-
-    return x >= position.x - tolerance &&
-
-      x <= position.x + textWidth + tolerance &&
-
-      y >= position.y - textHeight - tolerance &&
-
-      y <= position.y + tolerance;
-
-  };
-
-
-
-  // Function to find drawing at point
-
-  const findDrawingAtPoint = (point: { x: number; y: number }): Drawing | null => {
-
-    for (let i = drawings.length - 1; i >= 0; i--) {
-
-      if (isPointNearDrawing(point, drawings[i])) {
-
-        return drawings[i];
+        updatedDrawing.startDataPoint = newDataCoords;
 
       }
 
-    }
-
-    return null;
-
-  };
 
 
+      if (originalDrawing.endDataPoint) {
 
-  // Function to move a drawing to absolute position based on original drawing
+        const originalScreenCoords = dataToScreenCoordinates(originalDrawing.endDataPoint.candleIndex, originalDrawing.endDataPoint.price);
 
-  const moveDrawingToPosition = (drawingId: number, deltaX: number, deltaY: number, originalDrawing: any) => {
+        const newScreenCoords = { x: originalScreenCoords.x + deltaX, y: originalScreenCoords.y + deltaY };
 
-    setDrawings(prev => prev.map(drawing => {
+        const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
 
-      if (drawing.id === drawingId) {
+        updatedDrawing.endDataPoint = newDataCoords;
 
-        const updatedDrawing = { ...originalDrawing }; // Start with the original drawing
+      }
 
 
 
-        // Move data coordinates (TradingView-style absolute coordinates)
+      if (originalDrawing.dataPoints && originalDrawing.dataPoints.length > 0) {
 
-        if (originalDrawing.startDataPoint) {
+        updatedDrawing.dataPoints = originalDrawing.dataPoints.map((dataPoint: any) => {
 
-          const originalScreenCoords = dataToScreenCoordinates(originalDrawing.startDataPoint.candleIndex, originalDrawing.startDataPoint.price);
+          const originalScreenCoords = dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price);
 
           const newScreenCoords = { x: originalScreenCoords.x + deltaX, y: originalScreenCoords.y + deltaY };
 
-          const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          updatedDrawing.startDataPoint = newDataCoords;
-
-        }
-
-
-
-        if (originalDrawing.endDataPoint) {
-
-          const originalScreenCoords = dataToScreenCoordinates(originalDrawing.endDataPoint.candleIndex, originalDrawing.endDataPoint.price);
-
-          const newScreenCoords = { x: originalScreenCoords.x + deltaX, y: originalScreenCoords.y + deltaY };
-
-          const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          updatedDrawing.endDataPoint = newDataCoords;
-
-        }
-
-
-
-        if (originalDrawing.dataPoints && originalDrawing.dataPoints.length > 0) {
-
-          updatedDrawing.dataPoints = originalDrawing.dataPoints.map((dataPoint: any) => {
-
-            const originalScreenCoords = dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price);
-
-            const newScreenCoords = { x: originalScreenCoords.x + deltaX, y: originalScreenCoords.y + deltaY };
-
-            return screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          });
-
-        }
-
-
-
-        // Also update screen coordinates for immediate visual feedback (these get recalculated on render anyway)
-
-        if (originalDrawing.startPoint) {
-
-          updatedDrawing.startPoint = {
-
-            x: originalDrawing.startPoint.x + deltaX,
-
-            y: originalDrawing.startPoint.y + deltaY
-
-          };
-
-        }
-
-
-
-        if (originalDrawing.endPoint) {
-
-          updatedDrawing.endPoint = {
-
-            x: originalDrawing.endPoint.x + deltaX,
-
-            y: originalDrawing.endPoint.y + deltaY
-
-          };
-
-        }
-
-
-
-        if (originalDrawing.points) {
-
-          updatedDrawing.points = originalDrawing.points.map((point: { x: number; y: number }) => ({
-
-            x: point.x + deltaX,
-
-            y: point.y + deltaY
-
-          }));
-
-        }
-
-
-
-        return updatedDrawing;
-
-      }
-
-      return drawing;
-
-    }));
-
-  };
-
-
-
-  // Function to move a drawing
-
-  const moveDrawing = (drawingId: number, deltaX: number, deltaY: number) => {
-
-    setDrawings(prev => prev.map(drawing => {
-
-      if (drawing.id === drawingId) {
-
-        const updatedDrawing = { ...drawing };
-
-
-
-        // Move data coordinates (TradingView-style absolute coordinates)
-
-        if (drawing.startDataPoint) {
-
-          const currentScreenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
-
-          const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
-
-          const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          updatedDrawing.startDataPoint = newDataCoords;
-
-        }
-
-
-
-        if (drawing.endDataPoint) {
-
-          const currentScreenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
-
-          const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
-
-          const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          updatedDrawing.endDataPoint = newDataCoords;
-
-        }
-
-
-
-        if (drawing.dataPoints && drawing.dataPoints.length > 0) {
-
-          updatedDrawing.dataPoints = drawing.dataPoints.map(dataPoint => {
-
-            const currentScreenCoords = dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price);
-
-            const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
-
-            return screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
-
-          });
-
-        }
-
-
-
-        // Also update screen coordinates for immediate visual feedback (these get recalculated on render anyway)
-
-        if (drawing.startPoint) {
-
-          updatedDrawing.startPoint = {
-
-            x: drawing.startPoint.x + deltaX,
-
-            y: drawing.startPoint.y + deltaY
-
-          };
-
-        }
-
-
-
-        if (drawing.endPoint) {
-
-          updatedDrawing.endPoint = {
-
-            x: drawing.endPoint.x + deltaX,
-
-            y: drawing.endPoint.y + deltaY
-
-          };
-
-        }
-
-
-
-        if (drawing.points) {
-
-          updatedDrawing.points = drawing.points.map((point: { x: number; y: number }) => ({
-
-            x: point.x + deltaX,
-
-            y: point.y + deltaY
-
-          }));
-
-        }
-
-
-
-        return updatedDrawing;
-
-      }
-
-      return drawing;
-
-    }));
-
-  };
-
-
-
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-
-    const canvas = e.currentTarget;
-
-    const rect = canvas.getBoundingClientRect();
-
-    const x = e.clientX - rect.left;
-
-    const y = e.clientY - rect.top;
-
-
-
-    // Update crosshair position - these coordinates should match exactly with drawing coordinates
-
-    setCrosshairPosition({ x, y });
-
-
-
-    // Handle horizontal ray dragging
-
-    if (isEditingRay && selectedRay) {
-
-      // Use the exact same coordinate system as everything else
-
-      const newPrice = screenToPrice(y);
-
-      updateHorizontalRayPrice(selectedRay, newPrice);
-
-    }
-
-
-
-    // Change cursor when hovering over rays
-
-    let isOverRay = false;
-
-    for (const ray of horizontalRays) {
-
-      const rayY = priceToScreenForDrawings(ray.price);
-
-      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
-
-        isOverRay = true;
-
-        break;
-
-      }
-
-    }
-
-
-
-    // Set cursor for parallel channel mode to precise crosshair for better alignment
-
-    canvas.style.cursor = isOverRay || isEditingRay ? 'ns-resize' :
-
-      (isHorizontalRayMode || isParallelChannelMode) ? 'crosshair' :
-
-        isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMgMTdIMjFMMTMgOUwzIDE3WiIgZmlsbD0iIzAwMCIgc3Ryb2tlPSIjRkZGIiBzdHJva2Utd2lkdGg9IjIiLz4KPHN2Zz4K) 8 20, auto' :
-
-          'default';
-
-  };
-
-
-
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-
-    setIsEditingRay(false);
-
-  };
-
-
-
-  // Helper function to draw arrow heads
-
-  const drawArrowHead = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number) => {
-
-    const headlen = 15; // length of head in pixels
-
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-
-
-
-    ctx.moveTo(toX, toY);
-
-    ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
-
-    ctx.moveTo(toX, toY);
-
-    ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
-
-  };
-
-
-
-  // Fixed horizontal rays function - uses proper coordinate system
-
-  const drawHorizontalRays = (ctx: CanvasRenderingContext2D) => {
-
-    if (!horizontalRays.length) return;
-
-
-
-    // Use the existing priceToScreen function for consistent coordinates
-
-    const chartWidth = dimensions.width - 80;
-
-
-
-    horizontalRays.forEach(ray => {
-
-      // Use the same coordinate conversion as the main chart
-
-      const y = priceToScreen(ray.price);
-
-
-
-      // Only draw if within visible area
-
-      if (y < 0 || y > dimensions.height) return;
-
-
-
-      // Draw horizontal line across entire chart width
-
-      ctx.strokeStyle = ray.color || '#00ff00';
-
-      ctx.lineWidth = ray.lineWidth || 2;
-
-
-
-      // Set line style based on ray properties
-
-      const lineStyle = ray.lineStyle || 'solid';
-
-      switch (lineStyle) {
-
-        case 'dashed':
-
-          ctx.setLineDash([10, 5]);
-
-          break;
-
-        case 'dotted':
-
-          ctx.setLineDash([2, 3]);
-
-          break;
-
-        default:
-
-          ctx.setLineDash([]);
-
-          break;
-
-      }
-
-
-
-      ctx.beginPath();
-
-      ctx.moveTo(80, y); // Start from left margin
-
-      ctx.lineTo(dimensions.width - 80, y); // End at right margin
-
-      ctx.stroke();
-
-
-
-      // Price label on the right
-
-      const priceText = `$${ray.price.toFixed(2)}`;
-
-      ctx.font = '12px Arial';
-
-      ctx.fillStyle = ray.color || '#00ff00';
-
-      ctx.fillText(priceText, dimensions.width - 75, y - 5);
-
-    });
-
-
-
-    ctx.setLineDash([]);
-
-  };
-
-
-
-  // TradingView-style drawing renderer: converts time+price coordinates to screen position
-
-  const drawStoredDrawings = (ctx: CanvasRenderingContext2D) => {
-
-    const currentDrawings = drawingsRef.current;
-
-
-
-    if (currentDrawings.length === 0) {
-
-      return;
-
-    }
-
-
-
-    // TradingView coordinate conversion: time+price ? screen coordinates
-
-    const timeToScreenX = (timestamp: number): number => {
-
-      if (!data || data.length === 0) return 0;
-
-
-
-      // Find the candle index for this timestamp
-
-      const candleIndex = data.findIndex((candle: any) => candle.timestamp >= timestamp);
-
-      if (candleIndex === -1) return ctx.canvas.width; // Future timestamp, draw at right edge
-
-
-
-      // CRITICAL INSIGHT: The drawing should stay at the SAME TIMESTAMP position
-
-      // When we scroll, we see different timestamps, so the drawing should move accordingly
-
-      const canvas = overlayCanvasRef.current;
-
-      if (!canvas) return 0;
-
-
-
-      const rect = canvas.getBoundingClientRect();
-
-      const chartWidth = rect.width - 80; // Account for margins
-
-      const candleWidth = chartWidth / visibleCandleCount;
-
-
-
-      // Calculate where this timestamp appears on the current screen
-
-      // If the timestamp is outside the visible range, it should be off-screen
-
-      const visibleStartIndex = scrollOffset;
-
-      const visibleEndIndex = scrollOffset + visibleCandleCount;
-
-
-
-      if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
-
-        // Drawing is outside visible range - position it off-screen but proportionally
-
-        const relativePosition = candleIndex - scrollOffset;
-
-        return relativePosition * candleWidth + candleWidth / 2 + 40;
-
-      }
-
-
-
-      // Drawing is in visible range - position it correctly
-
-      const positionInVisibleRange = candleIndex - visibleStartIndex;
-
-      const x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
-
-
-
-        timestamp,
-
-        candleIndex,
-
-        scrollOffset,
-
-        visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
-
-        positionInVisibleRange,
-
-        x
-
-      });
-
-
-
-      return x;
-
-    };
-
-
-
-    const priceToScreenY = (price: number): number => {
-
-      // Use STABLE price range for drawing positioning (doesn't change with scrolling)
-
-      const stablePriceRange = getStablePriceRange();
-
-      const { min: low, max: high } = stablePriceRange;
-
-      const priceHeight = high - low;
-
-      if (priceHeight === 0) return ctx.canvas.height / 2;
-
-
-
-      // Convert price to screen Y coordinate (inverted: high price = low Y)
-
-      const canvas = overlayCanvasRef.current;
-
-      if (!canvas) return ctx.canvas.height / 2;
-
-
-
-      const rect = canvas.getBoundingClientRect();
-
-      const priceChartHeight = rect.height * 0.7; // 70% for price chart
-
-      const normalizedPrice = (price - low) / priceHeight;
-
-      return priceChartHeight - (normalizedPrice * priceChartHeight);
-
-    };
-
-
-
-    // Helper function to convert TradingView coordinates to screen coordinates
-
-    const getScreenCoordinates = (drawing: Drawing) => {
-
-      let startPoint: DrawingPoint | null = null;
-
-      let endPoint: DrawingPoint | null = null;
-
-      let points: DrawingPoint[] | null = null;
-
-
-
-
-
-      // PRIORITY 1: New TradingView time/price coordinate system
-
-      // Single point drawings (ray, vertical_line, horizontal_line)
-
-      if (drawing.time && drawing.price !== undefined) {
-
-
-
-        // For rays: use the exact stored pixel coordinates - NO CALCULATIONS
-
-        if ((drawing.type === 'ray' || drawing.type === 'horizontal_line') && drawing.absoluteScreenY !== undefined) {
-
-          // SIMPLE: Use exact stored click coordinates
-
-          const xCoord = drawing.clickX || 40; // Use stored X or default
-
-          const yCoord = drawing.absoluteScreenY; // Use exact stored Y pixel
-
-
-
-          startPoint = {
-
-            x: xCoord,
-
-            y: yCoord
-
-          };
-
-
-
-            storedX: drawing.clickX,
-
-            storedY: drawing.absoluteScreenY,
-
-            finalPoint: startPoint,
-
-            drawingId: drawing.id
-
-          });
-
-        } else {
-
-          // Normal coordinate conversion for other drawings
-
-          startPoint = timePriceToScreenCoordinates(drawing.time, drawing.price);
-
-        }
-
-      }
-
-
-
-      // Two point drawings (trend_line, etc.)
-
-      if (drawing.time1 && drawing.price1 !== undefined) {
-
-        // Use current range for trend lines to match chart scaling
-
-        const useStableRange = false; // Trend lines should follow chart scaling
-
-        startPoint = timePriceToScreenCoordinates(drawing.time1, drawing.price1, useStableRange);
-
-      }
-
-
-
-      if (drawing.time2 && drawing.price2 !== undefined) {
-
-        // Use current range for trend lines to match chart scaling
-
-        const useStableRange = false; // Trend lines should follow chart scaling
-
-        endPoint = timePriceToScreenCoordinates(drawing.time2, drawing.price2, useStableRange);
-
-      }
-
-
-
-      // Multi-point drawings (general patterns, etc.)
-
-      if (drawing.points && drawing.points.length > 0 && drawing.points[0].timestamp && drawing.points[0].price !== undefined) {
-
-        points = drawing.points.map((point, index) => {
-
-          const screenCoords = timePriceToScreenCoordinates(point.timestamp!, point.price!);
-
-          return screenCoords;
+          return screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
 
         });
 
@@ -17392,67 +16786,671 @@ export default function TradingViewChart({
 
 
 
-      // FALLBACK 1: Legacy coordinate handling - already in correct format above
+      // Also update screen coordinates for immediate visual feedback (these get recalculated on render anyway)
 
+      if (originalDrawing.startPoint) {
 
+        updatedDrawing.startPoint = {
 
-      // FALLBACK 2: Legacy TradingView coordinate system (no changes needed - handled above)
+          x: originalDrawing.startPoint.x + deltaX,
 
+          y: originalDrawing.startPoint.y + deltaY
 
-
-      // FALLBACK 2: Data coordinate system (legacy)
-
-      if (!startPoint && drawing.startDataPoint) {
-
-        const screenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
-
-        startPoint = screenCoords;
-
-      }
-
-      if (!endPoint && drawing.endDataPoint) {
-
-        const screenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
-
-        endPoint = screenCoords;
-
-      }
-
-      if (!points && drawing.dataPoints && drawing.dataPoints.length > 0) {
-
-        points = drawing.dataPoints.map(dataPoint =>
-
-          dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price)
-
-        );
+        };
 
       }
 
 
 
-      // FALLBACK 3: Raw screen coordinates (legacy - will move with chart!)
+      if (originalDrawing.endPoint) {
 
-      if (!startPoint && drawing.startPoint) {
+        updatedDrawing.endPoint = {
 
-        startPoint = drawing.startPoint;
+          x: originalDrawing.endPoint.x + deltaX,
 
-      }
+          y: originalDrawing.endPoint.y + deltaY
 
-      if (!endPoint && drawing.endPoint) {
-
-        endPoint = drawing.endPoint;
-
-      }
-
-      if (!points && drawing.points) {
-
-        points = drawing.points;
+        };
 
       }
 
 
 
-      return { startPoint, endPoint, points };
+      if (originalDrawing.points) {
+
+        updatedDrawing.points = originalDrawing.points.map((point: { x: number; y: number }) => ({
+
+          x: point.x + deltaX,
+
+          y: point.y + deltaY
+
+        }));
+
+      }
+
+
+
+      return updatedDrawing;
+
+    }
+
+    return drawing;
+
+  }));
+
+};
+
+
+
+// Function to move a drawing
+
+const moveDrawing = (drawingId: number, deltaX: number, deltaY: number) => {
+
+  setDrawings(prev => prev.map(drawing => {
+
+    if (drawing.id === drawingId) {
+
+      const updatedDrawing = { ...drawing };
+
+
+
+      // Move data coordinates (TradingView-style absolute coordinates)
+
+      if (drawing.startDataPoint) {
+
+        const currentScreenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
+
+        const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
+
+        const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
+
+        updatedDrawing.startDataPoint = newDataCoords;
+
+      }
+
+
+
+      if (drawing.endDataPoint) {
+
+        const currentScreenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
+
+        const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
+
+        const newDataCoords = screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
+
+        updatedDrawing.endDataPoint = newDataCoords;
+
+      }
+
+
+
+      if (drawing.dataPoints && drawing.dataPoints.length > 0) {
+
+        updatedDrawing.dataPoints = drawing.dataPoints.map(dataPoint => {
+
+          const currentScreenCoords = dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price);
+
+          const newScreenCoords = { x: currentScreenCoords.x + deltaX, y: currentScreenCoords.y + deltaY };
+
+          return screenToDataCoordinates(newScreenCoords.x, newScreenCoords.y);
+
+        });
+
+      }
+
+
+
+      // Also update screen coordinates for immediate visual feedback (these get recalculated on render anyway)
+
+      if (drawing.startPoint) {
+
+        updatedDrawing.startPoint = {
+
+          x: drawing.startPoint.x + deltaX,
+
+          y: drawing.startPoint.y + deltaY
+
+        };
+
+      }
+
+
+
+      if (drawing.endPoint) {
+
+        updatedDrawing.endPoint = {
+
+          x: drawing.endPoint.x + deltaX,
+
+          y: drawing.endPoint.y + deltaY
+
+        };
+
+      }
+
+
+
+      if (drawing.points) {
+
+        updatedDrawing.points = drawing.points.map((point: { x: number; y: number }) => ({
+
+          x: point.x + deltaX,
+
+          y: point.y + deltaY
+
+        }));
+
+      }
+
+
+
+      return updatedDrawing;
+
+    }
+
+    return drawing;
+
+  }));
+
+};
+
+
+
+const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+
+  const canvas = e.currentTarget;
+
+  const rect = canvas.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+
+  const y = e.clientY - rect.top;
+
+
+
+  // Update crosshair position - these coordinates should match exactly with drawing coordinates
+
+  setCrosshairPosition({ x, y });
+
+
+
+  // Handle horizontal ray dragging
+
+  if (isEditingRay && selectedRay) {
+
+    // Use the exact same coordinate system as everything else
+
+    const newPrice = screenToPrice(y);
+
+    updateHorizontalRayPrice(selectedRay, newPrice);
+
+  }
+
+
+
+  // Change cursor when hovering over rays
+
+  let isOverRay = false;
+
+  for (const ray of horizontalRays) {
+
+    const rayY = priceToScreenForDrawings(ray.price);
+
+    if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
+
+      isOverRay = true;
+
+      break;
+
+    }
+
+  }
+
+
+
+  // Set cursor for parallel channel mode to precise crosshair for better alignment
+
+  canvas.style.cursor = isOverRay || isEditingRay ? 'ns-resize' :
+
+    (isHorizontalRayMode || isParallelChannelMode) ? 'crosshair' :
+
+      isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMgMTdIMjFMMTMgOUwzIDE3WiIgZmlsbD0iIzAwMCIgc3Ryb2tlPSIjRkZGIiBzdHJva2Utd2lkdGg9IjIiLz4KPHN2Zz4K) 8 20, auto' :
+
+        'default';
+
+};
+
+
+
+const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+
+  setIsEditingRay(false);
+
+};
+
+
+
+// Helper function to draw arrow heads
+
+const drawArrowHead = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number) => {
+
+  const headlen = 15; // length of head in pixels
+
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+
+
+
+  ctx.moveTo(toX, toY);
+
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+
+  ctx.moveTo(toX, toY);
+
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+
+};
+
+
+
+// Fixed horizontal rays function - uses proper coordinate system
+
+const drawHorizontalRays = (ctx: CanvasRenderingContext2D) => {
+
+  if (!horizontalRays.length) return;
+
+
+
+  // Use the existing priceToScreen function for consistent coordinates
+
+  const chartWidth = dimensions.width - 80;
+
+
+
+  horizontalRays.forEach(ray => {
+
+    // Use the same coordinate conversion as the main chart
+
+    const y = priceToScreen(ray.price);
+
+
+
+    // Only draw if within visible area
+
+    if (y < 0 || y > dimensions.height) return;
+
+
+
+    // Draw horizontal line across entire chart width
+
+    ctx.strokeStyle = ray.color || '#00ff00';
+
+    ctx.lineWidth = ray.lineWidth || 2;
+
+
+
+    // Set line style based on ray properties
+
+    const lineStyle = ray.lineStyle || 'solid';
+
+    switch (lineStyle) {
+
+      case 'dashed':
+
+        ctx.setLineDash([10, 5]);
+
+        break;
+
+      case 'dotted':
+
+        ctx.setLineDash([2, 3]);
+
+        break;
+
+      default:
+
+        ctx.setLineDash([]);
+
+        break;
+
+    }
+
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(80, y); // Start from left margin
+
+    ctx.lineTo(dimensions.width - 80, y); // End at right margin
+
+    ctx.stroke();
+
+
+
+    // Price label on the right
+
+    const priceText = `$${ray.price.toFixed(2)}`;
+
+    ctx.font = '12px Arial';
+
+    ctx.fillStyle = ray.color || '#00ff00';
+
+    ctx.fillText(priceText, dimensions.width - 75, y - 5);
+
+  });
+
+
+
+  ctx.setLineDash([]);
+
+};
+
+
+
+// TradingView-style drawing renderer: converts time+price coordinates to screen position
+
+const drawStoredDrawings = (ctx: CanvasRenderingContext2D) => {
+
+  const currentDrawings = drawingsRef.current;
+
+
+
+  if (currentDrawings.length === 0) {
+
+    return;
+
+  }
+
+
+
+  // TradingView coordinate conversion: time+price ? screen coordinates
+
+  const timeToScreenX = (timestamp: number): number => {
+
+    if (!data || data.length === 0) return 0;
+
+
+
+    // Find the candle index for this timestamp
+
+    const candleIndex = data.findIndex((candle: any) => candle.timestamp >= timestamp);
+
+    if (candleIndex === -1) return ctx.canvas.width; // Future timestamp, draw at right edge
+
+
+
+    // CRITICAL INSIGHT: The drawing should stay at the SAME TIMESTAMP position
+
+    // When we scroll, we see different timestamps, so the drawing should move accordingly
+
+    const canvas = overlayCanvasRef.current;
+
+    if (!canvas) return 0;
+
+
+
+    const rect = canvas.getBoundingClientRect();
+
+    const chartWidth = rect.width - 80; // Account for margins
+
+    const candleWidth = chartWidth / visibleCandleCount;
+
+
+
+    // Calculate where this timestamp appears on the current screen
+
+    // If the timestamp is outside the visible range, it should be off-screen
+
+    const visibleStartIndex = scrollOffset;
+
+    const visibleEndIndex = scrollOffset + visibleCandleCount;
+
+
+
+    if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
+
+      // Drawing is outside visible range - position it off-screen but proportionally
+
+      const relativePosition = candleIndex - scrollOffset;
+
+      return relativePosition * candleWidth + candleWidth / 2 + 40;
+
+    }
+
+
+
+    // Drawing is in visible range - position it correctly
+
+    const positionInVisibleRange = candleIndex - visibleStartIndex;
+
+    const x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
+
+
+
+    timestamp,
+
+      candleIndex,
+
+      scrollOffset,
+
+      visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
+
+        positionInVisibleRange,
+
+        x
+
+  });
+
+
+
+  return x;
+
+};
+
+
+
+const priceToScreenY = (price: number): number => {
+
+  // Use STABLE price range for drawing positioning (doesn't change with scrolling)
+
+  const stablePriceRange = getStablePriceRange();
+
+  const { min: low, max: high } = stablePriceRange;
+
+  const priceHeight = high - low;
+
+  if (priceHeight === 0) return ctx.canvas.height / 2;
+
+
+
+  // Convert price to screen Y coordinate (inverted: high price = low Y)
+
+  const canvas = overlayCanvasRef.current;
+
+  if (!canvas) return ctx.canvas.height / 2;
+
+
+
+  const rect = canvas.getBoundingClientRect();
+
+  const priceChartHeight = rect.height * 0.7; // 70% for price chart
+
+  const normalizedPrice = (price - low) / priceHeight;
+
+  return priceChartHeight - (normalizedPrice * priceChartHeight);
+
+};
+
+
+
+// Helper function to convert TradingView coordinates to screen coordinates
+
+const getScreenCoordinates = (drawing: Drawing) => {
+
+  let startPoint: DrawingPoint | null = null;
+
+  let endPoint: DrawingPoint | null = null;
+
+  let points: DrawingPoint[] | null = null;
+
+
+
+
+
+  // PRIORITY 1: New TradingView time/price coordinate system
+
+  // Single point drawings (ray, vertical_line, horizontal_line)
+
+  if (drawing.time && drawing.price !== undefined) {
+
+
+
+    // For rays: use the exact stored pixel coordinates - NO CALCULATIONS
+
+    if ((drawing.type === 'ray' || drawing.type === 'horizontal_line') && drawing.absoluteScreenY !== undefined) {
+
+      // SIMPLE: Use exact stored click coordinates
+
+      const xCoord = drawing.clickX || 40; // Use stored X or default
+
+      const yCoord = drawing.absoluteScreenY; // Use exact stored Y pixel
+
+
+
+      startPoint = {
+
+        x: xCoord,
+
+        y: yCoord
+
+      };
+
+
+
+      storedX: drawing.clickX,
+
+        storedY: drawing.absoluteScreenY,
+
+          finalPoint: startPoint,
+
+            drawingId: drawing.id
+
+    });
+
+  } else {
+
+    // Normal coordinate conversion for other drawings
+
+    startPoint = timePriceToScreenCoordinates(drawing.time, drawing.price);
+
+  }
+
+}
+
+
+
+// Two point drawings (trend_line, etc.)
+
+if (drawing.time1 && drawing.price1 !== undefined) {
+
+  // Use current range for trend lines to match chart scaling
+
+  const useStableRange = false; // Trend lines should follow chart scaling
+
+  startPoint = timePriceToScreenCoordinates(drawing.time1, drawing.price1, useStableRange);
+
+}
+
+
+
+if (drawing.time2 && drawing.price2 !== undefined) {
+
+  // Use current range for trend lines to match chart scaling
+
+  const useStableRange = false; // Trend lines should follow chart scaling
+
+  endPoint = timePriceToScreenCoordinates(drawing.time2, drawing.price2, useStableRange);
+
+}
+
+
+
+// Multi-point drawings (general patterns, etc.)
+
+if (drawing.points && drawing.points.length > 0 && drawing.points[0].timestamp && drawing.points[0].price !== undefined) {
+
+  points = drawing.points.map((point, index) => {
+
+    const screenCoords = timePriceToScreenCoordinates(point.timestamp!, point.price!);
+
+    return screenCoords;
+
+  });
+
+}
+
+
+
+// FALLBACK 1: Legacy coordinate handling - already in correct format above
+
+
+
+// FALLBACK 2: Legacy TradingView coordinate system (no changes needed - handled above)
+
+
+
+// FALLBACK 2: Data coordinate system (legacy)
+
+if (!startPoint && drawing.startDataPoint) {
+
+  const screenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
+
+  startPoint = screenCoords;
+
+}
+
+if (!endPoint && drawing.endDataPoint) {
+
+  const screenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
+
+  endPoint = screenCoords;
+
+}
+
+if (!points && drawing.dataPoints && drawing.dataPoints.length > 0) {
+
+  points = drawing.dataPoints.map(dataPoint =>
+
+    dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price)
+
+  );
+
+}
+
+
+
+// FALLBACK 3: Raw screen coordinates (legacy - will move with chart!)
+
+if (!startPoint && drawing.startPoint) {
+
+  startPoint = drawing.startPoint;
+
+}
+
+if (!endPoint && drawing.endPoint) {
+
+  endPoint = drawing.endPoint;
+
+}
+
+if (!points && drawing.points) {
+
+  points = drawing.points;
+
+}
+
+
+
+return { startPoint, endPoint, points };
 
     };
 
@@ -17466,607 +17464,529 @@ export default function TradingViewChart({
 
 
 
-  // Property Editor has been removed - drawing tools were removed as requested
+// Property Editor has been removed - drawing tools were removed as requested
 
 
 
-  // Handle sidebar button clicks
+// Handle sidebar button clicks
 
-  const handleSidebarClick = (id: string) => {
+const handleSidebarClick = (id: string) => {
 
-    setActiveSidebarPanel(activeSidebarPanel === id ? null : id);
+  setActiveSidebarPanel(activeSidebarPanel === id ? null : id);
 
-  };
-
-
-
-  // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
-
-  const WatchlistPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
-
-    const currentSymbols = marketSymbols[activeTab as keyof typeof marketSymbols] || [];
+};
 
 
 
-    // Check if watchlist data is still loading
+// Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
 
-    const hasWatchlistData = Object.keys(watchlistData).length > 0;
+const WatchlistPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
 
-
-
-    if (watchlistLoading || !hasWatchlistData) {
-
-      // Show loading state instead of error
-
-      return (
-
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 h-96">
-
-          <div className="flex items-center justify-center h-full">
-
-            <div className="text-center">
-
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
-
-              <p className="text-gray-400 text-sm">Loading market data...</p>
+  const currentSymbols = marketSymbols[activeTab as keyof typeof marketSymbols] || [];
 
 
 
-            </div>
+  // Check if watchlist data is still loading
+
+  const hasWatchlistData = Object.keys(watchlistData).length > 0;
+
+
+
+  if (watchlistLoading || !hasWatchlistData) {
+
+    // Show loading state instead of error
+
+    return (
+
+      <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 h-96">
+
+        <div className="flex items-center justify-center h-full">
+
+          <div className="text-center">
+
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
+
+            <p className="text-gray-400 text-sm">Loading market data...</p>
+
+
 
           </div>
 
         </div>
 
-      );
+      </div>
+
+    );
+
+  }
+
+
+
+  // Helper function to get performance status for a specific time period
+
+  const getPerformanceStatus = (symbolChange: number, spyChange: number, symbol: string, period: string) => {
+
+    if (symbol === 'SPY') return { status: 'NEUTRAL', color: 'text-yellow-400' };
+
+
+
+    // Calculate relative performance: ticker vs SPY from period start to today
+
+    const relativePerformance = symbolChange - spyChange;
+
+
+
+    // Determine status based on relative performance vs SPY
+
+    if (period === '21d') {
+
+      if (relativePerformance > 0) {
+
+        return { status: 'KING', color: 'text-yellow-400 font-bold glow-yellow' }; // Outperformed SPY over 21 days
+
+      } else {
+
+        return { status: 'FALLEN', color: 'text-red-400 font-bold glow-red' }; // Underperformed SPY over 21 days
+
+      }
+
+    } else if (period === '13d') {
+
+      if (relativePerformance > 0) {
+
+        return { status: 'LEADER', color: 'text-green-400 font-bold glow-green' }; // Outperformed SPY over 13 days
+
+      } else {
+
+        return { status: 'LAGGARD', color: 'text-red-400 font-bold glow-red' }; // Underperformed SPY over 13 days
+
+      }
+
+    } else if (period === '5d') {
+
+      if (relativePerformance > 0) {
+
+        return { status: 'STRONG', color: 'text-green-400 font-bold' }; // Outperformed SPY over 5 days
+
+      } else {
+
+        return { status: 'WEAK', color: 'text-red-400 font-bold' }; // Underperformed SPY over 5 days
+
+      }
+
+    } else if (period === '1d') {
+
+      if (relativePerformance > 0) {
+
+        return { status: 'RISING', color: 'text-lime-400 font-bold' }; // Outperformed SPY today
+
+      } else {
+
+        return { status: 'FALLING', color: 'text-red-300 font-bold' }; // Underperformed SPY today
+
+      }
 
     }
 
 
 
-    // Helper function to get performance status for a specific time period
+    return { status: 'NEUTRAL', color: 'text-gray-400' };
 
-    const getPerformanceStatus = (symbolChange: number, spyChange: number, symbol: string, period: string) => {
-
-      if (symbol === 'SPY') return { status: 'NEUTRAL', color: 'text-yellow-400' };
+  };
 
 
 
-      // Calculate relative performance: ticker vs SPY from period start to today
+  // Helper function to calculate market regime for column headers only
 
-      const relativePerformance = symbolChange - spyChange;
+  const getMarketRegimeForHeader = (period: string) => {
+
+    // Growth sectors: XLY (Consumer Discretionary), XLK (Technology), XLC (Communication)
+
+    const growthSectors = ['XLY', 'XLK', 'XLC'];
+
+    // Defensive sectors: XLP (Consumer Staples), XLU (Utilities), XLRE (Real Estate), XLV (Healthcare)
+
+    const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV'];
 
 
 
-      // Determine status based on relative performance vs SPY
+    // Get performance data for each sector vs SPY
 
-      if (period === '21d') {
+    const growthPerformance = growthSectors.map(symbol => {
 
-        if (relativePerformance > 0) {
+      const data = watchlistData[symbol];
 
-          return { status: 'KING', color: 'text-yellow-400 font-bold glow-yellow' }; // Outperformed SPY over 21 days
+      const spyData = watchlistData['SPY'];
 
-        } else {
+      if (!data || !spyData) return null;
 
-          return { status: 'FALLEN', color: 'text-red-400 font-bold glow-red' }; // Underperformed SPY over 21 days
 
-        }
 
-      } else if (period === '13d') {
+      let change = 0;
 
-        if (relativePerformance > 0) {
+      let spyChange = 0;
 
-          return { status: 'LEADER', color: 'text-green-400 font-bold glow-green' }; // Outperformed SPY over 13 days
 
-        } else {
 
-          return { status: 'LAGGARD', color: 'text-red-400 font-bold glow-red' }; // Underperformed SPY over 13 days
+      if (period === '1d') {
 
-        }
+        change = data.change1d;
+
+        spyChange = spyData.change1d;
 
       } else if (period === '5d') {
 
-        if (relativePerformance > 0) {
+        change = data.change5d;
 
-          return { status: 'STRONG', color: 'text-green-400 font-bold' }; // Outperformed SPY over 5 days
+        spyChange = spyData.change5d;
 
-        } else {
+      } else if (period === '13d') {
 
-          return { status: 'WEAK', color: 'text-red-400 font-bold' }; // Underperformed SPY over 5 days
+        change = data.change13d;
 
-        }
+        spyChange = spyData.change13d;
 
-      } else if (period === '1d') {
+      } else if (period === '21d') {
 
-        if (relativePerformance > 0) {
+        change = data.change21d;
 
-          return { status: 'RISING', color: 'text-lime-400 font-bold' }; // Outperformed SPY today
-
-        } else {
-
-          return { status: 'FALLING', color: 'text-red-300 font-bold' }; // Underperformed SPY today
-
-        }
+        spyChange = spyData.change21d;
 
       }
 
 
 
-      return { status: 'NEUTRAL', color: 'text-gray-400' };
+      return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
 
-    };
+    }).filter(result => result !== null);
 
 
 
-    // Helper function to calculate market regime for column headers only
+    const defensivePerformance = defensiveSectors.map(symbol => {
 
-    const getMarketRegimeForHeader = (period: string) => {
+      const data = watchlistData[symbol];
 
-      // Growth sectors: XLY (Consumer Discretionary), XLK (Technology), XLC (Communication)
+      const spyData = watchlistData['SPY'];
 
-      const growthSectors = ['XLY', 'XLK', 'XLC'];
+      if (!data || !spyData) return null;
 
-      // Defensive sectors: XLP (Consumer Staples), XLU (Utilities), XLRE (Real Estate), XLV (Healthcare)
 
-      const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV'];
 
+      let change = 0;
 
+      let spyChange = 0;
 
-      // Get performance data for each sector vs SPY
 
-      const growthPerformance = growthSectors.map(symbol => {
 
-        const data = watchlistData[symbol];
+      if (period === '1d') {
 
-        const spyData = watchlistData['SPY'];
+        change = data.change1d;
 
-        if (!data || !spyData) return null;
+        spyChange = spyData.change1d;
 
+      } else if (period === '5d') {
 
+        change = data.change5d;
 
-        let change = 0;
+        spyChange = spyData.change5d;
 
-        let spyChange = 0;
+      } else if (period === '13d') {
 
+        change = data.change13d;
 
+        spyChange = spyData.change13d;
 
-        if (period === '1d') {
+      } else if (period === '21d') {
 
-          change = data.change1d;
+        change = data.change21d;
 
-          spyChange = spyData.change1d;
-
-        } else if (period === '5d') {
-
-          change = data.change5d;
-
-          spyChange = spyData.change5d;
-
-        } else if (period === '13d') {
-
-          change = data.change13d;
-
-          spyChange = spyData.change13d;
-
-        } else if (period === '21d') {
-
-          change = data.change21d;
-
-          spyChange = spyData.change21d;
-
-        }
-
-
-
-        return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
-
-      }).filter(result => result !== null);
-
-
-
-      const defensivePerformance = defensiveSectors.map(symbol => {
-
-        const data = watchlistData[symbol];
-
-        const spyData = watchlistData['SPY'];
-
-        if (!data || !spyData) return null;
-
-
-
-        let change = 0;
-
-        let spyChange = 0;
-
-
-
-        if (period === '1d') {
-
-          change = data.change1d;
-
-          spyChange = spyData.change1d;
-
-        } else if (period === '5d') {
-
-          change = data.change5d;
-
-          spyChange = spyData.change5d;
-
-        } else if (period === '13d') {
-
-          change = data.change13d;
-
-          spyChange = spyData.change13d;
-
-        } else if (period === '21d') {
-
-          change = data.change21d;
-
-          spyChange = spyData.change21d;
-
-        }
-
-
-
-        return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
-
-      }).filter(result => result !== null);
-
-
-
-      // Count how many are rising
-
-      const growthRising = growthPerformance.filter(Boolean).length;
-
-      const defensiveFalling = defensivePerformance.filter(perf => !perf).length; // Count falling (underperforming)
-
-
-
-      // RISK ON: All growth sectors rising AND most defensives falling
-
-      if (growthRising === growthPerformance.length && defensiveFalling >= 3) {
-
-        return 'RISK ON';
+        spyChange = spyData.change21d;
 
       }
 
 
 
-      // DEFENSIVE: Growth sectors falling AND most defensives rising 
+      return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
 
-      const growthFalling = growthPerformance.filter(perf => !perf).length;
-
-      const defensiveRising = defensivePerformance.filter(Boolean).length;
+    }).filter(result => result !== null);
 
 
 
-      if (growthFalling === growthPerformance.length && defensiveRising >= 3) {
+    // Count how many are rising
 
-        return 'DEFENSIVE';
+    const growthRising = growthPerformance.filter(Boolean).length;
 
-      }
-
-
-
-      // MIXED: Everything else
-
-      return 'MIXED';
-
-    };
+    const defensiveFalling = defensivePerformance.filter(perf => !perf).length; // Count falling (underperforming)
 
 
 
-    // Helper function to get group border styling
+    // RISK ON: All growth sectors rising AND most defensives falling
 
-    const getGroupBorderStyle = (symbols: string[], startIndex: number, endIndex: number) => {
+    if (growthRising === growthPerformance.length && defensiveFalling >= 3) {
 
-      if (startIndex === 0) {
+      return 'RISK ON';
 
-        // Main indices group
-
-        return 'border border-gray-300 rounded-md mb-2 p-1';
-
-      } else if (startIndex === 4) {
-
-        // Growth sectors group 
-
-        return 'border border-green-600 rounded-md mb-2 p-1';
-
-      } else if (startIndex === 7) {
-
-        // Defensive sectors group
-
-        return 'border border-red-600 rounded-md mb-2 p-1';
-
-      } else if (startIndex === 11) {
-
-        // Other sectors group
-
-        return 'border border-blue-600 rounded-md mb-2 p-1';
-
-      }
-
-      return '';
-
-    };
+    }
 
 
 
-    return (
+    // DEFENSIVE: Growth sectors falling AND most defensives rising 
 
-      <div className="h-full flex flex-col bg-black text-white">
+    const growthFalling = growthPerformance.filter(perf => !perf).length;
 
-        {/* Bloomberg-style Header */}
-
-        <div className="p-3 border-b border-yellow-500 bg-black">
-
-          <div className="flex items-center justify-center mb-2">
-
-            <h2 className="text-lg font-bold text-yellow-400 uppercase tracking-widest" style={{ letterSpacing: '0.2em', textShadow: '0 0 10px rgba(255, 200, 0, 0.5)' }}>
-
-              Watchlist
-
-            </h2>
-
-          </div>
+    const defensiveRising = defensivePerformance.filter(Boolean).length;
 
 
 
-          {/* Bloomberg-style Tabs - Enhanced Navy Blue with Black Text */}
+    if (growthFalling === growthPerformance.length && defensiveRising >= 3) {
 
-          <div className="flex border-2 border-blue-900/30 rounded-md overflow-hidden shadow-lg">
+      return 'DEFENSIVE';
 
-            {['Markets', 'Industries', 'Special'].map(tab => (
+    }
 
-              <button
 
-                key={tab}
 
-                onClick={() => setActiveTab(tab)}
+    // MIXED: Everything else
 
-                className={`flex-1 px-4 py-2 text-sm font-black uppercase tracking-widest border-r-2 border-blue-900/30 last:border-r-0 transition-all duration-300 ${activeTab === tab
+    return 'MIXED';
 
-                  ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50'
+  };
 
-                  : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
 
-                  }`}
 
-              >
+  // Helper function to get group border styling
 
-                {tab}
+  const getGroupBorderStyle = (symbols: string[], startIndex: number, endIndex: number) => {
 
-              </button>
+    if (startIndex === 0) {
 
-            ))}
+      // Main indices group
 
-          </div>
+      return 'border border-gray-300 rounded-md mb-2 p-1';
+
+    } else if (startIndex === 4) {
+
+      // Growth sectors group 
+
+      return 'border border-green-600 rounded-md mb-2 p-1';
+
+    } else if (startIndex === 7) {
+
+      // Defensive sectors group
+
+      return 'border border-red-600 rounded-md mb-2 p-1';
+
+    } else if (startIndex === 11) {
+
+      // Other sectors group
+
+      return 'border border-blue-600 rounded-md mb-2 p-1';
+
+    }
+
+    return '';
+
+  };
+
+
+
+  return (
+
+    <div className="h-full flex flex-col bg-black text-white">
+
+      {/* Bloomberg-style Header */}
+
+      <div className="p-3 border-b border-yellow-500 bg-black">
+
+        <div className="flex items-center justify-center mb-2">
+
+          <h2 className="text-lg font-bold text-yellow-400 uppercase tracking-widest" style={{ letterSpacing: '0.2em', textShadow: '0 0 10px rgba(255, 200, 0, 0.5)' }}>
+
+            Watchlist
+
+          </h2>
 
         </div>
 
 
 
-        {/* Bloomberg-style Column Headers - 7 Columns */}
+        {/* Bloomberg-style Tabs - Enhanced Navy Blue with Black Text */}
 
-        <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
+        <div className="flex border-2 border-blue-900/30 rounded-md overflow-hidden shadow-lg">
 
-          <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
+          {['Markets', 'Industries', 'Special'].map(tab => (
 
-            <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
+            <button
 
-          </div>
+              key={tab}
 
-          <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+              onClick={() => setActiveTab(tab)}
 
-            <span className="drop-shadow-lg text-shadow-carved text-orange-500">Price</span>
+              className={`flex-1 px-4 py-2 text-sm font-black uppercase tracking-widest border-r-2 border-blue-900/30 last:border-r-0 transition-all duration-300 ${activeTab === tab
 
-          </div>
+                ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50'
 
-          <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+                : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
 
-            <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
+                }`}
 
-          </div>
+            >
 
-          <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+              {tab}
 
-            <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+            </button>
 
-              {getMarketRegimeForHeader('1d')}
-
-            </span>
-
-          </div>
-
-          <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-
-            <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
-
-              {getMarketRegimeForHeader('5d')}
-
-            </span>
-
-          </div>
-
-          <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-
-            <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
-
-              {getMarketRegimeForHeader('13d')}
-
-            </span>
-
-          </div>
-
-          <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
-
-            <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
-
-              {getMarketRegimeForHeader('21d')}
-
-            </span>
-
-          </div>
+          ))}
 
         </div>
 
+      </div>
 
 
-        {/* Bloomberg-style Content */}
 
-        <div className="flex-1 overflow-y-auto bg-black">
+      {/* Bloomberg-style Column Headers - 7 Columns */}
 
-          {currentSymbols.length === 0 ? (
+      <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
 
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+        <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
 
-              <div className="text-lg font-bold mb-2">NO DATA</div>
+          <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
 
-              <div className="text-sm">No symbols in {activeTab.toUpperCase()}</div>
+        </div>
 
-            </div>
+        <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
 
-          ) : (
+          <span className="drop-shadow-lg text-shadow-carved text-orange-500">Price</span>
 
-            <div className="divide-y divide-gray-800">
+        </div>
 
-              {currentSymbols.map((symbol, index) => {
+        <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
 
-                const data = watchlistData[symbol];
+          <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
 
-                const spyData = watchlistData['SPY'];
+        </div>
 
-                const isLoading = !data;
+        <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
 
+          <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
 
+            {getMarketRegimeForHeader('1d')}
 
-                // Add separator rows between categories
+          </span>
 
-                const separatorRows = [];
+        </div>
 
+        <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
 
+          <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
 
-                // Add green separator after DIA (before XLK)
+            {getMarketRegimeForHeader('5d')}
 
-                if (symbol === 'XLK') {
+          </span>
 
-                  separatorRows.push(
+        </div>
 
-                    <div key="growth-separator" className="h-3 bg-green-500 my-2 rounded opacity-60"></div>
+        <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
 
-                  );
+          <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
 
-                }
+            {getMarketRegimeForHeader('13d')}
 
+          </span>
 
+        </div>
 
-                // Add red separator after XLC (before XLRE) 
+        <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
 
-                if (symbol === 'XLRE') {
+          <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
 
-                  separatorRows.push(
+            {getMarketRegimeForHeader('21d')}
 
-                    <div key="defensive-separator" className="h-3 bg-red-500 my-2 rounded opacity-60"></div>
+          </span>
 
-                  );
+        </div>
 
-                }
+      </div>
 
 
 
-                // Add blue separator after XLP (before XLB)
+      {/* Bloomberg-style Content */}
 
-                if (symbol === 'XLB') {
+      <div className="flex-1 overflow-y-auto bg-black">
 
-                  separatorRows.push(
+        {currentSymbols.length === 0 ? (
 
-                    <div key="other-separator" className="h-3 bg-blue-500 my-2 rounded opacity-60"></div>
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
 
-                  );
+            <div className="text-lg font-bold mb-2">NO DATA</div>
 
-                }
+            <div className="text-sm">No symbols in {activeTab.toUpperCase()}</div>
 
+          </div>
 
+        ) : (
 
-                if (isLoading) {
+          <div className="divide-y divide-gray-800">
 
-                  return (
+            {currentSymbols.map((symbol, index) => {
 
-                    <div key={symbol}>
+              const data = watchlistData[symbol];
 
-                      {separatorRows}
+              const spyData = watchlistData['SPY'];
 
-                      <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
+              const isLoading = !data;
 
-                        <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-                          <span className="drop-shadow-md">{symbol}</span>
 
-                        </div>
+              // Add separator rows between categories
 
-                        <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+              const separatorRows = [];
 
-                          <span className="drop-shadow-md">Loading...</span>
 
-                        </div>
 
-                        <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+              // Add green separator after DIA (before XLK)
 
-                          <span className="drop-shadow-md">--</span>
+              if (symbol === 'XLK') {
 
-                        </div>
+                separatorRows.push(
 
-                        <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+                  <div key="growth-separator" className="h-3 bg-green-500 my-2 rounded opacity-60"></div>
 
-                          <span className="drop-shadow-md">--</span>
+                );
 
-                        </div>
+              }
 
-                        <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-                          <span className="drop-shadow-md">--</span>
 
-                        </div>
+              // Add red separator after XLC (before XLRE) 
 
-                        <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+              if (symbol === 'XLRE') {
 
-                          <span className="drop-shadow-md">--</span>
+                separatorRows.push(
 
-                        </div>
+                  <div key="defensive-separator" className="h-3 bg-red-500 my-2 rounded opacity-60"></div>
 
-                        <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+                );
 
-                          <span className="drop-shadow-md">--</span>
+              }
 
-                        </div>
 
-                      </div>
 
-                    </div>
+              // Add blue separator after XLP (before XLB)
 
-                  );
+              if (symbol === 'XLB') {
 
-                }
+                separatorRows.push(
 
+                  <div key="other-separator" className="h-3 bg-blue-500 my-2 rounded opacity-60"></div>
 
+                );
 
-                const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
+              }
 
-                const changeSign = data.change1d >= 0 ? '+' : '';
 
 
-
-                // Get performance status for each time period vs SPY
-
-                const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
-
-                const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
-
-                const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
-
-                const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
-
-
+              if (isLoading) {
 
                 return (
 
@@ -18074,115 +17994,47 @@ export default function TradingViewChart({
 
                     {separatorRows}
 
-                    <div
+                    <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
 
-                      className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
+                      <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-                      onClick={() => {
-
-                        if (onSymbolChange) {
-
-                          onSymbolChange(symbol);
-
-                        }
-
-                        // Update the config state as well
-
-                        setConfig(prev => ({ ...prev, symbol }));
-
-                      }}
-
-                    >
-
-                      {/* Symbol */}
-
-                      <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
+                        <span className="drop-shadow-md">{symbol}</span>
 
                       </div>
 
+                      <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* Price */}
-
-                      <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
-
-                          {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-
-                        </div>
+                        <span className="drop-shadow-md">Loading...</span>
 
                       </div>
 
+                      <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* Change */}
-
-                      <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
-
-                          {changeSign}{data.change1d.toFixed(2)}%
-
-                        </div>
+                        <span className="drop-shadow-md">--</span>
 
                       </div>
 
+                      <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* 1D Performance */}
-
-                      <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
-
-                          {perf1d.status}
-
-                        </span>
+                        <span className="drop-shadow-md">--</span>
 
                       </div>
 
+                      <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* 5D Performance */}
-
-                      <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
-
-                          {perf5d.status}
-
-                        </span>
+                        <span className="drop-shadow-md">--</span>
 
                       </div>
 
+                      <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* 13D Performance */}
-
-                      <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
-
-                          {perf13d.status}
-
-                        </span>
+                        <span className="drop-shadow-md">--</span>
 
                       </div>
 
+                      <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
 
-
-                      {/* 21D Performance */}
-
-                      <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
-
-                        <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
-
-                          {perf21d.status}
-
-                        </span>
+                        <span className="drop-shadow-md">--</span>
 
                       </div>
 
@@ -18192,379 +18044,387 @@ export default function TradingViewChart({
 
                 );
 
-              })}
+              }
 
-            </div>
 
-          )}
 
-        </div>
+              const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
 
+              const changeSign = data.change1d >= 0 ? '+' : '';
 
 
-        {/* Sector Performance Chart - Always mounted, show/hide with display */}
 
-        <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Markets' ? 'block' : 'none' }}>
+              // Get performance status for each time period vs SPY
 
-          <SectorPerformanceChart />
+              const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
 
-        </div>
+              const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
 
+              const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
 
+              const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
 
-        {/* Industries Performance Chart - Always mounted, show/hide with display */}
 
-        <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Industries' ? 'block' : 'none' }}>
 
-          <IndustriesPerformanceChart />
+              return (
 
-        </div>
+                <div key={symbol}>
 
+                  {separatorRows}
 
+                  <div
 
-        {/* Special Performance Chart - Always mounted, show/hide with display */}
+                    className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
 
-        <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Special' ? 'block' : 'none' }}>
+                    onClick={() => {
 
-          <SpecialPerformanceChart />
+                      if (onSymbolChange) {
 
-        </div>
-
-      </div>
-
-    );
-
-  };
-
-
-
-  // RegimesPanel component removed for reconstruction
-
-  // RegimesPanel component removed for reconstruction
-
-
-
-  // RegimesPanel component removed for reconstruction
-
-
-
-  // RegimesPanel component removed for reconstruction
-
-  // RegimesPanel component removed for reconstruction
-
-  // RegimesPanel component removed for reconstruction
-
-  // Enhanced Market Regimes Panel Component with advanced analytics
-
-  const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
-
-
-
-    // Add to global debug object
-
-    window.MARKET_REGIMES_DEBUG = {
-
-      ...window.MARKET_REGIMES_DEBUG,
-
-      panelRender: {
-
-        activeTab,
-
-        hasData: !!marketRegimeData,
-
-        data: marketRegimeData
-
-      }
-
-    };
-
-
-
-    const getCurrentTimeframeData = () => {
-
-      if (!marketRegimeData) {
-
-        return null;
-
-      }
-
-
-
-      let data;
-
-      switch (activeTab) {
-
-        case 'Life':
-
-          data = marketRegimeData.life;
-
-          break;
-
-        case 'Developing':
-
-          data = marketRegimeData.developing;
-
-          break;
-
-        case 'Momentum':
-
-          data = marketRegimeData.momentum;
-
-          break;
-
-        default:
-
-          data = marketRegimeData.life;
-
-      }
-
-
-
-      return data;
-
-    };
-
-
-
-    const timeframeData = getCurrentTimeframeData();
-
-    const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
-
-    const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
-
-
-
-
-
-    return (
-
-      <div className="h-full flex flex-col" style={{
-
-        background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #111111 50%, #0a0a0a 75%, #000000 100%)',
-
-        borderLeft: '1px solid rgba(255, 102, 0, 0.3)'
-
-      }}>
-
-        {/* Premium Bloomberg-Style Header */}
-
-        <div style={{
-
-          background: '#000000',
-
-          borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
-
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-
-        }}>
-
-          {/* Premium Title Section */}
-
-          <div className="px-6 py-6 relative overflow-hidden">
-
-            {/* Background Ambient Glow */}
-
-            <div className="absolute inset-0 opacity-30" style={{
-
-              background: 'radial-gradient(ellipse at top, rgba(255, 102, 0, 0.1) 0%, transparent 70%)'
-
-            }} />
-
-            <div className="absolute inset-0 opacity-20" style={{
-
-              background: 'linear-gradient(90deg, transparent 0%, rgba(255, 102, 0, 0.05) 50%, transparent 100%)'
-
-            }} />
-
-
-
-            <div className="relative z-10 flex items-center justify-center">
-
-              <div className="text-center">
-
-                <h1 className="text-4xl font-bold tracking-wider uppercase mb-1" style={{
-
-                  fontFamily: '"JetBrains Mono", monospace',
-
-                  background: 'linear-gradient(135deg, #ffffff 0%, #ffcc80 25%, #ff9800 50%, #ffcc80 75%, #ffffff 100%)',
-
-                  WebkitBackgroundClip: 'text',
-
-                  WebkitTextFillColor: 'transparent',
-
-                  textShadow: '0 2px 10px rgba(255, 152, 0, 0.3)',
-
-                  filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))'
-
-                }}>
-
-                  Market Regimes
-
-                </h1>
-
-              </div>
-
-
-
-              {/* Status Indicator - positioned absolute top right */}
-
-              <div className="absolute top-6 right-6 flex items-center space-x-3">
-
-                <div className="flex items-center space-x-2">
-
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" style={{
-
-                    boxShadow: '0 0 8px rgba(76, 175, 80, 0.6)'
-
-                  }} />
-
-                  <span className="text-xs text-green-400 font-mono font-medium">LIVE</span>
-
-                </div>
-
-                <div className="text-xs text-gray-500 font-mono">
-
-                  {new Date().toLocaleTimeString()}
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-
-
-          {/* Premium Tab Navigation */}
-
-          <div className="px-6 pb-4">
-
-            <div className="flex rounded-lg p-2" style={{
-
-              background: '#000000',
-
-              border: '1px solid rgba(255, 102, 0, 0.2)',
-
-              boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8)'
-
-            }}>
-
-              {['Life', 'Developing', 'Momentum'].map((tab, index) => {
-
-                const tabColors = {
-
-                  'Life': { bg: 'rgba(76, 175, 80, 0.15)', border: 'rgba(76, 175, 80, 0.4)', color: '#4caf50', hoverBg: 'rgba(76, 175, 80, 0.25)' },
-
-                  'Developing': { bg: 'rgba(33, 150, 243, 0.15)', border: 'rgba(33, 150, 243, 0.4)', color: '#2196f3', hoverBg: 'rgba(33, 150, 243, 0.25)' },
-
-                  'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' }
-
-                };
-
-                const tabStyle = tabColors[tab as keyof typeof tabColors];
-
-                return (
-
-                  <button
-
-                    key={tab}
-
-                    onClick={() => setActiveTab(tab)}
-
-                    className="relative flex-1 px-8 py-4 text-lg font-mono font-bold uppercase tracking-wider transition-all duration-300"
-
-                    style={{
-
-                      background: activeTab === tab ? tabStyle.bg : 'transparent',
-
-                      color: activeTab === tab ? tabStyle.color : '#666666',
-
-                      borderRadius: '8px',
-
-                      border: activeTab === tab ? `2px solid ${tabStyle.border}` : '2px solid transparent',
-
-                      textShadow: activeTab === tab
-
-                        ? `0 1px 3px ${tabStyle.color}80`
-
-                        : '0 1px 2px rgba(0, 0, 0, 0.8)',
-
-                      boxShadow: activeTab === tab
-
-                        ? `0 4px 12px ${tabStyle.color}40, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
-
-                        : 'inset 0 1px 0 rgba(255, 255, 255, 0.02)',
-
-                      transform: activeTab === tab ? 'translateY(-2px) scale(1.02)' : 'translateY(0) scale(1)'
-
-                    }}
-
-                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-
-                      if (activeTab !== tab) {
-
-                        e.currentTarget.style.background = tabStyle.hoverBg;
-
-                        e.currentTarget.style.color = tabStyle.color;
-
-                        e.currentTarget.style.border = `2px solid ${tabStyle.border}60`;
-
-                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+                        onSymbolChange(symbol);
 
                       }
 
-                    }}
+                      // Update the config state as well
 
-                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-
-                      if (activeTab !== tab) {
-
-                        e.currentTarget.style.background = 'transparent';
-
-                        e.currentTarget.style.color = '#666666';
-
-                        e.currentTarget.style.border = '2px solid transparent';
-
-                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
-
-                      }
+                      setConfig(prev => ({ ...prev, symbol }));
 
                     }}
 
                   >
 
-                    {tab}
+                    {/* Symbol */}
 
-                    {activeTab === tab && (
+                    <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
 
-                      <div
+                      <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
 
-                        className="absolute -bottom-1 left-1/2 transform -translate-x-1/2"
+                    </div>
 
-                        style={{
 
-                          width: '60%',
 
-                          height: '3px',
+                    {/* Price */}
 
-                          background: `linear-gradient(90deg, transparent 0%, ${tabStyle.color} 50%, transparent 100%)`,
+                    <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
 
-                          borderRadius: '2px',
+                      <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
 
-                          boxShadow: `0 0 8px ${tabStyle.color}`
+                        {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 
-                        }}
+                      </div>
 
-                      />
+                    </div>
 
-                    )}
 
-                  </button>
 
-                );
+                    {/* Change */}
 
-              })}
+                    <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+
+                      <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
+
+                        {changeSign}{data.change1d.toFixed(2)}%
+
+                      </div>
+
+                    </div>
+
+
+
+                    {/* 1D Performance */}
+
+                    <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+
+                      <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+
+                        {perf1d.status}
+
+                      </span>
+
+                    </div>
+
+
+
+                    {/* 5D Performance */}
+
+                    <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+
+                      <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+
+                        {perf5d.status}
+
+                      </span>
+
+                    </div>
+
+
+
+                    {/* 13D Performance */}
+
+                    <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+
+                      <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+
+                        {perf13d.status}
+
+                      </span>
+
+                    </div>
+
+
+
+                    {/* 21D Performance */}
+
+                    <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+
+                      <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+
+                        {perf21d.status}
+
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              );
+
+            })}
+
+          </div>
+
+        )}
+
+      </div>
+
+
+
+      {/* Sector Performance Chart - Always mounted, show/hide with display */}
+
+      <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Markets' ? 'block' : 'none' }}>
+
+        <SectorPerformanceChart />
+
+      </div>
+
+
+
+      {/* Industries Performance Chart - Always mounted, show/hide with display */}
+
+      <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Industries' ? 'block' : 'none' }}>
+
+        <IndustriesPerformanceChart />
+
+      </div>
+
+
+
+      {/* Special Performance Chart - Always mounted, show/hide with display */}
+
+      <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Special' ? 'block' : 'none' }}>
+
+        <SpecialPerformanceChart />
+
+      </div>
+
+    </div>
+
+  );
+
+};
+
+
+
+// RegimesPanel component removed for reconstruction
+
+// RegimesPanel component removed for reconstruction
+
+
+
+// RegimesPanel component removed for reconstruction
+
+
+
+// RegimesPanel component removed for reconstruction
+
+// RegimesPanel component removed for reconstruction
+
+// RegimesPanel component removed for reconstruction
+
+// Enhanced Market Regimes Panel Component with advanced analytics
+
+const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+
+
+
+  // Add to global debug object
+
+  window.MARKET_REGIMES_DEBUG = {
+
+    ...window.MARKET_REGIMES_DEBUG,
+
+    panelRender: {
+
+      activeTab,
+
+      hasData: !!marketRegimeData,
+
+      data: marketRegimeData
+
+    }
+
+  };
+
+
+
+  const getCurrentTimeframeData = () => {
+
+    if (!marketRegimeData) {
+
+      return null;
+
+    }
+
+
+
+    let data;
+
+    switch (activeTab) {
+
+      case 'Life':
+
+        data = marketRegimeData.life;
+
+        break;
+
+      case 'Developing':
+
+        data = marketRegimeData.developing;
+
+        break;
+
+      case 'Momentum':
+
+        data = marketRegimeData.momentum;
+
+        break;
+
+      default:
+
+        data = marketRegimeData.life;
+
+    }
+
+
+
+    return data;
+
+  };
+
+
+
+  const timeframeData = getCurrentTimeframeData();
+
+  const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
+
+  const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
+
+
+
+
+
+  return (
+
+    <div className="h-full flex flex-col" style={{
+
+      background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #111111 50%, #0a0a0a 75%, #000000 100%)',
+
+      borderLeft: '1px solid rgba(255, 102, 0, 0.3)'
+
+    }}>
+
+      {/* Premium Bloomberg-Style Header */}
+
+      <div style={{
+
+        background: '#000000',
+
+        borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
+
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+
+      }}>
+
+        {/* Premium Title Section */}
+
+        <div className="px-6 py-6 relative overflow-hidden">
+
+          {/* Background Ambient Glow */}
+
+          <div className="absolute inset-0 opacity-30" style={{
+
+            background: 'radial-gradient(ellipse at top, rgba(255, 102, 0, 0.1) 0%, transparent 70%)'
+
+          }} />
+
+          <div className="absolute inset-0 opacity-20" style={{
+
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255, 102, 0, 0.05) 50%, transparent 100%)'
+
+          }} />
+
+
+
+          <div className="relative z-10 flex items-center justify-center">
+
+            <div className="text-center">
+
+              <h1 className="text-4xl font-bold tracking-wider uppercase mb-1" style={{
+
+                fontFamily: '"JetBrains Mono", monospace',
+
+                background: 'linear-gradient(135deg, #ffffff 0%, #ffcc80 25%, #ff9800 50%, #ffcc80 75%, #ffffff 100%)',
+
+                WebkitBackgroundClip: 'text',
+
+                WebkitTextFillColor: 'transparent',
+
+                textShadow: '0 2px 10px rgba(255, 152, 0, 0.3)',
+
+                filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))'
+
+              }}>
+
+                Market Regimes
+
+              </h1>
+
+            </div>
+
+
+
+            {/* Status Indicator - positioned absolute top right */}
+
+            <div className="absolute top-6 right-6 flex items-center space-x-3">
+
+              <div className="flex items-center space-x-2">
+
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" style={{
+
+                  boxShadow: '0 0 8px rgba(76, 175, 80, 0.6)'
+
+                }} />
+
+                <span className="text-xs text-green-400 font-mono font-medium">LIVE</span>
+
+              </div>
+
+              <div className="text-xs text-gray-500 font-mono">
+
+                {new Date().toLocaleTimeString()}
+
+              </div>
 
             </div>
 
@@ -18574,37 +18434,773 @@ export default function TradingViewChart({
 
 
 
-        {/* Premium Progress Bar */}
+        {/* Premium Tab Navigation */}
 
-        {isLoadingRegimes && (
+        <div className="px-6 pb-4">
 
-          <div className="w-full h-1 relative overflow-hidden" style={{
+          <div className="flex rounded-lg p-2" style={{
 
-            background: 'linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)'
+            background: '#000000',
+
+            border: '1px solid rgba(255, 102, 0, 0.2)',
+
+            boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8)'
 
           }}>
 
-            <div
+            {['Life', 'Developing', 'Momentum'].map((tab, index) => {
 
-              className="h-full transition-all duration-500 ease-out relative"
+              const tabColors = {
 
-              style={{
+                'Life': { bg: 'rgba(76, 175, 80, 0.15)', border: 'rgba(76, 175, 80, 0.4)', color: '#4caf50', hoverBg: 'rgba(76, 175, 80, 0.25)' },
 
-                width: `${regimeUpdateProgress}%`,
+                'Developing': { bg: 'rgba(33, 150, 243, 0.15)', border: 'rgba(33, 150, 243, 0.4)', color: '#2196f3', hoverBg: 'rgba(33, 150, 243, 0.25)' },
 
-                background: 'linear-gradient(90deg, #ff6600 0%, #ff9800 50%, #ffcc80 100%)',
+                'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' }
 
-                boxShadow: '0 0 10px rgba(255, 102, 0, 0.6)'
+              };
 
-              }}
+              const tabStyle = tabColors[tab as keyof typeof tabColors];
 
-            >
+              return (
 
-              <div className="absolute inset-0 animate-pulse" style={{
+                <button
 
-                background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%)'
+                  key={tab}
 
-              }} />
+                  onClick={() => setActiveTab(tab)}
+
+                  className="relative flex-1 px-8 py-4 text-lg font-mono font-bold uppercase tracking-wider transition-all duration-300"
+
+                  style={{
+
+                    background: activeTab === tab ? tabStyle.bg : 'transparent',
+
+                    color: activeTab === tab ? tabStyle.color : '#666666',
+
+                    borderRadius: '8px',
+
+                    border: activeTab === tab ? `2px solid ${tabStyle.border}` : '2px solid transparent',
+
+                    textShadow: activeTab === tab
+
+                      ? `0 1px 3px ${tabStyle.color}80`
+
+                      : '0 1px 2px rgba(0, 0, 0, 0.8)',
+
+                    boxShadow: activeTab === tab
+
+                      ? `0 4px 12px ${tabStyle.color}40, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
+
+                      : 'inset 0 1px 0 rgba(255, 255, 255, 0.02)',
+
+                    transform: activeTab === tab ? 'translateY(-2px) scale(1.02)' : 'translateY(0) scale(1)'
+
+                  }}
+
+                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+
+                    if (activeTab !== tab) {
+
+                      e.currentTarget.style.background = tabStyle.hoverBg;
+
+                      e.currentTarget.style.color = tabStyle.color;
+
+                      e.currentTarget.style.border = `2px solid ${tabStyle.border}60`;
+
+                      e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+
+                    }
+
+                  }}
+
+                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+
+                    if (activeTab !== tab) {
+
+                      e.currentTarget.style.background = 'transparent';
+
+                      e.currentTarget.style.color = '#666666';
+
+                      e.currentTarget.style.border = '2px solid transparent';
+
+                      e.currentTarget.style.transform = 'translateY(0) scale(1)';
+
+                    }
+
+                  }}
+
+                >
+
+                  {tab}
+
+                  {activeTab === tab && (
+
+                    <div
+
+                      className="absolute -bottom-1 left-1/2 transform -translate-x-1/2"
+
+                      style={{
+
+                        width: '60%',
+
+                        height: '3px',
+
+                        background: `linear-gradient(90deg, transparent 0%, ${tabStyle.color} 50%, transparent 100%)`,
+
+                        borderRadius: '2px',
+
+                        boxShadow: `0 0 8px ${tabStyle.color}`
+
+                      }}
+
+                    />
+
+                  )}
+
+                </button>
+
+              );
+
+            })}
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+
+      {/* Premium Progress Bar */}
+
+      {isLoadingRegimes && (
+
+        <div className="w-full h-1 relative overflow-hidden" style={{
+
+          background: 'linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)'
+
+        }}>
+
+          <div
+
+            className="h-full transition-all duration-500 ease-out relative"
+
+            style={{
+
+              width: `${regimeUpdateProgress}%`,
+
+              background: 'linear-gradient(90deg, #ff6600 0%, #ff9800 50%, #ffcc80 100%)',
+
+              boxShadow: '0 0 10px rgba(255, 102, 0, 0.6)'
+
+            }}
+
+          >
+
+            <div className="absolute inset-0 animate-pulse" style={{
+
+              background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%)'
+
+            }} />
+
+          </div>
+
+        </div>
+
+      )}
+
+
+
+      {/* Premium Content Area */}
+
+      <div className="flex-1 overflow-hidden">
+
+        {isLoadingRegimes && !marketRegimeData ? (
+
+          <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
+
+            <div className="relative">
+
+              <div className="w-12 h-12 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" style={{
+
+                boxShadow: '0 0 20px rgba(255, 152, 0, 0.3)'
+
+              }}></div>
+
+              <div className="absolute inset-0 w-12 h-12 border border-orange-300 border-opacity-20 rounded-full animate-ping"></div>
+
+            </div>
+
+            <div className="text-center font-mono">
+
+              <div className="text-white text-lg font-bold mb-2">{regimeLoadingStage}</div>
+
+              <div className="text-orange-400 text-sm mb-1">{regimeUpdateProgress}% complete</div>
+
+              <div className="text-gray-500 text-xs">Analyzing market momentum...</div>
+
+            </div>
+
+          </div>
+
+        ) : !marketRegimeData ? (
+
+          <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
+
+            <div className="text-4xl mb-4">??</div>
+
+            <div className="text-center font-mono">
+
+              <div className="text-white text-xl font-bold mb-2">Market Regime Analysis</div>
+
+              <div className="text-orange-400 text-sm">Initializing premium analytics...</div>
+
+            </div>
+
+          </div>
+
+        ) : (
+
+          <div className="h-full overflow-y-auto" style={{
+
+            background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
+
+          }}>
+
+            {/* Premium Streaming Indicator */}
+
+            {isLoadingRegimes && (
+
+              <div className="mx-6 mt-4 p-3 rounded-lg" style={{
+
+                background: 'linear-gradient(135deg, rgba(255, 102, 0, 0.1) 0%, rgba(255, 152, 0, 0.05) 100%)',
+
+                border: '1px solid rgba(255, 102, 0, 0.3)',
+
+                boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+
+              }}>
+
+                <div className="flex items-center space-x-3">
+
+                  <div className="w-3 h-3 bg-orange-400 rounded-full animate-pulse" style={{
+
+                    boxShadow: '0 0 8px rgba(255, 152, 0, 0.8)'
+
+                  }} />
+
+                  <span className="text-orange-300 font-mono text-sm font-medium">
+
+                    {regimeLoadingStage} ({regimeUpdateProgress}%)
+
+                  </span>
+
+                </div>
+
+              </div>
+
+            )}
+
+
+
+            {/* Premium Industry Analysis Grid */}
+
+            <div className="px-6 pb-6">
+
+              <div className="grid grid-cols-2 gap-6">
+
+                {/* Premium Bullish Industries Section */}
+
+                <div>
+
+                  <div className="flex items-center justify-between mb-4">
+
+                    <h3 className="flex items-center space-x-3">
+
+                      <div className="flex items-center space-x-2">
+
+                        <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" style={{
+
+                          boxShadow: '0 0 8px rgba(76, 175, 80, 0.8)'
+
+                        }} />
+
+                        <span className="text-green-400 font-mono font-bold text-sm uppercase tracking-wider">
+
+                          Bullish Momentum
+
+                        </span>
+
+                      </div>
+
+                    </h3>
+
+                    <div className="text-green-400 font-mono text-xs bg-green-400 bg-opacity-10 px-2 py-1 rounded">
+
+                      {bullishIndustries.length} sectors
+
+                    </div>
+
+                  </div>
+
+
+
+                  <div className="space-y-3">
+
+                    {bullishIndustries.length > 0 ? bullishIndustries.map((industry, index) => (
+
+                      <div
+
+                        key={industry.symbol}
+
+                        className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+
+                        style={{
+
+                          background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
+
+                          border: '1px solid rgba(76, 175, 80, 0.2)',
+
+                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+
+                        }}
+
+                        onMouseEnter={(e) => {
+
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
+
+                          e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.4)';
+
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(76, 175, 80, 0.15)';
+
+                        }}
+
+                        onMouseLeave={(e) => {
+
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
+
+                          e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.2)';
+
+                          e.currentTarget.style.transform = 'translateY(0)';
+
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+
+                        }}
+
+                      >
+
+                        <div className="flex justify-between items-start mb-3">
+
+                          <div className="flex-1">
+
+                            <div className="flex items-center space-x-3">
+
+                              <span className="text-green-400 font-mono font-bold text-2xl tracking-wide">
+
+                                {industry.symbol}
+
+                              </span>
+
+                              <div className="flex items-center space-x-1">
+
+                                <div className="w-1 h-1 bg-green-400 rounded-full" />
+
+                                <div className="w-1 h-1 bg-green-400 rounded-full opacity-75" />
+
+                                <div className="w-1 h-1 bg-green-400 rounded-full opacity-50" />
+
+                              </div>
+
+                            </div>
+
+                            <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+
+                              {industry.name}
+
+                            </div>
+
+                          </div>
+
+                          <div className="text-right">
+
+                            <div className="text-green-400 font-mono text-xl font-bold">
+
+                              +{industry.relativePerformance.toFixed(2)}%
+
+                            </div>
+
+                            <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
+
+                              <div
+
+                                className="h-full bg-gradient-to-r from-green-500 to-green-300 rounded-full transition-all duration-1000"
+
+                                style={{ width: `${Math.min(100, (industry.relativePerformance / 5) * 100)}%` }}
+
+                              />
+
+                            </div>
+
+                          </div>
+
+                        </div>
+
+
+
+                        {/* Top Performers */}
+
+                        {industry.topPerformers && industry.topPerformers.length > 0 && (
+
+                          <div className="border-t border-green-400 border-opacity-20 pt-3 mt-3">
+
+                            <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
+
+                              Top 3 Performers
+
+                            </div>
+
+                            <div className="space-y-1">
+
+                              {industry.topPerformers.slice(0, 3).map((stock) => (
+
+                                <div
+
+                                  key={stock.symbol}
+
+                                  className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
+
+                                  style={{
+
+                                    background: 'rgba(0, 0, 0, 0.3)',
+
+                                    border: '1px solid rgba(76, 175, 80, 0.1)'
+
+                                  }}
+
+                                  onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+
+                                    e.stopPropagation();
+
+                                    if (onSymbolChange) {
+
+                                      onSymbolChange(stock.symbol);
+
+                                    }
+
+                                    setConfig(prev => ({ ...prev, symbol: stock.symbol }));
+
+                                  }}
+
+                                  onMouseEnter={(e) => {
+
+                                    e.currentTarget.style.background = 'rgba(76, 175, 80, 0.1)';
+
+                                    e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.3)';
+
+                                  }}
+
+                                  onMouseLeave={(e) => {
+
+                                    e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
+
+                                    e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.1)';
+
+                                  }}
+
+                                >
+
+                                  <span className="text-white font-mono font-medium text-lg">
+
+                                    {stock.symbol}
+
+                                  </span>
+
+                                  <span className="text-green-400 font-mono font-bold text-lg">
+
+                                    +{stock.relativePerformance.toFixed(1)}%
+
+                                  </span>
+
+                                </div>
+
+                              ))}
+
+                            </div>
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+                    )) : (
+
+                      <div className="text-center py-8">
+
+                        <div className="text-gray-500 font-mono text-sm">
+
+                          No bullish sectors detected
+
+                        </div>
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+
+
+                {/* Premium Bearish Industries Section */}
+
+                <div>
+
+                  <div className="flex items-center justify-between mb-4">
+
+                    <h3 className="flex items-center space-x-3">
+
+                      <div className="flex items-center space-x-2">
+
+                        <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse" style={{
+
+                          boxShadow: '0 0 8px rgba(244, 67, 54, 0.8)'
+
+                        }} />
+
+                        <span className="text-red-400 font-mono font-bold text-sm uppercase tracking-wider">
+
+                          Bearish Pressure
+
+                        </span>
+
+                      </div>
+
+                    </h3>
+
+                    <div className="text-red-400 font-mono text-xs bg-red-400 bg-opacity-10 px-2 py-1 rounded">
+
+                      {bearishIndustries.length} sectors
+
+                    </div>
+
+                  </div>
+
+
+
+                  <div className="space-y-3">
+
+                    {bearishIndustries.length > 0 ? bearishIndustries.map((industry, index) => (
+
+                      <div
+
+                        key={industry.symbol}
+
+                        className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+
+                        style={{
+
+                          background: 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
+
+                          border: '1px solid rgba(244, 67, 54, 0.2)',
+
+                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+
+                        }}
+
+                        onMouseEnter={(e) => {
+
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
+
+                          e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.4)';
+
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(244, 67, 54, 0.15)';
+
+                        }}
+
+                        onMouseLeave={(e) => {
+
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
+
+                          e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.2)';
+
+                          e.currentTarget.style.transform = 'translateY(0)';
+
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+
+                        }}
+
+                      >
+
+                        <div className="flex justify-between items-start mb-3">
+
+                          <div className="flex-1">
+
+                            <div className="flex items-center space-x-3">
+
+                              <span className="text-red-400 font-mono font-bold text-2xl tracking-wide">
+
+                                {industry.symbol}
+
+                              </span>
+
+                              <div className="flex items-center space-x-1">
+
+                                <div className="w-1 h-1 bg-red-400 rounded-full" />
+
+                                <div className="w-1 h-1 bg-red-400 rounded-full opacity-75" />
+
+                                <div className="w-1 h-1 bg-red-400 rounded-full opacity-50" />
+
+                              </div>
+
+                            </div>
+
+                            <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+
+                              {industry.name}
+
+                            </div>
+
+                          </div>
+
+                          <div className="text-right">
+
+                            <div className="text-red-400 font-mono text-xl font-bold">
+
+                              {industry.relativePerformance.toFixed(2)}%
+
+                            </div>
+
+                            <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
+
+                              <div
+
+                                className="h-full bg-gradient-to-r from-red-500 to-red-300 rounded-full transition-all duration-1000"
+
+                                style={{ width: `${Math.min(100, Math.abs(industry.relativePerformance / 5) * 100)}%` }}
+
+                              />
+
+                            </div>
+
+                          </div>
+
+                        </div>
+
+
+
+                        {/* Worst Performers */}
+
+                        {industry.worstPerformers && industry.worstPerformers.length > 0 && (
+
+                          <div className="border-t border-red-400 border-opacity-20 pt-3 mt-3">
+
+                            <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
+
+                              Worst 3 Performers
+
+                            </div>
+
+                            <div className="space-y-1">
+
+                              {industry.worstPerformers.slice(0, 3).map((stock) => (
+
+                                <div
+
+                                  key={stock.symbol}
+
+                                  className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
+
+                                  style={{
+
+                                    background: 'rgba(0, 0, 0, 0.3)',
+
+                                    border: '1px solid rgba(244, 67, 54, 0.1)'
+
+                                  }}
+
+                                  onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+
+                                    e.stopPropagation();
+
+                                    if (onSymbolChange) {
+
+                                      onSymbolChange(stock.symbol);
+
+                                    }
+
+                                    setConfig(prev => ({ ...prev, symbol: stock.symbol }));
+
+                                  }}
+
+                                  onMouseEnter={(e) => {
+
+                                    e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)';
+
+                                    e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.3)';
+
+                                  }}
+
+                                  onMouseLeave={(e) => {
+
+                                    e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
+
+                                    e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.1)';
+
+                                  }}
+
+                                >
+
+                                  <span className="text-white font-mono font-medium text-lg">
+
+                                    {stock.symbol}
+
+                                  </span>
+
+                                  <span className="text-red-400 font-mono font-bold text-lg">
+
+                                    {stock.relativePerformance.toFixed(1)}%
+
+                                  </span>
+
+                                </div>
+
+                              ))}
+
+                            </div>
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+                    )) : (
+
+                      <div className="text-center py-8">
+
+                        <div className="text-gray-500 font-mono text-sm">
+
+                          No bearish sectors detected
+
+                        </div>
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              </div>
 
             </div>
 
@@ -18612,91 +19208,815 @@ export default function TradingViewChart({
 
         )}
 
+      </div>
+
+    </div>
+
+  );
+
+};
+
+const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+
+  // Add state for chat visibility and category collapse/expand
+
+  const [showChat, setShowChat] = useState(true);
+
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  const [currentMessage, setCurrentMessage] = useState('');
+
+  const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({
+
+    'start-here': true,
+
+    'education': true,
+
+    'market-insights': true,
+
+    'trade-center': true,
+
+    'traders-den': true
+
+  });
 
 
-        {/* Premium Content Area */}
 
-        <div className="flex-1 overflow-hidden">
+  const toggleCategory = (categoryId: string) => {
 
-          {isLoadingRegimes && !marketRegimeData ? (
+    setExpandedCategories(prev => ({
 
-            <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
+      ...prev,
 
-              <div className="relative">
+      [categoryId]: !prev[categoryId]
 
-                <div className="w-12 h-12 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" style={{
+    }));
 
-                  boxShadow: '0 0 20px rgba(255, 152, 0, 0.3)'
+  };
 
-                }}></div>
 
-                <div className="absolute inset-0 w-12 h-12 border border-orange-300 border-opacity-20 rounded-full animate-ping"></div>
 
-              </div>
+  // Structured categories matching Discord layout
 
-              <div className="text-center font-mono">
+  const channelCategories = [
 
-                <div className="text-white text-lg font-bold mb-2">{regimeLoadingStage}</div>
+    {
 
-                <div className="text-orange-400 text-sm mb-1">{regimeUpdateProgress}% complete</div>
+      id: 'start-here',
 
-                <div className="text-gray-500 text-xs">Analyzing market momentum...</div>
+      name: 'START HERE',
+
+      channels: [
+
+        { id: 'announcements', name: 'Announcement', emoji: '?', adminOnly: true },
+
+        { id: 'testimonials', name: 'Testimonials', emoji: '?', adminOnly: false },
+
+        { id: 'rules-disclaimers', name: 'Rules-Disclaimers', emoji: '?', adminOnly: false },
+
+        { id: 'contact-us', name: 'Contact-Us', emoji: '??', adminOnly: false },
+
+        { id: 'start-here-channel', name: 'Start-Here', emoji: '?', adminOnly: false }
+
+      ]
+
+    },
+
+    {
+
+      id: 'education',
+
+      name: 'Education',
+
+      emoji: '??',
+
+      channels: [
+
+        { id: 'live-recordings', name: 'Live-Recordings', emoji: '??', adminOnly: false },
+
+        { id: 'lesson', name: 'Lesson', emoji: '?', adminOnly: false },
+
+        { id: 'application', name: 'Application', emoji: '?', adminOnly: false },
+
+        { id: 'result-upload', name: 'Result-Upload', emoji: '?', adminOnly: false },
+
+        { id: 'traders-code', name: 'The-Traders-Code', emoji: '?', adminOnly: false },
+
+        { id: 'zaks-market-moves', name: 'Zak\'s-Market-Moves', emoji: '??', adminOnly: false }
+
+      ]
+
+    },
+
+    {
+
+      id: 'market-insights',
+
+      name: 'Market Insights',
+
+      emoji: '??',
+
+      channels: [
+
+        { id: 'cyclical', name: 'Cyclical', emoji: '?', adminOnly: false },
+
+        { id: 'monthly', name: 'Monthly', emoji: '??', adminOnly: false },
+
+        { id: 'chart-track-trade', name: 'Chart-Track-Trade', emoji: '?', adminOnly: false },
+
+        { id: 'gex-ideas', name: 'GEX-Ideas', emoji: '?', adminOnly: false },
+
+        { id: 'insiders-congress', name: 'Insiders-Congress', emoji: '???', adminOnly: false },
+
+        { id: 'notable-flow', name: 'Notable-Flow', emoji: '??', adminOnly: false }
+
+      ]
+
+    },
+
+    {
+
+      id: 'trade-center',
+
+      name: 'Trade Center',
+
+      emoji: '??',
+
+      channels: [
+
+        { id: 'dividend-portfolio', name: 'Dividend-Portfolio', emoji: '??', adminOnly: false },
+
+        { id: '100k-portfolio', name: '100K-Portfolio', emoji: '?', adminOnly: false },
+
+        { id: '25k-portfolio', name: '25K-Portfolio', emoji: '??', adminOnly: false },
+
+        { id: '5k-portfolio', name: '5K-Portfolio', emoji: '??', adminOnly: false },
+
+        { id: 'weekly-snapshot', name: 'Weekly-Snapshot', emoji: '?', adminOnly: false },
+
+        { id: 'swing-trades', name: 'Swing-Trades', emoji: '??', adminOnly: false },
+
+        { id: 'stock-chat', name: 'Stock-Chat', emoji: '?', adminOnly: false },
+
+        { id: 'flow-analyst', name: 'Flow-Analyst', emoji: '??', adminOnly: false }
+
+      ]
+
+    },
+
+    {
+
+      id: 'traders-den',
+
+      name: 'Trader\'s Den',
+
+      emoji: '?',
+
+      channels: [
+
+        { id: 'feedback-hub', name: 'Feedback-Hub', emoji: '?', adminOnly: false },
+
+        { id: 'all-flow', name: 'ALL-FLOW', emoji: '??', adminOnly: false },
+
+        { id: 'calendar', name: 'Calendar', emoji: '???', adminOnly: false },
+
+        { id: 'motiversity', name: 'Motiversity', emoji: '??', adminOnly: false },
+
+        { id: 'mentorship', name: 'Mentorship', emoji: '????', adminOnly: false },
+
+        { id: 'chill-chat', name: 'Chill-Chat', emoji: '?', adminOnly: false }
+
+      ]
+
+    }
+
+  ];
+
+
+
+  const takeScreenshot = async () => {
+
+    try {
+
+      const canvas = chartCanvasRef.current;
+
+      if (canvas) {
+
+        const dataURL = canvas.toDataURL('image/png');
+
+        const newScreenshot = {
+
+          id: Date.now().toString(),
+
+          url: dataURL,
+
+          timestamp: new Date(),
+
+          notes: ''
+
+        };
+
+        setScreenshots(prev => [newScreenshot, ...prev]);
+
+      }
+
+    } catch (error) {
+
+      console.error('Failed to capture screenshot:', error);
+
+    }
+
+  };
+
+
+
+  const addNote = () => {
+
+    const newNote = {
+
+      id: Date.now().toString(),
+
+      title: 'New Note',
+
+      content: '',
+
+      timestamp: new Date(),
+
+      color: '#3b82f6'
+
+    };
+
+    setNotes(prev => [newNote, ...prev]);
+
+  };
+
+
+
+  const addReminder = () => {
+
+    const newReminder = {
+
+      id: Date.now().toString(),
+
+      title: 'New Reminder',
+
+      datetime: new Date(Date.now() + 3600000), // 1 hour from now
+
+      completed: false
+
+    };
+
+    setReminders(prev => [newReminder, ...prev]);
+
+  };
+
+
+
+  // File upload handler
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+
+    const files = event.target.files;
+
+    if (!files) return;
+
+
+
+    Array.from(files).forEach(file => {
+
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+
+        const fileData = {
+
+          id: Date.now().toString() + Math.random().toString(36),
+
+          name: file.name,
+
+          type: file.type,
+
+          url: e.target?.result as string,
+
+          size: file.size
+
+        };
+
+
+
+        setUploadedFiles(prev => [...prev, fileData]);
+
+
+
+        // Send file as message
+
+        const fileMessage = {
+
+          id: Date.now().toString(),
+
+          user: 'You',
+
+          message: `?? **${file.name}** (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
+
+          timestamp: new Date(),
+
+          userType: 'user',
+
+          fileData: fileData
+
+        };
+
+
+
+        setChatMessages(prev => ({
+
+          ...prev,
+
+          [activeTab]: [...(prev[activeTab] || []), fileMessage]
+
+        }));
+
+      };
+
+
+
+      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+
+        reader.readAsDataURL(file);
+
+      } else {
+
+        reader.readAsText(file);
+
+      }
+
+    });
+
+
+
+    // Reset file input
+
+    event.target.value = '';
+
+  };
+
+
+
+  // Enhanced Stock Market Emoji Collection
+
+  const emojis = [
+
+    // Bullish Emojis (Green/Up Movement)
+
+    '?', '?', '?', '?', '?', '??', '?', '??', '?', '?',
+
+    '??', '?', '?', '??', '?', '??', '??', '?', '??', '?',
+
+
+
+    // Bearish Emojis (Red/Down Movement) 
+
+    '?', '?', '?', '?', '??', '??', '??', '??', '?', '?',
+
+    '??', '?', '?', '?', '?', '?', '?', '?', '??', '??',
+
+
+
+    // Market Sentiment & Trading
+
+    '?', '?', '?', '??', '??', '?', '?', '?', '?', '?',
+
+    '?', '?', '??', '??', '??', '?', '??', '??', '??', '??',
+
+
+
+    // General Reactions
+
+    '?', '?', '?', '?', '?', '?', '?', '??', '??', '??',
+
+    '??', '??', '??', '??', '??', '??', '??', '??', '??', '?',
+
+
+
+    // Action & Confirmation
+
+    '?', '?', '??', '??', '??', '??', '??', '??', '??', '??'
+
+  ];
+
+
+
+  // Add emoji to message
+
+  const addEmoji = (emoji: string) => {
+
+    setCurrentMessage(prev => prev + emoji);
+
+    setShowEmojiPicker(false);
+
+  };
+
+
+
+  const sendMessage = (e?: React.FormEvent) => {
+
+    if (e) e.preventDefault();
+
+    if (!currentMessage.trim()) return;
+
+
+
+    const newMessage = {
+
+      id: Date.now().toString(),
+
+      user: 'You',
+
+      message: currentMessage.trim(),
+
+      timestamp: new Date(),
+
+      userType: 'user'
+
+    };
+
+
+
+    setChatMessages(prev => ({
+
+      ...prev,
+
+      [activeTab]: [...(prev[activeTab] || []), newMessage]
+
+    }));
+
+
+
+    setCurrentMessage('');
+
+  };
+
+
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+
+      e.preventDefault();
+
+      sendMessage();
+
+    }
+
+  };
+
+
+
+  return (
+
+    <div className="h-full bg-black overflow-hidden">
+
+      {/* Chat Content */}
+
+      {true ? (
+
+        <div className="flex flex-1 h-full max-h-full overflow-hidden">
+
+          {/* Left Sidebar - Discord Style Navigation */}
+
+          <div className="w-80 bg-gradient-to-b from-gray-900 via-gray-800 to-black border-r border-gray-700/50 flex flex-col shadow-2xl backdrop-blur-md min-h-0">
+
+            {/* Server Header */}
+
+            <div className="p-3 border-b border-gray-700/50 bg-gradient-to-r from-gray-800 to-gray-700 flex-shrink-0">
+
+              <div className="flex items-center space-x-3">
+
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+
+                  <span className="text-white font-black text-xl">EFI</span>
+
+                </div>
+
+                <div>
+
+                  <div className="text-white font-black text-lg tracking-wide">EFI Trading</div>
+
+                  <div className="text-green-400 text-sm font-semibold flex items-center">
+
+                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+
+                    Live Market Session
+
+                  </div>
+
+                </div>
 
               </div>
 
             </div>
 
-          ) : !marketRegimeData ? (
 
-            <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
 
-              <div className="text-4xl mb-4">??</div>
+            {/* Categories and Channels */}
 
-              <div className="text-center font-mono">
+            <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-4 min-h-0">
 
-                <div className="text-white text-xl font-bold mb-2">Market Regime Analysis</div>
+              {channelCategories.map((category) => (
 
-                <div className="text-orange-400 text-sm">Initializing premium analytics...</div>
+                <div key={category.id} className="space-y-3">
+
+                  {/* Category Header */}
+
+                  <button
+
+                    onClick={() => toggleCategory(category.id)}
+
+                    className="w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-black/40 rounded-xl transition-all duration-300 group"
+
+                  >
+
+                    <div className="flex items-center space-x-3">
+
+                      <span className="text-white font-bold text-lg">
+
+                        {expandedCategories[category.id] ? '?' : '?'}
+
+                      </span>
+
+                      <span className="font-bold text-xl uppercase tracking-wider text-orange-500">
+
+                        {category.name}
+
+                      </span>
+
+                    </div>
+
+                  </button>
+
+
+
+                  {/* Channels in Category */}
+
+                  {expandedCategories[category.id] && (
+
+                    <div className="ml-2 mt-3 space-y-2">
+
+                      {category.channels.map((channel) => (
+
+                        <button
+
+                          key={channel.id}
+
+                          onClick={() => setActiveTab(channel.id)}
+
+                          className={`w-full flex items-center space-x-4 px-4 py-3 rounded-lg text-left transition-all duration-300 group shadow-sm ${activeTab === channel.id
+
+                            ? 'bg-gradient-to-r from-gray-700 to-gray-600 text-white shadow-lg scale-105 border border-blue-400/50'
+
+                            : 'bg-black/60 text-gray-300 hover:bg-black/80 hover:text-white hover:scale-102 border border-gray-700/50'
+
+                            }`}
+
+                        >
+
+                          <span className="text-lg font-semibold text-white">
+
+                            {channel.name}
+
+                          </span>
+
+                          {channel.adminOnly && (
+
+                            <div className="ml-auto">
+
+                              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-lg"></div>
+
+                            </div>
+
+                          )}
+
+                        </button>
+
+                      ))}
+
+                    </div>
+
+                  )}
+
+                </div>
+
+              ))}
+
+            </div>
+
+
+
+            {/* Voice Call Section */}
+
+            <div className="p-4 border-t border-gray-700">
+
+              <button className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200">
+
+                <TbPhoneCall size={20} />
+
+                <span className="font-medium">Live Trading Call</span>
+
+              </button>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Main Chat Area - Right Side */}
+
+          <div className="flex-1 flex flex-col bg-black relative min-h-0 overflow-hidden">
+
+            {/* Channel Header */}
+
+            <div className="flex-shrink-0 p-6 border-b border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800">
+
+              <div className="flex items-center space-x-4">
+
+                <h3 className="text-white font-bold text-2xl">
+
+                  {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'Channel'}
+
+                </h3>
+
+                {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.adminOnly && (
+
+                  <div className="px-3 py-2 bg-red-500/20 text-red-300 text-sm rounded-full font-bold border border-red-500/30 animate-pulse">
+
+                    ADMIN ONLY
+
+                  </div>
+
+                )}
 
               </div>
 
             </div>
 
-          ) : (
 
-            <div className="h-full overflow-y-auto" style={{
 
-              background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
+            {/* Messages Area */}
 
-            }}>
+            <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar min-h-0">
 
-              {/* Premium Streaming Indicator */}
+              {chatMessages[activeTab]?.length === 0 ? (
 
-              {isLoadingRegimes && (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500">
 
-                <div className="mx-6 mt-4 p-3 rounded-lg" style={{
+                  <p className="text-lg">No messages yet in this channel</p>
 
-                  background: 'linear-gradient(135deg, rgba(255, 102, 0, 0.1) 0%, rgba(255, 152, 0, 0.05) 100%)',
+                  <p className="text-sm">Start the conversation!</p>
 
-                  border: '1px solid rgba(255, 102, 0, 0.3)',
+                </div>
 
-                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+              ) : (
 
-                }}>
+                chatMessages[activeTab]?.map((message) => {
 
-                  <div className="flex items-center space-x-3">
+                  const formatTime = (date: Date) => {
 
-                    <div className="w-3 h-3 bg-orange-400 rounded-full animate-pulse" style={{
+                    const now = new Date();
 
-                      boxShadow: '0 0 8px rgba(255, 152, 0, 0.8)'
+                    const diff = now.getTime() - date.getTime();
 
-                    }} />
+                    const minutes = Math.floor(diff / 60000);
 
-                    <span className="text-orange-300 font-mono text-sm font-medium">
+                    const hours = Math.floor(diff / 3600000);
 
-                      {regimeLoadingStage} ({regimeUpdateProgress}%)
+                    const days = Math.floor(diff / 86400000);
 
-                    </span>
+
+
+                    if (minutes < 1) return 'just now';
+
+                    if (minutes < 60) return `${minutes}m ago`;
+
+                    if (hours < 24) return `${hours}h ago`;
+
+                    return `${days}d ago`;
+
+                  };
+
+
+
+                  return (
+
+                    <div key={message.id} className="flex space-x-3 group hover:bg-gray-900/20 p-3 rounded-lg transition-colors duration-200">
+
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
+
+                        <span className="text-white font-semibold text-sm">
+
+                          {message.user.charAt(0).toUpperCase()}
+
+                        </span>
+
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+
+                        <div className="flex items-baseline space-x-2 mb-1">
+
+                          <span className="font-semibold text-white text-sm">{message.user}</span>
+
+                          {(message as any).userType === 'admin' && (
+
+                            <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full font-medium">
+
+                              ADMIN
+
+                            </span>
+
+                          )}
+
+                          <span className="text-gray-400 text-xs">{formatTime(message.timestamp)}</span>
+
+                        </div>
+
+                        <div className="text-gray-300 text-sm leading-relaxed break-words">
+
+                          {message.message}
+
+                        </div>
+
+                      </div>
+
+                    </div>
+
+                  );
+
+                })
+
+              )}
+
+            </div>
+
+
+
+            {/* Message Input Area */}
+
+            <div className="relative bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 border-t border-gray-700/50 backdrop-blur-sm">
+
+              {/* Emoji Picker */}
+
+              {showEmojiPicker && (
+
+                <div className="absolute bottom-full left-8 right-8 mb-2 bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-2xl backdrop-blur-lg z-50">
+
+                  <div className="grid grid-cols-10 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+
+                    {[
+
+                      // Enhanced Stock Market Emoji Collection - Bullish Emojis (Green/Up Movement)
+
+                      '??', '??', '??', '??', '??', '??', '??', '?', '??', '?',
+
+                      '??', '??', '??', '??', '??', '??', '??', '??', '??', '??',
+
+
+
+                      // Bearish Emojis (Red/Down Movement) 
+
+                      '??', '??', '??', '??', '??', '??', '??', '??', '?',
+
+
+
+                      // General Reactions & Trading
+
+                      '??', '??', '??', '??', '??', '??', '??', '?', '?', '??',
+
+                      '??', '??', '??', '??', '??', '??', '??', '??', '??', '??'
+
+                    ].map((emoji, index) => (
+
+                      <button
+
+                        key={index}
+
+                        onClick={() => {
+
+                          setCurrentMessage(prev => prev + emoji);
+
+                          setShowEmojiPicker(false);
+
+                        }}
+
+                        className="text-2xl hover:bg-gray-800 p-2 rounded-lg transition-all duration-200 hover:scale-110"
+
+                      >
+
+                        {emoji}
+
+                      </button>
+
+                    ))}
 
                   </div>
 
@@ -18706,1503 +20026,181 @@ export default function TradingViewChart({
 
 
 
-              {/* Premium Industry Analysis Grid */}
+              {/* Input Container */}
 
-              <div className="px-6 pb-6">
+              <div className="flex-shrink-0 bg-gray-900 border-t border-gray-700">
 
-                <div className="grid grid-cols-2 gap-6">
+                <form onSubmit={sendMessage} className="flex items-center p-6 space-x-4">
 
-                  {/* Premium Bullish Industries Section */}
+                  <input
 
-                  <div>
+                    type="text"
 
-                    <div className="flex items-center justify-between mb-4">
+                    value={currentMessage}
 
-                      <h3 className="flex items-center space-x-3">
+                    onChange={(e) => setCurrentMessage(e.target.value)}
 
-                        <div className="flex items-center space-x-2">
+                    onKeyPress={handleKeyPress}
 
-                          <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" style={{
+                    placeholder={`Message ${channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'channel'}...`}
 
-                            boxShadow: '0 0 8px rgba(76, 175, 80, 0.8)'
+                    className="flex-1 bg-gray-800/80 text-white px-6 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 font-medium text-lg backdrop-blur-sm border border-gray-600 focus:border-blue-500 transition-all duration-200 shadow-lg"
 
-                          }} />
+                    autoFocus
 
-                          <span className="text-green-400 font-mono font-bold text-sm uppercase tracking-wider">
+                  />
 
-                            Bullish Momentum
 
-                          </span>
 
-                        </div>
+                  {/* Emoji Button */}
 
-                      </h3>
+                  <div className="relative emoji-picker-container">
 
-                      <div className="text-green-400 font-mono text-xs bg-green-400 bg-opacity-10 px-2 py-1 rounded">
+                    <button
 
-                        {bullishIndustries.length} sectors
+                      type="button"
 
-                      </div>
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
 
-                    </div>
+                      className="group p-3 bg-gray-800 border border-gray-600 text-gray-400 hover:text-orange-400 hover:border-orange-400 transition-all duration-200 hover:bg-orange-500/10 rounded-xl"
 
+                      title="Add emoji"
 
+                    >
 
-                    <div className="space-y-3">
+                      <span className="text-2xl group-hover:scale-110 transition-transform inline-block">??</span>
 
-                      {bullishIndustries.length > 0 ? bullishIndustries.map((industry, index) => (
-
-                        <div
-
-                          key={industry.symbol}
-
-                          className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
-
-                          style={{
-
-                            background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
-
-                            border: '1px solid rgba(76, 175, 80, 0.2)',
-
-                            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
-
-                          }}
-
-                          onMouseEnter={(e) => {
-
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
-
-                            e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.4)';
-
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-
-                            e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(76, 175, 80, 0.15)';
-
-                          }}
-
-                          onMouseLeave={(e) => {
-
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
-
-                            e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.2)';
-
-                            e.currentTarget.style.transform = 'translateY(0)';
-
-                            e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
-
-                          }}
-
-                        >
-
-                          <div className="flex justify-between items-start mb-3">
-
-                            <div className="flex-1">
-
-                              <div className="flex items-center space-x-3">
-
-                                <span className="text-green-400 font-mono font-bold text-2xl tracking-wide">
-
-                                  {industry.symbol}
-
-                                </span>
-
-                                <div className="flex items-center space-x-1">
-
-                                  <div className="w-1 h-1 bg-green-400 rounded-full" />
-
-                                  <div className="w-1 h-1 bg-green-400 rounded-full opacity-75" />
-
-                                  <div className="w-1 h-1 bg-green-400 rounded-full opacity-50" />
-
-                                </div>
-
-                              </div>
-
-                              <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
-
-                                {industry.name}
-
-                              </div>
-
-                            </div>
-
-                            <div className="text-right">
-
-                              <div className="text-green-400 font-mono text-xl font-bold">
-
-                                +{industry.relativePerformance.toFixed(2)}%
-
-                              </div>
-
-                              <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
-
-                                <div
-
-                                  className="h-full bg-gradient-to-r from-green-500 to-green-300 rounded-full transition-all duration-1000"
-
-                                  style={{ width: `${Math.min(100, (industry.relativePerformance / 5) * 100)}%` }}
-
-                                />
-
-                              </div>
-
-                            </div>
-
-                          </div>
-
-
-
-                          {/* Top Performers */}
-
-                          {industry.topPerformers && industry.topPerformers.length > 0 && (
-
-                            <div className="border-t border-green-400 border-opacity-20 pt-3 mt-3">
-
-                              <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
-
-                                Top 3 Performers
-
-                              </div>
-
-                              <div className="space-y-1">
-
-                                {industry.topPerformers.slice(0, 3).map((stock) => (
-
-                                  <div
-
-                                    key={stock.symbol}
-
-                                    className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
-
-                                    style={{
-
-                                      background: 'rgba(0, 0, 0, 0.3)',
-
-                                      border: '1px solid rgba(76, 175, 80, 0.1)'
-
-                                    }}
-
-                                    onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-
-                                      e.stopPropagation();
-
-                                      if (onSymbolChange) {
-
-                                        onSymbolChange(stock.symbol);
-
-                                      }
-
-                                      setConfig(prev => ({ ...prev, symbol: stock.symbol }));
-
-                                    }}
-
-                                    onMouseEnter={(e) => {
-
-                                      e.currentTarget.style.background = 'rgba(76, 175, 80, 0.1)';
-
-                                      e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.3)';
-
-                                    }}
-
-                                    onMouseLeave={(e) => {
-
-                                      e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
-
-                                      e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.1)';
-
-                                    }}
-
-                                  >
-
-                                    <span className="text-white font-mono font-medium text-lg">
-
-                                      {stock.symbol}
-
-                                    </span>
-
-                                    <span className="text-green-400 font-mono font-bold text-lg">
-
-                                      +{stock.relativePerformance.toFixed(1)}%
-
-                                    </span>
-
-                                  </div>
-
-                                ))}
-
-                              </div>
-
-                            </div>
-
-                          )}
-
-                        </div>
-
-                      )) : (
-
-                        <div className="text-center py-8">
-
-                          <div className="text-gray-500 font-mono text-sm">
-
-                            No bullish sectors detected
-
-                          </div>
-
-                        </div>
-
-                      )}
-
-                    </div>
+                    </button>
 
                   </div>
 
 
 
-                  {/* Premium Bearish Industries Section */}
+                  <button
 
-                  <div>
+                    type="submit"
 
-                    <div className="flex items-center justify-between mb-4">
+                    disabled={!currentMessage.trim()}
 
-                      <h3 className="flex items-center space-x-3">
+                    className={`group p-3 rounded-2xl transition-all duration-200 relative overflow-hidden ${currentMessage.trim()
 
-                        <div className="flex items-center space-x-2">
+                      ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-blue-500/25 transform hover:scale-105'
 
-                          <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse" style={{
+                      : 'bg-gray-700 text-gray-400 cursor-not-allowed'
 
-                            boxShadow: '0 0 8px rgba(244, 67, 54, 0.8)'
+                      }`}
 
-                          }} />
+                    title="Send message"
 
-                          <span className="text-red-400 font-mono font-bold text-sm uppercase tracking-wider">
+                  >
 
-                            Bearish Pressure
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="group-hover:scale-110 transition-transform relative z-10">
 
-                          </span>
+                      <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z" />
 
-                        </div>
+                    </svg>
 
-                      </h3>
+                  </button>
 
-                      <div className="text-red-400 font-mono text-xs bg-red-400 bg-opacity-10 px-2 py-1 rounded">
-
-                        {bearishIndustries.length} sectors
-
-                      </div>
-
-                    </div>
-
-
-
-                    <div className="space-y-3">
-
-                      {bearishIndustries.length > 0 ? bearishIndustries.map((industry, index) => (
-
-                        <div
-
-                          key={industry.symbol}
-
-                          className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
-
-                          style={{
-
-                            background: 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
-
-                            border: '1px solid rgba(244, 67, 54, 0.2)',
-
-                            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
-
-                          }}
-
-                          onMouseEnter={(e) => {
-
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
-
-                            e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.4)';
-
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-
-                            e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(244, 67, 54, 0.15)';
-
-                          }}
-
-                          onMouseLeave={(e) => {
-
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
-
-                            e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.2)';
-
-                            e.currentTarget.style.transform = 'translateY(0)';
-
-                            e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
-
-                          }}
-
-                        >
-
-                          <div className="flex justify-between items-start mb-3">
-
-                            <div className="flex-1">
-
-                              <div className="flex items-center space-x-3">
-
-                                <span className="text-red-400 font-mono font-bold text-2xl tracking-wide">
-
-                                  {industry.symbol}
-
-                                </span>
-
-                                <div className="flex items-center space-x-1">
-
-                                  <div className="w-1 h-1 bg-red-400 rounded-full" />
-
-                                  <div className="w-1 h-1 bg-red-400 rounded-full opacity-75" />
-
-                                  <div className="w-1 h-1 bg-red-400 rounded-full opacity-50" />
-
-                                </div>
-
-                              </div>
-
-                              <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
-
-                                {industry.name}
-
-                              </div>
-
-                            </div>
-
-                            <div className="text-right">
-
-                              <div className="text-red-400 font-mono text-xl font-bold">
-
-                                {industry.relativePerformance.toFixed(2)}%
-
-                              </div>
-
-                              <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
-
-                                <div
-
-                                  className="h-full bg-gradient-to-r from-red-500 to-red-300 rounded-full transition-all duration-1000"
-
-                                  style={{ width: `${Math.min(100, Math.abs(industry.relativePerformance / 5) * 100)}%` }}
-
-                                />
-
-                              </div>
-
-                            </div>
-
-                          </div>
-
-
-
-                          {/* Worst Performers */}
-
-                          {industry.worstPerformers && industry.worstPerformers.length > 0 && (
-
-                            <div className="border-t border-red-400 border-opacity-20 pt-3 mt-3">
-
-                              <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
-
-                                Worst 3 Performers
-
-                              </div>
-
-                              <div className="space-y-1">
-
-                                {industry.worstPerformers.slice(0, 3).map((stock) => (
-
-                                  <div
-
-                                    key={stock.symbol}
-
-                                    className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
-
-                                    style={{
-
-                                      background: 'rgba(0, 0, 0, 0.3)',
-
-                                      border: '1px solid rgba(244, 67, 54, 0.1)'
-
-                                    }}
-
-                                    onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-
-                                      e.stopPropagation();
-
-                                      if (onSymbolChange) {
-
-                                        onSymbolChange(stock.symbol);
-
-                                      }
-
-                                      setConfig(prev => ({ ...prev, symbol: stock.symbol }));
-
-                                    }}
-
-                                    onMouseEnter={(e) => {
-
-                                      e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)';
-
-                                      e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.3)';
-
-                                    }}
-
-                                    onMouseLeave={(e) => {
-
-                                      e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
-
-                                      e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.1)';
-
-                                    }}
-
-                                  >
-
-                                    <span className="text-white font-mono font-medium text-lg">
-
-                                      {stock.symbol}
-
-                                    </span>
-
-                                    <span className="text-red-400 font-mono font-bold text-lg">
-
-                                      {stock.relativePerformance.toFixed(1)}%
-
-                                    </span>
-
-                                  </div>
-
-                                ))}
-
-                              </div>
-
-                            </div>
-
-                          )}
-
-                        </div>
-
-                      )) : (
-
-                        <div className="text-center py-8">
-
-                          <div className="text-gray-500 font-mono text-sm">
-
-                            No bearish sectors detected
-
-                          </div>
-
-                        </div>
-
-                      )}
-
-                    </div>
-
-                  </div>
-
-                </div>
+                </form>
 
               </div>
 
             </div>
 
-          )}
+          </div>
 
         </div>
 
-      </div>
+      ) : (
 
-    );
+        <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
 
-  };
+          {/* Personal Hub Content */}
 
-  const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+          <div className="p-6 border-b border-gray-800">
 
-    // Add state for chat visibility and category collapse/expand
+            <div className="flex items-center space-x-3 mb-6">
 
-    const [showChat, setShowChat] = useState(true);
+              <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center">
 
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-
-    const [currentMessage, setCurrentMessage] = useState('');
-
-    const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({
-
-      'start-here': true,
-
-      'education': true,
-
-      'market-insights': true,
-
-      'trade-center': true,
-
-      'traders-den': true
-
-    });
-
-
-
-    const toggleCategory = (categoryId: string) => {
-
-      setExpandedCategories(prev => ({
-
-        ...prev,
-
-        [categoryId]: !prev[categoryId]
-
-      }));
-
-    };
-
-
-
-    // Structured categories matching Discord layout
-
-    const channelCategories = [
-
-      {
-
-        id: 'start-here',
-
-        name: 'START HERE',
-
-        channels: [
-
-          { id: 'announcements', name: 'Announcement', emoji: '?', adminOnly: true },
-
-          { id: 'testimonials', name: 'Testimonials', emoji: '?', adminOnly: false },
-
-          { id: 'rules-disclaimers', name: 'Rules-Disclaimers', emoji: '?', adminOnly: false },
-
-          { id: 'contact-us', name: 'Contact-Us', emoji: '??', adminOnly: false },
-
-          { id: 'start-here-channel', name: 'Start-Here', emoji: '?', adminOnly: false }
-
-        ]
-
-      },
-
-      {
-
-        id: 'education',
-
-        name: 'Education',
-
-        emoji: '??',
-
-        channels: [
-
-          { id: 'live-recordings', name: 'Live-Recordings', emoji: '??', adminOnly: false },
-
-          { id: 'lesson', name: 'Lesson', emoji: '?', adminOnly: false },
-
-          { id: 'application', name: 'Application', emoji: '?', adminOnly: false },
-
-          { id: 'result-upload', name: 'Result-Upload', emoji: '?', adminOnly: false },
-
-          { id: 'traders-code', name: 'The-Traders-Code', emoji: '?', adminOnly: false },
-
-          { id: 'zaks-market-moves', name: 'Zak\'s-Market-Moves', emoji: '??', adminOnly: false }
-
-        ]
-
-      },
-
-      {
-
-        id: 'market-insights',
-
-        name: 'Market Insights',
-
-        emoji: '??',
-
-        channels: [
-
-          { id: 'cyclical', name: 'Cyclical', emoji: '?', adminOnly: false },
-
-          { id: 'monthly', name: 'Monthly', emoji: '??', adminOnly: false },
-
-          { id: 'chart-track-trade', name: 'Chart-Track-Trade', emoji: '?', adminOnly: false },
-
-          { id: 'gex-ideas', name: 'GEX-Ideas', emoji: '?', adminOnly: false },
-
-          { id: 'insiders-congress', name: 'Insiders-Congress', emoji: '???', adminOnly: false },
-
-          { id: 'notable-flow', name: 'Notable-Flow', emoji: '??', adminOnly: false }
-
-        ]
-
-      },
-
-      {
-
-        id: 'trade-center',
-
-        name: 'Trade Center',
-
-        emoji: '??',
-
-        channels: [
-
-          { id: 'dividend-portfolio', name: 'Dividend-Portfolio', emoji: '??', adminOnly: false },
-
-          { id: '100k-portfolio', name: '100K-Portfolio', emoji: '?', adminOnly: false },
-
-          { id: '25k-portfolio', name: '25K-Portfolio', emoji: '??', adminOnly: false },
-
-          { id: '5k-portfolio', name: '5K-Portfolio', emoji: '??', adminOnly: false },
-
-          { id: 'weekly-snapshot', name: 'Weekly-Snapshot', emoji: '?', adminOnly: false },
-
-          { id: 'swing-trades', name: 'Swing-Trades', emoji: '??', adminOnly: false },
-
-          { id: 'stock-chat', name: 'Stock-Chat', emoji: '?', adminOnly: false },
-
-          { id: 'flow-analyst', name: 'Flow-Analyst', emoji: '??', adminOnly: false }
-
-        ]
-
-      },
-
-      {
-
-        id: 'traders-den',
-
-        name: 'Trader\'s Den',
-
-        emoji: '?',
-
-        channels: [
-
-          { id: 'feedback-hub', name: 'Feedback-Hub', emoji: '?', adminOnly: false },
-
-          { id: 'all-flow', name: 'ALL-FLOW', emoji: '??', adminOnly: false },
-
-          { id: 'calendar', name: 'Calendar', emoji: '???', adminOnly: false },
-
-          { id: 'motiversity', name: 'Motiversity', emoji: '??', adminOnly: false },
-
-          { id: 'mentorship', name: 'Mentorship', emoji: '????', adminOnly: false },
-
-          { id: 'chill-chat', name: 'Chill-Chat', emoji: '?', adminOnly: false }
-
-        ]
-
-      }
-
-    ];
-
-
-
-    const takeScreenshot = async () => {
-
-      try {
-
-        const canvas = chartCanvasRef.current;
-
-        if (canvas) {
-
-          const dataURL = canvas.toDataURL('image/png');
-
-          const newScreenshot = {
-
-            id: Date.now().toString(),
-
-            url: dataURL,
-
-            timestamp: new Date(),
-
-            notes: ''
-
-          };
-
-          setScreenshots(prev => [newScreenshot, ...prev]);
-
-        }
-
-      } catch (error) {
-
-        console.error('Failed to capture screenshot:', error);
-
-      }
-
-    };
-
-
-
-    const addNote = () => {
-
-      const newNote = {
-
-        id: Date.now().toString(),
-
-        title: 'New Note',
-
-        content: '',
-
-        timestamp: new Date(),
-
-        color: '#3b82f6'
-
-      };
-
-      setNotes(prev => [newNote, ...prev]);
-
-    };
-
-
-
-    const addReminder = () => {
-
-      const newReminder = {
-
-        id: Date.now().toString(),
-
-        title: 'New Reminder',
-
-        datetime: new Date(Date.now() + 3600000), // 1 hour from now
-
-        completed: false
-
-      };
-
-      setReminders(prev => [newReminder, ...prev]);
-
-    };
-
-
-
-    // File upload handler
-
-    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-
-      const files = event.target.files;
-
-      if (!files) return;
-
-
-
-      Array.from(files).forEach(file => {
-
-        const reader = new FileReader();
-
-        reader.onload = (e) => {
-
-          const fileData = {
-
-            id: Date.now().toString() + Math.random().toString(36),
-
-            name: file.name,
-
-            type: file.type,
-
-            url: e.target?.result as string,
-
-            size: file.size
-
-          };
-
-
-
-          setUploadedFiles(prev => [...prev, fileData]);
-
-
-
-          // Send file as message
-
-          const fileMessage = {
-
-            id: Date.now().toString(),
-
-            user: 'You',
-
-            message: `?? **${file.name}** (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
-
-            timestamp: new Date(),
-
-            userType: 'user',
-
-            fileData: fileData
-
-          };
-
-
-
-          setChatMessages(prev => ({
-
-            ...prev,
-
-            [activeTab]: [...(prev[activeTab] || []), fileMessage]
-
-          }));
-
-        };
-
-
-
-        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-
-          reader.readAsDataURL(file);
-
-        } else {
-
-          reader.readAsText(file);
-
-        }
-
-      });
-
-
-
-      // Reset file input
-
-      event.target.value = '';
-
-    };
-
-
-
-    // Enhanced Stock Market Emoji Collection
-
-    const emojis = [
-
-      // Bullish Emojis (Green/Up Movement)
-
-      '?', '?', '?', '?', '?', '??', '?', '??', '?', '?',
-
-      '??', '?', '?', '??', '?', '??', '??', '?', '??', '?',
-
-
-
-      // Bearish Emojis (Red/Down Movement) 
-
-      '?', '?', '?', '?', '??', '??', '??', '??', '?', '?',
-
-      '??', '?', '?', '?', '?', '?', '?', '?', '??', '??',
-
-
-
-      // Market Sentiment & Trading
-
-      '?', '?', '?', '??', '??', '?', '?', '?', '?', '?',
-
-      '?', '?', '??', '??', '??', '?', '??', '??', '??', '??',
-
-
-
-      // General Reactions
-
-      '?', '?', '?', '?', '?', '?', '?', '??', '??', '??',
-
-      '??', '??', '??', '??', '??', '??', '??', '??', '??', '?',
-
-
-
-      // Action & Confirmation
-
-      '?', '?', '??', '??', '??', '??', '??', '??', '??', '??'
-
-    ];
-
-
-
-    // Add emoji to message
-
-    const addEmoji = (emoji: string) => {
-
-      setCurrentMessage(prev => prev + emoji);
-
-      setShowEmojiPicker(false);
-
-    };
-
-
-
-    const sendMessage = (e?: React.FormEvent) => {
-
-      if (e) e.preventDefault();
-
-      if (!currentMessage.trim()) return;
-
-
-
-      const newMessage = {
-
-        id: Date.now().toString(),
-
-        user: 'You',
-
-        message: currentMessage.trim(),
-
-        timestamp: new Date(),
-
-        userType: 'user'
-
-      };
-
-
-
-      setChatMessages(prev => ({
-
-        ...prev,
-
-        [activeTab]: [...(prev[activeTab] || []), newMessage]
-
-      }));
-
-
-
-      setCurrentMessage('');
-
-    };
-
-
-
-    const handleKeyPress = (e: React.KeyboardEvent) => {
-
-      if (e.key === 'Enter' && !e.shiftKey) {
-
-        e.preventDefault();
-
-        sendMessage();
-
-      }
-
-    };
-
-
-
-    return (
-
-      <div className="h-full bg-black overflow-hidden">
-
-        {/* Chat Content */}
-
-        {true ? (
-
-          <div className="flex flex-1 h-full max-h-full overflow-hidden">
-
-            {/* Left Sidebar - Discord Style Navigation */}
-
-            <div className="w-80 bg-gradient-to-b from-gray-900 via-gray-800 to-black border-r border-gray-700/50 flex flex-col shadow-2xl backdrop-blur-md min-h-0">
-
-              {/* Server Header */}
-
-              <div className="p-3 border-b border-gray-700/50 bg-gradient-to-r from-gray-800 to-gray-700 flex-shrink-0">
-
-                <div className="flex items-center space-x-3">
-
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-
-                    <span className="text-white font-black text-xl">EFI</span>
-
-                  </div>
-
-                  <div>
-
-                    <div className="text-white font-black text-lg tracking-wide">EFI Trading</div>
-
-                    <div className="text-green-400 text-sm font-semibold flex items-center">
-
-                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-
-                      Live Market Session
-
-                    </div>
-
-                  </div>
-
-                </div>
+                <TbUser className="text-white" size={18} />
 
               </div>
 
-
-
-              {/* Categories and Channels */}
-
-              <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-4 min-h-0">
-
-                {channelCategories.map((category) => (
-
-                  <div key={category.id} className="space-y-3">
-
-                    {/* Category Header */}
-
-                    <button
-
-                      onClick={() => toggleCategory(category.id)}
-
-                      className="w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-black/40 rounded-xl transition-all duration-300 group"
-
-                    >
-
-                      <div className="flex items-center space-x-3">
-
-                        <span className="text-white font-bold text-lg">
-
-                          {expandedCategories[category.id] ? '?' : '?'}
-
-                        </span>
-
-                        <span className="font-bold text-xl uppercase tracking-wider text-orange-500">
-
-                          {category.name}
-
-                        </span>
-
-                      </div>
-
-                    </button>
-
-
-
-                    {/* Channels in Category */}
-
-                    {expandedCategories[category.id] && (
-
-                      <div className="ml-2 mt-3 space-y-2">
-
-                        {category.channels.map((channel) => (
-
-                          <button
-
-                            key={channel.id}
-
-                            onClick={() => setActiveTab(channel.id)}
-
-                            className={`w-full flex items-center space-x-4 px-4 py-3 rounded-lg text-left transition-all duration-300 group shadow-sm ${activeTab === channel.id
-
-                              ? 'bg-gradient-to-r from-gray-700 to-gray-600 text-white shadow-lg scale-105 border border-blue-400/50'
-
-                              : 'bg-black/60 text-gray-300 hover:bg-black/80 hover:text-white hover:scale-102 border border-gray-700/50'
-
-                              }`}
-
-                          >
-
-                            <span className="text-lg font-semibold text-white">
-
-                              {channel.name}
-
-                            </span>
-
-                            {channel.adminOnly && (
-
-                              <div className="ml-auto">
-
-                                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-lg"></div>
-
-                              </div>
-
-                            )}
-
-                          </button>
-
-                        ))}
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                ))}
-
-              </div>
-
-
-
-              {/* Voice Call Section */}
-
-              <div className="p-4 border-t border-gray-700">
-
-                <button className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200">
-
-                  <TbPhoneCall size={20} />
-
-                  <span className="font-medium">Live Trading Call</span>
-
-                </button>
-
-              </div>
+              <h4 className="text-white font-bold text-lg">Personal Hub</h4>
 
             </div>
 
+            <div className="grid grid-cols-3 gap-4">
 
+              <button
 
-            {/* Main Chat Area - Right Side */}
+                onClick={takeScreenshot}
 
-            <div className="flex-1 flex flex-col bg-black relative min-h-0 overflow-hidden">
+                className="bg-gradient-to-br from-blue-600 to-cyan-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
 
-              {/* Channel Header */}
+              >
 
-              <div className="flex-shrink-0 p-6 border-b border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800">
+                <TbPhoto size={24} className="mb-2 group-hover:scale-110 transition-transform" />
 
-                <div className="flex items-center space-x-4">
+                <div>Screenshot</div>
 
-                  <h3 className="text-white font-bold text-2xl">
+              </button>
 
-                    {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'Channel'}
+              <button
 
-                  </h3>
+                onClick={addNote}
 
-                  {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.adminOnly && (
+                className="bg-gradient-to-br from-emerald-600 to-green-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
 
-                    <div className="px-3 py-2 bg-red-500/20 text-red-300 text-sm rounded-full font-bold border border-red-500/30 animate-pulse">
+              >
 
-                      ADMIN ONLY
+                <TbNews size={24} className="mb-2 group-hover:scale-110 transition-transform" />
 
-                    </div>
+                <div>Note</div>
 
-                  )}
+              </button>
 
-                </div>
+              <button
 
-              </div>
+                onClick={addReminder}
 
+                className="bg-gradient-to-br from-violet-600 to-purple-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
 
+              >
 
-              {/* Messages Area */}
+                <TbBellRinging size={24} className="mb-2 group-hover:scale-110 transition-transform" />
 
-              <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar min-h-0">
+                <div>Reminder</div>
 
-                {chatMessages[activeTab]?.length === 0 ? (
-
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500">
-
-                    <p className="text-lg">No messages yet in this channel</p>
-
-                    <p className="text-sm">Start the conversation!</p>
-
-                  </div>
-
-                ) : (
-
-                  chatMessages[activeTab]?.map((message) => {
-
-                    const formatTime = (date: Date) => {
-
-                      const now = new Date();
-
-                      const diff = now.getTime() - date.getTime();
-
-                      const minutes = Math.floor(diff / 60000);
-
-                      const hours = Math.floor(diff / 3600000);
-
-                      const days = Math.floor(diff / 86400000);
-
-
-
-                      if (minutes < 1) return 'just now';
-
-                      if (minutes < 60) return `${minutes}m ago`;
-
-                      if (hours < 24) return `${hours}h ago`;
-
-                      return `${days}d ago`;
-
-                    };
-
-
-
-                    return (
-
-                      <div key={message.id} className="flex space-x-3 group hover:bg-gray-900/20 p-3 rounded-lg transition-colors duration-200">
-
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
-
-                          <span className="text-white font-semibold text-sm">
-
-                            {message.user.charAt(0).toUpperCase()}
-
-                          </span>
-
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-
-                          <div className="flex items-baseline space-x-2 mb-1">
-
-                            <span className="font-semibold text-white text-sm">{message.user}</span>
-
-                            {(message as any).userType === 'admin' && (
-
-                              <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full font-medium">
-
-                                ADMIN
-
-                              </span>
-
-                            )}
-
-                            <span className="text-gray-400 text-xs">{formatTime(message.timestamp)}</span>
-
-                          </div>
-
-                          <div className="text-gray-300 text-sm leading-relaxed break-words">
-
-                            {message.message}
-
-                          </div>
-
-                        </div>
-
-                      </div>
-
-                    );
-
-                  })
-
-                )}
-
-              </div>
-
-
-
-              {/* Message Input Area */}
-
-              <div className="relative bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 border-t border-gray-700/50 backdrop-blur-sm">
-
-                {/* Emoji Picker */}
-
-                {showEmojiPicker && (
-
-                  <div className="absolute bottom-full left-8 right-8 mb-2 bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-2xl backdrop-blur-lg z-50">
-
-                    <div className="grid grid-cols-10 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-
-                      {[
-
-                        // Enhanced Stock Market Emoji Collection - Bullish Emojis (Green/Up Movement)
-
-                        '??', '??', '??', '??', '??', '??', '??', '?', '??', '?',
-
-                        '??', '??', '??', '??', '??', '??', '??', '??', '??', '??',
-
-
-
-                        // Bearish Emojis (Red/Down Movement) 
-
-                        '??', '??', '??', '??', '??', '??', '??', '??', '?',
-
-
-
-                        // General Reactions & Trading
-
-                        '??', '??', '??', '??', '??', '??', '??', '?', '?', '??',
-
-                        '??', '??', '??', '??', '??', '??', '??', '??', '??', '??'
-
-                      ].map((emoji, index) => (
-
-                        <button
-
-                          key={index}
-
-                          onClick={() => {
-
-                            setCurrentMessage(prev => prev + emoji);
-
-                            setShowEmojiPicker(false);
-
-                          }}
-
-                          className="text-2xl hover:bg-gray-800 p-2 rounded-lg transition-all duration-200 hover:scale-110"
-
-                        >
-
-                          {emoji}
-
-                        </button>
-
-                      ))}
-
-                    </div>
-
-                  </div>
-
-                )}
-
-
-
-                {/* Input Container */}
-
-                <div className="flex-shrink-0 bg-gray-900 border-t border-gray-700">
-
-                  <form onSubmit={sendMessage} className="flex items-center p-6 space-x-4">
-
-                    <input
-
-                      type="text"
-
-                      value={currentMessage}
-
-                      onChange={(e) => setCurrentMessage(e.target.value)}
-
-                      onKeyPress={handleKeyPress}
-
-                      placeholder={`Message ${channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'channel'}...`}
-
-                      className="flex-1 bg-gray-800/80 text-white px-6 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 font-medium text-lg backdrop-blur-sm border border-gray-600 focus:border-blue-500 transition-all duration-200 shadow-lg"
-
-                      autoFocus
-
-                    />
-
-
-
-                    {/* Emoji Button */}
-
-                    <div className="relative emoji-picker-container">
-
-                      <button
-
-                        type="button"
-
-                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-
-                        className="group p-3 bg-gray-800 border border-gray-600 text-gray-400 hover:text-orange-400 hover:border-orange-400 transition-all duration-200 hover:bg-orange-500/10 rounded-xl"
-
-                        title="Add emoji"
-
-                      >
-
-                        <span className="text-2xl group-hover:scale-110 transition-transform inline-block">??</span>
-
-                      </button>
-
-                    </div>
-
-
-
-                    <button
-
-                      type="submit"
-
-                      disabled={!currentMessage.trim()}
-
-                      className={`group p-3 rounded-2xl transition-all duration-200 relative overflow-hidden ${currentMessage.trim()
-
-                        ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-blue-500/25 transform hover:scale-105'
-
-                        : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-
-                        }`}
-
-                      title="Send message"
-
-                    >
-
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="group-hover:scale-110 transition-transform relative z-10">
-
-                        <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z" />
-
-                      </svg>
-
-                    </button>
-
-                  </form>
-
-                </div>
-
-              </div>
+              </button>
 
             </div>
 
           </div>
 
-        ) : (
+        </div>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
+      )}
 
-            {/* Personal Hub Content */}
+    </div>
 
-            <div className="p-6 border-b border-gray-800">
+  );
 
-              <div className="flex items-center space-x-3 mb-6">
-
-                <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center">
-
-                  <TbUser className="text-white" size={18} />
-
-                </div>
-
-                <h4 className="text-white font-bold text-lg">Personal Hub</h4>
-
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-
-                <button
-
-                  onClick={takeScreenshot}
-
-                  className="bg-gradient-to-br from-blue-600 to-cyan-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
-
-                >
-
-                  <TbPhoto size={24} className="mb-2 group-hover:scale-110 transition-transform" />
-
-                  <div>Screenshot</div>
-
-                </button>
-
-                <button
-
-                  onClick={addNote}
-
-                  className="bg-gradient-to-br from-emerald-600 to-green-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
-
-                >
-
-                  <TbNews size={24} className="mb-2 group-hover:scale-110 transition-transform" />
-
-                  <div>Note</div>
-
-                </button>
-
-                <button
-
-                  onClick={addReminder}
-
-                  className="bg-gradient-to-br from-violet-600 to-purple-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
-
-                >
-
-                  <TbBellRinging size={24} className="mb-2 group-hover:scale-110 transition-transform" />
-
-                  <div>Reminder</div>
-
-                </button>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        )}
-
-      </div>
-
-    );
-
-  };
+};
 
 
 
-  return (
+return (
 
-    <>
+  <>
 
-      {/* Advanced CSS for Premium Navigation and 3D Effects */}
+    {/* Advanced CSS for Premium Navigation and 3D Effects */}
 
-      <style dangerouslySetInnerHTML={{
+    <style dangerouslySetInnerHTML={{
 
-        __html: `
+      __html: `
 
  .text-shadow-carved {
 
@@ -20600,1513 +20598,97 @@ export default function TradingViewChart({
 
  `
 
-      }} />
+    }} />
 
 
 
-      <div className="w-full h-full rounded-lg overflow-hidden" style={{ backgroundColor: colors.background }}>
+    <div className="w-full h-full rounded-lg overflow-hidden" style={{ backgroundColor: colors.background }}>
 
-        {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
+      {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
+
+      <div
+
+        className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium"
+
+        style={{
+
+          background: '#000000',
+
+          backgroundSize: '400% 400%',
+
+          borderColor: '#333333',
+
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(128, 128, 128, 0.1)',
+
+          backdropFilter: 'blur(10px)',
+
+          zIndex: 10000
+
+        }}
+
+      >
+
+        {/* Premium Gray Border Animation */}
 
         <div
 
-          className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium"
+          className="absolute inset-0 pointer-events-none"
 
           style={{
 
-            background: '#000000',
+            background: 'linear-gradient(90deg, transparent, rgba(128, 128, 128, 0.3), transparent)',
 
-            backgroundSize: '400% 400%',
+            backgroundSize: '200% 100%',
 
-            borderColor: '#333333',
+            borderRadius: 'inherit',
 
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(128, 128, 128, 0.1)',
-
-            backdropFilter: 'blur(10px)',
-
-            zIndex: 10000
+            opacity: 0.6
 
           }}
 
-        >
+        />
 
-          {/* Premium Gray Border Animation */}
+
+
+        {/* Premium Metallic Overlay */}
+
+        <div
+
+          className="absolute inset-0 pointer-events-none"
+
+          style={{
+
+            background: 'linear-gradient(180deg, rgba(128, 128, 128, 0.05) 0%, transparent 30%, transparent 70%, rgba(96, 96, 96, 0.02) 100%)',
+
+            borderRadius: 'inherit'
+
+          }}
+
+        />
+
+
+
+        {/* Drawing Tools Status Badge */}
+
+        <div className="absolute top-2 left-4 z-20">
 
           <div
 
-            className="absolute inset-0 pointer-events-none"
+            className="flex items-center space-x-2 px-3 py-1 rounded-full bg-black bg-opacity-60 backdrop-blur border border-gray-600 border-opacity-50"
 
             style={{
 
-              background: 'linear-gradient(90deg, transparent, rgba(128, 128, 128, 0.3), transparent)',
+              background: 'linear-gradient(135deg, rgba(18, 18, 18, 0.9) 0%, rgba(12, 12, 12, 0.95) 100%)',
 
-              backgroundSize: '200% 100%',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
 
-              borderRadius: 'inherit',
+              fontSize: '11px',
 
-              opacity: 0.6
-
-            }}
-
-          />
-
-
-
-          {/* Premium Metallic Overlay */}
-
-          <div
-
-            className="absolute inset-0 pointer-events-none"
-
-            style={{
-
-              background: 'linear-gradient(180deg, rgba(128, 128, 128, 0.05) 0%, transparent 30%, transparent 70%, rgba(96, 96, 96, 0.02) 100%)',
-
-              borderRadius: 'inherit'
+              display: 'none'
 
             }}
 
-          />
-
-
-
-          {/* Drawing Tools Status Badge */}
-
-          <div className="absolute top-2 left-4 z-20">
-
-            <div
-
-              className="flex items-center space-x-2 px-3 py-1 rounded-full bg-black bg-opacity-60 backdrop-blur border border-gray-600 border-opacity-50"
-
-              style={{
-
-                background: 'linear-gradient(135deg, rgba(18, 18, 18, 0.9) 0%, rgba(12, 12, 12, 0.95) 100%)',
-
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-
-                fontSize: '11px',
-
-                display: 'none'
-
-              }}
-
-            >
-
-            </div>
-
-          </div>
-
-
-
-          {/* Symbol and Price Info */}
-
-          <div className="flex items-center w-full relative z-10">
-
-            {/* Left side: Symbol Search + Price + Controls */}
-
-            <div className="flex items-center space-x-8 flex-shrink-0">
-
-              <div className="flex items-center space-x-3">
-
-                <div className="relative flex items-center">
-
-                  <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
-
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-
-                      <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-
-                      <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
-
-                    </svg>
-
-                    <input
-
-                      type="text"
-
-                      value={searchQuery}
-
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-
-                      onKeyPress={handleSearchKeyPress}
-
-                      className="bg-transparent border-0 outline-none w-28 text-lg font-bold"
-
-                      style={{
-
-                        color: '#ffffff',
-
-                        textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
-
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-
-                        letterSpacing: '0.8px'
-
-                      }}
-
-                      placeholder={symbol || "Search..."}
-
-                    />
-
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
-
-                      <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
-
-                    </svg>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-
-
-              <div className="flex flex-col items-start space-y-1">
-
-                <span
-
-                  className="font-mono text-xl font-bold leading-tight"
-
-                  style={{
-
-                    color: '#ffffff',
-
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 255, 255, 0.2)',
-
-                    letterSpacing: '0.3px'
-
-                  }}
-
-                >
-
-                  ${currentPrice.toFixed(2)}
-
-                </span>
-
-                <span
-
-                  className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
-
-                  style={{
-
-                    color: priceChangePercent >= 0 ? '#10b981' : '#ef4444',
-
-                    background: priceChangePercent >= 0
-
-                      ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)'
-
-                      : 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%)',
-
-                    textShadow: `0 1px 1px rgba(0, 0, 0, 0.8), 0 0 6px ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-
-                    border: `1px solid ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-
-                    letterSpacing: '0.2px'
-
-                  }}
-
-                >
-
-                  {priceChangePercent >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
-
-                </span>
-
-              </div>
-
-
-
-              {/* Timeframes - Moved closer to symbol/price */}
-
-              <div
-
-                className="flex items-center timeframe-dropdown"
-
-                style={{
-
-                  background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
-
-                  border: '2px solid rgba(255, 255, 255, 0.4)',
-
-                  borderRadius: '8px',
-
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-
-                }}
-
-              >
-
-                {/* Desktop Timeframes - Hidden on mobile */}
-
-                <div className="hidden md:flex">
-
-                  {[
-
-                    { label: '5M', value: '5m' },
-
-                    { label: '30M', value: '30m' },
-
-                    { label: '1H', value: '1h' },
-
-                    { label: '4H', value: '4h' },
-
-                    { label: 'D', value: '1d' }
-
-                  ].map((tf, index) => (
-
-                    <button
-
-                      key={tf.label}
-
-                      onClick={() => handleTimeframeChange(tf.value)}
-
-                      className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : 'text-white'}`}
-
-                      style={{
-
-                        padding: '10px 20px',
-
-                        fontWeight: '700',
-
-                        fontSize: '15px',
-
-                        letterSpacing: '0.8px',
-
-                        borderRadius: '4px'
-
-                      }}
-
-                    >
-
-                      {tf.label}
-
-                    </button>
-
-                  ))}
-
-                </div>
-
-
-
-                {/* Mobile Timeframe Dropdown - Visible only on mobile */}
-
-                <div className="md:hidden relative">
-
-                  <select
-
-                    value={config.timeframe}
-
-                    onChange={(e) => handleTimeframeChange(e.target.value)}
-
-                    className="btn-3d-carved text-white bg-gradient-to-b from-gray-700 via-gray-800 to-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
-
-                    style={{
-
-                      background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
-
-                      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)'
-
-                    }}
-
-                  >
-
-                    <option value="5m">5M</option>
-
-                    <option value="30m">30M</option>
-
-                    <option value="1h">1H</option>
-
-                    <option value="4h">4H</option>
-
-                    <option value="1d">D</option>
-
-                  </select>
-
-                </div>
-
-              </div>
-
-
-
-              {/* Chart Type Selector - Moved to left side */}
-
-              <div
-
-                className="flex items-center chart-type-dropdown"
-
-                style={{
-
-                  background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
-
-                  border: '2px solid rgba(255, 255, 255, 0.4)',
-
-                  borderRadius: '8px',
-
-                  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
-
-                }}
-
-              >
-
-                {/* Desktop Chart Type Buttons - Hidden on mobile */}
-
-                <div className="hidden md:flex">
-
-                  {MAIN_CHART_TYPES.map((type, index) => (
-
-                    <button
-
-                      key={type.value}
-
-                      onClick={() => handleChartTypeChange(type.value as ChartConfig['chartType'])}
-
-                      className={`btn-3d-carved relative group ${config.chartType === type.value ? 'active' : 'text-white'}`}
-
-                      style={{
-
-                        padding: '10px 14px',
-
-                        fontSize: '16px',
-
-                        fontWeight: '700',
-
-                        borderRadius: '4px'
-
-                      }}
-
-                      title={type.label}
-
-                    >
-
-                      {type.icon}
-
-                    </button>
-
-                  ))}
-
-                </div>
-
-
-
-                {/* Mobile Chart Type Button - Icon only for compact size */}
-
-                <div className="md:hidden relative">
-
-                  <button
-
-                    onClick={() => handleChartTypeChange(config.chartType === 'candlestick' ? 'line' : 'candlestick')}
-
-                    className="btn-3d-carved font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
-
-                    style={{
-
-                      background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
-
-                      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)',
-
-                      color: '#ff6600',
-
-                      border: '1px solid rgba(255, 102, 0, 0.3)',
-
-                      borderRadius: '4px',
-
-                      padding: '6px',
-
-                      minWidth: 'auto',
-
-                      width: 'auto',
-
-                      display: 'flex',
-
-                      alignItems: 'center',
-
-                      justifyContent: 'center'
-
-                    }}
-
-                    title={config.chartType === 'candlestick' ? 'Switch to Line Chart' : 'Switch to Candlestick Chart'}
-
-                  >
-
-                    {config.chartType === 'candlestick' ? (
-
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-
-                        <line x1="3" y1="2" x2="3" y2="14" stroke="currentColor" strokeWidth="1" />
-
-                        <rect x="2" y="4" width="2" height="4" fill="currentColor" />
-
-                        <line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" strokeWidth="1" />
-
-                        <rect x="6" y="3" width="2" height="6" fill="none" stroke="currentColor" strokeWidth="1" />
-
-                        <line x1="11" y1="3" x2="11" y2="15" stroke="currentColor" strokeWidth="1" />
-
-                        <rect x="10" y="5" width="2" height="3" fill="currentColor" />
-
-                      </svg>
-
-                    ) : (
-
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-
-                        <path
-
-                          d="M1 13 L4 9 L7 11 L10 6 L13 8 L15 4"
-
-                          stroke="currentColor"
-
-                          strokeWidth="2"
-
-                          fill="none"
-
-                          strokeLinecap="round"
-
-                          strokeLinejoin="round"
-
-                        />
-
-                        <circle cx="1" cy="13" r="1.5" fill="currentColor" />
-
-                        <circle cx="4" cy="9" r="1.5" fill="currentColor" />
-
-                        <circle cx="7" cy="11" r="1.5" fill="currentColor" />
-
-                        <circle cx="10" cy="6" r="1.5" fill="currentColor" />
-
-                        <circle cx="13" cy="8" r="1.5" fill="currentColor" />
-
-                        <circle cx="15" cy="4" r="1.5" fill="currentColor" />
-
-                      </svg>
-
-                    )}
-
-                  </button>
-
-                </div>
-
-              </div>
-
-
-
-              {/* Expected Range Button - Standalone */}
-
-              <div className="ml-4 relative">
-
-                <button
-
-                  ref={expectedRangeButtonRef}
-
-                  onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
-
-                  className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
-
-                  style={{
-
-                    padding: '10px 14px',
-
-                    fontWeight: '700',
-
-                    fontSize: '13px',
-
-                    borderRadius: '4px'
-
-                  }}
-
-                >
-
-                  <span>EXPECTED RANGE</span>
-
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-
-                  </svg>
-
-                  {isLoadingExpectedRange && (
-
-                    <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
-
-                  )}
-
-                </button>
-
-
-
-                {/* Expected Range Dropdown */}
-
-                {isExpectedRangeDropdownOpen && createPortal(
-
-                  <div
-
-                    style={{
-
-                      position: 'fixed',
-
-                      top: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
-
-                      left: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().left : 0,
-
-                      zIndex: 100000,
-
-                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
-
-                      border: '2px solid rgba(255, 255, 255, 0.2)',
-
-                      borderRadius: '8px',
-
-                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-
-                      padding: '8px',
-
-                      minWidth: '180px'
-
-                    }}
-
-                  >
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-
-                      <button
-
-                        onClick={() => {
-
-                          setIsWeeklyActive(!isWeeklyActive);
-
-                          if (!isWeeklyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
-
-                            setIsLoadingExpectedRange(true);
-
-                            calculateExpectedRangeLevels(symbol).then(result => {
-
-                              if (result) {
-
-                                setExpectedRangeLevels(result.levels);
-
-                              }
-
-                              setIsLoadingExpectedRange(false);
-
-                            });
-
-                          }
-
-                          if (!isWeeklyActive || isMonthlyActive) setIsExpectedRangeActive(true);
-
-                          else if (isWeeklyActive && !isMonthlyActive) setIsExpectedRangeActive(false);
-
-                          setIsExpectedRangeDropdownOpen(false);
-
-                        }}
-
-                        style={{
-
-                          padding: '8px 12px',
-
-                          background: isWeeklyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-
-                          border: 'none',
-
-                          color: '#ffffff',
-
-                          cursor: 'pointer',
-
-                          borderRadius: '4px',
-
-                          fontSize: '13px',
-
-                          fontWeight: '600',
-
-                          display: 'flex',
-
-                          alignItems: 'center',
-
-                          justifyContent: 'space-between'
-
-                        }}
-
-                      >
-
-                        <span>Weekly Range</span>
-
-                        {isWeeklyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
-
-                      </button>
-
-                      <button
-
-                        onClick={() => {
-
-                          setIsMonthlyActive(!isMonthlyActive);
-
-                          if (!isMonthlyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
-
-                            setIsLoadingExpectedRange(true);
-
-                            calculateExpectedRangeLevels(symbol).then(result => {
-
-                              if (result) {
-
-                                setExpectedRangeLevels(result.levels);
-
-                              }
-
-                              setIsLoadingExpectedRange(false);
-
-                            });
-
-                          }
-
-                          if (!isMonthlyActive || isWeeklyActive) setIsExpectedRangeActive(true);
-
-                          else if (isMonthlyActive && !isWeeklyActive) setIsExpectedRangeActive(false);
-
-                          setIsExpectedRangeDropdownOpen(false);
-
-                        }}
-
-                        style={{
-
-                          padding: '8px 12px',
-
-                          background: isMonthlyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-
-                          border: 'none',
-
-                          color: '#ffffff',
-
-                          cursor: 'pointer',
-
-                          borderRadius: '4px',
-
-                          fontSize: '13px',
-
-                          fontWeight: '600',
-
-                          display: 'flex',
-
-                          alignItems: 'center',
-
-                          justifyContent: 'space-between'
-
-                        }}
-
-                      >
-
-                        <span>Monthly Range</span>
-
-                        {isMonthlyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
-
-                      </button>
-
-                    </div>
-
-                  </div>,
-
-                  document.body
-
-                )}
-
-
-
-                {/* Click outside to close dropdown */}
-
-                {isExpectedRangeDropdownOpen && createPortal(
-
-                  <div
-
-                    className="fixed inset-0"
-
-                    style={{ zIndex: 99998 }}
-
-                    onClick={() => setIsExpectedRangeDropdownOpen(false)}
-
-                  />,
-
-                  document.body
-
-                )}
-
-              </div>
-
-
-
-              {/* GEX Button with Dropdown - Next to Expected Range */}
-
-              <div className="ml-4 relative">
-
-                <button
-
-                  ref={gexButtonRef}
-
-                  onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
-
-                  disabled={isGexLoading}
-
-                  className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
-
-                  style={{
-
-                    padding: '10px 14px',
-
-                    fontWeight: '700',
-
-                    fontSize: '13px',
-
-                    borderRadius: '4px',
-
-                    opacity: isGexLoading ? 0.6 : 1
-
-                  }}
-
-                >
-
-                  <span>{isGexLoading ? `SCANNING ${gexProgress}%` : 'GEX'}</span>
-
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-
-                  </svg>
-
-                </button>
-
-
-
-                {/* GEX Dropdown Menu - Using Portal */}
-
-                {isGexDropdownOpen && createPortal(
-
-                  <div
-
-                    style={{
-
-                      position: 'fixed',
-
-                      top: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
-
-                      left: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().left : 0,
-
-                      zIndex: 100000,
-
-                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
-
-                      border: '2px solid rgba(255, 255, 255, 0.2)',
-
-                      borderRadius: '8px',
-
-                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-
-                      padding: '8px',
-
-                      minWidth: '180px'
-
-                    }}
-
-                  >
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-
-                      <button
-
-                        onClick={() => {
-
-                          setIsLiveGexActive(!isLiveGexActive);
-
-                          if (!isLiveGexActive) handleLiveGEXClick();
-
-                          if (!isLiveGexActive || isOiGexActive) setIsGexActive(true);
-
-                          else if (isLiveGexActive && !isOiGexActive) setIsGexActive(false);
-
-                          setIsGexDropdownOpen(false);
-
-                        }}
-
-                        style={{
-
-                          padding: '8px 12px',
-
-                          background: isLiveGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-
-                          border: 'none',
-
-                          color: '#ffffff',
-
-                          cursor: 'pointer',
-
-                          borderRadius: '4px',
-
-                          fontSize: '13px',
-
-                          fontWeight: '600',
-
-                          display: 'flex',
-
-                          alignItems: 'center',
-
-                          justifyContent: 'space-between'
-
-                        }}
-
-                      >
-
-                        <span>Live GEX</span>
-
-                        {isLiveGexActive && <span style={{ color: '#ff8c00', fontSize: '16px' }}>✓</span>}
-
-                      </button>
-
-                      <button
-
-                        onClick={() => {
-
-                          setIsOiGexActive(!isOiGexActive);
-
-                          if (!isOiGexActive) handleOIGEXClick();
-
-                          if (!isOiGexActive || isLiveGexActive) setIsGexActive(true);
-
-                          else if (isOiGexActive && !isLiveGexActive) setIsGexActive(false);
-
-                          setIsGexDropdownOpen(false);
-
-                        }}
-
-                        style={{
-
-                          padding: '8px 12px',
-
-                          background: isOiGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-
-                          border: 'none',
-
-                          color: '#ffffff',
-
-                          cursor: 'pointer',
-
-                          borderRadius: '4px',
-
-                          fontSize: '13px',
-
-                          fontWeight: '600',
-
-                          display: 'flex',
-
-                          alignItems: 'center',
-
-                          justifyContent: 'space-between'
-
-                        }}
-
-                      >
-
-                        <span>OI GEX</span>
-
-                        {isOiGexActive && <span style={{ color: '#3b82f6', fontSize: '16px' }}>✓</span>}
-
-                      </button>
-
-                    </div>
-
-                  </div>,
-
-                  document.body
-
-                )}
-
-
-
-                {/* Click outside to close dropdown */}
-
-                {isGexDropdownOpen && createPortal(
-
-                  <div
-
-                    className="fixed inset-0"
-
-                    style={{ zIndex: 99998 }}
-
-                    onClick={() => setIsGexDropdownOpen(false)}
-
-                  />,
-
-                  document.body
-
-                )}
-
-              </div>
-
-
-
-              {/* Technalysis Button */}
-
-              <div className="ml-4 relative">
-
-                <button
-
-                  ref={technalysisButtonRef}
-
-                  onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
-
-                  className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${technalysisActive ? 'active' : ''}`}
-
-                  style={{
-
-                    padding: '10px 16px',
-
-                    fontWeight: '700',
-
-                    fontSize: '13px',
-
-                    borderRadius: '4px'
-
-                  }}
-
-                >
-
-                  <span>TECHNALYSIS</span>
-
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-
-                  </svg>
-
-                  {technalysisActive && (
-
-                    <div
-
-                      className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
-
-                      style={{
-
-                        boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
-
-                        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-
-                      }}
-
-                    />
-
-                  )}
-
-                </button>
-
-
-
-                {/* Technalysis Dropdown Menu */}
-
-                {isTechnalysisDropdownOpen && createPortal(
-
-                  <div
-
-                    onClick={(e) => e.stopPropagation()}
-
-                    className="absolute w-48 border border-gray-600 rounded-md shadow-lg"
-
-                    style={{
-
-                      top: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
-
-                      left: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().left : 400,
-
-                      zIndex: 99999,
-
-                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-
-                      background: '#000000',
-
-                      backdropFilter: 'blur(10px)'
-
-                    }}
-
-                  >
-
-                    <div className="py-1">
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisActive(!technalysisActive);
-
-                          setIsTechnalysisDropdownOpen(false);
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-black flex items-center justify-between ${technalysisActive ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Enable All</span>
-
-                        {technalysisActive && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-
-
-                      <div className="border-t border-gray-600 my-1"></div>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisFeatures(prev => ({ ...prev, orderBlocks: !prev.orderBlocks }));
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.orderBlocks ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Zones</span>
-
-                        {technalysisFeatures.orderBlocks && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisFeatures(prev => ({ ...prev, fvg: !prev.fvg }));
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.fvg ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Fills</span>
-
-                        {technalysisFeatures.fvg && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisFeatures(prev => ({ ...prev, liquidity: !prev.liquidity }));
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.liquidity ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Hunting</span>
-
-                        {technalysisFeatures.liquidity && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisFeatures(prev => ({ ...prev, structure: !prev.structure }));
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.structure ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Trend</span>
-
-                        {technalysisFeatures.structure && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          setTechnalysisFeatures(prev => ({ ...prev, premiumDiscount: !prev.premiumDiscount }));
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.premiumDiscount ? 'bg-black' : ''}`}
-
-                      >
-
-                        <span>Value</span>
-
-                        {technalysisFeatures.premiumDiscount && <span className="text-blue-400">✓</span>}
-
-                      </button>
-
-                    </div>
-
-                  </div>,
-
-                  document.body
-
-                )}
-
-
-
-                {/* Click outside to close dropdown */}
-
-                {isTechnalysisDropdownOpen && createPortal(
-
-                  <div
-
-                    className="fixed inset-0"
-
-                    style={{ zIndex: 99998 }}
-
-                    onClick={() => setIsTechnalysisDropdownOpen(false)}
-
-                  />,
-
-                  document.body
-
-                )}
-
-              </div>
-
-
-
-              {/* Drawing Tools Button */}
-
-              <div className="ml-4 relative">
-
-                <button
-
-                  ref={drawingsButtonRef}
-
-                  onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
-
-                  className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
-
-                  style={{
-
-                    padding: '10px 14px',
-
-                    fontWeight: '700',
-
-                    fontSize: '13px',
-
-                    borderRadius: '4px'
-
-                  }}
-
-                  title="Drawing Tools"
-
-                >
-
-                  <TbPencil className="w-5 h-5" />
-
-                  <span>DRAWINGS</span>
-
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-
-                  </svg>
-
-                  {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
-
-                    <div
-
-                      className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
-
-                      style={{
-
-                        boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
-
-                        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-
-                      }}
-
-                    />
-
-                  )}
-
-                </button>
-
-
-
-                {/* Dropdown Menu */}
-
-                {isDrawingsDropdownOpen && createPortal(
-
-                  <div
-
-                    className="absolute w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg"
-
-                    style={{
-
-                      top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
-
-                      left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
-
-                      zIndex: 99999,
-
-                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-
-                      background: 'rgba(40, 40, 40, 0.98)',
-
-                      backdropFilter: 'blur(10px)'
-
-                    }}
-
-                  >
-
-                    <div className="py-1">
-
-                      <button
-
-                        onClick={() => {
-
-                          activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
-
-                          setIsDrawingsDropdownOpen(false);
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isHorizontalRayMode ? 'bg-gray-700' : ''}`}
-
-                      >
-
-                        <TbArrowsHorizontal className="w-5 h-5" />
-
-                        <span>Horizontal Ray</span>
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          activateToolExclusively(isParallelChannelMode ? 'none' : 'channel');
-
-                          setIsDrawingsDropdownOpen(false);
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isParallelChannelMode ? 'bg-gray-700' : ''}`}
-
-                        title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
-
-                      >
-
-                        <TbBoxMultiple className="w-5 h-5" />
-
-                        <span>Parallel Channels</span>
-
-                      </button>
-
-
-
-                      <button
-
-                        onClick={() => {
-
-                          activateToolExclusively(isDrawingBrushMode ? 'none' : 'brush');
-
-                          setIsDrawingsDropdownOpen(false);
-
-                        }}
-
-                        className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isDrawingBrushMode ? 'bg-gray-700' : ''}`}
-
-                        title="Hold and drag to draw freehand on the chart"
-
-                      >
-
-                        <TbBrush className="w-5 h-5" />
-
-                        <span>Drawing Brush</span>
-
-                      </button>
-
-                    </div>
-
-                  </div>,
-
-                  document.body
-
-                )}
-
-
-
-                {/* Click outside to close dropdown */}
-
-                {isDrawingsDropdownOpen && createPortal(
-
-                  <div
-
-                    className="fixed inset-0"
-
-                    style={{ zIndex: 99998 }}
-
-                    onClick={() => setIsDrawingsDropdownOpen(false)}
-
-                  />,
-
-                  document.body
-
-                )}
-
-
-
-                {/* Drawing Lock Toggle */}
-
-                {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
-
-                  <button
-
-                    onClick={() => setIsDrawingLocked(!isDrawingLocked)}
-
-                    className={`btn-3d-carved absolute top-0 -right-8 w-6 h-6 flex items-center justify-center text-xs ${isDrawingLocked ? 'active' : ''}`}
-
-                    title={`Drawing Lock: ${isDrawingLocked ? 'ON - Tool stays active' : 'OFF - Tool deactivates after use'}`}
-
-                    style={{
-
-                      backgroundColor: isDrawingLocked ? '#2196F3' : 'rgba(255, 255, 255, 0.1)',
-
-                      borderRadius: '3px'
-
-                    }}
-
-                  >
-
-                    <TbLock className="w-4 h-4" />
-
-                  </button>
-
-                )}
-
-              </div>
-
-            </div>
-
-
-
-            {/* Live FlowMoves Button */}
-
-            <div className="ml-4 relative">
-
-              <button
-
-                onClick={() => {
-
-                  if (!isFlowChartActive) {
-
-                    handleLiveFlowMovesClick();
-
-                  } else {
-
-                    setIsFlowChartActive(false);
-
-                    setFlowChartData([]);
-
-                  }
-
-                }}
-
-                className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
-
-                style={{
-
-                  padding: '10px 14px',
-
-                  fontWeight: '700',
-
-                  fontSize: '13px',
-
-                  borderRadius: '4px',
-
-                  outline: `2px solid ${isFlowChartActive ? '#22c55e' : '#FFD700'}`,
-
-                  outlineOffset: '-2px'
-
-                }}
-
-                title="Live FlowMoves"
-
-              >
-
-                <span>Live FlowMoves</span>
-
-                {isFlowChartActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
-
-              </button>
-
-            </div>
-
-
-
-            {/* Spacer to push remaining items to the right */}
-
-            <div className="flex-1"></div>
-
-
-
-            {/* Remaining Controls on the Right */}
-
-            <div className="flex items-center flex-shrink-0">
-
-
-
-              {/* Enhanced Action Buttons */}
-
-              <div className="flex items-center space-x-4">
-
-
-
-              </div>
-
-
-
-              {/* SETTINGS Button - Matches toolbar button style */}
-
-              <button
-
-                onClick={() => setShowSettings(!showSettings)}
-
-                className={`btn-3d-carved relative group ${showSettings ? 'active' : ''}`}
-
-                style={{
-
-                  padding: '10px 14px',
-
-                  fontWeight: '700',
-
-                  fontSize: '13px',
-
-                  borderRadius: '4px',
-
-                  color: '#FFD700'
-
-                }}
-
-              >
-
-                SETTINGS
-
-              </button>
-
-            </div>
+          >
 
           </div>
 
@@ -22114,713 +20696,2129 @@ export default function TradingViewChart({
 
 
 
-        {/* Settings Panel */}
+        {/* Symbol and Price Info */}
 
-        {showSettings && (
+        <div className="flex items-center w-full relative z-10">
 
-          <div className="absolute top-22 right-4 bg-black border-2 border-gray-800 rounded-xl p-6 w-80 shadow-2xl" style={{ zIndex: 99999, boxShadow: '0 25px 50px rgba(0, 0, 0, 0.9), 0 0 100px rgba(41, 98, 255, 0.15)' }}>
+          {/* Left side: Symbol Search + Price + Controls */}
 
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-800">
+          <div className="flex items-center space-x-8 flex-shrink-0">
 
-              <h3 className="text-white font-bold text-lg">Chart Settings</h3>
+            <div className="flex items-center space-x-3">
 
-              <button
+              <div className="relative flex items-center">
 
-                onClick={() => setShowSettings(false)}
+                <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
 
-                className="text-gray-500 hover:text-white text-2xl transition-colors hover:bg-gray-900 rounded-lg w-8 h-8 flex items-center justify-center"
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
+
+                    <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+
+                    <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
+
+                  </svg>
+
+                  <input
+
+                    type="text"
+
+                    value={searchQuery}
+
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+
+                    onKeyPress={handleSearchKeyPress}
+
+                    className="bg-transparent border-0 outline-none w-28 text-lg font-bold"
+
+                    style={{
+
+                      color: '#ffffff',
+
+                      textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+
+                      letterSpacing: '0.8px'
+
+                    }}
+
+                    placeholder={symbol || "Search..."}
+
+                  />
+
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+
+                    <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
+
+                  </svg>
+
+                </div>
+
+              </div>
+
+            </div>
+
+
+
+            <div className="flex flex-col items-start space-y-1">
+
+              <span
+
+                className="font-mono text-xl font-bold leading-tight"
+
+                style={{
+
+                  color: '#ffffff',
+
+                  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 255, 255, 0.2)',
+
+                  letterSpacing: '0.3px'
+
+                }}
 
               >
 
-                �
+                ${currentPrice.toFixed(2)}
 
-              </button>
+              </span>
 
-            </div>
+              <span
 
+                className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
 
+                style={{
 
-            {/* Grid Toggle */}
+                  color: priceChangePercent >= 0 ? '#10b981' : '#ef4444',
 
-            <div className="mb-6 pb-6 border-b border-gray-800">
+                  background: priceChangePercent >= 0
 
-              <label className="block text-white text-base font-semibold mb-3">Grid Lines</label>
+                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)'
 
-              <div className="flex items-center justify-between group">
+                    : 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%)',
 
-                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
+                  textShadow: `0 1px 1px rgba(0, 0, 0, 0.8), 0 0 6px ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
 
-                  {config.showGrid ? 'Enabled' : 'Disabled'}
+                  border: `1px solid ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
 
-                </span>
+                  letterSpacing: '0.2px'
 
-                <div className="relative">
+                }}
 
-                  <input
+              >
 
-                    type="checkbox"
+                {priceChangePercent >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
 
-                    checked={config.showGrid}
-
-                    onChange={() => setConfig(prev => ({ ...prev, showGrid: !prev.showGrid }))}
-
-                    className="sr-only peer"
-
-                  />
-
-                  <div className="w-11 h-6 bg-gray-800 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-
-                </div>
-
-              </div>
+              </span>
 
             </div>
 
 
 
-            {/* Y-Axis Settings */}
+            {/* Timeframes - Moved closer to symbol/price */}
 
-            <div className="mb-6 pb-6 border-b border-gray-800">
+            <div
 
-              <label className="block text-white text-base font-semibold mb-4">Y-Axis (Price)</label>
+              className="flex items-center timeframe-dropdown"
 
-              <div className="space-y-4">
+              style={{
 
-                <div className="flex items-center justify-between group">
+                background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
 
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Size</span>
+                border: '2px solid rgba(255, 255, 255, 0.4)',
 
-                  <div className="flex items-center space-x-3">
+                borderRadius: '8px',
 
-                    <input
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
 
-                      type="range"
-
-                      min="8"
-
-                      max="20"
-
-                      value={config.axisStyle.yAxis.textSize}
-
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                        ...prev,
-
-                        axisStyle: {
-
-                          ...prev.axisStyle,
-
-                          yAxis: { ...prev.axisStyle.yAxis, textSize: parseInt(e.target.value) }
-
-                        }
-
-                      }))}
-
-                      className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
-
-                      style={{
-
-                        background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`
-
-                      }}
-
-                    />
-
-                    <span className="text-white text-xs font-semibold w-8">{config.axisStyle.yAxis.textSize}px</span>
-
-                  </div>
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Color</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.axisStyle.yAxis.textColor}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      axisStyle: {
-
-                        ...prev.axisStyle,
-
-                        yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* X-Axis Settings */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-4">X-Axis (Time)</label>
-
-              <div className="space-y-4">
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Size</span>
-
-                  <div className="flex items-center space-x-3">
-
-                    <input
-
-                      type="range"
-
-                      min="8"
-
-                      max="20"
-
-                      value={config.axisStyle.xAxis.textSize}
-
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                        ...prev,
-
-                        axisStyle: {
-
-                          ...prev.axisStyle,
-
-                          xAxis: { ...prev.axisStyle.xAxis, textSize: parseInt(e.target.value) }
-
-                        }
-
-                      }))}
-
-                      className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
-
-                      style={{
-
-                        background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`
-
-                      }}
-
-                    />
-
-                    <span className="text-white text-xs font-semibold w-8">{config.axisStyle.xAxis.textSize}px</span>
-
-                  </div>
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Color</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.axisStyle.xAxis.textColor}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      axisStyle: {
-
-                        ...prev.axisStyle,
-
-                        xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Theme Selection */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-3">Theme</label>
-
-              <div className="flex space-x-3">
-
-                <button
-
-                  onClick={() => setConfig(prev => ({ ...prev, theme: 'dark' }))}
-
-                  className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
-
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-
-                    : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-
-                    }`}
-
-                >
-
-                  🌙 Dark
-
-                </button>
-
-                <button
-
-                  onClick={() => setConfig(prev => ({ ...prev, theme: 'light' }))}
-
-                  className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
-
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-
-                    : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-
-                    }`}
-
-                >
-
-                  ☀️ Light
-
-                </button>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Body Colors */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-4">📊 Body</label>
-
-              <div className="space-y-4">
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bullish.body}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bullish: { ...prev.colors.bullish, body: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-
-                  />
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bearish.body}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bearish: { ...prev.colors.bearish, body: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Border Colors */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-4">🔲 Borders</label>
-
-              <div className="space-y-4">
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bullish.border}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bullish: { ...prev.colors.bullish, border: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-
-                  />
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bearish.border}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bearish: { ...prev.colors.bearish, border: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Wick Colors */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-4">📍 Wick</label>
-
-              <div className="space-y-4">
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bullish.wick}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bullish: { ...prev.colors.bullish, wick: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-
-                  />
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.bearish.wick}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        bearish: { ...prev.colors.bearish, wick: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Volume Colors */}
-
-            <div className="mb-6 pb-6 border-b border-gray-800">
-
-              <label className="block text-white text-base font-semibold mb-4">📊 Volume Bars</label>
-
-              <div className="space-y-4">
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish Volume</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.volume.bullish}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        volume: { ...prev.colors.volume, bullish: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-
-                  />
-
-                </div>
-
-
-
-                <div className="flex items-center justify-between group">
-
-                  <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish Volume</span>
-
-                  <input
-
-                    type="color"
-
-                    value={config.colors.volume.bearish}
-
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
-
-                      ...prev,
-
-                      colors: {
-
-                        ...prev.colors,
-
-                        volume: { ...prev.colors.volume, bearish: e.target.value }
-
-                      }
-
-                    }))}
-
-                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Apply Button */}
-
-            <button
-
-              onClick={() => setShowSettings(false)}
-
-              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold shadow-lg shadow-blue-500/50 hover:shadow-blue-500/70 transform hover:scale-105"
+              }}
 
             >
 
-              Apply Settings
+              {/* Desktop Timeframes - Hidden on mobile */}
 
-            </button>
+              <div className="hidden md:flex">
 
-          </div>
+                {[
 
-        )}
+                  { label: '5M', value: '5m' },
+
+                  { label: '30M', value: '30m' },
+
+                  { label: '1H', value: '1h' },
+
+                  { label: '4H', value: '4h' },
+
+                  { label: 'D', value: '1d' }
+
+                ].map((tf, index) => (
+
+                  <button
+
+                    key={tf.label}
+
+                    onClick={() => handleTimeframeChange(tf.value)}
+
+                    className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : 'text-white'}`}
+
+                    style={{
+
+                      padding: '10px 20px',
+
+                      fontWeight: '700',
+
+                      fontSize: '15px',
+
+                      letterSpacing: '0.8px',
+
+                      borderRadius: '4px'
+
+                    }}
+
+                  >
+
+                    {tf.label}
+
+                  </button>
+
+                ))}
+
+              </div>
 
 
 
-        {/* Chart Container with Sidebar */}
+              {/* Mobile Timeframe Dropdown - Visible only on mobile */}
 
-        <div className="flex flex-1 bg-[#0a0a0a]">
+              <div className="md:hidden relative">
 
-          {/* Animated 3D Sidebar */}
+                <select
 
-          <div className="sidebar-container w-16 md:w-16 sm:w-12 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
+                  value={config.timeframe}
 
-            {/* Subtle background pattern */}
+                  onChange={(e) => handleTimeframeChange(e.target.value)}
 
-            <div className="absolute inset-0 opacity-5">
+                  className="btn-3d-carved text-white bg-gradient-to-b from-gray-700 via-gray-800 to-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
 
-              <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
+                  style={{
 
-              <div className="absolute w-6 h-6 bg-white bg-opacity-3 rounded-full animate-pulse" style={{ top: '25%', left: '25%' }}></div>
+                    background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
 
-              <div className="absolute w-4 h-4 bg-white bg-opacity-2 rounded-full animate-pulse" style={{ bottom: '33.333%', right: '25%', animationDelay: '2000ms' }}></div>
+                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)'
+
+                  }}
+
+                >
+
+                  <option value="5m">5M</option>
+
+                  <option value="30m">30M</option>
+
+                  <option value="1h">1H</option>
+
+                  <option value="4h">4H</option>
+
+                  <option value="1d">D</option>
+
+                </select>
+
+              </div>
 
             </div>
 
 
 
-            <div className="relative z-10 flex flex-col items-center py-4 h-full">
+            {/* Chart Type Selector - Moved to left side */}
 
-              {/* Sidebar Buttons */}
+            <div
 
-              {[
+              className="flex items-center chart-type-dropdown"
 
-                { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', color: 'from-gray-800 to-gray-900', accent: 'orange' },
+              style={{
 
-                { id: 'watchlist', icon: TbChartLine, label: 'Watch', color: 'from-gray-800 to-gray-900', accent: 'blue' },
+                background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
 
-                { id: 'regimes', icon: TbTrendingUp, label: 'Markets', color: 'from-gray-800 to-gray-900', accent: 'emerald' },
+                border: '2px solid rgba(255, 255, 255, 0.4)',
 
-                { id: 'news', icon: TbNews, label: 'News', color: 'from-gray-800 to-gray-900', accent: 'amber' },
+                borderRadius: '8px',
 
-                { id: 'alerts', icon: TbBellRinging, label: 'Alerts', color: 'from-gray-800 to-gray-900', accent: 'red' },
+                boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
 
-                { id: 'calc', icon: TbCalculator, label: 'Calc', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+              }}
 
-                { id: 'chain', icon: TbLink, label: 'Chain', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+            >
 
-                { id: 'plan', icon: TbChartLine, label: 'Plan', color: 'from-gray-800 to-gray-900', accent: 'purple' },
+              {/* Desktop Chart Type Buttons - Hidden on mobile */}
 
-                { id: 'chat', icon: TbMessageCircle, label: 'Chat', color: 'from-gray-800 to-gray-900', accent: 'violet' }
+              <div className="hidden md:flex">
 
-              ].map((item, index) => {
+                {MAIN_CHART_TYPES.map((type, index) => (
 
-                const IconComponent = item.icon;
+                  <button
 
-                const accentColors: { [key: string]: string } = {
+                    key={type.value}
 
-                  blue: 'text-blue-400 group-hover:text-blue-300',
+                    onClick={() => handleChartTypeChange(type.value as ChartConfig['chartType'])}
 
-                  emerald: 'text-emerald-400 group-hover:text-emerald-300',
+                    className={`btn-3d-carved relative group ${config.chartType === type.value ? 'active' : 'text-white'}`}
 
-                  amber: 'text-amber-400 group-hover:text-amber-300',
+                    style={{
 
-                  red: 'text-red-400 group-hover:text-red-300',
+                      padding: '10px 14px',
 
-                  violet: 'text-violet-400 group-hover:text-violet-300',
+                      fontSize: '16px',
 
-                  cyan: 'text-cyan-400 group-hover:text-cyan-300',
+                      fontWeight: '700',
 
-                  purple: 'text-purple-400 group-hover:text-purple-300',
+                      borderRadius: '4px'
 
-                  orange: 'text-orange-400 group-hover:text-orange-300'
+                    }}
 
-                };
+                    title={type.label}
 
-                return (
+                  >
 
-                  <div key={item.id} className="flex flex-col items-center mb-3">
+                    {type.icon}
 
-                    {/* Title above button - Hidden on mobile */}
+                  </button>
 
-                    <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center hidden md:block">
+                ))}
 
-                    </span>
+              </div>
+
+
+
+              {/* Mobile Chart Type Button - Icon only for compact size */}
+
+              <div className="md:hidden relative">
+
+                <button
+
+                  onClick={() => handleChartTypeChange(config.chartType === 'candlestick' ? 'line' : 'candlestick')}
+
+                  className="btn-3d-carved font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+
+                  style={{
+
+                    background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
+
+                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)',
+
+                    color: '#ff6600',
+
+                    border: '1px solid rgba(255, 102, 0, 0.3)',
+
+                    borderRadius: '4px',
+
+                    padding: '6px',
+
+                    minWidth: 'auto',
+
+                    width: 'auto',
+
+                    display: 'flex',
+
+                    alignItems: 'center',
+
+                    justifyContent: 'center'
+
+                  }}
+
+                  title={config.chartType === 'candlestick' ? 'Switch to Line Chart' : 'Switch to Candlestick Chart'}
+
+                >
+
+                  {config.chartType === 'candlestick' ? (
+
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+
+                      <line x1="3" y1="2" x2="3" y2="14" stroke="currentColor" strokeWidth="1" />
+
+                      <rect x="2" y="4" width="2" height="4" fill="currentColor" />
+
+                      <line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" strokeWidth="1" />
+
+                      <rect x="6" y="3" width="2" height="6" fill="none" stroke="currentColor" strokeWidth="1" />
+
+                      <line x1="11" y1="3" x2="11" y2="15" stroke="currentColor" strokeWidth="1" />
+
+                      <rect x="10" y="5" width="2" height="3" fill="currentColor" />
+
+                    </svg>
+
+                  ) : (
+
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+
+                      <path
+
+                        d="M1 13 L4 9 L7 11 L10 6 L13 8 L15 4"
+
+                        stroke="currentColor"
+
+                        strokeWidth="2"
+
+                        fill="none"
+
+                        strokeLinecap="round"
+
+                        strokeLinejoin="round"
+
+                      />
+
+                      <circle cx="1" cy="13" r="1.5" fill="currentColor" />
+
+                      <circle cx="4" cy="9" r="1.5" fill="currentColor" />
+
+                      <circle cx="7" cy="11" r="1.5" fill="currentColor" />
+
+                      <circle cx="10" cy="6" r="1.5" fill="currentColor" />
+
+                      <circle cx="13" cy="8" r="1.5" fill="currentColor" />
+
+                      <circle cx="15" cy="4" r="1.5" fill="currentColor" />
+
+                    </svg>
+
+                  )}
+
+                </button>
+
+              </div>
+
+            </div>
+
+
+
+            {/* Expected Range Button - Standalone */}
+
+            <div className="ml-4 relative">
+
+              <button
+
+                ref={expectedRangeButtonRef}
+
+                onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
+
+                className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
+
+                style={{
+
+                  padding: '10px 14px',
+
+                  fontWeight: '700',
+
+                  fontSize: '13px',
+
+                  borderRadius: '4px'
+
+                }}
+
+              >
+
+                <span>EXPECTED RANGE</span>
+
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+
+                </svg>
+
+                {isLoadingExpectedRange && (
+
+                  <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
+
+                )}
+
+              </button>
+
+
+
+              {/* Expected Range Dropdown */}
+
+              {isExpectedRangeDropdownOpen && createPortal(
+
+                <div
+
+                  style={{
+
+                    position: 'fixed',
+
+                    top: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+
+                    left: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().left : 0,
+
+                    zIndex: 100000,
+
+                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+
+                    border: '2px solid rgba(255, 255, 255, 0.2)',
+
+                    borderRadius: '8px',
+
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+
+                    padding: '8px',
+
+                    minWidth: '180px'
+
+                  }}
+
+                >
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+
+                    <button
+
+                      onClick={() => {
+
+                        setIsWeeklyActive(!isWeeklyActive);
+
+                        if (!isWeeklyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
+
+                          setIsLoadingExpectedRange(true);
+
+                          calculateExpectedRangeLevels(symbol).then(result => {
+
+                            if (result) {
+
+                              setExpectedRangeLevels(result.levels);
+
+                            }
+
+                            setIsLoadingExpectedRange(false);
+
+                          });
+
+                        }
+
+                        if (!isWeeklyActive || isMonthlyActive) setIsExpectedRangeActive(true);
+
+                        else if (isWeeklyActive && !isMonthlyActive) setIsExpectedRangeActive(false);
+
+                        setIsExpectedRangeDropdownOpen(false);
+
+                      }}
+
+                      style={{
+
+                        padding: '8px 12px',
+
+                        background: isWeeklyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+
+                        border: 'none',
+
+                        color: '#ffffff',
+
+                        cursor: 'pointer',
+
+                        borderRadius: '4px',
+
+                        fontSize: '13px',
+
+                        fontWeight: '600',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'space-between'
+
+                      }}
+
+                    >
+
+                      <span>Weekly Range</span>
+
+                      {isWeeklyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+
+                    </button>
+
+                    <button
+
+                      onClick={() => {
+
+                        setIsMonthlyActive(!isMonthlyActive);
+
+                        if (!isMonthlyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
+
+                          setIsLoadingExpectedRange(true);
+
+                          calculateExpectedRangeLevels(symbol).then(result => {
+
+                            if (result) {
+
+                              setExpectedRangeLevels(result.levels);
+
+                            }
+
+                            setIsLoadingExpectedRange(false);
+
+                          });
+
+                        }
+
+                        if (!isMonthlyActive || isWeeklyActive) setIsExpectedRangeActive(true);
+
+                        else if (isMonthlyActive && !isWeeklyActive) setIsExpectedRangeActive(false);
+
+                        setIsExpectedRangeDropdownOpen(false);
+
+                      }}
+
+                      style={{
+
+                        padding: '8px 12px',
+
+                        background: isMonthlyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+
+                        border: 'none',
+
+                        color: '#ffffff',
+
+                        cursor: 'pointer',
+
+                        borderRadius: '4px',
+
+                        fontSize: '13px',
+
+                        fontWeight: '600',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'space-between'
+
+                      }}
+
+                    >
+
+                      <span>Monthly Range</span>
+
+                      {isMonthlyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+
+                    </button>
+
+                  </div>
+
+                </div>,
+
+                document.body
+
+              )}
+
+
+
+              {/* Click outside to close dropdown */}
+
+              {isExpectedRangeDropdownOpen && createPortal(
+
+                <div
+
+                  className="fixed inset-0"
+
+                  style={{ zIndex: 99998 }}
+
+                  onClick={() => setIsExpectedRangeDropdownOpen(false)}
+
+                />,
+
+                document.body
+
+              )}
+
+            </div>
+
+
+
+            {/* GEX Button with Dropdown - Next to Expected Range */}
+
+            <div className="ml-4 relative">
+
+              <button
+
+                ref={gexButtonRef}
+
+                onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
+
+                disabled={isGexLoading}
+
+                className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
+
+                style={{
+
+                  padding: '10px 14px',
+
+                  fontWeight: '700',
+
+                  fontSize: '13px',
+
+                  borderRadius: '4px',
+
+                  opacity: isGexLoading ? 0.6 : 1
+
+                }}
+
+              >
+
+                <span>{isGexLoading ? `SCANNING ${gexProgress}%` : 'GEX'}</span>
+
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+
+                </svg>
+
+              </button>
+
+
+
+              {/* GEX Dropdown Menu - Using Portal */}
+
+              {isGexDropdownOpen && createPortal(
+
+                <div
+
+                  style={{
+
+                    position: 'fixed',
+
+                    top: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+
+                    left: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().left : 0,
+
+                    zIndex: 100000,
+
+                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+
+                    border: '2px solid rgba(255, 255, 255, 0.2)',
+
+                    borderRadius: '8px',
+
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+
+                    padding: '8px',
+
+                    minWidth: '180px'
+
+                  }}
+
+                >
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+
+                    <button
+
+                      onClick={() => {
+
+                        setIsLiveGexActive(!isLiveGexActive);
+
+                        if (!isLiveGexActive) handleLiveGEXClick();
+
+                        if (!isLiveGexActive || isOiGexActive) setIsGexActive(true);
+
+                        else if (isLiveGexActive && !isOiGexActive) setIsGexActive(false);
+
+                        setIsGexDropdownOpen(false);
+
+                      }}
+
+                      style={{
+
+                        padding: '8px 12px',
+
+                        background: isLiveGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+
+                        border: 'none',
+
+                        color: '#ffffff',
+
+                        cursor: 'pointer',
+
+                        borderRadius: '4px',
+
+                        fontSize: '13px',
+
+                        fontWeight: '600',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'space-between'
+
+                      }}
+
+                    >
+
+                      <span>Live GEX</span>
+
+                      {isLiveGexActive && <span style={{ color: '#ff8c00', fontSize: '16px' }}>✓</span>}
+
+                    </button>
+
+                    <button
+
+                      onClick={() => {
+
+                        setIsOiGexActive(!isOiGexActive);
+
+                        if (!isOiGexActive) handleOIGEXClick();
+
+                        if (!isOiGexActive || isLiveGexActive) setIsGexActive(true);
+
+                        else if (isOiGexActive && !isLiveGexActive) setIsGexActive(false);
+
+                        setIsGexDropdownOpen(false);
+
+                      }}
+
+                      style={{
+
+                        padding: '8px 12px',
+
+                        background: isOiGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+
+                        border: 'none',
+
+                        color: '#ffffff',
+
+                        cursor: 'pointer',
+
+                        borderRadius: '4px',
+
+                        fontSize: '13px',
+
+                        fontWeight: '600',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'space-between'
+
+                      }}
+
+                    >
+
+                      <span>OI GEX</span>
+
+                      {isOiGexActive && <span style={{ color: '#3b82f6', fontSize: '16px' }}>✓</span>}
+
+                    </button>
+
+                  </div>
+
+                </div>,
+
+                document.body
+
+              )}
+
+
+
+              {/* Click outside to close dropdown */}
+
+              {isGexDropdownOpen && createPortal(
+
+                <div
+
+                  className="fixed inset-0"
+
+                  style={{ zIndex: 99998 }}
+
+                  onClick={() => setIsGexDropdownOpen(false)}
+
+                />,
+
+                document.body
+
+              )}
+
+            </div>
+
+
+
+            {/* Technalysis Button */}
+
+            <div className="ml-4 relative">
+
+              <button
+
+                ref={technalysisButtonRef}
+
+                onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
+
+                className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${technalysisActive ? 'active' : ''}`}
+
+                style={{
+
+                  padding: '10px 16px',
+
+                  fontWeight: '700',
+
+                  fontSize: '13px',
+
+                  borderRadius: '4px'
+
+                }}
+
+              >
+
+                <span>TECHNALYSIS</span>
+
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+
+                </svg>
+
+                {technalysisActive && (
+
+                  <div
+
+                    className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
+
+                    style={{
+
+                      boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
+
+                      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+
+                    }}
+
+                  />
+
+                )}
+
+              </button>
+
+
+
+              {/* Technalysis Dropdown Menu */}
+
+              {isTechnalysisDropdownOpen && createPortal(
+
+                <div
+
+                  onClick={(e) => e.stopPropagation()}
+
+                  className="absolute w-48 border border-gray-600 rounded-md shadow-lg"
+
+                  style={{
+
+                    top: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
+
+                    left: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().left : 400,
+
+                    zIndex: 99999,
+
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+
+                    background: '#000000',
+
+                    backdropFilter: 'blur(10px)'
+
+                  }}
+
+                >
+
+                  <div className="py-1">
+
+                    <button
+
+                      onClick={() => {
+
+                        setTechnalysisActive(!technalysisActive);
+
+                        setIsTechnalysisDropdownOpen(false);
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-black flex items-center justify-between ${technalysisActive ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Enable All</span>
+
+                      {technalysisActive && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+
+
+                    <div className="border-t border-gray-600 my-1"></div>
 
 
 
                     <button
 
-                      className={`sidebar-btn group relative w-12 h-12 md:w-12 md:h-12 sm:w-10 sm:h-10 xs:w-8 xs:h-8 rounded-lg bg-gradient-to-br ${item.color} 
+                      onClick={() => {
+
+                        setTechnalysisFeatures(prev => ({ ...prev, orderBlocks: !prev.orderBlocks }));
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.orderBlocks ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Zones</span>
+
+                      {technalysisFeatures.orderBlocks && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        setTechnalysisFeatures(prev => ({ ...prev, fvg: !prev.fvg }));
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.fvg ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Fills</span>
+
+                      {technalysisFeatures.fvg && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        setTechnalysisFeatures(prev => ({ ...prev, liquidity: !prev.liquidity }));
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.liquidity ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Hunting</span>
+
+                      {technalysisFeatures.liquidity && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        setTechnalysisFeatures(prev => ({ ...prev, structure: !prev.structure }));
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.structure ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Trend</span>
+
+                      {technalysisFeatures.structure && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        setTechnalysisFeatures(prev => ({ ...prev, premiumDiscount: !prev.premiumDiscount }));
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.premiumDiscount ? 'bg-black' : ''}`}
+
+                    >
+
+                      <span>Value</span>
+
+                      {technalysisFeatures.premiumDiscount && <span className="text-blue-400">✓</span>}
+
+                    </button>
+
+                  </div>
+
+                </div>,
+
+                document.body
+
+              )}
+
+
+
+              {/* Click outside to close dropdown */}
+
+              {isTechnalysisDropdownOpen && createPortal(
+
+                <div
+
+                  className="fixed inset-0"
+
+                  style={{ zIndex: 99998 }}
+
+                  onClick={() => setIsTechnalysisDropdownOpen(false)}
+
+                />,
+
+                document.body
+
+              )}
+
+            </div>
+
+
+
+            {/* Drawing Tools Button */}
+
+            <div className="ml-4 relative">
+
+              <button
+
+                ref={drawingsButtonRef}
+
+                onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
+
+                className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
+
+                style={{
+
+                  padding: '10px 14px',
+
+                  fontWeight: '700',
+
+                  fontSize: '13px',
+
+                  borderRadius: '4px'
+
+                }}
+
+                title="Drawing Tools"
+
+              >
+
+                <TbPencil className="w-5 h-5" />
+
+                <span>DRAWINGS</span>
+
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+
+                </svg>
+
+                {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
+
+                  <div
+
+                    className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
+
+                    style={{
+
+                      boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
+
+                      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+
+                    }}
+
+                  />
+
+                )}
+
+              </button>
+
+
+
+              {/* Dropdown Menu */}
+
+              {isDrawingsDropdownOpen && createPortal(
+
+                <div
+
+                  className="absolute w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg"
+
+                  style={{
+
+                    top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
+
+                    left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
+
+                    zIndex: 99999,
+
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+
+                    background: 'rgba(40, 40, 40, 0.98)',
+
+                    backdropFilter: 'blur(10px)'
+
+                  }}
+
+                >
+
+                  <div className="py-1">
+
+                    <button
+
+                      onClick={() => {
+
+                        activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
+
+                        setIsDrawingsDropdownOpen(false);
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isHorizontalRayMode ? 'bg-gray-700' : ''}`}
+
+                    >
+
+                      <TbArrowsHorizontal className="w-5 h-5" />
+
+                      <span>Horizontal Ray</span>
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        activateToolExclusively(isParallelChannelMode ? 'none' : 'channel');
+
+                        setIsDrawingsDropdownOpen(false);
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isParallelChannelMode ? 'bg-gray-700' : ''}`}
+
+                      title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
+
+                    >
+
+                      <TbBoxMultiple className="w-5 h-5" />
+
+                      <span>Parallel Channels</span>
+
+                    </button>
+
+
+
+                    <button
+
+                      onClick={() => {
+
+                        activateToolExclusively(isDrawingBrushMode ? 'none' : 'brush');
+
+                        setIsDrawingsDropdownOpen(false);
+
+                      }}
+
+                      className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isDrawingBrushMode ? 'bg-gray-700' : ''}`}
+
+                      title="Hold and drag to draw freehand on the chart"
+
+                    >
+
+                      <TbBrush className="w-5 h-5" />
+
+                      <span>Drawing Brush</span>
+
+                    </button>
+
+                  </div>
+
+                </div>,
+
+                document.body
+
+              )}
+
+
+
+              {/* Click outside to close dropdown */}
+
+              {isDrawingsDropdownOpen && createPortal(
+
+                <div
+
+                  className="fixed inset-0"
+
+                  style={{ zIndex: 99998 }}
+
+                  onClick={() => setIsDrawingsDropdownOpen(false)}
+
+                />,
+
+                document.body
+
+              )}
+
+
+
+              {/* Drawing Lock Toggle */}
+
+              {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
+
+                <button
+
+                  onClick={() => setIsDrawingLocked(!isDrawingLocked)}
+
+                  className={`btn-3d-carved absolute top-0 -right-8 w-6 h-6 flex items-center justify-center text-xs ${isDrawingLocked ? 'active' : ''}`}
+
+                  title={`Drawing Lock: ${isDrawingLocked ? 'ON - Tool stays active' : 'OFF - Tool deactivates after use'}`}
+
+                  style={{
+
+                    backgroundColor: isDrawingLocked ? '#2196F3' : 'rgba(255, 255, 255, 0.1)',
+
+                    borderRadius: '3px'
+
+                  }}
+
+                >
+
+                  <TbLock className="w-4 h-4" />
+
+                </button>
+
+              )}
+
+            </div>
+
+          </div>
+
+
+
+          {/* Live FlowMoves Button */}
+
+          <div className="ml-4 relative">
+
+            <button
+
+              onClick={() => {
+
+                if (!isFlowChartActive) {
+
+                  handleLiveFlowMovesClick();
+
+                } else {
+
+                  setIsFlowChartActive(false);
+
+                  setFlowChartData([]);
+
+                }
+
+              }}
+
+              className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+
+              style={{
+
+                padding: '10px 14px',
+
+                fontWeight: '700',
+
+                fontSize: '13px',
+
+                borderRadius: '4px',
+
+                outline: `2px solid ${isFlowChartActive ? '#22c55e' : '#FFD700'}`,
+
+                outlineOffset: '-2px'
+
+              }}
+
+              title="Live FlowMoves"
+
+            >
+
+              <span>Live FlowMoves</span>
+
+              {isFlowChartActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
+
+            </button>
+
+          </div>
+
+
+
+          {/* Spacer to push remaining items to the right */}
+
+          <div className="flex-1"></div>
+
+
+
+          {/* Remaining Controls on the Right */}
+
+          <div className="flex items-center flex-shrink-0">
+
+
+
+            {/* Enhanced Action Buttons */}
+
+            <div className="flex items-center space-x-4">
+
+
+
+            </div>
+
+
+
+            {/* SETTINGS Button - Matches toolbar button style */}
+
+            <button
+
+              onClick={() => setShowSettings(!showSettings)}
+
+              className={`btn-3d-carved relative group ${showSettings ? 'active' : ''}`}
+
+              style={{
+
+                padding: '10px 14px',
+
+                fontWeight: '700',
+
+                fontSize: '13px',
+
+                borderRadius: '4px',
+
+                color: '#FFD700'
+
+              }}
+
+            >
+
+              SETTINGS
+
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+
+      {/* Settings Panel */}
+
+      {showSettings && (
+
+        <div className="absolute top-22 right-4 bg-black border-2 border-gray-800 rounded-xl p-6 w-80 shadow-2xl" style={{ zIndex: 99999, boxShadow: '0 25px 50px rgba(0, 0, 0, 0.9), 0 0 100px rgba(41, 98, 255, 0.15)' }}>
+
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-800">
+
+            <h3 className="text-white font-bold text-lg">Chart Settings</h3>
+
+            <button
+
+              onClick={() => setShowSettings(false)}
+
+              className="text-gray-500 hover:text-white text-2xl transition-colors hover:bg-gray-900 rounded-lg w-8 h-8 flex items-center justify-center"
+
+            >
+
+              �
+
+            </button>
+
+          </div>
+
+
+
+          {/* Grid Toggle */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-3">Grid Lines</label>
+
+            <div className="flex items-center justify-between group">
+
+              <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
+
+                {config.showGrid ? 'Enabled' : 'Disabled'}
+
+              </span>
+
+              <div className="relative">
+
+                <input
+
+                  type="checkbox"
+
+                  checked={config.showGrid}
+
+                  onChange={() => setConfig(prev => ({ ...prev, showGrid: !prev.showGrid }))}
+
+                  className="sr-only peer"
+
+                />
+
+                <div className="w-11 h-6 bg-gray-800 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Y-Axis Settings */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">Y-Axis (Price)</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Size</span>
+
+                <div className="flex items-center space-x-3">
+
+                  <input
+
+                    type="range"
+
+                    min="8"
+
+                    max="20"
+
+                    value={config.axisStyle.yAxis.textSize}
+
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                      ...prev,
+
+                      axisStyle: {
+
+                        ...prev.axisStyle,
+
+                        yAxis: { ...prev.axisStyle.yAxis, textSize: parseInt(e.target.value) }
+
+                      }
+
+                    }))}
+
+                    className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
+
+                    style={{
+
+                      background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`
+
+                    }}
+
+                  />
+
+                  <span className="text-white text-xs font-semibold w-8">{config.axisStyle.yAxis.textSize}px</span>
+
+                </div>
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Color</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.axisStyle.yAxis.textColor}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    axisStyle: {
+
+                      ...prev.axisStyle,
+
+                      yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* X-Axis Settings */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">X-Axis (Time)</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Size</span>
+
+                <div className="flex items-center space-x-3">
+
+                  <input
+
+                    type="range"
+
+                    min="8"
+
+                    max="20"
+
+                    value={config.axisStyle.xAxis.textSize}
+
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                      ...prev,
+
+                      axisStyle: {
+
+                        ...prev.axisStyle,
+
+                        xAxis: { ...prev.axisStyle.xAxis, textSize: parseInt(e.target.value) }
+
+                      }
+
+                    }))}
+
+                    className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
+
+                    style={{
+
+                      background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`
+
+                    }}
+
+                  />
+
+                  <span className="text-white text-xs font-semibold w-8">{config.axisStyle.xAxis.textSize}px</span>
+
+                </div>
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Text Color</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.axisStyle.xAxis.textColor}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    axisStyle: {
+
+                      ...prev.axisStyle,
+
+                      xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Theme Selection */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-3">Theme</label>
+
+            <div className="flex space-x-3">
+
+              <button
+
+                onClick={() => setConfig(prev => ({ ...prev, theme: 'dark' }))}
+
+                className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
+
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+
+                  }`}
+
+              >
+
+                🌙 Dark
+
+              </button>
+
+              <button
+
+                onClick={() => setConfig(prev => ({ ...prev, theme: 'light' }))}
+
+                className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
+
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+
+                  : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+
+                  }`}
+
+              >
+
+                ☀️ Light
+
+              </button>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Body Colors */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">📊 Body</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bullish.body}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bullish: { ...prev.colors.bullish, body: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
+
+                />
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bearish.body}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bearish: { ...prev.colors.bearish, body: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Border Colors */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">🔲 Borders</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bullish.border}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bullish: { ...prev.colors.bullish, border: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
+
+                />
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bearish.border}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bearish: { ...prev.colors.bearish, border: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Wick Colors */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">📍 Wick</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bullish.wick}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bullish: { ...prev.colors.bullish, wick: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
+
+                />
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.bearish.wick}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      bearish: { ...prev.colors.bearish, wick: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Volume Colors */}
+
+          <div className="mb-6 pb-6 border-b border-gray-800">
+
+            <label className="block text-white text-base font-semibold mb-4">📊 Volume Bars</label>
+
+            <div className="space-y-4">
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bullish Volume</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.volume.bullish}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      volume: { ...prev.colors.volume, bullish: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
+
+                />
+
+              </div>
+
+
+
+              <div className="flex items-center justify-between group">
+
+                <span className="text-gray-400 text-sm group-hover:text-white transition-colors">Bearish Volume</span>
+
+                <input
+
+                  type="color"
+
+                  value={config.colors.volume.bearish}
+
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+
+                    ...prev,
+
+                    colors: {
+
+                      ...prev.colors,
+
+                      volume: { ...prev.colors.volume, bearish: e.target.value }
+
+                    }
+
+                  }))}
+
+                  className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
+
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+
+          {/* Apply Button */}
+
+          <button
+
+            onClick={() => setShowSettings(false)}
+
+            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold shadow-lg shadow-blue-500/50 hover:shadow-blue-500/70 transform hover:scale-105"
+
+          >
+
+            Apply Settings
+
+          </button>
+
+        </div>
+
+      )}
+
+
+
+      {/* Chart Container with Sidebar */}
+
+      <div className="flex flex-1 bg-[#0a0a0a]">
+
+        {/* Animated 3D Sidebar */}
+
+        <div className="sidebar-container w-16 md:w-16 sm:w-12 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
+
+          {/* Subtle background pattern */}
+
+          <div className="absolute inset-0 opacity-5">
+
+            <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
+
+            <div className="absolute w-6 h-6 bg-white bg-opacity-3 rounded-full animate-pulse" style={{ top: '25%', left: '25%' }}></div>
+
+            <div className="absolute w-4 h-4 bg-white bg-opacity-2 rounded-full animate-pulse" style={{ bottom: '33.333%', right: '25%', animationDelay: '2000ms' }}></div>
+
+          </div>
+
+
+
+          <div className="relative z-10 flex flex-col items-center py-4 h-full">
+
+            {/* Sidebar Buttons */}
+
+            {[
+
+              { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', color: 'from-gray-800 to-gray-900', accent: 'orange' },
+
+              { id: 'watchlist', icon: TbChartLine, label: 'Watch', color: 'from-gray-800 to-gray-900', accent: 'blue' },
+
+              { id: 'regimes', icon: TbTrendingUp, label: 'Markets', color: 'from-gray-800 to-gray-900', accent: 'emerald' },
+
+              { id: 'news', icon: TbNews, label: 'News', color: 'from-gray-800 to-gray-900', accent: 'amber' },
+
+              { id: 'alerts', icon: TbBellRinging, label: 'Alerts', color: 'from-gray-800 to-gray-900', accent: 'red' },
+
+              { id: 'calc', icon: TbCalculator, label: 'Calc', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+
+              { id: 'chain', icon: TbLink, label: 'Chain', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+
+              { id: 'plan', icon: TbChartLine, label: 'Plan', color: 'from-gray-800 to-gray-900', accent: 'purple' },
+
+              { id: 'chat', icon: TbMessageCircle, label: 'Chat', color: 'from-gray-800 to-gray-900', accent: 'violet' }
+
+            ].map((item, index) => {
+
+              const IconComponent = item.icon;
+
+              const accentColors: { [key: string]: string } = {
+
+                blue: 'text-blue-400 group-hover:text-blue-300',
+
+                emerald: 'text-emerald-400 group-hover:text-emerald-300',
+
+                amber: 'text-amber-400 group-hover:text-amber-300',
+
+                red: 'text-red-400 group-hover:text-red-300',
+
+                violet: 'text-violet-400 group-hover:text-violet-300',
+
+                cyan: 'text-cyan-400 group-hover:text-cyan-300',
+
+                purple: 'text-purple-400 group-hover:text-purple-300',
+
+                orange: 'text-orange-400 group-hover:text-orange-300'
+
+              };
+
+              return (
+
+                <div key={item.id} className="flex flex-col items-center mb-3">
+
+                  {/* Title above button - Hidden on mobile */}
+
+                  <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center hidden md:block">
+
+                  </span>
+
+
+
+                  <button
+
+                    className={`sidebar-btn group relative w-12 h-12 md:w-12 md:h-12 sm:w-10 sm:h-10 xs:w-8 xs:h-8 rounded-lg bg-gradient-to-br ${item.color} 
 
  shadow-lg hover:shadow-2xl transform transition-all duration-300 
 
@@ -22832,505 +22830,101 @@ export default function TradingViewChart({
 
  backdrop-blur-sm flex items-center justify-center mobile-sidebar-btn`}
 
-                      style={{
+                    style={{
 
-                        animationDelay: `${index * 100}ms`,
+                      animationDelay: `${index * 100}ms`,
 
-                        background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
+                      background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
 
-                        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.5)'
+                      boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.5)'
 
-                      }}
+                    }}
 
-                      onClick={() => handleSidebarClick(item.id)}
+                    onClick={() => handleSidebarClick(item.id)}
 
-                      title={item.label}
+                    title={item.label}
 
-                    >
+                  >
 
-                      {/* Subtle inner glow */}
+                    {/* Subtle inner glow */}
 
-                      <div className="absolute inset-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, transparent)' }}></div>
-
-
-
-                      {/* Icon with accent color */}
-
-                      <span className={`z-10 text-4xl md:text-4xl sm:text-3xl xs:text-2xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]} mobile-sidebar-icon`}>
-
-                        <IconComponent />
-
-                      </span>
+                    <div className="absolute inset-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, transparent)' }}></div>
 
 
 
-                      {/* Subtle ripple effect */}
+                    {/* Icon with accent color */}
 
-                      <div className="absolute inset-0 rounded-lg bg-white bg-opacity-10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
+                    <span className={`z-10 text-4xl md:text-4xl sm:text-3xl xs:text-2xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]} mobile-sidebar-icon`}>
 
+                      <IconComponent />
 
-
-                      {/* Accent glow effect */}
-
-                      <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'orange' ? 'rgba(251, 146, 60, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'orange' ? 'rgba(234, 88, 12, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
-
-                    </button>
-
-                  </div>
-
-                );
-
-              })}
+                    </span>
 
 
 
-              {/* Decorative elements */}
+                    {/* Subtle ripple effect */}
 
-              <div className="flex-1"></div>
-
-              <div className="w-8 h-px bg-gradient-to-r from-transparent via-white via-opacity-10 to-transparent mb-2"></div>
-
-              <div className="text-xs text-white text-opacity-40 font-mono tracking-wider">EFI</div>
-
-            </div>
+                    <div className="absolute inset-0 rounded-lg bg-white bg-opacity-10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
 
 
 
-            {/* Subtle side accent */}
+                    {/* Accent glow effect */}
 
-            <div className="absolute top-0 right-0 w-px h-full" style={{ background: 'linear-gradient(to bottom, transparent, rgba(255,255,255,0.1), transparent)' }}></div>
+                    <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'orange' ? 'rgba(251, 146, 60, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'orange' ? 'rgba(234, 88, 12, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
+
+                  </button>
+
+                </div>
+
+              );
+
+            })}
+
+
+
+            {/* Decorative elements */}
+
+            <div className="flex-1"></div>
+
+            <div className="w-8 h-px bg-gradient-to-r from-transparent via-white via-opacity-10 to-transparent mb-2"></div>
+
+            <div className="text-xs text-white text-opacity-40 font-mono tracking-wider">EFI</div>
 
           </div>
 
 
 
-          {/* Main Chart Area */}
+          {/* Subtle side accent */}
 
-          <div
+          <div className="absolute top-0 right-0 w-px h-full" style={{ background: 'linear-gradient(to bottom, transparent, rgba(255,255,255,0.1), transparent)' }}></div>
 
-            ref={containerRef}
+        </div>
 
-            className="relative flex-1"
 
-            style={{ height: height - 150 }} // Reduced height to leave space for X-axis
 
-          >
+        {/* Main Chart Area */}
 
-            {/* Loading Overlay */}
+        <div
 
-            {loading && (
+          ref={containerRef}
 
-              <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
+          className="relative flex-1"
 
-                <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
+          style={{ height: height - 150 }} // Reduced height to leave space for X-axis
 
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
+        >
 
-                  <span className="text-white text-lg">Loading {config.timeframe} data for {symbol}...</span>
+          {/* Loading Overlay */}
 
-                </div>
+          {loading && (
 
-              </div>
+            <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
 
-            )}
+              <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
 
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
 
-
-            {/* Error Message */}
-
-            {error && (
-
-              <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
-
-                <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
-
-                  <span className="text-red-400">Error: {error}</span>
-
-                </div>
-
-              </div>
-
-            )}
-
-
-
-            {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
-
-
-
-            {/* Main Chart Canvas */}
-
-            <canvas
-
-              ref={chartCanvasRef}
-
-              className="absolute top-0 left-0 z-10"
-
-              style={{ height: chartHeight }}
-
-            />
-
-
-
-            {/* Flow Chart Resize Divider */}
-
-            {isFlowChartActive && (
-
-              <div
-
-                onMouseDown={handleFlowChartMouseDown}
-
-                style={{
-
-                  position: 'absolute',
-
-                  left: 40,
-
-                  right: 40,
-
-                  top: chartHeight - flowChartHeight - 80 - 25, // Position above volume area
-
-                  height: '4px',
-
-                  cursor: 'ns-resize',
-
-                  zIndex: 25,
-
-                  background: isDraggingFlowChart ? '#2962ff' : 'transparent',
-
-                  transition: isDraggingFlowChart ? 'none' : 'background 0.2s ease',
-
-                }}
-
-                onMouseEnter={(e) => {
-
-                  e.currentTarget.style.background = '#2962ff40';
-
-                }}
-
-                onMouseLeave={(e) => {
-
-                  if (!isDraggingFlowChart) {
-
-                    e.currentTarget.style.background = 'transparent';
-
-                  }
-
-                }}
-
-              >
-
-                <div style={{
-
-                  position: 'absolute',
-
-                  top: '50%',
-
-                  left: '50%',
-
-                  transform: 'translate(-50%, -50%)',
-
-                  width: '40px',
-
-                  height: '3px',
-
-                  background: isDraggingFlowChart ? '#2962ff' : '#666',
-
-                  borderRadius: '2px',
-
-                  transition: 'background 0.2s ease'
-
-                }} />
-
-              </div>
-
-            )}
-
-
-
-            {/* Crosshair and Interaction Overlay */}
-
-            <canvas
-
-              ref={overlayCanvasRef}
-
-              className="absolute inset-0 z-20"
-
-              tabIndex={0}
-
-              style={{
-
-                cursor: isParallelChannelMode ? 'copy' :
-
-                  isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjMiIGZpbGw9IiNGRjY5QjQiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjwvc3ZnPgo=) 8 8, crosshair' :
-
-                    activeTool ? 'crosshair' :
-
-                      isDragging ? 'grabbing' : 'crosshair',
-
-                transition: 'cursor 0.1s ease',
-
-                outline: 'none'
-
-              }}
-
-              onMouseDown={handleUnifiedMouseDown}
-
-              onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
-
-                e.preventDefault();
-
-                const x = e.nativeEvent.offsetX;
-
-                const y = e.nativeEvent.offsetY;
-
-
-
-                // Check if right-clicking on a drawing
-
-                for (const drawing of drawings) {
-
-                  const startPoint = drawing.startPoint || (drawing.startX !== undefined && drawing.startY !== undefined ? { x: drawing.startX, y: drawing.startY } : null);
-
-                  const endPoint = drawing.endPoint || (drawing.endX !== undefined && drawing.endY !== undefined ? { x: drawing.endX, y: drawing.endY } : null);
-
-
-
-                  if (startPoint && endPoint && isPointNearLine(x, y, startPoint, endPoint, 10)) {
-
-                    setSelectedDrawing(drawing);
-
-
-
-                    // Drawing editor removed - drawing tools were removed as requested
-
-                    break;
-
-                  }
-
-                }
-
-              }}
-
-              onMouseMove={activeTool ? handleCanvasMouseMove : handleMouseMove}
-
-              onMouseUp={handleMouseUp}
-
-              onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
-
-                handleMouseUp();
-
-                handleMouseLeave();
-
-              }}
-
-              // Touch Events for Mobile Support
-
-              onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
-
-                e.preventDefault();
-
-                const touch = e.touches[0];
-
-                if (!touch) return;
-
-
-
-                const rect = e.currentTarget.getBoundingClientRect();
-
-                const mouseEvent = {
-
-                  currentTarget: e.currentTarget,
-
-                  button: 0,
-
-                  clientX: touch.clientX,
-
-                  clientY: touch.clientY,
-
-                  ctrlKey: false,
-
-                  metaKey: false,
-
-                  preventDefault: () => e.preventDefault()
-
-                } as unknown as React.MouseEvent<HTMLCanvasElement>;
-
-
-
-                handleUnifiedMouseDown(mouseEvent);
-
-              }}
-
-              onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
-
-                e.preventDefault();
-
-                const touch = e.touches[0];
-
-                if (!touch) return;
-
-
-
-                const rect = e.currentTarget.getBoundingClientRect();
-
-                const mouseEvent = {
-
-                  currentTarget: e.currentTarget,
-
-                  clientX: touch.clientX,
-
-                  clientY: touch.clientY
-
-                } as unknown as React.MouseEvent<HTMLCanvasElement>;
-
-
-
-                if (activeTool) {
-
-                  handleCanvasMouseMove(mouseEvent);
-
-                } else {
-
-                  handleMouseMove(mouseEvent);
-
-                }
-
-              }}
-
-              onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
-
-                e.preventDefault();
-
-                handleMouseUp();
-
-              }}
-
-              // Enhanced zoom support
-
-              onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
-
-                if (e.ctrlKey) {
-
-                  // Pinch-to-zoom gesture (Ctrl + wheel) - X-axis zoom
-
-                  e.preventDefault();
-
-                  const delta = e.deltaY;
-
-                  const scaleFactor = delta > 0 ? 1.1 : 0.9;
-
-
-
-                  const newCount = Math.max(20, Math.min(300, Math.round(visibleCandleCount * scaleFactor)));
-
-                  setVisibleCandleCount(newCount);
-
-                }
-
-              }}
-
-              onClick={(e) => console.log('?? SINGLE CLICK DETECTED on canvas!')}
-
-              onDoubleClick={handleDoubleClick}
-
-            />
-
-          </div>
-
-
-
-          {/* Text Input Modal for Drawing Tools */}
-
-          {showTextInput && textInputPosition && (
-
-            <div
-
-              className="absolute z-[10000] bg-[#1e222d] border border-[#2a2e39] rounded-lg p-4 shadow-xl"
-
-              style={{
-
-                left: (textInputPosition?.x || 0) + 10,
-
-                top: (textInputPosition?.y || 0) - 10,
-
-                minWidth: '200px'
-
-              }}
-
-            >
-
-              <div className="mb-3">
-
-                <label className="block text-white text-sm font-medium mb-2">
-
-                  {activeTool === 'text' ? 'Add Text' :
-
-                    activeTool === 'note' ? 'Add Note' :
-
-                      activeTool === 'callout' ? 'Add Callout' :
-
-                        activeTool === 'price_label' ? 'Price Label' :
-
-                          'Add Text'}
-
-                </label>
-
-                <input
-
-                  type="text"
-
-                  value={drawingText}
-
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrawingText(e.target.value)}
-
-                  onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleTextSubmit()}
-
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#3a3e47] rounded text-white text-sm focus:outline-none focus:border-[#2962ff]"
-
-                  placeholder="Enter text..."
-
-                  autoFocus
-
-                />
-
-              </div>
-
-              <div className="flex space-x-2">
-
-                <button
-
-                  onClick={handleTextSubmit}
-
-                  className="px-3 py-1 bg-[#2962ff] text-white rounded text-sm hover:bg-[#1e4db7] transition-colors"
-
-                >
-
-                  Add
-
-                </button>
-
-                <button
-
-                  onClick={() => {
-
-                    setShowTextInput(false);
-
-                    setDrawingText('');
-
-                    setTextInputPosition(null);
-
-                    setActiveTool(null);
-
-                  }}
-
-                  className="px-3 py-1 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white transition-colors"
-
-                >
-
-                  Cancel
-
-                </button>
+                <span className="text-white text-lg">Loading {config.timeframe} data for {symbol}...</span>
 
               </div>
 
@@ -23340,95 +22934,401 @@ export default function TradingViewChart({
 
 
 
-          {/* Property Editor removed - drawing tools were removed as requested */}
+          {/* Error Message */}
+
+          {error && (
+
+            <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
+
+              <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
+
+                <span className="text-red-400">Error: {error}</span>
+
+              </div>
+
+            </div>
+
+          )}
+
+
+
+          {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
+
+
+
+          {/* Main Chart Canvas */}
+
+          <canvas
+
+            ref={chartCanvasRef}
+
+            className="absolute top-0 left-0 z-10"
+
+            style={{ height: chartHeight }}
+
+          />
+
+
+
+          {/* Flow Chart Resize Divider */}
+
+          {isFlowChartActive && (
+
+            <div
+
+              onMouseDown={handleFlowChartMouseDown}
+
+              style={{
+
+                position: 'absolute',
+
+                left: 40,
+
+                right: 40,
+
+                top: chartHeight - flowChartHeight - 80 - 25, // Position above volume area
+
+                height: '4px',
+
+                cursor: 'ns-resize',
+
+                zIndex: 25,
+
+                background: isDraggingFlowChart ? '#2962ff' : 'transparent',
+
+                transition: isDraggingFlowChart ? 'none' : 'background 0.2s ease',
+
+              }}
+
+              onMouseEnter={(e) => {
+
+                e.currentTarget.style.background = '#2962ff40';
+
+              }}
+
+              onMouseLeave={(e) => {
+
+                if (!isDraggingFlowChart) {
+
+                  e.currentTarget.style.background = 'transparent';
+
+                }
+
+              }}
+
+            >
+
+              <div style={{
+
+                position: 'absolute',
+
+                top: '50%',
+
+                left: '50%',
+
+                transform: 'translate(-50%, -50%)',
+
+                width: '40px',
+
+                height: '3px',
+
+                background: isDraggingFlowChart ? '#2962ff' : '#666',
+
+                borderRadius: '2px',
+
+                transition: 'background 0.2s ease'
+
+              }} />
+
+            </div>
+
+          )}
+
+
+
+          {/* Crosshair and Interaction Overlay */}
+
+          <canvas
+
+            ref={overlayCanvasRef}
+
+            className="absolute inset-0 z-20"
+
+            tabIndex={0}
+
+            style={{
+
+              cursor: isParallelChannelMode ? 'copy' :
+
+                isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjMiIGZpbGw9IiNGRjY5QjQiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjwvc3ZnPgo=) 8 8, crosshair' :
+
+                  activeTool ? 'crosshair' :
+
+                    isDragging ? 'grabbing' : 'crosshair',
+
+              transition: 'cursor 0.1s ease',
+
+              outline: 'none'
+
+            }}
+
+            onMouseDown={handleUnifiedMouseDown}
+
+            onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
+
+              e.preventDefault();
+
+              const x = e.nativeEvent.offsetX;
+
+              const y = e.nativeEvent.offsetY;
+
+
+
+              // Check if right-clicking on a drawing
+
+              for (const drawing of drawings) {
+
+                const startPoint = drawing.startPoint || (drawing.startX !== undefined && drawing.startY !== undefined ? { x: drawing.startX, y: drawing.startY } : null);
+
+                const endPoint = drawing.endPoint || (drawing.endX !== undefined && drawing.endY !== undefined ? { x: drawing.endX, y: drawing.endY } : null);
+
+
+
+                if (startPoint && endPoint && isPointNearLine(x, y, startPoint, endPoint, 10)) {
+
+                  setSelectedDrawing(drawing);
+
+
+
+                  // Drawing editor removed - drawing tools were removed as requested
+
+                  break;
+
+                }
+
+              }
+
+            }}
+
+            onMouseMove={activeTool ? handleCanvasMouseMove : handleMouseMove}
+
+            onMouseUp={handleMouseUp}
+
+            onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
+
+              handleMouseUp();
+
+              handleMouseLeave();
+
+            }}
+
+            // Touch Events for Mobile Support
+
+            onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
+
+              e.preventDefault();
+
+              const touch = e.touches[0];
+
+              if (!touch) return;
+
+
+
+              const rect = e.currentTarget.getBoundingClientRect();
+
+              const mouseEvent = {
+
+                currentTarget: e.currentTarget,
+
+                button: 0,
+
+                clientX: touch.clientX,
+
+                clientY: touch.clientY,
+
+                ctrlKey: false,
+
+                metaKey: false,
+
+                preventDefault: () => e.preventDefault()
+
+              } as unknown as React.MouseEvent<HTMLCanvasElement>;
+
+
+
+              handleUnifiedMouseDown(mouseEvent);
+
+            }}
+
+            onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
+
+              e.preventDefault();
+
+              const touch = e.touches[0];
+
+              if (!touch) return;
+
+
+
+              const rect = e.currentTarget.getBoundingClientRect();
+
+              const mouseEvent = {
+
+                currentTarget: e.currentTarget,
+
+                clientX: touch.clientX,
+
+                clientY: touch.clientY
+
+              } as unknown as React.MouseEvent<HTMLCanvasElement>;
+
+
+
+              if (activeTool) {
+
+                handleCanvasMouseMove(mouseEvent);
+
+              } else {
+
+                handleMouseMove(mouseEvent);
+
+              }
+
+            }}
+
+            onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
+
+              e.preventDefault();
+
+              handleMouseUp();
+
+            }}
+
+            // Enhanced zoom support
+
+            onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
+
+              if (e.ctrlKey) {
+
+                // Pinch-to-zoom gesture (Ctrl + wheel) - X-axis zoom
+
+                e.preventDefault();
+
+                const delta = e.deltaY;
+
+                const scaleFactor = delta > 0 ? 1.1 : 0.9;
+
+
+
+                const newCount = Math.max(20, Math.min(300, Math.round(visibleCandleCount * scaleFactor)));
+
+                setVisibleCandleCount(newCount);
+
+              }
+
+            }}
+
+            onClick={(e) => console.log('?? SINGLE CLICK DETECTED on canvas!')}
+
+            onDoubleClick={handleDoubleClick}
+
+          />
 
         </div>
 
 
 
-        {/* Sidebar Panels */}
+        {/* Text Input Modal for Drawing Tools */}
 
-        {activeSidebarPanel && (
+        {showTextInput && textInputPosition && (
 
-          <div className={`fixed top-32 bottom-4 left-0 md:left-16 ${activeSidebarPanel === 'liquid' ? 'w-full md:w-[calc(100vw-5rem)]' : 'w-full md:w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}>
+          <div
 
-            {/* Sidebar panel debugging */}
+            className="absolute z-[10000] bg-[#1e222d] border border-[#2a2e39] rounded-lg p-4 shadow-xl"
 
+            style={{
 
+              left: (textInputPosition?.x || 0) + 10,
 
-            {/* Panel Content */}
+              top: (textInputPosition?.y || 0) - 10,
 
-            <div className="h-full overflow-y-auto">
+              minWidth: '200px'
 
-              {activeSidebarPanel === 'liquid' && (
+            }}
 
-                <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
+          >
 
-              )}
+            <div className="mb-3">
 
-              {activeSidebarPanel === 'watchlist' && (
+              <label className="block text-white text-sm font-medium mb-2">
 
-                <WatchlistPanel
+                {activeTool === 'text' ? 'Add Text' :
 
-                  activeTab={watchlistTab}
+                  activeTool === 'note' ? 'Add Note' :
 
-                  setActiveTab={setWatchlistTab}
+                    activeTool === 'callout' ? 'Add Callout' :
 
-                />
+                      activeTool === 'price_label' ? 'Price Label' :
 
-              )}
+                        'Add Text'}
 
-              {activeSidebarPanel === 'regimes' && (
+              </label>
 
-                <RegimesPanel
+              <input
 
-                  activeTab={regimesTab}
+                type="text"
 
-                  setActiveTab={setRegimesTab}
+                value={drawingText}
 
-                />
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrawingText(e.target.value)}
 
-              )}
+                onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleTextSubmit()}
 
-              {activeSidebarPanel === 'news' && (
+                className="w-full px-3 py-2 bg-[#131722] border border-[#3a3e47] rounded text-white text-sm focus:outline-none focus:border-[#2962ff]"
 
-                <NewsPanel symbol={config.symbol} />
+                placeholder="Enter text..."
 
-              )}
+                autoFocus
 
-              {activeSidebarPanel === 'alerts' && (
+              />
 
-                <div className="p-4 text-center text-white text-opacity-50">
+            </div>
 
-                  Alerts section coming soon...
+            <div className="flex space-x-2">
 
-                </div>
+              <button
 
-              )}
+                onClick={handleTextSubmit}
 
-              {activeSidebarPanel === 'chain' && (
+                className="px-3 py-1 bg-[#2962ff] text-white rounded text-sm hover:bg-[#1e4db7] transition-colors"
 
-                <OptionsChain symbol={config.symbol} currentPrice={0} />
+              >
 
-              )}
+                Add
 
-              {activeSidebarPanel === 'plan' && (
+              </button>
 
-                <TradingPlan />
+              <button
 
-              )}
+                onClick={() => {
 
-              {activeSidebarPanel === 'chat' && (
+                  setShowTextInput(false);
 
-                <ChatPanel
+                  setDrawingText('');
 
-                  activeTab={chatTab}
+                  setTextInputPosition(null);
 
-                  setActiveTab={setChatTab}
+                  setActiveTool(null);
 
-                />
+                }}
 
-              )}
+                className="px-3 py-1 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white transition-colors"
+
+              >
+
+                Cancel
+
+              </button>
 
             </div>
 
@@ -23436,913 +23336,623 @@ export default function TradingViewChart({
 
         )}
 
+
+
+        {/* Property Editor removed - drawing tools were removed as requested */}
+
       </div>
 
 
 
-      {/* ? NEW: Drawing Properties Panel */}
+      {/* Sidebar Panels */}
 
-      <DrawingPropertiesPanel
+      {activeSidebarPanel && (
 
-        selectedDrawing={selectedDrawing}
+        <div className={`fixed top-32 bottom-4 left-0 md:left-16 ${activeSidebarPanel === 'liquid' ? 'w-full md:w-[calc(100vw-5rem)]' : 'w-full md:w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}>
 
-        isOpen={showPropertiesPanel}
-
-        onClose={() => setShowPropertiesPanel(false)}
-
-        onUpdate={handleDrawingPropertiesUpdate}
-
-        position={propertiesPanelPosition}
-
-      />
+          {/* Sidebar panel debugging */}
 
 
 
-      {/* ? NEW: Right-Click Context Menu */}
+          {/* Panel Content */}
 
-      {showContextMenu && contextMenuDrawing && createPortal(
+          <div className="h-full overflow-y-auto">
 
-        <div
+            {activeSidebarPanel === 'liquid' && (
 
-          className="fixed z-[9999] bg-[#131722] border border-[#2a2e39] rounded-lg shadow-2xl min-w-[200px]"
-
-          style={{
-
-            left: Math.min(contextMenuPosition.x, window.innerWidth - 220),
-
-            top: Math.min(contextMenuPosition.y, window.innerHeight - 300)
-
-          }}
-
-          onClick={(e) => e.stopPropagation()}
-
-        >
-
-          <div className="py-1">
-
-            {/* Properties */}
-
-            <button
-
-              onClick={() => {
-
-                setShowPropertiesPanel(true);
-
-                setPropertiesPanelPosition(contextMenuPosition);
-
-                setShowContextMenu(false);
-
-              }}
-
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
-
-            >
-
-              <span className="mr-3">??</span>
-
-              Properties...
-
-            </button>
-
-
-
-            <div className="border-t border-[#2a2e39] my-1"></div>
-
-
-
-            {/* Copy/Paste/Duplicate */}
-
-            <button
-
-              onClick={() => {
-
-                handleCopyDrawing(contextMenuDrawing);
-
-                setShowContextMenu(false);
-
-              }}
-
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
-
-            >
-
-              <span className="mr-3">??</span>
-
-              Copy
-
-            </button>
-
-
-
-            {drawingClipboard.length > 0 && (
-
-              <button
-
-                onClick={() => {
-
-                  handlePasteDrawing();
-
-                  setShowContextMenu(false);
-
-                }}
-
-                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
-
-              >
-
-                <span className="mr-3">??</span>
-
-                Paste
-
-              </button>
+              <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
 
             )}
 
+            {activeSidebarPanel === 'watchlist' && (
 
+              <WatchlistPanel
 
-            <button
+                activeTab={watchlistTab}
 
-              onClick={() => {
+                setActiveTab={setWatchlistTab}
 
-                handleDuplicateDrawing(contextMenuDrawing);
+              />
 
-                setShowContextMenu(false);
+            )}
 
-              }}
+            {activeSidebarPanel === 'regimes' && (
 
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+              <RegimesPanel
 
-            >
+                activeTab={regimesTab}
 
-              <span className="mr-3">?</span>
+                setActiveTab={setRegimesTab}
 
-              Duplicate
+              />
 
-            </button>
+            )}
 
+            {activeSidebarPanel === 'news' && (
 
+              <NewsPanel symbol={config.symbol} />
 
-            <div className="border-t border-[#2a2e39] my-1"></div>
+            )}
 
+            {activeSidebarPanel === 'alerts' && (
 
+              <div className="p-4 text-center text-white text-opacity-50">
 
-            {/* Layer Management */}
+                Alerts section coming soon...
 
-            <button
+              </div>
 
-              onClick={() => {
+            )}
 
-                bringDrawingToFront(contextMenuDrawing);
+            {activeSidebarPanel === 'chain' && (
 
-                setShowContextMenu(false);
+              <OptionsChain symbol={config.symbol} currentPrice={0} />
 
-              }}
+            )}
 
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            {activeSidebarPanel === 'plan' && (
 
-            >
+              <TradingPlan />
 
-              <span className="mr-3">??</span>
+            )}
 
-              Bring to Front
+            {activeSidebarPanel === 'chat' && (
 
-            </button>
+              <ChatPanel
 
+                activeTab={chatTab}
 
+                setActiveTab={setChatTab}
 
-            <button
+              />
 
-              onClick={() => {
-
-                sendDrawingToBack(contextMenuDrawing);
-
-                setShowContextMenu(false);
-
-              }}
-
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
-
-            >
-
-              <span className="mr-3">??</span>
-
-              Send to Back
-
-            </button>
-
-
-
-            <div className="border-t border-[#2a2e39] my-1"></div>
-
-
-
-            {/* Lock/Unlock */}
-
-            <button
-
-              onClick={() => {
-
-                updateDrawing(contextMenuDrawing.id, { isLocked: !contextMenuDrawing.isLocked });
-
-                setShowContextMenu(false);
-
-              }}
-
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
-
-            >
-
-              <span className="mr-3">{contextMenuDrawing.isLocked ? '??' : '??'}</span>
-
-              {contextMenuDrawing.isLocked ? 'Unlock' : 'Lock'}
-
-            </button>
-
-
-
-            <div className="border-t border-[#2a2e39] my-1"></div>
-
-
-
-            {/* Delete */}
-
-            <button
-
-              onClick={() => {
-
-                handleDeleteDrawing(contextMenuDrawing);
-
-                setShowContextMenu(false);
-
-              }}
-
-              className="w-full text-left px-4 py-2 text-sm text-[#f23645] hover:bg-[#2a2e39] transition-colors flex items-center"
-
-            >
-
-              <span className="mr-3">???</span>
-
-              Delete
-
-            </button>
+            )}
 
           </div>
 
-        </div>,
-
-        document.body
+        </div>
 
       )}
 
-
-
-      {/* ? NEW: Drawing Toolbar Enhancement with Magnet Mode */}
-
-      {(activeTool || selectedDrawing) && (
-
-        <div className="fixed top-4 right-4 z-[9998] flex items-center space-x-2 bg-[#131722] border border-[#2a2e39] rounded-lg p-2">
-
-          {/* Magnet Mode Toggle */}
-
-          <button
-
-            onClick={() => setMagnetMode(!magnetMode)}
-
-            className={`px-3 py-1.5 text-xs rounded transition-colors ${magnetMode
-
-              ? 'bg-[#2962ff] text-white'
-
-              : 'bg-[#1e222d] text-[#868993] hover:text-white'
-
-              }`}
-
-            title="Magnet Mode - Snap to OHLC values"
-
-          >
-
-            ?? Magnet
-
-          </button>
+    </div>
 
 
 
-          {/* Show Handles Toggle */}
+    {/* ? NEW: Drawing Properties Panel */}
 
-          <button
+    <DrawingPropertiesPanel
 
-            onClick={() => setShowDrawingHandles(!showDrawingHandles)}
+      selectedDrawing={selectedDrawing}
 
-            className={`px-3 py-1.5 text-xs rounded transition-colors ${showDrawingHandles
+      isOpen={showPropertiesPanel}
 
-              ? 'bg-[#2962ff] text-white'
+      onClose={() => setShowPropertiesPanel(false)}
 
-              : 'bg-[#1e222d] text-[#868993] hover:text-white'
+      onUpdate={handleDrawingPropertiesUpdate}
 
-              }`}
+      position={propertiesPanelPosition}
 
-            title="Show/Hide Drawing Handles"
-
-          >
-
-            ?? Handles
-
-          </button>
+    />
 
 
 
-          {/* Clear All Drawings */}
+    {/* ? NEW: Right-Click Context Menu */}
+
+    {showContextMenu && contextMenuDrawing && createPortal(
+
+      <div
+
+        className="fixed z-[9999] bg-[#131722] border border-[#2a2e39] rounded-lg shadow-2xl min-w-[200px]"
+
+        style={{
+
+          left: Math.min(contextMenuPosition.x, window.innerWidth - 220),
+
+          top: Math.min(contextMenuPosition.y, window.innerHeight - 300)
+
+        }}
+
+        onClick={(e) => e.stopPropagation()}
+
+      >
+
+        <div className="py-1">
+
+          {/* Properties */}
 
           <button
 
             onClick={() => {
 
-              if (confirm('Delete all drawings?')) {
+              setShowPropertiesPanel(true);
 
-                setDrawings([]);
+              setPropertiesPanelPosition(contextMenuPosition);
 
-                setSelectedDrawing(null);
-
-                setSelectedDrawings([]);
-
-              }
+              setShowContextMenu(false);
 
             }}
 
-            className="px-3 py-1.5 text-xs bg-[#f23645] text-white rounded hover:bg-[#cc2c3b] transition-colors"
-
-            title="Clear All Drawings"
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
 
           >
 
-            ??? Clear
+            <span className="mr-3">??</span>
+
+            Properties...
+
+          </button>
+
+
+
+          <div className="border-t border-[#2a2e39] my-1"></div>
+
+
+
+          {/* Copy/Paste/Duplicate */}
+
+          <button
+
+            onClick={() => {
+
+              handleCopyDrawing(contextMenuDrawing);
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">??</span>
+
+            Copy
+
+          </button>
+
+
+
+          {drawingClipboard.length > 0 && (
+
+            <button
+
+              onClick={() => {
+
+                handlePasteDrawing();
+
+                setShowContextMenu(false);
+
+              }}
+
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+            >
+
+              <span className="mr-3">??</span>
+
+              Paste
+
+            </button>
+
+          )}
+
+
+
+          <button
+
+            onClick={() => {
+
+              handleDuplicateDrawing(contextMenuDrawing);
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">?</span>
+
+            Duplicate
+
+          </button>
+
+
+
+          <div className="border-t border-[#2a2e39] my-1"></div>
+
+
+
+          {/* Layer Management */}
+
+          <button
+
+            onClick={() => {
+
+              bringDrawingToFront(contextMenuDrawing);
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">??</span>
+
+            Bring to Front
+
+          </button>
+
+
+
+          <button
+
+            onClick={() => {
+
+              sendDrawingToBack(contextMenuDrawing);
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">??</span>
+
+            Send to Back
+
+          </button>
+
+
+
+          <div className="border-t border-[#2a2e39] my-1"></div>
+
+
+
+          {/* Lock/Unlock */}
+
+          <button
+
+            onClick={() => {
+
+              updateDrawing(contextMenuDrawing.id, { isLocked: !contextMenuDrawing.isLocked });
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">{contextMenuDrawing.isLocked ? '??' : '??'}</span>
+
+            {contextMenuDrawing.isLocked ? 'Unlock' : 'Lock'}
+
+          </button>
+
+
+
+          <div className="border-t border-[#2a2e39] my-1"></div>
+
+
+
+          {/* Delete */}
+
+          <button
+
+            onClick={() => {
+
+              handleDeleteDrawing(contextMenuDrawing);
+
+              setShowContextMenu(false);
+
+            }}
+
+            className="w-full text-left px-4 py-2 text-sm text-[#f23645] hover:bg-[#2a2e39] transition-colors flex items-center"
+
+          >
+
+            <span className="mr-3">???</span>
+
+            Delete
 
           </button>
 
         </div>
 
-      )}
+      </div>,
+
+      document.body
+
+    )}
 
 
 
-      {/* Horizontal Ray Property Editor */}
+    {/* ? NEW: Drawing Toolbar Enhancement with Magnet Mode */}
 
-      {selectedRay && (
+    {(activeTool || selectedDrawing) && (
 
-        <div
+      <div className="fixed top-4 right-4 z-[9998] flex items-center space-x-2 bg-[#131722] border border-[#2a2e39] rounded-lg p-2">
 
-          className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
+        {/* Magnet Mode Toggle */}
 
-          style={{
+        <button
 
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+          onClick={() => setMagnetMode(!magnetMode)}
 
-            backdropFilter: 'blur(10px)'
+          className={`px-3 py-1.5 text-xs rounded transition-colors ${magnetMode
 
-          }}
+            ? 'bg-[#2962ff] text-white'
+
+            : 'bg-[#1e222d] text-[#868993] hover:text-white'
+
+            }`}
+
+          title="Magnet Mode - Snap to OHLC values"
 
         >
 
-          {/* Header */}
+          ?? Magnet
 
-          <div className="flex justify-between items-center p-4 border-b border-gray-700">
+        </button>
 
-            <div className="flex items-center space-x-2">
 
-              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
 
-              <h3 className="text-white font-semibold text-base">Horizontal Ray</h3>
+        {/* Show Handles Toggle */}
 
-            </div>
+        <button
 
-            <button
+          onClick={() => setShowDrawingHandles(!showDrawingHandles)}
 
-              onClick={() => {
+          className={`px-3 py-1.5 text-xs rounded transition-colors ${showDrawingHandles
 
-                setIsEditingRay(false);
+            ? 'bg-[#2962ff] text-white'
 
-                setSelectedRay(null);
+            : 'bg-[#1e222d] text-[#868993] hover:text-white'
 
-              }}
+            }`}
 
-              className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
+          title="Show/Hide Drawing Handles"
 
-            >
+        >
 
-              �
+          ?? Handles
 
-            </button>
+        </button>
+
+
+
+        {/* Clear All Drawings */}
+
+        <button
+
+          onClick={() => {
+
+            if (confirm('Delete all drawings?')) {
+
+              setDrawings([]);
+
+              setSelectedDrawing(null);
+
+              setSelectedDrawings([]);
+
+            }
+
+          }}
+
+          className="px-3 py-1.5 text-xs bg-[#f23645] text-white rounded hover:bg-[#cc2c3b] transition-colors"
+
+          title="Clear All Drawings"
+
+        >
+
+          ??? Clear
+
+        </button>
+
+      </div>
+
+    )}
+
+
+
+    {/* Horizontal Ray Property Editor */}
+
+    {selectedRay && (
+
+      <div
+
+        className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
+
+        style={{
+
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+
+          backdropFilter: 'blur(10px)'
+
+        }}
+
+      >
+
+        {/* Header */}
+
+        <div className="flex justify-between items-center p-4 border-b border-gray-700">
+
+          <div className="flex items-center space-x-2">
+
+            <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+
+            <h3 className="text-white font-semibold text-base">Horizontal Ray</h3>
 
           </div>
 
+          <button
 
+            onClick={() => {
 
-          {(() => {
+              setIsEditingRay(false);
 
-            const ray = horizontalRays.find(r => r.id === selectedRay);
+              setSelectedRay(null);
 
-            if (!ray) return null;
+            }}
 
+            className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
 
+          >
 
-            return (
+            �
 
-              <div className="p-4 space-y-5">
+          </button>
 
-                {/* Price Configuration Section */}
-
-                <div className="space-y-3">
-
-                  <div className="flex items-center space-x-2 mb-3">
-
-                    <div className="w-4 h-0.5 bg-yellow-500"></div>
-
-                    <span className="text-white font-medium text-sm">Price Level</span>
-
-                  </div>
+        </div>
 
 
 
-                  {/* Price Input */}
+        {(() => {
 
-                  <div>
+          const ray = horizontalRays.find(r => r.id === selectedRay);
 
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Price Value</label>
+          if (!ray) return null;
 
-                    <div className="relative">
 
-                      <input
 
-                        type="number"
+          return (
 
-                        value={ray.price.toFixed(2)}
+            <div className="p-4 space-y-5">
 
-                        onChange={(e) => {
+              {/* Price Configuration Section */}
 
-                          const newPrice = parseFloat(e.target.value);
+              <div className="space-y-3">
 
-                          if (!isNaN(newPrice)) {
+                <div className="flex items-center space-x-2 mb-3">
 
-                            updateHorizontalRayPrice(selectedRay, newPrice);
+                  <div className="w-4 h-0.5 bg-yellow-500"></div>
 
-                          }
-
-                        }}
-
-                        className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm font-mono focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-20 transition-all"
-
-                        step="0.01"
-
-                        placeholder="0.00"
-
-                      />
-
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs font-medium">
-
-                        USD
-
-                      </div>
-
-                    </div>
-
-                  </div>
+                  <span className="text-white font-medium text-sm">Price Level</span>
 
                 </div>
 
 
 
-                {/* Line Styling Section */}
+                {/* Price Input */}
 
-                <div className="space-y-3 border-t border-gray-700 pt-4">
+                <div>
 
-                  <div className="flex items-center space-x-2 mb-3">
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Price Value</label>
 
-                    <div className="w-4 h-0.5 bg-blue-500"></div>
+                  <div className="relative">
 
-                    <span className="text-white font-medium text-sm">Line Styling</span>
+                    <input
 
-                  </div>
+                      type="number"
 
+                      value={ray.price.toFixed(2)}
 
+                      onChange={(e) => {
 
-                  {/* Color Picker */}
+                        const newPrice = parseFloat(e.target.value);
 
-                  <div>
+                        if (!isNaN(newPrice)) {
 
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
+                          updateHorizontalRayPrice(selectedRay, newPrice);
 
-                    <div className="grid grid-cols-6 gap-2">
+                        }
 
-                      {['#FFD700', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
+                      }}
 
-                        <button
+                      className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm font-mono focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-20 transition-all"
 
-                          key={color}
+                      step="0.01"
 
-                          onClick={() => updateHorizontalRayStyle(selectedRay, { color })}
+                      placeholder="0.00"
 
-                          className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${ray.color === color
+                    />
 
-                            ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs font-medium">
 
-                            : 'border-gray-600 hover:border-gray-400'
-
-                            }`}
-
-                          style={{ backgroundColor: color }}
-
-                          title={`Select ${color}`}
-
-                        />
-
-                      ))}
+                      USD
 
                     </div>
 
                   </div>
-
-
-
-                  {/* Line Style */}
-
-                  <div>
-
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
-
-                    <div className="grid grid-cols-3 gap-2">
-
-                      {[
-
-                        { type: 'solid', label: '?????', title: 'Solid Line' },
-
-                        { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
-
-                        { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
-
-                      ].map(({ type, label, title }) => (
-
-                        <button
-
-                          key={type}
-
-                          onClick={() => updateHorizontalRayStyle(selectedRay, { lineStyle: type as any })}
-
-                          className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${ray.lineStyle === type
-
-                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-
-                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-
-                            }`}
-
-                          title={title}
-
-                        >
-
-                          {label}
-
-                        </button>
-
-                      ))}
-
-                    </div>
-
-                  </div>
-
-
-
-                  {/* Line Thickness */}
-
-                  <div>
-
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
-
-                    <div className="grid grid-cols-3 gap-2">
-
-                      {[1, 2, 3].map(thickness => (
-
-                        <button
-
-                          key={thickness}
-
-                          onClick={() => updateHorizontalRayStyle(selectedRay, { lineWidth: thickness })}
-
-                          className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${ray.lineWidth === thickness
-
-                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-
-                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-
-                            }`}
-
-                          title={`${thickness}px thickness`}
-
-                        >
-
-                          {thickness}px
-
-                        </button>
-
-                      ))}
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-
-
-                {/* Actions Section */}
-
-                <div className="border-t border-gray-700 pt-4">
-
-                  <button
-
-                    onClick={() => {
-
-                      if (confirm('??? Delete this horizontal ray?\n\nThis action cannot be undone.')) {
-
-                        deleteHorizontalRay(selectedRay);
-
-                      }
-
-                    }}
-
-                    className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
-
-                  >
-
-                    <div className="flex items-center justify-center space-x-2">
-
-                      <span>???</span>
-
-                      <span>Delete Ray</span>
-
-                    </div>
-
-                  </button>
 
                 </div>
 
               </div>
 
-            );
 
-          })()}
 
-        </div>
+              {/* Line Styling Section */}
 
-      )}
+              <div className="space-y-3 border-t border-gray-700 pt-4">
 
+                <div className="flex items-center space-x-2 mb-3">
 
+                  <div className="w-4 h-0.5 bg-blue-500"></div>
 
-      {/* Parallel Channel Property Editor */}
+                  <span className="text-white font-medium text-sm">Line Styling</span>
 
-      {selectedChannel && (
+                </div>
 
-        <div
 
-          className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
 
-          style={{
+                {/* Color Picker */}
 
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                <div>
 
-            backdropFilter: 'blur(10px)'
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
 
-          }}
+                  <div className="grid grid-cols-6 gap-2">
 
-        >
+                    {['#FFD700', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
 
-          {/* Header */}
+                      <button
 
-          <div className="flex justify-between items-center p-4 border-b border-gray-700">
+                        key={color}
 
-            <div className="flex items-center space-x-2">
+                        onClick={() => updateHorizontalRayStyle(selectedRay, { color })}
 
-              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                        className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${ray.color === color
 
-              <h3 className="text-white font-semibold text-base">Parallel Channel</h3>
+                          ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
 
-            </div>
+                          : 'border-gray-600 hover:border-gray-400'
 
-            <button
+                          }`}
 
-              onClick={() => {
+                        style={{ backgroundColor: color }}
 
-                setIsEditingChannel(false);
+                        title={`Select ${color}`}
 
-                setSelectedChannel(null);
+                      />
 
-              }}
-
-              className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
-
-            >
-
-              �
-
-            </button>
-
-          </div>
-
-
-
-          {(() => {
-
-            const channel = parallelChannels.find(c => c.id === selectedChannel);
-
-            if (!channel) return null;
-
-
-
-            return (
-
-              <div className="p-4 space-y-5">
-
-                {/* Line Styling Section */}
-
-                <div className="space-y-3">
-
-                  <div className="flex items-center space-x-2 mb-3">
-
-                    <div className="w-4 h-0.5 bg-blue-500"></div>
-
-                    <span className="text-white font-medium text-sm">Line Styling</span>
-
-                  </div>
-
-
-
-                  {/* Line Color */}
-
-                  <div>
-
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
-
-                    <div className="grid grid-cols-6 gap-2">
-
-                      {['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
-
-                        <button
-
-                          key={color}
-
-                          onClick={() => {
-
-                            setParallelChannels(prev =>
-
-                              prev.map(ch =>
-
-                                ch.id === selectedChannel
-
-                                  ? { ...ch, color }
-
-                                  : ch
-
-                              )
-
-                            );
-
-                          }}
-
-                          className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${channel.color === color
-
-                            ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-
-                            : 'border-gray-600 hover:border-gray-400'
-
-                            }`}
-
-                          style={{ backgroundColor: color }}
-
-                          title={`Select ${color}`}
-
-                        />
-
-                      ))}
-
-                    </div>
-
-                  </div>
-
-
-
-                  {/* Line Style */}
-
-                  <div>
-
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
-
-                    <div className="grid grid-cols-3 gap-2">
-
-                      {[
-
-                        { type: 'solid', label: '?????', title: 'Solid Line' },
-
-                        { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
-
-                        { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
-
-                      ].map(({ type, label, title }) => (
-
-                        <button
-
-                          key={type}
-
-                          onClick={() => {
-
-                            setParallelChannels(prev =>
-
-                              prev.map(ch =>
-
-                                ch.id === selectedChannel
-
-                                  ? { ...ch, lineStyle: type as any }
-
-                                  : ch
-
-                              )
-
-                            );
-
-                          }}
-
-                          className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${channel.lineStyle === type
-
-                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-
-                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-
-                            }`}
-
-                          title={title}
-
-                        >
-
-                          {label}
-
-                        </button>
-
-                      ))}
-
-                    </div>
-
-                  </div>
-
-
-
-                  {/* Line Thickness */}
-
-                  <div>
-
-                    <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
-
-                    <div className="grid grid-cols-3 gap-2">
-
-                      {[1, 2, 3].map(thickness => (
-
-                        <button
-
-                          key={thickness}
-
-                          onClick={() => {
-
-                            setParallelChannels(prev =>
-
-                              prev.map(ch =>
-
-                                ch.id === selectedChannel
-
-                                  ? { ...ch, lineWidth: thickness }
-
-                                  : ch
-
-                              )
-
-                            );
-
-                          }}
-
-                          className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${channel.lineWidth === thickness
-
-                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-
-                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-
-                            }`}
-
-                          title={`${thickness}px thickness`}
-
-                        >
-
-                          {thickness}px
-
-                        </button>
-
-                      ))}
-
-                    </div>
+                    ))}
 
                   </div>
 
@@ -24350,35 +23960,233 @@ export default function TradingViewChart({
 
 
 
-                {/* Fill Section */}
+                {/* Line Style */}
 
-                <div className="space-y-3 border-t border-gray-700 pt-4">
+                <div>
 
-                  <div className="flex items-center space-x-2 mb-3">
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
 
-                    <div className="w-4 h-0.5 bg-purple-500"></div>
+                  <div className="grid grid-cols-3 gap-2">
 
-                    <span className="text-white font-medium text-sm">Fill Styling</span>
+                    {[
+
+                      { type: 'solid', label: '?????', title: 'Solid Line' },
+
+                      { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
+
+                      { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
+
+                    ].map(({ type, label, title }) => (
+
+                      <button
+
+                        key={type}
+
+                        onClick={() => updateHorizontalRayStyle(selectedRay, { lineStyle: type as any })}
+
+                        className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${ray.lineStyle === type
+
+                          ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+
+                          }`}
+
+                        title={title}
+
+                      >
+
+                        {label}
+
+                      </button>
+
+                    ))}
 
                   </div>
 
+                </div>
 
 
-                  {/* Show Fill Toggle */}
 
-                  <div className="flex items-center justify-between">
+                {/* Line Thickness */}
 
-                    <span className="text-gray-300 text-sm font-medium">Enable Fill</span>
+                <div>
 
-                    <label className="relative inline-flex items-center cursor-pointer">
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
 
-                      <input
+                  <div className="grid grid-cols-3 gap-2">
 
-                        type="checkbox"
+                    {[1, 2, 3].map(thickness => (
 
-                        checked={channel.showFill !== false}
+                      <button
 
-                        onChange={(e) => {
+                        key={thickness}
+
+                        onClick={() => updateHorizontalRayStyle(selectedRay, { lineWidth: thickness })}
+
+                        className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${ray.lineWidth === thickness
+
+                          ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+
+                          }`}
+
+                        title={`${thickness}px thickness`}
+
+                      >
+
+                        {thickness}px
+
+                      </button>
+
+                    ))}
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+
+              {/* Actions Section */}
+
+              <div className="border-t border-gray-700 pt-4">
+
+                <button
+
+                  onClick={() => {
+
+                    if (confirm('??? Delete this horizontal ray?\n\nThis action cannot be undone.')) {
+
+                      deleteHorizontalRay(selectedRay);
+
+                    }
+
+                  }}
+
+                  className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
+
+                >
+
+                  <div className="flex items-center justify-center space-x-2">
+
+                    <span>???</span>
+
+                    <span>Delete Ray</span>
+
+                  </div>
+
+                </button>
+
+              </div>
+
+            </div>
+
+          );
+
+        })()}
+
+      </div>
+
+    )}
+
+
+
+    {/* Parallel Channel Property Editor */}
+
+    {selectedChannel && (
+
+      <div
+
+        className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
+
+        style={{
+
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+
+          backdropFilter: 'blur(10px)'
+
+        }}
+
+      >
+
+        {/* Header */}
+
+        <div className="flex justify-between items-center p-4 border-b border-gray-700">
+
+          <div className="flex items-center space-x-2">
+
+            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+
+            <h3 className="text-white font-semibold text-base">Parallel Channel</h3>
+
+          </div>
+
+          <button
+
+            onClick={() => {
+
+              setIsEditingChannel(false);
+
+              setSelectedChannel(null);
+
+            }}
+
+            className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
+
+          >
+
+            �
+
+          </button>
+
+        </div>
+
+
+
+        {(() => {
+
+          const channel = parallelChannels.find(c => c.id === selectedChannel);
+
+          if (!channel) return null;
+
+
+
+          return (
+
+            <div className="p-4 space-y-5">
+
+              {/* Line Styling Section */}
+
+              <div className="space-y-3">
+
+                <div className="flex items-center space-x-2 mb-3">
+
+                  <div className="w-4 h-0.5 bg-blue-500"></div>
+
+                  <span className="text-white font-medium text-sm">Line Styling</span>
+
+                </div>
+
+
+
+                {/* Line Color */}
+
+                <div>
+
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
+
+                  <div className="grid grid-cols-6 gap-2">
+
+                    {['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
+
+                      <button
+
+                        key={color}
+
+                        onClick={() => {
 
                           setParallelChannels(prev =>
 
@@ -24386,7 +24194,7 @@ export default function TradingViewChart({
 
                               ch.id === selectedChannel
 
-                                ? { ...ch, showFill: e.target.checked }
+                                ? { ...ch, color }
 
                                 : ch
 
@@ -24396,138 +24204,328 @@ export default function TradingViewChart({
 
                         }}
 
-                        className="sr-only peer"
+                        className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${channel.color === color
+
+                          ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+
+                          : 'border-gray-600 hover:border-gray-400'
+
+                          }`}
+
+                        style={{ backgroundColor: color }}
+
+                        title={`Select ${color}`}
 
                       />
 
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-
-                    </label>
+                    ))}
 
                   </div>
-
-
-
-                  {/* Fill Color */}
-
-                  {channel.showFill !== false && (
-
-                    <div>
-
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Fill Color</label>
-
-                      <div className="grid grid-cols-6 gap-2">
-
-                        {['#00BFFF33', '#2196F333', '#4CAF5033', '#FF980033', '#F4433633', '#9C27B033'].map((color, idx) => {
-
-                          const baseColors = ['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'];
-
-                          return (
-
-                            <button
-
-                              key={color}
-
-                              onClick={() => {
-
-                                setParallelChannels(prev =>
-
-                                  prev.map(ch =>
-
-                                    ch.id === selectedChannel
-
-                                      ? { ...ch, fillColor: color }
-
-                                      : ch
-
-                                  )
-
-                                );
-
-                              }}
-
-                              className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 relative overflow-hidden ${channel.fillColor === color
-
-                                ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-
-                                : 'border-gray-600 hover:border-gray-400'
-
-                                }`}
-
-                              style={{ backgroundColor: baseColors[idx] }}
-
-                              title={`Fill with ${baseColors[idx]}`}
-
-                            >
-
-                              <div className="absolute inset-0 bg-current opacity-20"></div>
-
-                            </button>
-
-                          );
-
-                        })}
-
-                      </div>
-
-                    </div>
-
-                  )}
 
                 </div>
 
 
 
-                {/* Actions Section */}
+                {/* Line Style */}
 
-                <div className="border-t border-gray-700 pt-4">
+                <div>
 
-                  <button
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
 
-                    onClick={() => {
+                  <div className="grid grid-cols-3 gap-2">
 
-                      if (confirm('??? Delete this parallel channel?\n\nThis action cannot be undone.')) {
+                    {[
 
-                        setParallelChannels(prev => prev.filter(ch => ch.id !== selectedChannel));
+                      { type: 'solid', label: '?????', title: 'Solid Line' },
 
-                        setSelectedChannel(null);
+                      { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
 
-                        setIsEditingChannel(false);
+                      { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
 
-                        setChannelDragStart(null);
+                    ].map(({ type, label, title }) => (
 
-                      }
+                      <button
 
-                    }}
+                        key={type}
 
-                    className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
+                        onClick={() => {
 
-                  >
+                          setParallelChannels(prev =>
 
-                    <div className="flex items-center justify-center space-x-2">
+                            prev.map(ch =>
 
-                      <span>???</span>
+                              ch.id === selectedChannel
 
-                      <span>Delete Channel</span>
+                                ? { ...ch, lineStyle: type as any }
 
-                    </div>
+                                : ch
 
-                  </button>
+                            )
+
+                          );
+
+                        }}
+
+                        className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${channel.lineStyle === type
+
+                          ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+
+                          }`}
+
+                        title={title}
+
+                      >
+
+                        {label}
+
+                      </button>
+
+                    ))}
+
+                  </div>
+
+                </div>
+
+
+
+                {/* Line Thickness */}
+
+                <div>
+
+                  <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
+
+                  <div className="grid grid-cols-3 gap-2">
+
+                    {[1, 2, 3].map(thickness => (
+
+                      <button
+
+                        key={thickness}
+
+                        onClick={() => {
+
+                          setParallelChannels(prev =>
+
+                            prev.map(ch =>
+
+                              ch.id === selectedChannel
+
+                                ? { ...ch, lineWidth: thickness }
+
+                                : ch
+
+                            )
+
+                          );
+
+                        }}
+
+                        className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${channel.lineWidth === thickness
+
+                          ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+
+                          }`}
+
+                        title={`${thickness}px thickness`}
+
+                      >
+
+                        {thickness}px
+
+                      </button>
+
+                    ))}
+
+                  </div>
 
                 </div>
 
               </div>
 
-            );
 
-          })()}
 
-        </div>
+              {/* Fill Section */}
 
-      )}
+              <div className="space-y-3 border-t border-gray-700 pt-4">
 
-    </>
+                <div className="flex items-center space-x-2 mb-3">
 
-  );
+                  <div className="w-4 h-0.5 bg-purple-500"></div>
+
+                  <span className="text-white font-medium text-sm">Fill Styling</span>
+
+                </div>
+
+
+
+                {/* Show Fill Toggle */}
+
+                <div className="flex items-center justify-between">
+
+                  <span className="text-gray-300 text-sm font-medium">Enable Fill</span>
+
+                  <label className="relative inline-flex items-center cursor-pointer">
+
+                    <input
+
+                      type="checkbox"
+
+                      checked={channel.showFill !== false}
+
+                      onChange={(e) => {
+
+                        setParallelChannels(prev =>
+
+                          prev.map(ch =>
+
+                            ch.id === selectedChannel
+
+                              ? { ...ch, showFill: e.target.checked }
+
+                              : ch
+
+                          )
+
+                        );
+
+                      }}
+
+                      className="sr-only peer"
+
+                    />
+
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+
+                  </label>
+
+                </div>
+
+
+
+                {/* Fill Color */}
+
+                {channel.showFill !== false && (
+
+                  <div>
+
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Fill Color</label>
+
+                    <div className="grid grid-cols-6 gap-2">
+
+                      {['#00BFFF33', '#2196F333', '#4CAF5033', '#FF980033', '#F4433633', '#9C27B033'].map((color, idx) => {
+
+                        const baseColors = ['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'];
+
+                        return (
+
+                          <button
+
+                            key={color}
+
+                            onClick={() => {
+
+                              setParallelChannels(prev =>
+
+                                prev.map(ch =>
+
+                                  ch.id === selectedChannel
+
+                                    ? { ...ch, fillColor: color }
+
+                                    : ch
+
+                                )
+
+                              );
+
+                            }}
+
+                            className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 relative overflow-hidden ${channel.fillColor === color
+
+                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+
+                              : 'border-gray-600 hover:border-gray-400'
+
+                              }`}
+
+                            style={{ backgroundColor: baseColors[idx] }}
+
+                            title={`Fill with ${baseColors[idx]}`}
+
+                          >
+
+                            <div className="absolute inset-0 bg-current opacity-20"></div>
+
+                          </button>
+
+                        );
+
+                      })}
+
+                    </div>
+
+                  </div>
+
+                )}
+
+              </div>
+
+
+
+              {/* Actions Section */}
+
+              <div className="border-t border-gray-700 pt-4">
+
+                <button
+
+                  onClick={() => {
+
+                    if (confirm('??? Delete this parallel channel?\n\nThis action cannot be undone.')) {
+
+                      setParallelChannels(prev => prev.filter(ch => ch.id !== selectedChannel));
+
+                      setSelectedChannel(null);
+
+                      setIsEditingChannel(false);
+
+                      setChannelDragStart(null);
+
+                    }
+
+                  }}
+
+                  className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
+
+                >
+
+                  <div className="flex items-center justify-center space-x-2">
+
+                    <span>???</span>
+
+                    <span>Delete Channel</span>
+
+                  </div>
+
+                </button>
+
+              </div>
+
+            </div>
+
+          );
+
+        })()}
+
+      </div>
+
+    )}
+
+  </>
+
+);
 
 }

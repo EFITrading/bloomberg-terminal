@@ -89,7 +89,7 @@ import UnifiedScreenerPanel from '../analytics/UnifiedScreenerPanel'
 import GuideChatbot from '../chatbot/GuideChatbot'
 import NewsPanel from '../news/NewsPanel'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
-import EnhancedRegimeDisplay from '../terminal/EnhancedRegimeDisplay'
+import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import LWChartDrawingTools from './LWChartDrawingTools'
 import MultiChartView from './MultiChartView'
 import OptionsChain from './OptionsChain'
@@ -4452,6 +4452,9 @@ export default function TradingViewChart({
   onTimeframeChange,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
+
+  // Prefetch composite history on mount so the chart is ready before the watchlist panel opens
+  useEffect(() => { prefetchCompositeHistory() }, [])
 
   // Canvas refs
   const containerRef = useRef<HTMLDivElement>(null)
@@ -13290,18 +13293,16 @@ export default function TradingViewChart({
         // Loading placeholder
         ctx.fillStyle = 'rgba(0,0,0,0.85)'
         ctx.fillRect(40, buySellStartY, chartWidth - 160, buySellPanelHeight)
-        ctx.strokeStyle = 'rgba(255,133,0,0.5)'
-        ctx.lineWidth = 1
-        ctx.beginPath(); ctx.moveTo(40, buySellStartY); ctx.lineTo(chartWidth - 120, buySellStartY); ctx.stroke()
+
         const barW = (chartWidth - 200)
         const barX = 100
         const barY = buySellStartY + buySellPanelHeight / 2 - 10
-        ctx.fillStyle = 'rgba(255,133,0,0.15)'
+        ctx.fillStyle = 'rgba(255,255,255,0.1)'
         ctx.fillRect(barX, barY, barW, 6)
-        ctx.fillStyle = '#FF8500'
+        ctx.fillStyle = '#ffffff'
         ctx.fillRect(barX, barY, barW * Math.max(0.03, buySellLoadingProgress / 100), 6)
         ctx.font = 'bold 11px JetBrains Mono, monospace'
-        ctx.fillStyle = '#FF8500'
+        ctx.fillStyle = '#ffffff'
         ctx.textAlign = 'center'
         ctx.fillText(`BUY/SELL PRESSURE  ${buySellLoadingProgress.toFixed(0)}%`, chartWidth / 2, buySellStartY + buySellPanelHeight / 2 + 10)
       }
@@ -13412,13 +13413,7 @@ export default function TradingViewChart({
     ctx.fillStyle = 'rgba(0,0,0,0.85)'
     ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
 
-    // Top border
-    ctx.strokeStyle = 'rgba(255,133,0,0.6)'
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.moveTo(padLeft, panelStartY)
-    ctx.lineTo(rightEdge, panelStartY)
-    ctx.stroke()
+
 
     // Match scored data to visible candles by date
     const dateToScore = new Map(bsData.map(d => [d.date, d.score]))
@@ -13437,6 +13432,41 @@ export default function TradingViewChart({
     ctx.fillRect(padLeft, panelStartY, zoneW, panelHeight / 2)
     ctx.fillStyle = 'rgba(239,68,68,0.06)'
     ctx.fillRect(padLeft, midY, zoneW, panelHeight / 2)
+
+    // Dotted lines at the average of the true highest peaks and lowest valleys
+    const allScores = bsData.map(d => d.score)
+    const peakScores: number[] = []
+    const valleyScores: number[] = []
+    for (let i = 2; i < allScores.length - 2; i++) {
+      const v = allScores[i]
+      if (v > allScores[i - 1] && v > allScores[i - 2] && v > allScores[i + 1] && v > allScores[i + 2]) peakScores.push(v)
+      if (v < allScores[i - 1] && v < allScores[i - 2] && v < allScores[i + 1] && v < allScores[i + 2]) valleyScores.push(v)
+    }
+    const avgHigh = peakScores.length > 0 ? Math.max(...peakScores) : 70
+    const avgLow = valleyScores.length > 0 ? Math.min(...valleyScores) : -70
+    const avgHighY = midY - (avgHigh / 100) * amplitude
+    const avgLowY = midY - (avgLow / 100) * amplitude
+
+    ctx.save()
+    ctx.setLineDash([3, 5])
+    ctx.lineWidth = 1
+
+    // High line — green
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.55)'
+    ctx.beginPath()
+    ctx.moveTo(padLeft, avgHighY)
+    ctx.lineTo(rightEdge, avgHighY)
+    ctx.stroke()
+
+    // Low line — red
+    ctx.strokeStyle = 'rgba(255, 50, 50, 0.55)'
+    ctx.beginPath()
+    ctx.moveTo(padLeft, avgLowY)
+    ctx.lineTo(rightEdge, avgLowY)
+    ctx.stroke()
+
+    ctx.setLineDash([])
+    ctx.restore()
 
     // Zero line
     ctx.strokeStyle = 'rgba(255,255,255,0.2)'
@@ -13462,6 +13492,28 @@ export default function TradingViewChart({
       ctx.moveTo(x0, y0)
       ctx.lineTo(x1, y1)
       ctx.stroke()
+    }
+
+    // BUY / SHORT signal label — check final score against high/low lines
+    const lastScore = scores.findLast(s => s !== null) as number | undefined
+    if (lastScore !== undefined) {
+      const isBuy = lastScore < avgLow
+      const isShort = lastScore > avgHigh
+      if (isBuy || isShort) {
+        const labelX = rightEdge + 6
+        const labelY = midY - (lastScore / 100) * amplitude
+        const label = isBuy ? 'BUY' : 'SHORT'
+        const labelColor = isBuy ? '#00ff00' : '#ff3232'
+        ctx.save()
+        ctx.font = 'bold 13px JetBrains Mono, monospace'
+        ctx.textAlign = 'left'
+        ctx.shadowColor = labelColor
+        ctx.shadowBlur = 8
+        ctx.fillStyle = labelColor
+        ctx.fillText(label, labelX, labelY + 5)
+        ctx.shadowBlur = 0
+        ctx.restore()
+      }
     }
 
     // Y-axis labels — crispy colors, 18px font
@@ -26917,16 +26969,16 @@ export default function TradingViewChart({
                         bottom: `${buySellPanelHeight + 105}px`,
                         height: '4px',
                         cursor: 'ns-resize',
-                        backgroundColor: isDraggingBuySellPanel ? '#FF8500' : 'rgba(255, 133, 0, 0.3)',
+                        backgroundColor: isDraggingBuySellPanel ? '#ffffff' : 'rgba(255, 255, 255, 0.3)',
                         transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
                         zIndex: 1000,
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#FF8500'
+                        e.currentTarget.style.backgroundColor = '#ffffff'
                       }}
                       onMouseLeave={(e) => {
                         if (!isDraggingBuySellPanel) {
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 133, 0, 0.3)'
+                          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
                         }
                       }}
                     >
@@ -26938,7 +26990,7 @@ export default function TradingViewChart({
                           transform: 'translate(-50%, -50%)',
                           width: '40px',
                           height: '2px',
-                          backgroundColor: '#FF8500',
+                          backgroundColor: '#ffffff',
                           borderRadius: '1px',
                         }}
                       />
@@ -27270,11 +27322,12 @@ export default function TradingViewChart({
             {/* Property Editor removed - drawing tools were removed as requested */}
           </div>
 
-          {/* Sidebar Panels */}
-          {activeSidebarPanel && (
+          {/* Sidebar Panels — portalled to document.body so no ancestor stacking context traps it below the canvas */}
+          {activeSidebarPanel && typeof window !== 'undefined' && createPortal(
             <div
-              className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
+              className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
               style={{
+                zIndex: 9999,
                 maxWidth:
                   activeSidebarPanel === 'liquid'
                     ? 'fit-content'
@@ -30163,7 +30216,8 @@ export default function TradingViewChart({
                   </div>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
 

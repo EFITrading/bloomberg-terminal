@@ -88,9 +88,7 @@ export interface TimeframeAnalysis {
 
 export interface MarketRegimeData {
   life: TimeframeAnalysis
-  developing: TimeframeAnalysis
   momentum: TimeframeAnalysis
-  legacy: TimeframeAnalysis
 }
 
 // Industry ETFs with their major holdings - NO DUPLICATES
@@ -1484,21 +1482,10 @@ export class IndustryAnalysisService {
     if (progressCallback) progressCallback('Initializing parallel analysis...', 10)
 
     // Track actual progress with Promise.allSettled to monitor completion
-    const completedTasks = { count: 0, total: 4 }
+    const completedTasks = { count: 0, total: 2 }
 
     const trackablePromises = [
       this.analyzeTimeframe(5, 'Life').then((result) => {
-        completedTasks.count++
-        if (progressCallback) {
-          const progress = 25 + (completedTasks.count / completedTasks.total) * 70
-          progressCallback(
-            `Completed ${completedTasks.count}/${completedTasks.total} timeframes...`,
-            progress
-          )
-        }
-        return result
-      }),
-      this.analyzeTimeframe(21, 'Developing').then((result) => {
         completedTasks.count++
         if (progressCallback) {
           const progress = 25 + (completedTasks.count / completedTasks.total) * 70
@@ -1520,25 +1507,14 @@ export class IndustryAnalysisService {
         }
         return result
       }),
-      this.analyzeTimeframe(180, 'Legacy').then((result) => {
-        completedTasks.count++
-        if (progressCallback) {
-          const progress = 25 + (completedTasks.count / completedTasks.total) * 70
-          progressCallback(
-            `Completed ${completedTasks.count}/${completedTasks.total} timeframes...`,
-            progress
-          )
-        }
-        return result
-      }),
     ]
 
     try {
-      const [life, developing, momentum, legacy] = await Promise.all(trackablePromises)
+      const [life, momentum] = await Promise.all(trackablePromises)
 
       if (progressCallback) progressCallback('Finalizing results...', 100)
 
-      return { life, developing, momentum, legacy }
+      return { life, momentum }
     } catch (error) {
       throw error
     }
@@ -1566,9 +1542,7 @@ export class IndustryAnalysisService {
     // Analysis configurations - use more calendar days to ensure sufficient trading days
     const timeframes = [
       { days: 5, name: 'life' as keyof MarketRegimeData, label: 'Life' },
-      { days: 21, name: 'developing' as keyof MarketRegimeData, label: 'Developing' },
       { days: 80, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' },
-      { days: 180, name: 'legacy' as keyof MarketRegimeData, label: 'Legacy' },
     ]
 
     // Execute analyses sequentially to prevent resource exhaustion

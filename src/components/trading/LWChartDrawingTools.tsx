@@ -43,6 +43,7 @@ type DrawingTool =
   | 'parallelChannel'
   | 'buyZone'
   | 'sellZone'
+  | 'buySellZone'
   | 'priceRange'
   | 'brush'
 
@@ -125,6 +126,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   const lastDrawingsRef = useRef<Drawing[]>(drawings)
   const pendingMousePositionRef = useRef<{ x: number; y: number } | null>(null)
   const isProcessingDragRef = useRef(false)
+  const isDraggingRef = useRef(false)
 
   // Batch drawing updates to reduce re-renders
   useEffect(() => {
@@ -143,9 +145,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-
-    canvas.width = width
-    canvas.height = height
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = Math.round(width * dpr)
+    canvas.height = Math.round(height * dpr)
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
   }, [width, height])
 
   // Handle keyboard shortcuts for deleting drawings
@@ -162,16 +166,22 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [editingDrawing, drawings, setDrawings])
 
-  // Global mouseup handler to catch when mouse is released outside canvas
+  // Keep isDraggingRef in sync so the stable window listener can read current drag state
+  useEffect(() => {
+    isDraggingRef.current = isDragging
+  }, [isDragging])
+
+  // Global mouseup handler (stable — empty deps, reads from ref to avoid stale closures)
   useEffect(() => {
     const handleGlobalMouseUp = () => {
-      if (isDragging) {
+      if (isDraggingRef.current) {
         if (dragAnimationFrameRef.current) {
           cancelAnimationFrame(dragAnimationFrameRef.current)
           dragAnimationFrameRef.current = null
         }
         isProcessingDragRef.current = false
         pendingMousePositionRef.current = null
+        isDraggingRef.current = false
         setIsDragging(false)
         setDraggedDrawing(null)
         setDraggedControlPoint(null)
@@ -182,7 +192,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
     window.addEventListener('mouseup', handleGlobalMouseUp)
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
-  }, [isDragging])
+  }, [])
 
   // Helper to convert data coordinates to screen coordinates
   const toScreenCoords = (point: DrawingPoint): { x: number; y: number } => {
@@ -203,8 +213,28 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Clear canvas
+    const dpr = window.devicePixelRatio || 1
+
+    // Resize canvas buffer to physical pixels for crisp HiDPI/retina rendering
+    const physW = Math.round(width * dpr)
+    const physH = Math.round(height * dpr)
+    if (canvas.width !== physW || canvas.height !== physH) {
+      canvas.width = physW
+      canvas.height = physH
+      canvas.style.width = `${width}px`
+      canvas.style.height = `${height}px`
+    }
+
+    // Reset to identity transform, clear full physical canvas, then apply DPR scale
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    // Crisp, fully-opaque rendering defaults
+    ctx.imageSmoothingEnabled = false
+    ctx.globalAlpha = 1.0
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
 
     // Draw all completed drawings
     drawings.forEach((drawing) => {
@@ -212,7 +242,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       ctx.globalAlpha = opacity
       ctx.strokeStyle = drawing.color
       ctx.fillStyle = drawing.color
-      ctx.lineWidth = drawing.lineWidth || 2
+      ctx.lineWidth = drawing.lineWidth || 4
 
       // Set line style
       if (drawing.lineStyle === 'dashed') {
@@ -250,16 +280,16 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         // Draw horizontal ray from click point to right edge
         ctx.beginPath()
         ctx.moveTo(startPoint.x, screenY)
-        ctx.lineTo(canvas.width, screenY)
+        ctx.lineTo(width, screenY)
         ctx.stroke()
 
         // Draw price indicator
         ctx.fillStyle = drawing.color
-        ctx.fillRect(canvas.width - 80, screenY - 12, 75, 24)
+        ctx.fillRect(width - 80, screenY - 13, 76, 26)
         ctx.globalAlpha = 1.0
         ctx.fillStyle = '#000000'
-        ctx.font = '20px monospace'
-        ctx.fillText(p.price.toFixed(2), canvas.width - 75, screenY + 6)
+        ctx.font = 'bold 22px monospace'
+        ctx.fillText(p.price.toFixed(2), width - 77, screenY + 6)
         ctx.globalAlpha = opacity
 
         // Show control point if editing
@@ -275,23 +305,23 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         const startPoint = toScreenCoords(p)
         ctx.beginPath()
         ctx.moveTo(startPoint.x, screenY)
-        ctx.lineTo(canvas.width, screenY)
+        ctx.lineTo(width, screenY)
         ctx.stroke()
 
         // Draw price indicator
         ctx.fillStyle = drawing.color
-        ctx.fillRect(canvas.width - 80, screenY - 12, 75, 24)
+        ctx.fillRect(width - 80, screenY - 13, 76, 26)
         ctx.globalAlpha = 1.0
         ctx.fillStyle = '#000000'
-        ctx.font = '20px monospace'
-        ctx.fillText(p.price.toFixed(2), canvas.width - 75, screenY + 6)
+        ctx.font = 'bold 22px monospace'
+        ctx.fillText(p.price.toFixed(2), width - 77, screenY + 6)
         ctx.globalAlpha = opacity
 
         // Show control point if editing
         if (editingDrawing === drawing.id) {
           ctx.fillStyle = '#3b82f6'
           ctx.beginPath()
-          ctx.arc(canvas.width / 2, screenY, 6, 0, Math.PI * 2)
+          ctx.arc(width / 2, screenY, 6, 0, Math.PI * 2)
           ctx.fill()
         }
       } else if (drawing.type === 'vertical' && drawing.points.length === 1) {
@@ -301,14 +331,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         ctx.strokeStyle = drawing.color
         ctx.beginPath()
         ctx.moveTo(screenX, 0)
-        ctx.lineTo(screenX, canvas.height)
+        ctx.lineTo(screenX, height)
         ctx.stroke()
 
         // Show control point if editing
         if (editingDrawing === drawing.id) {
           ctx.fillStyle = '#3b82f6'
           ctx.beginPath()
-          ctx.arc(screenX, canvas.height / 2, 6, 0, Math.PI * 2)
+          ctx.arc(screenX, height / 2, 6, 0, Math.PI * 2)
           ctx.fill()
         }
       } else if (drawing.type === 'rectangle' && drawing.points.length === 2) {
@@ -364,7 +394,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
         // Draw border
         ctx.strokeStyle = zoneColor
-        ctx.lineWidth = 2
+        ctx.lineWidth = 4
         ctx.strokeRect(x1, rectY, x2 - x1, defaultHeight)
 
         // Show control points if editing (left and right edges)
@@ -390,7 +420,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
         // Draw top horizontal line
         ctx.strokeStyle = drawing.color
-        ctx.lineWidth = drawing.lineWidth || 2
+        ctx.lineWidth = drawing.lineWidth || 4
         ctx.beginPath()
         ctx.moveTo(x - 30, y1)
         ctx.lineTo(x + 30, y1)
@@ -569,7 +599,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     if (currentPoints.length > 0) {
       ctx.strokeStyle = color
       ctx.fillStyle = color
-      ctx.lineWidth = 2
+      ctx.lineWidth = 4
       ctx.setLineDash([5, 5])
 
       // For 2-point tools, show preview
@@ -610,7 +640,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         ctx.fillRect(x1, rectY, x2 - x1, defaultHeight)
         ctx.globalAlpha = 1.0
         ctx.strokeStyle = zoneColor
-        ctx.lineWidth = 2
+        ctx.lineWidth = 4
         ctx.setLineDash([])
         ctx.strokeRect(x1, rectY, x2 - x1, defaultHeight)
       } else if (currentTool === 'priceRange' && currentPoints.length === 1 && previewPoint) {
@@ -625,7 +655,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
         // Draw preview lines
         ctx.strokeStyle = color
-        ctx.lineWidth = 2
+        ctx.lineWidth = 4
         ctx.setLineDash([5, 5])
 
         // Top line
@@ -784,7 +814,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         type: 'ray',
         points: [point],
         color,
-        lineWidth: 2,
+        lineWidth: 4,
       }
       setDrawings([...drawings, newDrawing])
       setCurrentPoints([])
@@ -804,7 +834,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           type: currentTool,
           points: newPoints,
           color: zoneColor,
-          lineWidth: 2,
+          lineWidth: 4,
         }
         setDrawings([...drawings, newDrawing])
         setCurrentPoints([])
@@ -827,7 +857,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           type: currentTool,
           points: newPoints,
           color: color,
-          lineWidth: 2,
+          lineWidth: 4,
         }
         setDrawings([...drawings, newDrawing])
         setCurrentPoints([])
@@ -888,7 +918,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     }
   }
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+  const handleCanvasMouseMove = (e: React.PointerEvent<HTMLDivElement>) => {
     // Always forward mouse position to parent so the main chart crosshair stays active
     onMouseMove?.(e)
 
@@ -1142,12 +1172,12 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             } else if (drawing.type === 'horizontal') {
               return {
                 ...drawing,
-                points: [{ time: drawing.points[0].time, price: drawing.points[0].price + dPrice }],
+                points: [{ time: originalDrawingPoints[0].time, price: originalDrawingPoints[0].price + dPrice }],
               }
             } else if (drawing.type === 'vertical') {
               return {
                 ...drawing,
-                points: [{ time: drawing.points[0].time + dTime, price: drawing.points[0].price }],
+                points: [{ time: originalDrawingPoints[0].time + dTime, price: originalDrawingPoints[0].price }],
               }
             }
           }
@@ -1158,8 +1188,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         return
       }
 
-      // Handle drawing preview
-      if (currentPoints.length === 0 || currentTool === 'select') return
+
 
       // For parallel channel, allow preview with 1 or 2 points
       if (currentTool === 'parallelChannel') {
@@ -1275,9 +1304,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d =
         Math.abs(
           (screen2.y - screen1.y) * x -
-            (screen2.x - screen1.x) * y +
-            screen2.x * screen1.y -
-            screen2.y * screen1.x
+          (screen2.x - screen1.x) * y +
+          screen2.x * screen1.y -
+          screen2.y * screen1.x
         ) / Math.sqrt(Math.pow(screen2.y - screen1.y, 2) + Math.pow(screen2.x - screen1.x, 2))
 
       // Check if point is within line segment bounds
@@ -1337,9 +1366,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d1 =
         Math.abs(
           (screen2.y - screen1.y) * x -
-            (screen2.x - screen1.x) * y +
-            screen2.x * screen1.y -
-            screen2.y * screen1.x
+          (screen2.x - screen1.x) * y +
+          screen2.x * screen1.y -
+          screen2.y * screen1.x
         ) / Math.sqrt(Math.pow(screen2.y - screen1.y, 2) + Math.pow(screen2.x - screen1.x, 2))
       const minX1 = Math.min(screen1.x, screen2.x) - threshold
       const maxX1 = Math.max(screen1.x, screen2.x) + threshold
@@ -1359,9 +1388,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d2 =
         Math.abs(
           (line2_p2_y - line2_p1_y) * x -
-            (line2_p2_x - line2_p1_x) * y +
-            line2_p2_x * line2_p1_y -
-            line2_p2_y * line2_p1_x
+          (line2_p2_x - line2_p1_x) * y +
+          line2_p2_x * line2_p1_y -
+          line2_p2_y * line2_p1_x
         ) / Math.sqrt(Math.pow(line2_p2_y - line2_p1_y, 2) + Math.pow(line2_p2_x - line2_p1_x, 2))
       const minX2 = Math.min(line2_p1_x, line2_p2_x) - threshold
       const maxX2 = Math.max(line2_p1_x, line2_p2_x) + threshold
@@ -1388,7 +1417,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     return false
   }
 
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+  const handleCanvasMouseDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -1452,6 +1481,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         e.stopPropagation()
         e.preventDefault()
         // Clicked on drawing body, enter editing mode and store initial data coordinates
+        e.currentTarget.setPointerCapture(e.pointerId)
         setEditingDrawing(drawings[i].id)
         setDraggedDrawing(drawings[i].id)
         setDragOffset({ x, y })
@@ -2107,10 +2137,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       <div
         onClick={handleCanvasClick}
         onDoubleClick={handleCanvasDoubleClick}
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleCanvasMouseMove}
-        onMouseUp={handleCanvasMouseUp}
-        onMouseLeave={handleCanvasMouseUp}
+        onPointerDown={handleCanvasMouseDown}
+        onPointerMove={handleCanvasMouseMove}
+        onPointerUp={handleCanvasMouseUp}
         style={{
           position: 'absolute',
           top: 0,
@@ -2166,6 +2195,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2211,6 +2245,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2255,6 +2294,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2298,6 +2342,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2347,6 +2396,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2395,14 +2449,16 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
                         if (rect && !justCompletedDrawing) {
-                          if (editingDrawing === drawing.id) {
-                            setDraggedDrawing(drawing.id)
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                          } else {
-                            setEditingDrawing(drawing.id)
-                            setSelectedDrawing(drawing.id)
-                          }
+                          setEditingDrawing(drawing.id)
+                          setSelectedDrawing(drawing.id)
+                          setDraggedDrawing(drawing.id)
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
+                          setIsDragging(true)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -2446,14 +2502,16 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
                         if (rect && !justCompletedDrawing) {
-                          if (editingDrawing === drawing.id) {
-                            setDraggedDrawing(drawing.id)
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                          } else {
-                            setEditingDrawing(drawing.id)
-                            setSelectedDrawing(drawing.id)
-                          }
+                          setEditingDrawing(drawing.id)
+                          setSelectedDrawing(drawing.id)
+                          setDraggedDrawing(drawing.id)
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
+                          setIsDragging(true)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -2502,6 +2560,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setSelectedDrawing(drawing.id)
                             setDraggedDrawing(drawing.id)
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                            setDragStartDataPoint({
+                              time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                              price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                            })
+                            setOriginalDrawingPoints([...drawing.points])
                             setIsDragging(true)
                           }
                         }}
@@ -2540,6 +2603,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setSelectedDrawing(drawing.id)
                             setDraggedDrawing(drawing.id)
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                            setDragStartDataPoint({
+                              time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                              price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                            })
+                            setOriginalDrawingPoints([...drawing.points])
                             setIsDragging(true)
                           }
                         }}
@@ -2582,6 +2650,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
                           setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
+                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -3416,39 +3489,39 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
                   drawing.type === 'parallelChannel') && (
-                  <div>
-                    <label
-                      style={{
-                        color: '#ffffff',
-                        fontSize: '14px',
-                        display: 'block',
-                        marginBottom: '8px',
-                        fontWeight: '600',
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      Line Width:{' '}
-                      <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 2}px</span>
-                    </label>
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      value={drawing.lineWidth || 2}
-                      onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
-                      style={{
-                        width: '100%',
-                        height: '6px',
-                        borderRadius: '3px',
-                        background: 'linear-gradient(90deg, #1a1a1a, #333)',
-                        outline: 'none',
-                        appearance: 'none',
-                        cursor: 'pointer',
-                      }}
-                    />
-                  </div>
-                )}
+                    <div>
+                      <label
+                        style={{
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          display: 'block',
+                          marginBottom: '8px',
+                          fontWeight: '600',
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Line Width:{' '}
+                        <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 4}px</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={drawing.lineWidth || 4}
+                        onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
+                        style={{
+                          width: '100%',
+                          height: '6px',
+                          borderRadius: '3px',
+                          background: 'linear-gradient(90deg, #1a1a1a, #333)',
+                          outline: 'none',
+                          appearance: 'none',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                  )}
 
                 {/* Line Style (for lines) */}
                 {(drawing.type === 'trendline' ||
@@ -3457,146 +3530,146 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
                   drawing.type === 'parallelChannel') && (
-                  <div>
-                    <label
-                      style={{
-                        color: '#ffffff',
-                        fontSize: '14px',
-                        display: 'block',
-                        marginBottom: '8px',
-                        fontWeight: '600',
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      Line Style
-                    </label>
-                    <select
-                      value={drawing.lineStyle || 'solid'}
-                      onChange={(e) => updateDrawingProperty('lineStyle', e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: 'linear-gradient(145deg, #0a0a0a, #1a1a1a)',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255, 120, 0, 0.2)',
-                        borderRadius: '3px',
-                        cursor: 'pointer',
-                        fontSize: '17px',
-                        fontWeight: '500',
-                        boxShadow:
-                          'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
-                        outline: 'none',
-                      }}
-                    >
-                      <option value="solid">Solid</option>
-                      <option value="dashed">Dashed</option>
-                      <option value="dotted">Dotted</option>
-                    </select>
-                  </div>
-                )}
+                    <div>
+                      <label
+                        style={{
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          display: 'block',
+                          marginBottom: '8px',
+                          fontWeight: '600',
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Line Style
+                      </label>
+                      <select
+                        value={drawing.lineStyle || 'solid'}
+                        onChange={(e) => updateDrawingProperty('lineStyle', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: 'linear-gradient(145deg, #0a0a0a, #1a1a1a)',
+                          color: '#ffffff',
+                          border: '1px solid rgba(255, 120, 0, 0.2)',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          fontSize: '17px',
+                          fontWeight: '500',
+                          boxShadow:
+                            'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="solid">Solid</option>
+                        <option value="dashed">Dashed</option>
+                        <option value="dotted">Dotted</option>
+                      </select>
+                    </div>
+                  )}
 
                 {/* Background Color */}
                 {(drawing.type === 'rectangle' ||
                   drawing.type === 'text' ||
                   drawing.type === 'parallelChannel') && (
-                  <div>
-                    <label
-                      style={{
-                        color: '#ffffff',
-                        fontSize: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginBottom: '8px',
-                        fontWeight: '600',
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!!drawing.backgroundColor}
-                        onChange={(e) =>
-                          updateDrawingProperty(
-                            'backgroundColor',
-                            e.target.checked ? '#ff7800' : undefined
-                          )
-                        }
+                    <div>
+                      <label
                         style={{
-                          cursor: 'pointer',
-                          width: '16px',
-                          height: '16px',
-                          accentColor: '#ff7800',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          marginBottom: '8px',
+                          fontWeight: '600',
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase',
                         }}
-                      />
-                      {drawing.type === 'parallelChannel'
-                        ? 'Fill Between Lines'
-                        : 'Background Color'}
-                    </label>
-                    {drawing.backgroundColor && (
-                      <>
+                      >
                         <input
-                          type="color"
-                          defaultValue={
-                            drawing.backgroundColor.startsWith('#')
-                              ? drawing.backgroundColor
-                              : '#ff7800'
+                          type="checkbox"
+                          checked={!!drawing.backgroundColor}
+                          onChange={(e) =>
+                            updateDrawingProperty(
+                              'backgroundColor',
+                              e.target.checked ? '#ff7800' : undefined
+                            )
                           }
-                          onBlur={(e) => updateDrawingProperty('backgroundColor', e.target.value)}
                           style={{
-                            width: '100%',
-                            height: '38px',
                             cursor: 'pointer',
-                            border: '1px solid rgba(255, 120, 0, 0.2)',
-                            borderRadius: '3px',
-                            marginBottom: '12px',
-                            background: '#000',
-                            boxShadow:
-                              'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
+                            width: '16px',
+                            height: '16px',
+                            accentColor: '#ff7800',
                           }}
                         />
-                        <div>
-                          <label
-                            style={{
-                              color: '#ffffff',
-                              fontSize: '14px',
-                              display: 'block',
-                              marginBottom: '8px',
-                              fontWeight: '600',
-                              letterSpacing: '0.5px',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            Background Opacity:{' '}
-                            <span style={{ color: '#ff7800' }}>
-                              {Math.round((drawing.backgroundOpacity ?? 0.3) * 100)}%
-                            </span>
-                          </label>
+                        {drawing.type === 'parallelChannel'
+                          ? 'Fill Between Lines'
+                          : 'Background Color'}
+                      </label>
+                      {drawing.backgroundColor && (
+                        <>
                           <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={drawing.backgroundOpacity ?? 0.3}
-                            onChange={(e) =>
-                              updateDrawingProperty('backgroundOpacity', parseFloat(e.target.value))
+                            type="color"
+                            defaultValue={
+                              drawing.backgroundColor.startsWith('#')
+                                ? drawing.backgroundColor
+                                : '#ff7800'
                             }
+                            onBlur={(e) => updateDrawingProperty('backgroundColor', e.target.value)}
                             style={{
                               width: '100%',
-                              height: '6px',
-                              borderRadius: '3px',
-                              background: 'linear-gradient(90deg, #1a1a1a, #333)',
-                              outline: 'none',
-                              appearance: 'none',
+                              height: '38px',
                               cursor: 'pointer',
+                              border: '1px solid rgba(255, 120, 0, 0.2)',
+                              borderRadius: '3px',
+                              marginBottom: '12px',
+                              background: '#000',
+                              boxShadow:
+                                'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
                             }}
                           />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                          <div>
+                            <label
+                              style={{
+                                color: '#ffffff',
+                                fontSize: '14px',
+                                display: 'block',
+                                marginBottom: '8px',
+                                fontWeight: '600',
+                                letterSpacing: '0.5px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Background Opacity:{' '}
+                              <span style={{ color: '#ff7800' }}>
+                                {Math.round((drawing.backgroundOpacity ?? 0.3) * 100)}%
+                              </span>
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={drawing.backgroundOpacity ?? 0.3}
+                              onChange={(e) =>
+                                updateDrawingProperty('backgroundOpacity', parseFloat(e.target.value))
+                              }
+                              style={{
+                                width: '100%',
+                                height: '6px',
+                                borderRadius: '3px',
+                                background: 'linear-gradient(90deg, #1a1a1a, #333)',
+                                outline: 'none',
+                                appearance: 'none',
+                                cursor: 'pointer',
+                              }}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                 {/* Show Midline (for parallel channel) */}
                 {drawing.type === 'parallelChannel' && (
