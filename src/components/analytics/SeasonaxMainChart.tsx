@@ -59,6 +59,7 @@ interface SeasonaxMainChartProps {
     selectedMonth?: number | null;
     compareData?: SeasonalAnalysis | null;
     compareSymbol?: string | null;
+    currentYearSeries?: Array<{ dayOfYear: number; cumulativeReturn: number }> | null;
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -177,7 +178,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     painPointPeriod,
     selectedMonth = null,
     compareData = null,
-    compareSymbol = null
+    compareSymbol = null,
+    currentYearSeries = null,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -206,7 +208,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
                 return () => clearTimeout(timer);
             }
         }
-    }, [data, comparisonData, settings]);
+    }, [data, comparisonData, settings, currentYearSeries]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -485,6 +487,21 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
                 allCumulativeReturns = allCumulativeReturns.concat(compareReturns);
             }
 
+            // Include current year series in bounds calculation
+            if (currentYearSeries && currentYearSeries.length > 0) {
+                const visibleCY = zoomLevel === 1
+                    ? currentYearSeries
+                    : currentYearSeries.filter(p => {
+                        const chartCenter = 0.5;
+                        const norm = p.dayOfYear / 365;
+                        const vis0 = (0 - panOffset - chartCenter) / zoomLevel + chartCenter;
+                        const vis1 = (1 - panOffset - chartCenter) / zoomLevel + chartCenter;
+                        return norm >= vis0 && norm <= vis1;
+                    });
+                const cyReturns = (visibleCY.length > 0 ? visibleCY : currentYearSeries).map(p => p.cumulativeReturn);
+                allCumulativeReturns = allCumulativeReturns.concat(cyReturns);
+            }
+
             const minReturn = Math.min(...allCumulativeReturns);
             const maxReturn = Math.max(...allCumulativeReturns);
             const returnRange = maxReturn - minReturn;
@@ -701,6 +718,53 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
                     zoomLevel,
                     panOffset
                 );
+            }
+
+            // Draw current year line (cyan dashed) — shows how this year tracks seasonal avg
+            if (currentYearSeries && currentYearSeries.length > 0 && (selectedMonth === null || selectedMonth === undefined)) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(padding.left, padding.top, chartWidth, chartHeight);
+                ctx.clip();
+
+                const cyColor = '#00D4FF';
+                ctx.strokeStyle = cyColor;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 3]);
+                ctx.shadowColor = cyColor;
+                ctx.shadowBlur = 5;
+                ctx.beginPath();
+
+                currentYearSeries.forEach((point, idx) => {
+                    const chartCenter = 0.5;
+                    const baseX = point.dayOfYear / 365;
+                    const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+                    const x = padding.left + zoomedX * chartWidth;
+                    const y = containerHeight - padding.bottom - ((point.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+                    if (idx === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.shadowBlur = 0;
+
+                // Label at the end of the current year line
+                const lastPt = currentYearSeries[currentYearSeries.length - 1];
+                const labelBaseX = lastPt.dayOfYear / 365;
+                const labelZoomedX = 0.5 + (labelBaseX - 0.5) * zoomLevel + panOffset;
+                const labelX = padding.left + labelZoomedX * chartWidth;
+                const labelY = containerHeight - padding.bottom - ((lastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+
+                if (labelX >= padding.left && labelX <= containerWidth - padding.right) {
+                    ctx.font = 'bold 11px "Roboto Mono", monospace';
+                    ctx.fillStyle = cyColor;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`${new Date().getFullYear()}`, Math.min(labelX + 4, containerWidth - padding.right - 30), labelY);
+                }
+
+                ctx.restore();
             }
 
             // Draw Sweet Spot highlighting (green overlay)

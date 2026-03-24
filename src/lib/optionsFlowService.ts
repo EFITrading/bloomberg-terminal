@@ -1,261 +1,132 @@
 ﻿import { TOP_1800_SYMBOLS } from './Top1000Symbols'
 import { withCircuitBreaker } from './circuitBreaker'
+import {
+  isLiveDataAvailable,
+  getMarketSession,
+  getLastTradingDayStr,
+  marketOpenTimestampForDate,
+  marketCloseTimestampForDate,
+  isHoliday,
+} from './marketSessionUtils'
 
-// Check if market is actually open (includes holiday check via Polygon API)
-async function isMarketActuallyOpen(): Promise<boolean> {
-  try {
-    const apiKey = process.env.POLYGON_API_KEY
-    if (!apiKey) return false
-
-    const response = await fetch(`https://api.polygon.io/v1/marketstatus/now?apikey=${apiKey}`)
-    const data = await response.json()
-
-    return data.market === 'open'
-  } catch (error) {
-    console.error('Error checking market status:', error)
-    return false
-  }
-}
-
-// Market hours utility functions
+/**
+ * Returns true when live market data is fetchable:
+ * PRE_MARKET (1:00 AM – 6:29 AM PST), MARKET (6:30 AM – 12:59 PM PST), or AFTER_HOURS (1:00 PM – 4:59 PM PST)
+ * on non-holiday weekdays.
+ * Returns false during the overnight dead-zone, weekends, and holidays.
+ */
 export function isMarketOpen(): boolean {
-  const now = new Date()
-  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-  const hour = eastern.getHours()
-  const minute = eastern.getMinutes()
-  const day = eastern.getDay() // 0 = Sunday, 6 = Saturday
-
-  // Check if it's a weekday (Monday = 1, Friday = 5)
-  if (day < 1 || day > 5) {
-    return false
-  }
-
-  // Market hours: 6:30 AM - 1:00 PM PST
-  const marketOpen = 9.5 // 9:30 AM
-  const marketClose = 16 // 4:00 PM
-  const currentTime = hour + minute / 60
-
-  return currentTime >= marketOpen && currentTime < marketClose
+  return isLiveDataAvailable()
 }
 
+/**
+ * Returns the most recent trading day as a YYYY-MM-DD string.
+ * Uses the local holiday list — no API call required.
+ */
 export async function getLastTradingDay(): Promise<string> {
-  const now = new Date()
-  const easternString = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-  const easternDate = new Date(easternString)
-  const tradingDay = new Date(easternDate)
-
-  // If before market open (9:30 AM ET), start from yesterday
-  const easternHour = easternDate.getHours()
-  const easternMinute = easternDate.getMinutes()
-  const currentTime = easternHour + easternMinute / 60
-  const marketOpen = 9.5 // 9:30 AM
-
-  if (currentTime < marketOpen) {
-    tradingDay.setDate(tradingDay.getDate() - 1)
-  }
-
-  // Go back up to 10 days to find last trading day
-  for (let i = 0; i < 10; i++) {
-    const year = tradingDay.getFullYear()
-    const month = String(tradingDay.getMonth() + 1).padStart(2, '0')
-    const day = String(tradingDay.getDate()).padStart(2, '0')
-    const dateStr = `${year}-${month}-${day}`
-    const dayOfWeek = tradingDay.getDay()
-
-    // Skip weekends
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      tradingDay.setDate(tradingDay.getDate() - 1)
-      continue
-    }
-
-    // For weekdays, check if market was open using SPY ticker
-    const apiKey = process.env.POLYGON_API_KEY
-    if (apiKey) {
-      try {
-        // Check if this was a trading day by requesting SPY data
-        const response = await fetch(
-          `https://api.polygon.io/v1/open-close/SPY/${dateStr}?adjusted=true&apikey=${apiKey}`
-        )
-
-        // If 404 or error, it's a holiday
-        if (!response.ok) {
-          tradingDay.setDate(tradingDay.getDate() - 1)
-          continue
-        }
-      } catch (error) {
-        console.error(`Error checking if ${dateStr} was a trading day:`, error)
-        // On error, skip to previous day to be safe
-        tradingDay.setDate(tradingDay.getDate() - 1)
-        continue
-      }
-    }
-
-    // This is a valid trading day
-    return dateStr
-  }
-
-  // Fallback
-  const year = tradingDay.getFullYear()
-  const month = String(tradingDay.getMonth() + 1).padStart(2, '0')
-  const day = String(tradingDay.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return getLastTradingDayStr()
 }
 
+/**
+ * Returns the millisecond timestamp for 6:30 AM PST/PDT (market open) on today's PST calendar date.
+ */
 export function getTodaysMarketOpenTimestamp(): number {
-  try {
-    // Simple approach: Create 9:30 AM Eastern for today's date
-    const now = new Date()
-
-    // Get today's date in Eastern timezone
-    const easternDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-    const year = easternDate.getFullYear()
-    const month = easternDate.getMonth()
-    const date = easternDate.getDate()
-
-    // Create a date string for 9:30 AM Eastern and parse it
-    // This ensures proper timezone handling
-    const marketOpenString = `${month + 1}/${date}/${year} 9:30:00 AM`
-    const marketOpenDate = new Date(marketOpenString + ' EST') // Force Eastern Standard Time parsing
-
-    let marketOpenTimestamp = marketOpenDate.getTime()
-
-    // Validate the result by checking if the time displays as 9:30 AM ET
-    const validation = new Date(marketOpenTimestamp)
-    const easternValidation = validation.toLocaleString('en-US', {
-      timeZone: 'America/Los_Angeles',
-    })
-
-    if (!easternValidation.includes('9:30')) {
-      // Fallback: manually calculate Eastern timezone offset
-      const easternOffset = easternDate.getTimezoneOffset() * 60000
-      const localTime = new Date(year, month, date, 9, 30, 0, 0)
-      marketOpenTimestamp = localTime.getTime() - easternOffset
-    }
-
-    // Adjust for weekends - get last trading day
-    const marketOpen = new Date(marketOpenTimestamp)
-    const day = marketOpen.getDay()
-
-    if (day === 0) {
-      // Sunday - go to Friday
-      marketOpen.setDate(marketOpen.getDate() - 2)
-    } else if (day === 6) {
-      // Saturday - go to Friday
-      marketOpen.setDate(marketOpen.getDate() - 1)
-    }
-
-    const finalTimestamp = marketOpen.getTime()
-
-    // Validation: ensure timestamp is reasonable
-    const now_ms = Date.now()
-    const oneWeekAgo = now_ms - 7 * 24 * 60 * 60 * 1000
-    const oneDayFuture = now_ms + 24 * 60 * 60 * 1000
-
-    if (finalTimestamp < oneWeekAgo || finalTimestamp > oneDayFuture) {
-      throw new Error(
-        `Market open timestamp seems invalid: ${new Date(finalTimestamp).toISOString()}`
-      )
-    }
-
-    console.log(
-      `[TIME] Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
-    )
-    return finalTimestamp
-  } catch (error) {
-    console.error(`[ERROR] Error calculating market open timestamp:`, error)
-    throw error
-  }
+  const now = new Date()
+  const pst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const year = pst.getFullYear()
+  const month = String(pst.getMonth() + 1).padStart(2, '0')
+  const day = String(pst.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+  const ts = marketOpenTimestampForDate(todayStr)
+  console.log(
+    `[TIME] Market Open Timestamp: ${new Date(ts).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
+  )
+  return ts
 }
 
+/**
+ * Determines the correct date range to scan for options flow data.
+ *
+ * Session logic (PST, America/Los_Angeles):
+ *   MARKET      (6:30 AM – 12:59 PM) → LIVE: scan today from market-open to now
+ *   AFTER_HOURS (1:00 PM – 4:59 PM)  → HISTORICAL: today's completed session (6:30 AM → 1:00 PM PST)
+ *   PRE_MARKET  (1:00 AM – 6:29 AM)  → HISTORICAL: last completed trading day (6:30 AM → 1:00 PM PST)
+ *   CLOSED      (5:00 PM – 12:59 AM, weekends, holidays) → HISTORICAL: last completed trading day
+ *
+ * Pre-market is treated as historical because the market hasn't opened yet for the current day.
+ */
 export async function getSmartDateRange(): Promise<{
   currentDate: string
   isLive: boolean
   startTimestamp: number
   endTimestamp: number
 }> {
-  const marketOpen = await isMarketActuallyOpen()
   const now = new Date()
-  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const pst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const year = pst.getFullYear()
+  const month = String(pst.getMonth() + 1).padStart(2, '0')
+  const day = String(pst.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+  const session = getMarketSession()
 
-  if (marketOpen) {
-    // LIVE MODE: Market is currently open, scan from market open until now
-    const todayMarketOpen = getTodaysMarketOpenTimestamp()
-    const currentTime = Date.now()
+  if (session === 'MARKET') {
+    // LIVE MODE: market is open — scan from 6:30 AM PST to now
+    const startTimestamp = marketOpenTimestampForDate(todayStr)
+    const endTimestamp = Date.now()
 
-    console.log(`[LIVE] LIVE MODE: Market is OPEN, scanning from market open to now`)
+    console.log(`[LIVE] MARKET OPEN — Scanning today (${todayStr}) from 6:30 AM PST to now`)
     console.log(
-      `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
+      `   - Start: ${new Date(startTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
     console.log(
-      `   - End: ${new Date(currentTime).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST (LIVE)`
+      `   - End: ${new Date(endTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST (LIVE)`
     )
 
     return {
-      currentDate: now.toISOString().split('T')[0],
+      currentDate: todayStr,
       isLive: true,
-      startTimestamp: todayMarketOpen,
-      endTimestamp: currentTime,
+      startTimestamp,
+      endTimestamp,
+    }
+  } else if (session === 'AFTER_HOURS') {
+    // AFTER_HOURS: market closed today — scan today's completed session (6:30 AM → 1:00 PM PST)
+    const startTimestamp = marketOpenTimestampForDate(todayStr)
+    const endTimestamp = marketCloseTimestampForDate(todayStr)
+
+    console.log(`[HISTORICAL] AFTER_HOURS — Scanning today's completed session (${todayStr})`)
+    console.log(
+      `   - Start: ${new Date(startTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
+    )
+    console.log(
+      `   - End: ${new Date(endTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST (market close)`
+    )
+
+    return {
+      currentDate: todayStr,
+      isLive: false,
+      startTimestamp,
+      endTimestamp,
     }
   } else {
-    // HISTORICAL MODE: Market is closed, scan the most recent full trading day
-    const lastTradingDay = await getLastTradingDay()
+    // PRE_MARKET or CLOSED: market hasn't opened yet / overnight / weekend / holiday
+    // → scan last completed trading day's full session
+    const lastTradingDay = getLastTradingDayStr()
+    const startTimestamp = marketOpenTimestampForDate(lastTradingDay)
+    const endTimestamp = marketCloseTimestampForDate(lastTradingDay)
 
-    // Create market open (9:30 AM ET) and close (4:00 PM ET) for the last trading day
-    // Parse date parts and construct in Eastern timezone to avoid UTC conversion
-    const [year, month, day] = lastTradingDay.split('-').map(Number)
-    const marketOpenTime = new Date(
-      `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T09:30:00-05:00`
+    console.log(`[HISTORICAL] ${session} — Scanning last completed trading day (${lastTradingDay})`)
+    console.log(
+      `   - Start: ${new Date(startTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
-    const marketCloseTime = new Date(
-      `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T16:00:00-05:00`
+    console.log(
+      `   - End: ${new Date(endTimestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
     )
 
-    // If today is a trading day but market is closed (after 4 PM and before midnight), scan today's session
-    const today = now.toISOString().split('T')[0]
-    const easternHour = eastern.getHours()
-    const easternMinute = eastern.getMinutes()
-    const currentTime = easternHour + easternMinute / 60
-    const isWeekday = eastern.getDay() >= 1 && eastern.getDay() <= 5
-    const marketOpen = 9.5 // 9:30 AM
-    const marketClose = 16 // 4:00 PM
-
-    if (isWeekday && today === lastTradingDay && currentTime >= marketClose) {
-      // Today was a trading day but market is now closed (after-hours) - scan today's full session
-      const todayMarketOpen = getTodaysMarketOpenTimestamp()
-      const todayMarketClose = new Date(todayMarketOpen)
-      todayMarketClose.setHours(16, 0, 0, 0)
-
-      console.log(`[AFTER-HOURS] AFTER-HOURS MODE: Scanning today's completed session`)
-      console.log(`   - Date: ${today}`)
-      console.log(
-        `   - Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
-      )
-      console.log(
-        `   - End: ${todayMarketClose.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
-      )
-
-      return {
-        currentDate: today,
-        isLive: false,
-        startTimestamp: todayMarketOpen,
-        endTimestamp: todayMarketClose.getTime(),
-      }
-    } else {
-      // Weekend or holiday - scan last full trading day
-      console.log(`[HISTORICAL] HISTORICAL MODE: Scanning last trading day (${lastTradingDay})`)
-      console.log(
-        `   - Start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
-      )
-      console.log(
-        `   - End: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
-      )
-
-      return {
-        currentDate: lastTradingDay,
-        isLive: false,
-        startTimestamp: marketOpenTime.getTime(),
-        endTimestamp: marketCloseTime.getTime(),
-      }
+    return {
+      currentDate: lastTradingDay,
+      isLive: false,
+      startTimestamp,
+      endTimestamp,
     }
   }
 }
@@ -483,27 +354,14 @@ export class OptionsFlowService {
       `[MULTIDAY] Launching ${numDays} parallel worker scans simultaneously (${tradingDays.join(', ')})...`
     )
 
-    // Build a market-hours date range for any given trading date.
-    // Use EST offsets (UTC-5 in winter, UTC-4 in summer).
-    // 9:30 AM ET = 14:30 UTC (winter) / 13:30 UTC (summer)
-    // 4:00 PM ET = 21:00 UTC (winter) / 20:00 UTC (summer)
+    // Build a market-hours date range for any given trading date using PST/PDT.
+    // Market open: 6:30 AM PST/PDT, market close: 1:00 PM PST/PDT.
     const buildDateRange = (date: string) => {
-      const [y, m, d] = date.split('-').map(Number)
-      // Determine if date falls in DST (2nd Sun Mar – 1st Sun Nov)
-      const testDate = new Date(y, m - 1, d, 12, 0, 0)
-      const jan = new Date(y, 0, 1)
-      const jul = new Date(y, 6, 1)
-      const isDST =
-        testDate.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset())
-      const openHourUTC = isDST ? 13 : 14 // 9:30 AM ET
-      const closeHourUTC = isDST ? 20 : 21 // 4:00 PM ET
-      const marketOpen = new Date(Date.UTC(y, m - 1, d, openHourUTC, 30, 0))
-      const marketClose = new Date(Date.UTC(y, m - 1, d, closeHourUTC, 0, 0))
       return {
         currentDate: date,
         isLive: false,
-        startTimestamp: marketOpen.getTime(),
-        endTimestamp: marketClose.getTime(),
+        startTimestamp: marketOpenTimestampForDate(date),
+        endTimestamp: marketCloseTimestampForDate(date),
       }
     }
 
@@ -520,7 +378,7 @@ export class OptionsFlowService {
         const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange)
         // Tag every trade with the trading date for chart grouping
         trades.forEach((t) => {
-          ;(t as any).trading_date = date
+          ; (t as any).trading_date = date
         })
         onProgress?.([], `[Day ${date}] ${trades.length} trades found`)
         return trades
@@ -543,33 +401,10 @@ export class OptionsFlowService {
 
   // Helper: Calculate last N trading days
   private getLastNTradingDays(n: number): string[] {
-    const US_MARKET_HOLIDAYS = [
-      // 2025 holidays
-      '2025-01-01',
-      '2025-01-20',
-      '2025-02-17',
-      '2025-04-18',
-      '2025-05-26',
-      '2025-07-04',
-      '2025-09-01',
-      '2025-11-27',
-      '2025-12-25',
-      // 2026 holidays
-      '2026-01-01',
-      '2026-01-19',
-      '2026-02-16',
-      '2026-04-03',
-      '2026-05-25',
-      '2026-07-03',
-      '2026-09-07',
-      '2026-11-26',
-      '2026-12-25',
-    ]
-
     const result: string[] = []
     const now = new Date()
-    const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-    const currentDate = new Date(eastern)
+    const pst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const currentDate = new Date(pst)
 
     // Start from today or last trading day if weekend/holiday
     while (result.length < n) {
@@ -580,7 +415,7 @@ export class OptionsFlowService {
       const dateString = `${year}-${month}-${day}`
 
       // Skip weekends and holidays
-      if (dayOfWeek !== 0 && dayOfWeek !== 6 && !US_MARKET_HOLIDAYS.includes(dateString)) {
+      if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday(dateString)) {
         result.push(dateString)
       }
 
@@ -988,7 +823,7 @@ export class OptionsFlowService {
     spotPrice: number
   ): Promise<any[]> {
     try {
-      // Get timestamp from today's market open (9:30 AM ET) instead of 24 hours ago
+      // Get timestamp from today's market open (6:30 AM PST) instead of 24 hours ago
       const marketOpenTimestamp = getTodaysMarketOpenTimestamp()
       const marketOpenDate = new Date(marketOpenTimestamp)
 
@@ -1108,7 +943,7 @@ export class OptionsFlowService {
       filtered = filtered.map((trade) => this.classifyTradeType(trade))
     }
 
-    // Filter out after-hours trades (market hours: 9:30 AM - 4:00 PM ET)
+    // Filter out overnight dead-zone trades (live market: 1:00 AM – 5:00 PM PST)
     filtered = filtered.filter((trade) => this.isWithinMarketHours(trade.trade_timestamp))
 
     // YOUR ITM FILTER: Only 5% ITM max + all OTM contracts
@@ -1144,7 +979,7 @@ export class OptionsFlowService {
     const isWithinHours = timeInMinutes >= marketOpen && timeInMinutes <= marketClose
 
     if (!isWithinHours) {
-      console.log(`[FILTER] After-hours trade filtered: ${etTime.toLocaleTimeString()} ET`)
+      console.log(`[FILTER] Overnight dead-zone trade filtered: ${etTime.toLocaleTimeString()} PST`)
     }
 
     return isWithinHours
@@ -1430,8 +1265,8 @@ export class OptionsFlowService {
     if (isMultiLeg) {
       console.log(
         `   [OK] Multi-leg PASSED: ${trades.length} legs (<=4), ` +
-          `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
-          `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
+        `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
+        `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
       )
     }
 
@@ -1896,7 +1731,7 @@ export class OptionsFlowService {
           ),
           days_to_expiry: Math.ceil(
             (new Date(contract.details.expiration_date).getTime() - Date.now()) /
-              (1000 * 60 * 60 * 24)
+            (1000 * 60 * 60 * 24)
           ),
         }
 
@@ -1994,7 +1829,7 @@ export class OptionsFlowService {
                   moneyness: 'OTM' as const,
                   days_to_expiry: Math.ceil(
                     (new Date(contract.expiration_date).getTime() - now.getTime()) /
-                      (1000 * 60 * 60 * 24)
+                    (1000 * 60 * 60 * 24)
                   ),
                 }
 

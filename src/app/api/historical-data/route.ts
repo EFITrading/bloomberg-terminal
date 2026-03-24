@@ -35,7 +35,6 @@ const cleanupCache = () => {
         const oldestKey = cache.keys().next().value;
         if (oldestKey) {
             cache.delete(oldestKey);
-            console.log(` Cache cleanup: removed oldest entry (${cache.size}/${MAX_CACHE_SIZE})`);
         }
     }
 };
@@ -99,7 +98,6 @@ export async function GET(request: NextRequest) {
         if (!skipCache && cache.has(cacheKey)) {
             const cached = cache.get(cacheKey)!;
             if (now - cached.timestamp < CACHE_DURATION) {
-                console.log(` CACHE HIT: ${symbol} ${timeframe} (${cache.size} cached items)`);
                 return NextResponse.json(cached.data);
             } else {
                 cache.delete(cacheKey); // Remove expired cache
@@ -107,10 +105,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (skipCache) {
-            console.log(` CACHE BYPASS: Forcing fresh data for ${symbol} ${timeframe} up to ${endDate}`);
         }
-
-        console.log(` PROFESSIONAL API: Fetching ${timeframe} data for ${symbol} from ${startDate} to ${endDate}${skipCache ? ' (FRESH DATA)' : ''}`);
 
         // Map timeframes to Polygon.io format
         const timeframeMap: { [key: string]: { multiplier: number; timespan: string } } = {
@@ -132,11 +127,9 @@ export async function GET(request: NextRequest) {
         // Request in DESCENDING order to get latest data first, then limit
         const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${timeframeConfig.multiplier}/${timeframeConfig.timespan}/${startDate}/${endDate}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`;
 
-        console.log(` Polygon API URL (DESC order for latest first): ${url}`);
-
         // Create abort controller for timeout (more compatible than AbortSignal.timeout)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
         const response = await fetch(url, {
             method: 'GET',
@@ -152,7 +145,6 @@ export async function GET(request: NextRequest) {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            console.error(` Polygon API Error for ${symbol}: ${response.status} ${response.statusText}`);
             if (response.status === 401) {
                 throw new Error('Invalid API key. Please check your Polygon.io API key.');
             } else if (response.status === 429) {
@@ -161,7 +153,6 @@ export async function GET(request: NextRequest) {
                     cached.data && cached.data.results && cached.data.results.length > 0
                 );
                 if (anyCachedData) {
-                    console.log(` Rate limited, returning cached data for ${symbol}`);
                     return NextResponse.json(anyCachedData.data);
                 }
                 throw new Error('Rate limit exceeded. Please wait before making more requests.');
@@ -180,8 +171,6 @@ export async function GET(request: NextRequest) {
 
         // Validate that we have actual data
         if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
-            console.warn(` No data returned for ${symbol} in timeframe ${timeframe}`);
-            // Return a minimal valid response to prevent errors
             return NextResponse.json({
                 ticker: symbol,
                 queryCount: 0,
@@ -199,22 +188,12 @@ export async function GET(request: NextRequest) {
         const maxDataPoints = getMaxDataPointsForTimeframe(timeframe);
 
         if (limitedResults.length > maxDataPoints) {
-            // Take the first N results (which are the newest due to DESC order)
             limitedResults = limitedResults.slice(0, maxDataPoints);
-            console.log(` Limited to ${maxDataPoints} most recent data points for ${timeframe}`);
         }
 
         // Reverse to ASC order (oldest to newest) for chart display UNLESS keepDesc=true for industry analysis
         if (!keepDesc) {
             limitedResults.reverse();
-        }
-
-        // Log the actual data range received
-        if (limitedResults.length > 0) {
-            const firstPoint = new Date(limitedResults[0].t).toISOString().split('T')[0];
-            const lastPoint = new Date(limitedResults[limitedResults.length - 1].t).toISOString().split('T')[0];
-            const orderLabel = keepDesc ? 'DESC (newest first)' : 'ASC (oldest first)';
-            console.log(` Data range (${orderLabel}): ${firstPoint} to ${lastPoint}`);
         }
 
         // Create response with limited, properly ordered data
@@ -238,9 +217,6 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(finalResponse);
 
     } catch (error) {
-        console.error(' Historical data API error:', error);
-
-        // Handle specific error types
         let errorMessage = 'Failed to fetch historical data';
         let statusCode = 500;
 

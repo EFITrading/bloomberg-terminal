@@ -8,7 +8,6 @@ import PolygonService from '../../lib/polygonService'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import AlmanacDailyChart from './AlmanacDailyChart'
 import HorizontalMonthlyReturns from './HorizontalMonthlyReturns'
-import SeasonaxControls from './SeasonaxControls'
 import SeasonaxMainChart from './SeasonaxMainChart'
 import SeasonaxStatistics from './SeasonaxStatistics'
 import SeasonaxSymbolSearch from './SeasonaxSymbolSearch'
@@ -109,11 +108,14 @@ interface SeasonalityChartProps {
   onClose?: () => void
   hideControls?: boolean
   hideScreener?: boolean
+  hideMonthlyReturns?: boolean
   onSymbolChange?: (symbol: string) => void
   externalElectionMode?: string
   externalYears?: number
   onSweetSpotClick?: () => void
   onPainPointClick?: () => void
+  externalSweetSpot?: boolean
+  externalPainPoint?: boolean
   onMonthlyDataLoaded?: (
     monthlyData: Array<{ month: string; outperformance: number }>,
     best30Day?: any,
@@ -130,11 +132,14 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   onClose,
   hideControls = false,
   hideScreener = false,
+  hideMonthlyReturns = false,
   onSymbolChange,
   externalElectionMode,
   externalYears,
   onSweetSpotClick: externalSweetSpotClick,
   onPainPointClick: externalPainPointClick,
+  externalSweetSpot = false,
+  externalPainPoint = false,
   onMonthlyDataLoaded,
   chartHeight = 650,
   externalSelectedEvent,
@@ -157,6 +162,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     endDay: number
     period: string
   } | null>(null)
+  // Pre-search toggle state — applied automatically after data loads
+  const [sweetSpotActive, setSweetSpotActive] = useState<boolean>(externalSweetSpot)
+  const [painPointActive, setPainPointActive] = useState<boolean>(externalPainPoint)
   const [notepadText, setNotepadText] = useState<string>('')
   const [savedNote, setSavedNote] = useState<string>('')
   const [isEditingNote, setIsEditingNote] = useState<boolean>(false)
@@ -166,12 +174,165 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null)
   const [selectedMonthName, setSelectedMonthName] = useState<string>('')
   const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]) // Dynamic based on actual data
+  const [showCurrentYearLine, setShowCurrentYearLine] = useState<boolean>(false)
+  const [currentYearMode, setCurrentYearMode] = useState<'off' | 'raw' | 'benchmarked'>('off')
 
   // Compare functionality state
   const [isCompareMode, setIsCompareMode] = useState<boolean>(false)
   const [compareSymbol, setCompareSymbol] = useState<string>('')
   const [compareSeasonalData, setCompareSeasonalData] = useState<SeasonalAnalysis | null>(null)
   const [compareElectionData, setCompareElectionData] = useState<ElectionCycleData | null>(null)
+
+  // ── Trend sync: how well does the seasonal avg match current-year price action ──
+  const trendSync = useMemo(() => {
+    const data = isElectionMode ? electionData : seasonalData
+    if (!data?.dailyData?.length) return null
+
+    const currentYear = new Date().getFullYear()
+    const today = new Date()
+    const startOfYear = new Date(currentYear, 0, 1)
+    const currentDayOfYear =
+      Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+    const pairs: Array<{ avg: number; actual: number }> = []
+    for (const dayData of data.dailyData) {
+      if (dayData.dayOfYear > currentDayOfYear) break
+      const actualReturn = dayData.yearlyReturns[currentYear]
+      if (actualReturn !== undefined) {
+        pairs.push({ avg: dayData.avgReturn, actual: actualReturn })
+      }
+    }
+    if (pairs.length < 10) return null
+
+    // Sliding 10-day window directional agreement
+    const windowSize = 10
+    let agreements = 0
+    let total = 0
+    for (let i = windowSize; i <= pairs.length; i++) {
+      const slice = pairs.slice(i - windowSize, i)
+      const avgDir = slice.reduce((s, p) => s + p.avg, 0) >= 0
+      const actualDir = slice.reduce((s, p) => s + p.actual, 0) >= 0
+      if (avgDir === actualDir) agreements++
+      total++
+    }
+
+    const score = total > 0 ? Math.round((agreements / total) * 100) : 0
+    if (score >= 65) return { score, label: 'FOLLOWING', color: '#00FF88' }
+    if (score >= 45) return { score, label: 'MIXED', color: '#FFD700' }
+    return { score, label: 'DIVERGING', color: '#FF4444' }
+  }, [seasonalData, electionData, isElectionMode])
+
+  // ── Contextual insight derived from price action + correlation ──
+  const trendInsight = useMemo(() => {
+    if (!trendSync) return null
+    const data = isElectionMode ? electionData : seasonalData
+    if (!data?.dailyData?.length) return null
+
+    const currentYear = new Date().getFullYear()
+    const today = new Date()
+    const startOfYear = new Date(currentYear, 0, 1)
+    const currentDayOfYear = Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+    // Build current year daily cumulative from yearlyReturns
+    const sorted = [...data.dailyData].sort((a, b) => a.dayOfYear - b.dayOfYear)
+    let cumulative = 0
+    const cyPoints: number[] = []
+    for (const d of sorted) {
+      if (d.dayOfYear > currentDayOfYear) break
+      const r = d.yearlyReturns[currentYear]
+      if (r !== undefined) { cumulative += r; cyPoints.push(cumulative) }
+    }
+    if (cyPoints.length < 10) return null
+
+    const lastVal = cyPoints[cyPoints.length - 1]
+    // All historical year-end cumulative values
+    const allYears = Object.keys(data.patternReturns).map(Number)
+    const allFinals: number[] = []
+    for (const yr of allYears) {
+      let cum = 0
+      for (const d of sorted) { const r = d.yearlyReturns[yr]; if (r !== undefined) cum += r }
+      if (cum !== 0) allFinals.push(cum)
+    }
+    const yearMax = allFinals.length ? Math.max(...allFinals) : null
+    const yearMin = allFinals.length ? Math.min(...allFinals) : null
+
+    // 1-month accumulation: check if last 20 data points are net positive (building up)
+    const last20 = cyPoints.slice(-20)
+    const isAccumulating = last20.length >= 10 && last20[last20.length - 1] > last20[0]
+
+    // 52-week proxy: is current trajectory near multi-year highs or lows?
+    const nearHigh = yearMax !== null && lastVal >= yearMax * 0.85
+    const nearLow = yearMin !== null && lastVal <= yearMin * 0.85
+
+    if (trendSync.score >= 80) return 'Legacy Seasonal Trend'
+    if (trendSync.score <= 40) return 'Beats a Coin Toss'
+    if (nearHigh) return 'Bearish Trends Less Aggressive'
+    if (nearLow) return 'Bullish Trends Less Strong'
+    if (isAccumulating) return 'Trend Expected Strong'
+    return null
+  }, [trendSync, seasonalData, electionData, isElectionMode])
+
+  // ── Current-year cumulative series (SPY-relative, from seasonal data) ──
+  const currentYearBenchmarkedSeries = useMemo(() => {
+    const data = isElectionMode ? electionData : seasonalData
+    if (!data?.dailyData?.length) return null
+
+    const currentYear = new Date().getFullYear()
+    const today = new Date()
+    const startOfYear = new Date(currentYear, 0, 1)
+    const currentDayOfYear =
+      Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+    const result: Array<{ dayOfYear: number; cumulativeReturn: number }> = []
+    let cumulative = 0
+    const sorted = [...data.dailyData].sort((a, b) => a.dayOfYear - b.dayOfYear)
+    for (const dayData of sorted) {
+      if (dayData.dayOfYear > currentDayOfYear) break
+      const actualReturn = dayData.yearlyReturns[currentYear]
+      if (actualReturn !== undefined) {
+        cumulative += actualReturn
+        result.push({ dayOfYear: dayData.dayOfYear, cumulativeReturn: cumulative })
+      }
+    }
+    return result.length >= 5 ? result : null
+  }, [seasonalData, electionData, isElectionMode])
+
+  // ── Raw current-year series (absolute price performance, fetched fresh) ──
+  const [currentYearRawSeries, setCurrentYearRawSeries] = useState<Array<{ dayOfYear: number; cumulativeReturn: number }> | null>(null)
+
+  useEffect(() => {
+    if (currentYearMode !== 'raw' || !selectedSymbol) {
+      setCurrentYearRawSeries(null)
+      return
+    }
+    const currentYear = new Date().getFullYear()
+    const today = new Date().toISOString().split('T')[0]
+    polygonService.getHistoricalData(selectedSymbol, `${currentYear}-01-01`, today, 'day', 1)
+      .then(resp => {
+        if (!resp?.results?.length) { setCurrentYearRawSeries(null); return }
+        const results = resp.results
+        const startOfYear = new Date(currentYear, 0, 1)
+        const series: Array<{ dayOfYear: number; cumulativeReturn: number }> = []
+        let cumulative = 0
+        for (let i = 1; i < results.length; i++) {
+          const date = new Date(results[i].t)
+          const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1
+          const dailyReturn = ((results[i].c - results[i - 1].c) / results[i - 1].c) * 100
+          cumulative += dailyReturn
+          series.push({ dayOfYear, cumulativeReturn: cumulative })
+        }
+        setCurrentYearRawSeries(series.length >= 5 ? series : null)
+      })
+      .catch(() => setCurrentYearRawSeries(null))
+  }, [currentYearMode, selectedSymbol])
+
+  const currentYearDisplaySeries =
+    currentYearMode === 'benchmarked' ? currentYearBenchmarkedSeries
+      : currentYearMode === 'raw' ? currentYearRawSeries
+        : null
+
+  // keep legacy alias so trendSync badge area compiles
+  const currentYearSeries = currentYearBenchmarkedSeries
 
   const [chartSettings, setChartSettings] = useState<ChartSettings>({
     startDate: '11 Oct',
@@ -472,10 +633,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       const actualYearsUsed =
         filteredData && filteredData.length > 0
           ? Math.ceil(
-              (new Date(filteredData[filteredData.length - 1].t).getTime() -
-                new Date(filteredData[0].t).getTime()) /
-                (365.25 * 24 * 60 * 60 * 1000)
-            )
+            (new Date(filteredData[filteredData.length - 1].t).getTime() -
+              new Date(filteredData[0].t).getTime()) /
+            (365.25 * 24 * 60 * 60 * 1000)
+          )
           : yearsOverride || 20
 
       // Process data into daily seasonal format with or without SPY comparison
@@ -488,7 +649,16 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       )
 
       setSeasonalData(processedData)
-      // console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
+
+      // Auto-apply pre-selected sweet spot / pain point
+      if (sweetSpotActive && processedData.dailyData?.length) {
+        const { bestSweetSpot } = analyzeLongTermPatterns(processedData.dailyData)
+        setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
+      }
+      if (painPointActive && processedData.dailyData?.length) {
+        const { worstPainPoint } = analyzeLongTermPatterns(processedData.dailyData)
+        setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data'
       setError(errorMessage)
@@ -981,47 +1151,41 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handleSweetSpotClick = () => {
-    if (!seasonalData?.dailyData) return
+    if (!seasonalData?.dailyData) {
+      // Toggle pre-selection if no data loaded yet
+      setSweetSpotActive((prev) => !prev)
+      if (painPointActive) setPainPointActive(false)
+      return
+    }
 
     // Toggle: if already showing sweet spot, clear it
     if (sweetSpotPeriod) {
-      console.log('Clearing Sweet Spot')
       setSweetSpotPeriod(null)
+      setSweetSpotActive(false)
       return
     }
 
-    console.log('Analyzing Sweet Spot periods...')
     const { bestSweetSpot } = analyzeLongTermPatterns(seasonalData.dailyData)
-
-    setSweetSpotPeriod({
-      startDay: bestSweetSpot.startDay,
-      endDay: bestSweetSpot.endDay,
-      period: bestSweetSpot.period,
-    })
-
-    console.log('Sweet Spot found:', bestSweetSpot)
+    setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
+    setSweetSpotActive(true)
   }
 
   const handlePainPointClick = () => {
-    if (!seasonalData?.dailyData) return
-
-    // Toggle: if already showing pain point, clear it
-    if (painPointPeriod) {
-      console.log('Clearing Pain Point')
-      setPainPointPeriod(null)
+    if (!seasonalData?.dailyData) {
+      setPainPointActive((prev) => !prev)
+      if (sweetSpotActive) setSweetSpotActive(false)
       return
     }
 
-    console.log('Analyzing Pain Point periods...')
+    if (painPointPeriod) {
+      setPainPointPeriod(null)
+      setPainPointActive(false)
+      return
+    }
+
     const { worstPainPoint } = analyzeLongTermPatterns(seasonalData.dailyData)
-
-    setPainPointPeriod({
-      startDay: worstPainPoint.startDay,
-      endDay: worstPainPoint.endDay,
-      period: worstPainPoint.period,
-    })
-
-    console.log('Pain Point found:', worstPainPoint)
+    setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+    setPainPointActive(true)
   }
 
   const handleSettingsChange = (newSettings: Partial<ChartSettings>) => {
@@ -1035,10 +1199,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           loadElectionCycleAnalysis(
             selectedSymbol,
             selectedElectionPeriod as
-              | 'Election Year'
-              | 'Post-Election'
-              | 'Mid-Term'
-              | 'Pre-Election',
+            | 'Election Year'
+            | 'Post-Election'
+            | 'Mid-Term'
+            | 'Pre-Election',
             newSettings.yearsOfData
           )
         } else {
@@ -1458,13 +1622,23 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             left: '20px',
           }}
         >
-          {/* Group 1: Search + Compare */}
+          {/* Group 1: Search + all inline controls */}
           <div className="header-group search-compare-group">
             <SeasonaxSymbolSearch
               onSymbolSelect={handleSymbolChange}
               initialSymbol={selectedSymbol}
               onElectionPeriodSelect={handleElectionPeriodSelect}
               onElectionModeToggle={handleElectionModeToggle}
+              selectedElectionPeriod={displayElectionPeriod}
+              availableYears={availableYears}
+              currentYears={chartSettings.yearsOfData}
+              onYearsChange={(years) => handleSettingsChange({ yearsOfData: years })}
+              sweetSpotActive={sweetSpotActive}
+              painPointActive={painPointActive}
+              onSweetSpotToggle={handleSweetSpotClick}
+              onPainPointToggle={handlePainPointClick}
+              currentYearMode={currentYearMode}
+              onCurrentYearModeChange={setCurrentYearMode}
               isCompareMode={isCompareMode}
               compareSymbol={compareSymbol}
               onCompareClick={handleCompareClick}
@@ -1473,48 +1647,25 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             />
           </div>
 
-          {/* Election and Year Selector without wrapping box */}
-          <SeasonaxControls
-            settings={{ ...chartSettings, smoothing: true, detrend: true, showCurrentDate: true }}
-            onSettingsChange={handleSettingsChange}
-            onRefresh={handleRefresh}
-            hideToggleButtons={true}
-            selectedElectionPeriod={displayElectionPeriod}
-            onElectionPeriodSelect={handleElectionPeriodSelect}
-            isElectionMode={isElectionMode}
-            onElectionModeToggle={handleElectionModeToggle}
-            hideCompareButton={true}
-            showOnlyElectionAndYear={true}
-            availableYears={availableYears}
-          />
-
-          <div className="sweet-pain-buttons">
-            <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>
-              Sweet Spot
-            </button>
-            <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>
-              Pain Point
-            </button>
-          </div>
-          {(isElectionMode
+          {!hideMonthlyReturns && (isElectionMode
             ? electionData?.spyComparison?.monthlyData
             : seasonalData?.spyComparison?.monthlyData) && (
-            <HorizontalMonthlyReturns
-              monthlyData={
-                isElectionMode
-                  ? electionData!.spyComparison!.monthlyData
-                  : seasonalData!.spyComparison!.monthlyData
-              }
-              best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
-              worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
-              onMonthClick={handleMonthClick}
-            />
-          )}
+              <HorizontalMonthlyReturns
+                monthlyData={
+                  isElectionMode
+                    ? electionData!.spyComparison!.monthlyData
+                    : seasonalData!.spyComparison!.monthlyData
+                }
+                best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
+                worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+                onMonthClick={handleMonthClick}
+              />
+            )}
         </div>
       )}
 
       {/* Show only monthly returns when hideControls is true */}
-      {hideControls &&
+      {hideControls && !hideMonthlyReturns &&
         (isElectionMode
           ? electionData?.spyComparison?.monthlyData
           : seasonalData?.spyComparison?.monthlyData) && (
@@ -1548,10 +1699,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                     loadElectionCycleAnalysis(
                       selectedSymbol,
                       selectedElectionPeriod as
-                        | 'Election Year'
-                        | 'Post-Election'
-                        | 'Mid-Term'
-                        | 'Pre-Election'
+                      | 'Election Year'
+                      | 'Post-Election'
+                      | 'Mid-Term'
+                      | 'Pre-Election'
                     )
                   } else {
                     loadSeasonalAnalysis(selectedSymbol)
@@ -1624,12 +1775,60 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         : null
                     }
                     compareSymbol={isCompareMode ? compareSymbol : null}
+                    currentYearSeries={currentYearDisplaySeries}
                   />
+                  {/* Trend Sync badge — top center, correlation display */}
+                  {trendSync && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '8px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 10,
+                        userSelect: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0',
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
+                        border: `1px solid ${trendSync.color + '66'}`,
+                        borderRadius: '6px',
+                        boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        fontFamily: "'Courier New', monospace",
+                      }}
+                    >
+                      {/* Score side */}
+                      <div style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        fontWeight: '900',
+                        color: trendSync.color,
+                        letterSpacing: '1px',
+                        textShadow: `0 0 10px ${trendSync.color}88`,
+                        borderRight: `1px solid ${trendSync.color}44`,
+                      }}>
+                        {trendSync.score}% Correlation
+                      </div>
+                      {/* Insight side */}
+                      <div style={{
+                        padding: '4px 12px',
+                        fontSize: '9px',
+                        fontWeight: '700',
+                        color: 'rgba(255,255,255,0.75)',
+                        letterSpacing: '0.8px',
+                        textTransform: 'uppercase',
+                      }}>
+                        {trendInsight}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Monthly Analysis Chart below seasonal chart */}
-              {memoizedMonthlyChart}
+              {!hideMonthlyReturns && memoizedMonthlyChart}
             </div>
 
             {/* Right column: Screener */}

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 
@@ -691,6 +691,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [filterType, setFilterType] = useState<string>('all')
 
   const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put'])
+  const [selectedOrderSides, setSelectedOrderSides] = useState<string[]>([])
 
   const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>(
     typeof window !== 'undefined' && window.innerWidth < 768 ? ['50000'] : []
@@ -710,7 +711,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [expirationEndDate, setExpirationEndDate] = useState<string>('')
 
-  const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(['', '', '', '', ''])
+  const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(() => {
+    const empty10 = ['', '', '', '', '', '', '', '', '', '']
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('optionsflow_blacklist')
+        if (saved) {
+          const parsed: string[] = JSON.parse(saved)
+          // Pad to 10 slots if fewer were saved
+          while (parsed.length < 10) parsed.push('')
+          return parsed
+        }
+      } catch { }
+    }
+    return empty10
+  })
 
   const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('')
 
@@ -796,6 +811,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   >(new Map())
 
   const [historicalStdDevs, setHistoricalStdDevs] = useState<Map<string, number>>(new Map())
+  const [stdDevFailed, setStdDevFailed] = useState<Set<string>>(new Set())
 
   const [relativeStrengthData, setRelativeStrengthData] = useState<Map<string, number>>(new Map()) // ticker -> RS value
 
@@ -881,6 +897,22 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
+  // Persist blacklisted tickers to localStorage
+  useEffect(() => {
+    localStorage.setItem('optionsflow_blacklist', JSON.stringify(blacklistedTickers))
+  }, [blacklistedTickers])
+
+  // Ensure blacklist always has 10 slots (migrate old 5-slot saves)
+  useEffect(() => {
+    if (blacklistedTickers.length < 10) {
+      setBlacklistedTickers((prev) => {
+        const padded = [...prev]
+        while (padded.length < 10) padded.push('')
+        return padded
+      })
+    }
+  }, [])
+
   // Ensure component is mounted on client side to avoid hydration issues
 
   useEffect(() => {
@@ -911,10 +943,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 const ranges = await fetchHistoricalRanges(ticker)
 
                 setHistoricalRanges((prev) => new Map(prev).set(ticker, ranges))
-
-                // Set default std dev (client-side estimate - server calculates precise value)
-
-                setHistoricalStdDevs((prev) => new Map(prev).set(ticker, 2.5))
               } catch (error) {
                 console.error(`Failed to fetch ranges for ${ticker}:`, error)
               } finally {
@@ -1107,6 +1135,46 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
   }, [data.length]) // Only re-setup when data length changes, not content
 
+  // Fetch real 30-day stdDevs for all visible tickers (Price Action grading)
+  useEffect(() => {
+    if (!data || data.length === 0) return
+    const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
+    const missing = tickers.filter((t) => !historicalStdDevs.has(t))
+    if (missing.length === 0) return
+    const STDDEV_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    missing.forEach(async (ticker, idx) => {
+      await new Promise((r) => setTimeout(r, idx * 100))
+      try {
+        const end = new Date().toISOString().split('T')[0]
+        const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+        const res = await fetch(
+          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${STDDEV_API_KEY}`,
+          { signal: AbortSignal.timeout(8000) }
+        )
+        if (res.ok) {
+          const json = await res.json()
+          if (json.results && json.results.length > 1) {
+            const returns: number[] = []
+            for (let i = 1; i < json.results.length; i++) {
+              const prev = json.results[i - 1].c
+              const curr = json.results[i].c
+              returns.push(((curr - prev) / prev) * 100)
+            }
+            const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+            const variance = returns.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / returns.length
+            setHistoricalStdDevs((prev) => new Map(prev).set(ticker, Math.sqrt(variance)))
+          } else {
+            setStdDevFailed((prev) => new Set(prev).add(ticker))
+          }
+        } else {
+          setStdDevFailed((prev) => new Set(prev).add(ticker))
+        }
+      } catch {
+        setStdDevFailed((prev) => new Set(prev).add(ticker))
+      }
+    })
+  }, [data.length])
+
   // Fetch historical ranges when EFI Highlights is active
 
   useEffect(() => {
@@ -1179,14 +1247,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       if (rangesMap.size > 0) {
         setHistoricalRanges((prev) => new Map([...prev, ...rangesMap]))
-
-        // Set default std devs for all fetched tickers
-
-        const stdDevsMap = new Map<string, number>()
-
-        rangesMap.forEach((_, ticker) => stdDevsMap.set(ticker, 2.5))
-
-        setHistoricalStdDevs((prev) => new Map([...prev, ...stdDevsMap]))
       }
     }
 
@@ -1777,6 +1837,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     breakdown: string
 
+    stdDevError: boolean
+
     scores: {
       expiration: number
 
@@ -1848,6 +1910,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         color: '#9ca3af',
 
         breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/10\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/15`,
+
+        stdDevError: stdDevFailed.has(trade.underlying_ticker),
 
         scores,
       }
@@ -2039,7 +2103,9 @@ Price Action: ${scores.priceAction}/25
 
 Stock Reaction: ${scores.stockReaction}/15`
 
-    return { grade, score: confidenceScore, color: scoreColor, breakdown, scores }
+    const stdDevError = stdDevFailed.has(trade.underlying_ticker)
+
+    return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
   // EFI Highlights criteria checker
@@ -2335,6 +2401,10 @@ Stock Reaction: ${scores.stockReaction}/15`
       originalStockPrice: trade.spot_price,
 
       classification: gradeResult.grade,
+
+      frozenComboScore: gradeResult.scores.combo,
+
+      frozenRsScore: gradeResult.scores.relativeStrength,
     }
 
     const newTrackedFlows = [...trackedFlows, flowToTrack]
@@ -2352,35 +2422,6 @@ Stock Reaction: ${scores.stockReaction}/15`
     fetchStockChartDataForFlow(flowId, trade.underlying_ticker, '1D')
 
     fetchOptionPremiumDataForFlow(flowId, trade, '1D')
-
-    // Fetch historical range data for grading
-
-    if (
-      !historicalRanges.has(trade.underlying_ticker) &&
-      !historicalDataLoading.has(trade.underlying_ticker)
-    ) {
-      setHistoricalDataLoading((prev) => new Set(prev).add(trade.underlying_ticker))
-
-      try {
-        const ranges = await fetchHistoricalRanges(trade.underlying_ticker)
-
-        setHistoricalRanges((prev) => new Map(prev).set(trade.underlying_ticker, ranges))
-
-        // Set default std dev
-
-        setHistoricalStdDevs((prev) => new Map(prev).set(trade.underlying_ticker, 2.5))
-      } catch (error) {
-        console.error(`Failed to fetch ranges for ${trade.underlying_ticker}:`, error)
-      } finally {
-        setHistoricalDataLoading((prev) => {
-          const newSet = new Set(prev)
-
-          newSet.delete(trade.underlying_ticker)
-
-          return newSet
-        })
-      }
-    }
   }
 
   const removeFromFlowTracking = (trade: OptionsFlowData) => {
@@ -2721,6 +2762,18 @@ Stock Reaction: ${scores.stockReaction}/15`
       filtered = filtered.filter((trade) => selectedOptionTypes.includes(trade.type))
     }
 
+    // Order side filter (Buy = A/AA, Sell = B/BB)
+
+    if (selectedOrderSides.length > 0 && selectedOrderSides.length < 2) {
+      filtered = filtered.filter((trade) => {
+        const fs = (trade.fill_style || '').toUpperCase()
+        if (selectedOrderSides.includes('buy') && selectedOrderSides.includes('sell')) return true
+        if (selectedOrderSides.includes('buy')) return fs === 'A' || fs === 'AA'
+        if (selectedOrderSides.includes('sell')) return fs === 'B' || fs === 'BB'
+        return true
+      })
+    }
+
     // Premium filters (checkbox + custom range)
 
     if (selectedPremiumFilters.length > 0 || customMinPremium || customMaxPremium) {
@@ -2975,6 +3028,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     expirationEndDate,
     selectedTickerFilter,
     blacklistedTickers,
+    selectedOrderSides,
     tradesWithFillStyles,
     efiHighlightsActive,
     quickFilters,
@@ -3083,7 +3137,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             [key]: { golden, purple, atmIV, goldenExpiry, purpleExpiry },
           }))
         })
-        .catch(() => {})
+        .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paginatedData, notableFilterActive, efiHighlightsActive])
@@ -3103,6 +3157,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     expirationEndDate,
     selectedTickerFilter,
     blacklistedTickers,
+    selectedOrderSides,
   ])
 
   // Fetch current option prices when EFI Highlights is ON
@@ -3223,7 +3278,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   const formatTime = (timestamp: string) => {
-    // Show execution time in 12-hour format with AM/PM (ET timezone)
+    // Show execution time in 12-hour format with AM/PM (PST)
 
     const date = new Date(timestamp)
 
@@ -3320,10 +3375,20 @@ Stock Reaction: ${scores.stockReaction}/15`
           {/* Modal Content */}
 
           <div
-            className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 bg-black border border-gray-600 rounded-lg md:rounded-lg p-4 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
+            className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
               top: typeof window !== 'undefined' && window.innerWidth < 768 ? '180px' : '224px',
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+              background: typeof window !== 'undefined' && window.innerWidth < 768
+                ? '#000000'
+                : '#000',
+              border: typeof window !== 'undefined' && window.innerWidth < 768
+                ? '1px solid rgba(255,255,255,0.1)'
+                : '1px solid #4b5563',
+              borderRadius: typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '8px',
+              padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '16px',
+              boxShadow: typeof window !== 'undefined' && window.innerWidth < 768
+                ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
+                : '0 4px 16px rgba(0,0,0,0.5)',
             }}
           >
             <div className="filter-dialog-content">
@@ -3341,1360 +3406,395 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </span>
 
                   <span
-                    className="inline md:hidden text-3xl"
+                    className="inline md:hidden"
                     style={{
-                      fontFamily: 'Georgia, serif',
-
-                      background: 'linear-gradient(145deg, #ff8c00 0%, #ffd700 50%, #ff8c00 100%)',
-
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      fontSize: '18px',
+                      fontWeight: 800,
+                      letterSpacing: '3px',
+                      textTransform: 'uppercase',
+                      background: 'linear-gradient(90deg, #ffffff 0%, #d1d5db 100%)',
                       WebkitBackgroundClip: 'text',
-
                       WebkitTextFillColor: 'transparent',
-
                       backgroundClip: 'text',
-
-                      filter:
-                        'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 10px rgba(255, 140, 0, 0.4))',
-
-                      fontWeight: '900',
-
-                      letterSpacing: '0.05em',
+                      fontStyle: 'normal',
                     }}
                   >
-                    Flow Filters
+                    FLOW FILTERS
                   </span>
                 </h2>
 
                 <button
                   onClick={() => setIsFilterDialogOpen(false)}
-                  className="absolute right-0 text-gray-400 hover:text-white text-2xl font-bold"
+                  className="absolute right-0 font-bold"
+                  style={{ color: '#ffffff', fontSize: '22px', lineHeight: 1, padding: '2px 6px', background: '#111', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)' }}
                 >
                   ×
                 </button>
               </div>
 
-              {/* Mobile: Compact Single Panel Layout */}
+              {/* Mobile: Premium Redesigned Layout */}
 
               {isMobileView && (
-                <div className="space-y-4">
-                  {/* Options & Trade Type Row */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div
-                      className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                        boxShadow:
-                          'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                  {/* ── OPTIONS + TYPE ── */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
 
-                      <h3 className="text-2xl font-bold text-orange-400 mb-2 text-center relative z-10">
-                        Options
-                      </h3>
-
-                      <div className="space-y-2 relative z-10">
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedOptionTypes.includes('call')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOptionTypes((prev) => [...prev, 'call'])
-                              } else {
-                                setSelectedOptionTypes((prev) =>
-                                  prev.filter((type) => type !== 'call')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-green-400 font-semibold">Calls</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedOptionTypes.includes('put')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOptionTypes((prev) => [...prev, 'put'])
-                              } else {
-                                setSelectedOptionTypes((prev) =>
-                                  prev.filter((type) => type !== 'put')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-red-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-red-400 font-semibold">Puts</span>
-                        </label>
+                    {/* OPTIONS */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #ef4444)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {[{ label: 'CALLS', value: 'call', color: '#10b981', glow: 'rgba(16,185,129,0.25)' }, { label: 'PUTS', value: 'put', color: '#ef4444', glow: 'rgba(239,68,68,0.25)' }].map(({ label, value, color, glow }) => {
+                          const active = selectedOptionTypes.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedOptionTypes(prev => active ? prev.filter(t => t !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '9px 8px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
+                              <span style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
+                        <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                          {[{ label: 'BUY', value: 'buy', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' }, { label: 'SELL', value: 'sell', color: '#f97316', glow: 'rgba(249,115,22,0.25)' }].map(({ label, value, color, glow }) => {
+                            const active = selectedOrderSides.includes(value)
+                            return (
+                              <button key={value} onClick={() => setSelectedOrderSides(prev => active ? prev.filter(s => s !== value) : [...prev, value])}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '8px 8px', marginBottom: '6px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                                <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
+                                <span style={{ fontSize: '14px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
                     </div>
 
-                    <div
-                      className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                        boxShadow:
-                          'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                      <h3 className="text-2xl font-bold text-yellow-400 mb-2 text-center relative z-10">
-                        Type
-                      </h3>
-
-                      <div className="space-y-2 relative z-10">
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('block')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'block'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'block')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-500 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-blue-400 font-semibold">Block</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('sweep')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'sweep'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'sweep')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-yellow-500 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-yellow-400 font-semibold">Sweep</span>
-                        </label>
+                    {/* TYPE */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #6366f1, #f59e0b)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Type</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {[{ label: 'BLOCK', value: 'block', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' }, { label: 'SWEEP', value: 'sweep', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' }].map(({ label, value, color, glow }) => {
+                          const active = selectedUniqueFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '9px 8px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
+                              <span style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  {/* Premium Filters */}
-
-                  <div
-                    className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                    style={{
-                      background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                      boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                    <h3 className="text-2xl font-bold text-green-400 mb-2 text-center relative z-10">
-                      Premium
-                    </h3>
-
-                    <div className="grid grid-cols-2 gap-2 relative z-10">
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedPremiumFilters.includes('50000')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPremiumFilters((prev) => [...prev, '50000'])
-                            } else {
-                              setSelectedPremiumFilters((prev) =>
-                                prev.filter((filter) => filter !== '50000')
-                              )
-                            }
-                          }}
-                          className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
-                        />
-
-                        <span className="ml-2 text-lg text-white font-semibold">≥ $50K</span>
-                      </label>
-
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedPremiumFilters.includes('99000')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPremiumFilters((prev) => [...prev, '99000'])
-                            } else {
-                              setSelectedPremiumFilters((prev) =>
-                                prev.filter((filter) => filter !== '99000')
-                              )
-                            }
-                          }}
-                          className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
-                        />
-
-                        <span className="ml-2 text-lg text-white font-semibold">≥ $99K</span>
-                      </label>
-
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedPremiumFilters.includes('200000')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPremiumFilters((prev) => [...prev, '200000'])
-                            } else {
-                              setSelectedPremiumFilters((prev) =>
-                                prev.filter((filter) => filter !== '200000')
-                              )
-                            }
-                          }}
-                          className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
-                        />
-
-                        <span className="ml-2 text-lg text-white font-semibold">≥ $200K</span>
-                      </label>
-
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedPremiumFilters.includes('1000000')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPremiumFilters((prev) => [...prev, '1000000'])
-                            } else {
-                              setSelectedPremiumFilters((prev) =>
-                                prev.filter((filter) => filter !== '1000000')
-                              )
-                            }
-                          }}
-                          className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
-                        />
-
-                        <span className="ml-2 text-lg text-white font-semibold">≥ $1M</span>
-                      </label>
+                  {/* ── PREMIUM ── */}
+                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #059669)' }} />
+                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Premium</span>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-700">
-                      <div>
-                        <input
-                          type="number"
-                          value={customMinPremium}
-                          onChange={(e) => setCustomMinPremium(e.target.value)}
-                          placeholder="Min $"
-                          className="w-full px-2 py-1 text-lg bg-black text-white border border-orange-500/50 rounded"
-                        />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '10px' }}>
+                      {[{ label: '≥ $50K', value: '50000' }, { label: '≥ $99K', value: '99000' }, { label: '≥ $200K', value: '200000' }, { label: '≥ $1M', value: '1000000' }].map(({ label, value }) => {
+                        const active = selectedPremiumFilters.includes(value)
+                        return (
+                          <button key={value} onClick={() => setSelectedPremiumFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                            style={{ padding: '9px 6px', borderRadius: '8px', border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.06)'}`, background: active ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '16px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#10b981' : '#ffffff' }}>
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MIN</span>
+                        <input type="number" value={customMinPremium} onChange={(e) => setCustomMinPremium(e.target.value)} placeholder="$0" style={{ width: '100%', paddingLeft: '38px', paddingRight: '8px', paddingTop: '9px', paddingBottom: '9px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '16px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
-
-                      <div>
-                        <input
-                          type="number"
-                          value={customMaxPremium}
-                          onChange={(e) => setCustomMaxPremium(e.target.value)}
-                          placeholder="Max $"
-                          className="w-full px-2 py-1 text-lg bg-black text-white border border-orange-500/50 rounded"
-                        />
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MAX</span>
+                        <input type="number" value={customMaxPremium} onChange={(e) => setCustomMaxPremium(e.target.value)} placeholder="$∞" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '9px', paddingBottom: '9px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '16px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
                     </div>
                   </div>
 
-                  {/* Ticker & Special Filters */}
+                  {/* ── TICKER + SPECIAL ── */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div
-                      className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                        boxShadow:
-                          'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                      <h3 className="text-2xl font-bold text-blue-400 mb-2 text-center relative z-10">
-                        Ticker
-                      </h3>
-
-                      <div className="space-y-2 relative z-10">
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('ETF_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'ETF_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'ETF_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">ETF</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('STOCK_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'STOCK_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'STOCK_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">Stock</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('MAG7_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'MAG7_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'MAG7_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">Mag 7</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('EXCLUDE_MAG7')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'EXCLUDE_MAG7'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'EXCLUDE_MAG7')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">No Mag 7</span>
-                        </label>
+                    {/* TICKER */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Ticker</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {[{ label: 'ETF', value: 'ETF_ONLY' }, { label: 'STOCK', value: 'STOCK_ONLY' }, { label: 'MAG 7', value: 'MAG7_ONLY' }, { label: 'NO MAG7', value: 'EXCLUDE_MAG7' }].map(({ label, value }) => {
+                          const active = selectedTickerFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedTickerFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 8px', borderRadius: '7px', border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.05)'}`, background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? '#3b82f6' : '#374151', boxShadow: active ? '0 0 5px #3b82f6' : 'none', flexShrink: 0 }} />
+                              <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? '#93c5fd' : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
 
-                    <div
-                      className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                        boxShadow:
-                          'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                      <h3 className="text-2xl font-bold text-cyan-400 mb-2 text-center relative z-10">
-                        Special
-                      </h3>
-
-                      <div className="space-y-2">
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('ITM')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'ITM'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'ITM')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">ITM</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('OTM')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'OTM'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'OTM')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">OTM</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('WEEKLY_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'WEEKLY_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'WEEKLY_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">Weekly</span>
-                        </label>
-
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('MINI_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'MINI_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'MINI_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
-                          />
-
-                          <span className="ml-2 text-lg text-white font-semibold">Mini</span>
-                        </label>
+                    {/* SPECIAL */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #06b6d4, #0891b2)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Special</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {[{ label: 'ITM', value: 'ITM' }, { label: 'OTM', value: 'OTM' }, { label: 'WEEKLY', value: 'WEEKLY_ONLY' }, { label: 'MINI', value: 'MINI_ONLY' }].map(({ label, value }) => {
+                          const active = selectedUniqueFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 8px', borderRadius: '7px', border: `1px solid ${active ? '#06b6d4' : 'rgba(255,255,255,0.05)'}`, background: active ? 'rgba(6,182,212,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(6,182,212,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? '#06b6d4' : '#374151', boxShadow: active ? '0 0 5px #06b6d4' : 'none', flexShrink: 0 }} />
+                              <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? '#67e8f9' : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  {/* Blacklist */}
-
-                  <div
-                    className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                    style={{
-                      background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                      boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                    <h3 className="text-2xl font-bold text-red-400 mb-2 text-center relative z-10">
-                      Blacklist
-                    </h3>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {blacklistedTickers.slice(0, 3).map((ticker, index) => (
-                        <input
-                          key={index}
-                          type="text"
-                          value={ticker}
-                          onChange={(e) => {
-                            const newTickers = [...blacklistedTickers]
-
-                            newTickers[index] = e.target.value.toUpperCase()
-
-                            setBlacklistedTickers(newTickers)
-                          }}
-                          placeholder={`Ticker ${index + 1}`}
-                          className="px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
-                          maxLength={6}
-                        />
+                  {/* ── BLACKLIST ── */}
+                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #ef4444, #b91c1c)' }} />
+                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Blacklist</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                      {blacklistedTickers.slice(0, 10).map((ticker, index) => (
+                        <input key={index} type="text" value={ticker}
+                          onChange={(e) => { const t = [...blacklistedTickers]; t[index] = e.target.value.toUpperCase(); setBlacklistedTickers(t) }}
+                          placeholder={`#${index + 1}`} maxLength={6}
+                          style={{ padding: '9px 6px', textAlign: 'center', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '16px', fontWeight: 800, letterSpacing: '1px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                       ))}
                     </div>
                   </div>
 
-                  {/* Expiration Dates */}
-
-                  <div
-                    className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden"
-                    style={{
-                      background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)',
-                      boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)',
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
-
-                    <h3 className="text-2xl font-bold text-purple-400 mb-2 text-center relative z-10">
-                      Expiration
-                    </h3>
-
-                    <div className="grid grid-cols-2 gap-2">
+                  {/* ── EXPIRATION ── */}
+                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #a855f7, #7c3aed)' }} />
+                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Expiration</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       <div>
-                        <label className="text-base text-white mb-1 block font-semibold">
-                          Start
-                        </label>
-
-                        <input
-                          type="date"
-                          value={expirationStartDate}
-                          onChange={(e) => setExpirationStartDate(e.target.value)}
-                          className="w-full px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
-                        />
+                        <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>Start</span>
+                        <input type="date" value={expirationStartDate} onChange={(e) => setExpirationStartDate(e.target.value)}
+                          style={{ width: '100%', padding: '9px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
-
                       <div>
-                        <label className="text-base text-white mb-1 block font-semibold">End</label>
-
-                        <input
-                          type="date"
-                          value={expirationEndDate}
-                          onChange={(e) => setExpirationEndDate(e.target.value)}
-                          className="w-full px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
-                        />
+                        <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>End</span>
+                        <input type="date" value={expirationEndDate} onChange={(e) => setExpirationEndDate(e.target.value)}
+                          style={{ width: '100%', padding: '9px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
                     </div>
                   </div>
+
                 </div>
               )}
 
-              {/* Desktop: Original Complex Layout */}
+              {/* Desktop: Redesigned Layout */}
 
               {!isMobileView && (
-                <div className="-space-y-2 px-8">
-                  {/* Top Row - Option Type, Value Premium, Ticker Filter */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '0 4px' }}>
 
-                  <div className="flex flex-wrap justify-start items-start gap-3 mx-2">
-                    {/* Option Type */}
+                  {/* Row 1: Options Type | Premium | Ticker Filter */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
 
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-gray-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px' }}
-                      >
-                        <span
-                          style={{
-                            color: '#10b981',
-                            textShadow: '0 0 6px rgba(16, 185, 129, 0.4)',
-                          }}
-                        >
-                          Options
-                        </span>
-
-                        <span
-                          style={{ color: '#ef4444', textShadow: '0 0 6px rgba(239, 68, 68, 0.4)' }}
-                        >
-                          {' '}
-                          Type
-                        </span>
-                      </label>
-
-                      <div className="space-y-3 md:space-y-3 relative z-10">
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedOptionTypes.includes('put')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOptionTypes((prev) => [...prev, 'put'])
-                              } else {
-                                setSelectedOptionTypes((prev) =>
-                                  prev.filter((type) => type !== 'put')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-red-600 bg-black border-orange-500 rounded focus:ring-red-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedOptionTypes.includes('put')
-                                ? 'text-red-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Puts
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedOptionTypes.includes('call')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOptionTypes((prev) => [...prev, 'call'])
-                              } else {
-                                setSelectedOptionTypes((prev) =>
-                                  prev.filter((type) => type !== 'call')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedOptionTypes.includes('call')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Calls
-                          </span>
-                        </label>
-
-                        <label className="flex md:hidden items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('block')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'block'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'block')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-blue-500 bg-black border-orange-500 rounded focus:ring-blue-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('block')
-                                ? 'text-blue-500 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Block
-                          </span>
-                        </label>
-
-                        <label className="flex md:hidden items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('sweep')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'sweep'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'sweep')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-500 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('sweep')
-                                ? 'text-yellow-500 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Sweep
-                          </span>
-                        </label>
+                    {/* OPTIONS TYPE */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #ef4444)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options Type</span>
                       </div>
-                    </div>
-
-                    {/* Value (Premium) */}
-
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-green-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{
-                          fontFamily: 'Georgia, serif',
-                          letterSpacing: '0.3px',
-                          color: '#10b981',
-                          textShadow: '0 0 6px rgba(16, 185, 129, 0.4)',
-                        }}
-                      >
-                        Premium
-                      </label>
-
-                      <div className="space-y-3 relative z-10">
-                        {/* Preset Checkboxes */}
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedPremiumFilters.includes('50000')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPremiumFilters((prev) => [...prev, '50000'])
-                              } else {
-                                setSelectedPremiumFilters((prev) =>
-                                  prev.filter((filter) => filter !== '50000')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedPremiumFilters.includes('50000')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            ≥ $50,000
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedPremiumFilters.includes('99000')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPremiumFilters((prev) => [...prev, '99000'])
-                              } else {
-                                setSelectedPremiumFilters((prev) =>
-                                  prev.filter((filter) => filter !== '99000')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedPremiumFilters.includes('99000')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            ≥ $99,000
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedPremiumFilters.includes('200000')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPremiumFilters((prev) => [...prev, '200000'])
-                              } else {
-                                setSelectedPremiumFilters((prev) =>
-                                  prev.filter((filter) => filter !== '200000')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedPremiumFilters.includes('200000')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            ≥ $200,000
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedPremiumFilters.includes('1000000')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPremiumFilters((prev) => [...prev, '1000000'])
-                              } else {
-                                setSelectedPremiumFilters((prev) =>
-                                  prev.filter((filter) => filter !== '1000000')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedPremiumFilters.includes('1000000')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            ≥ $1M
-                          </span>
-                        </label>
-
-                        {/* Custom Range Inputs */}
-
-                        <div className="border-t border-orange-500 pt-3 mt-3">
-                          <div className="space-y-2">
-                            <div>
-                              <label className="text-2xl md:text-sm text-orange-300 mb-1 block font-medium">
-                                Min ($)
-                              </label>
-
-                              <input
-                                type="number"
-                                value={customMinPremium}
-                                onChange={(e) => setCustomMinPremium(e.target.value)}
-                                placeholder="0"
-                                className="border border-orange-500 rounded px-3 py-2 text-2xl md:text-base bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-2xl md:text-sm text-orange-300 mb-1 block font-medium">
-                                Max ($)
-                              </label>
-
-                              <input
-                                type="number"
-                                value={customMaxPremium}
-                                onChange={(e) => setCustomMaxPremium(e.target.value)}
-                                placeholder="∞"
-                                className="border border-orange-500 rounded px-3 py-2 text-2xl md:text-base bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
-                              />
-                            </div>
-                          </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {[{ label: 'CALLS', value: 'call', color: '#10b981', glow: 'rgba(16,185,129,0.25)' }, { label: 'PUTS', value: 'put', color: '#ef4444', glow: 'rgba(239,68,68,0.25)' }].map(({ label, value, color, glow }) => {
+                          const active = selectedOptionTypes.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedOptionTypes(prev => active ? prev.filter(t => t !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`, background: active ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 14px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
+                              <span style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                        <span style={{ display: 'block', fontSize: '11px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>Order Side</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {[{ label: 'BUY (A/AA)', value: 'buy', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' }, { label: 'SELL (B/BB)', value: 'sell', color: '#f97316', glow: 'rgba(249,115,22,0.25)' }].map(({ label, value, color, glow }) => {
+                            const active = selectedOrderSides.includes(value)
+                            return (
+                              <button key={value} onClick={() => setSelectedOrderSides(prev => active ? prev.filter(s => s !== value) : [...prev, value])}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`, background: active ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 14px ${glow}` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
+                                <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? color : '#ffffff' }}>{label}</span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     </div>
 
-                    {/* Ticker Filter */}
+                    {/* PREMIUM */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #059669)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Premium</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginBottom: '10px' }}>
+                        {[{ label: '≥ $50K', value: '50000' }, { label: '≥ $99K', value: '99000' }, { label: '≥ $200K', value: '200000' }, { label: '≥ $1M', value: '1000000' }].map(({ label, value }) => {
+                          const active = selectedPremiumFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedPremiumFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ padding: '10px 8px', borderRadius: '8px', border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.08)'}`, background: active ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 12px rgba(16,185,129,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '14px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#10b981' : '#ffffff' }}>
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MIN</span>
+                          <input type="number" value={customMinPremium} onChange={(e) => setCustomMinPremium(e.target.value)} placeholder="$0" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '10px', paddingBottom: '10px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MAX</span>
+                          <input type="number" value={customMaxPremium} onChange={(e) => setCustomMaxPremium(e.target.value)} placeholder="$∞" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '10px', paddingBottom: '10px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                    </div>
 
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-blue-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{
-                          fontFamily: 'Georgia, serif',
-                          letterSpacing: '0.3px',
-                          color: '#3b82f6',
-                          textShadow: '0 0 6px rgba(59, 130, 246, 0.4)',
-                        }}
-                      >
-                        Ticker Filter
-                      </label>
-
-                      <div className="space-y-3 relative z-10">
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('ETF_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'ETF_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'ETF_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedTickerFilters.includes('ETF_ONLY')
-                                ? 'text-blue-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            ETF Only
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('STOCK_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'STOCK_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'STOCK_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedTickerFilters.includes('STOCK_ONLY')
-                                ? 'text-blue-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Stock Only
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('MAG7_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'MAG7_ONLY'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'MAG7_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedTickerFilters.includes('MAG7_ONLY')
-                                ? 'text-blue-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Mag 7 Only
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedTickerFilters.includes('EXCLUDE_MAG7')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTickerFilters((prev) => [...prev, 'EXCLUDE_MAG7'])
-                              } else {
-                                setSelectedTickerFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'EXCLUDE_MAG7')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-lg font-medium transition-all duration-200 ${
-                              selectedTickerFilters.includes('EXCLUDE_MAG7')
-                                ? 'text-blue-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Exclude Mag 7
-                          </span>
-                        </label>
+                    {/* TICKER FILTER */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Ticker Filter</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                        {[{ label: 'ETF Only', value: 'ETF_ONLY' }, { label: 'Stock Only', value: 'STOCK_ONLY' }, { label: 'Mag 7 Only', value: 'MAG7_ONLY' }, { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' }].map(({ label, value }) => {
+                          const active = selectedTickerFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedTickerFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 10px', borderRadius: '8px', border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`, background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
+                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? '#3b82f6' : '#374151', boxShadow: active ? '0 0 5px #3b82f6' : 'none', flexShrink: 0 }} />
+                              <span style={{ fontSize: '14px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#93c5fd' : '#ffffff' }}>{label}</span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  {/* Bottom Row - Unique Filters and Options Expiration */}
+                  {/* Row 2: Unique Filters | Black List | Options Expiration */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
 
-                  <div className="flex flex-wrap justify-start items-start gap-3 mx-2">
-                    {/* Unique Filters */}
-
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{
-                          fontFamily: 'Georgia, serif',
-                          letterSpacing: '0.3px',
-                          color: '#fbbf24',
-                          textShadow: '0 0 6px rgba(251, 191, 36, 0.4)',
-                        }}
-                      >
-                        Unique
-                      </label>
-
-                      <div className="space-y-3 relative z-10">
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('ITM')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'ITM'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'ITM')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('ITM')
-                                ? 'text-yellow-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            In The Money
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('OTM')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'OTM'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'OTM')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('OTM')
-                                ? 'text-yellow-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Out The Money
-                          </span>
-                        </label>
-
-                        <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('SWEEP_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'SWEEP_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'SWEEP_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('SWEEP_ONLY')
-                                ? 'text-yellow-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Sweep Only
-                          </span>
-                        </label>
-
-                        <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('BLOCK_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'BLOCK_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'BLOCK_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('BLOCK_ONLY')
-                                ? 'text-yellow-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Block Only
-                          </span>
-                        </label>
-
-                        <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'MULTI_LEG_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'MULTI_LEG_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-purple-600 bg-black border-purple-500 rounded focus:ring-purple-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('MULTI_LEG_ONLY')
-                                ? 'text-purple-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Multi-Leg Only
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('WEEKLY_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'WEEKLY_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'WEEKLY_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('WEEKLY_ONLY')
-                                ? 'text-yellow-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Weekly Only
-                          </span>
-                        </label>
-
-                        <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                          <input
-                            type="checkbox"
-                            checked={selectedUniqueFilters.includes('MINI_ONLY')}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedUniqueFilters((prev) => [...prev, 'MINI_ONLY'])
-                              } else {
-                                setSelectedUniqueFilters((prev) =>
-                                  prev.filter((filter) => filter !== 'MINI_ONLY')
-                                )
-                              }
-                            }}
-                            className="w-5 h-5 text-green-600 bg-black border-green-500 rounded focus:ring-green-500"
-                          />
-
-                          <span
-                            className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${
-                              selectedUniqueFilters.includes('MINI_ONLY')
-                                ? 'text-green-400 font-bold drop-shadow-lg'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            Mini Only
-                          </span>
-                        </label>
+                    {/* UNIQUE FILTERS */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #f59e0b, #fbbf24)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Unique Filters</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
+                        {[
+                          { label: 'ITM', value: 'ITM', color: '#f59e0b' },
+                          { label: 'OTM', value: 'OTM', color: '#f59e0b' },
+                          { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#f59e0b' },
+                          { label: 'Block Only', value: 'BLOCK_ONLY', color: '#f59e0b' },
+                          { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
+                          { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f59e0b' },
+                          { label: 'Mini Only', value: 'MINI_ONLY', color: '#10b981' },
+                        ].map(({ label, value, color }) => {
+                          const active = selectedUniqueFilters.includes(value)
+                          return (
+                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
+                              style={{ padding: '9px 6px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`, background: active ? `${color}18` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 10px ${color}33` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '13px', fontWeight: 800, letterSpacing: '0.5px', color: active ? color : '#ffffff' }}>
+                              {label}
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
 
-                    {/* Black List */}
-
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-orange-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{
-                          fontFamily: 'Georgia, serif',
-                          letterSpacing: '0.3px',
-                          color: '#f97316',
-                          textShadow: '0 0 6px rgba(249, 115, 22, 0.4)',
-                        }}
-                      >
-                        Black List
-                      </label>
-
-                      <div className="space-y-2 relative z-10">
+                    {/* BLACK LIST */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #ef4444, #b91c1c)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Black List</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                         {blacklistedTickers.map((ticker, index) => (
-                          <div key={index} className={index === 4 ? 'hidden md:block' : ''}>
-                            <input
-                              type="text"
-                              value={ticker}
-                              onChange={(e) => {
-                                const newTickers = [...blacklistedTickers]
-
-                                newTickers[index] = e.target.value.toUpperCase()
-
-                                setBlacklistedTickers(newTickers)
-                              }}
-                              placeholder={`Ticker ${index + 1}`}
-                              className="border border-gray-600 rounded px-2 py-1 text-2xl md:text-sm bg-gray-800 text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none w-20 transition-all"
-                              maxLength={6}
-                            />
-                          </div>
+                          <input key={index} type="text" value={ticker}
+                            onChange={(e) => { const t = [...blacklistedTickers]; t[index] = e.target.value.toUpperCase(); setBlacklistedTickers(t) }}
+                            placeholder={`#${index + 1}`} maxLength={6}
+                            style={{ padding: '9px 8px', textAlign: 'center', background: '#000', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#fca5a5', fontSize: '14px', fontWeight: 800, letterSpacing: '1px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                         ))}
                       </div>
                     </div>
 
-                    {/* Options Expiration */}
-
-                    <div
-                      className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2"
-                      style={{
-                        background: '#000000',
-                        boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)',
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-red-400/3 to-transparent rounded-lg animate-pulse"></div>
-
-                      <label
-                        className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic"
-                        style={{
-                          fontFamily: 'Georgia, serif',
-                          letterSpacing: '0.3px',
-                          color: '#ffffff',
-                          textShadow: '0 0 6px rgba(255, 255, 255, 0.3)',
-                        }}
-                      >
-                        Options Expiration
-                      </label>
-
-                      <div className="space-y-3 relative z-10">
+                    {/* OPTIONS EXPIRATION */}
+                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #a855f7, #7c3aed)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options Expiration</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div>
-                          <label className="text-xl md:text-sm text-gray-300 mb-2 block">
-                            Start Date
-                          </label>
-
-                          <input
-                            type="date"
-                            value={expirationStartDate}
-                            onChange={(e) => setExpirationStartDate(e.target.value)}
-                            className="border-2 border-gray-600 rounded-lg px-2 py-2 text-2xl md:text-base bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
-                          />
+                          <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>Start Date</span>
+                          <input type="date" value={expirationStartDate} onChange={(e) => setExpirationStartDate(e.target.value)}
+                            style={{ width: '100%', padding: '10px 10px', background: '#000', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                         </div>
-
                         <div>
-                          <label className="text-xl md:text-sm text-gray-300 mb-2 block">
-                            End Date
-                          </label>
-
-                          <input
-                            type="date"
-                            value={expirationEndDate}
-                            onChange={(e) => setExpirationEndDate(e.target.value)}
-                            className="border-2 border-gray-600 rounded-lg px-2 py-2 text-2xl md:text-base bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
-                          />
+                          <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>End Date</span>
+                          <input type="date" value={expirationEndDate} onChange={(e) => setExpirationEndDate(e.target.value)}
+                            style={{ width: '100%', padding: '10px 10px', background: '#000', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                       </div>
                     </div>
                   </div>
+
                 </div>
               )}
 
-              <div className="flex justify-between items-center mt-6 pt-4 border-t border-orange-500">
+              <div className="flex justify-between items-center mt-6 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', gap: '10px' }}>
                 <button
                   onClick={() => {
-                    // Clear all filters
-
                     setSelectedOptionTypes([])
-
                     setSelectedPremiumFilters([])
-
                     setSelectedTickerFilters([])
-
                     setSelectedUniqueFilters([])
-
                     setCustomMinPremium('')
-
                     setCustomMaxPremium('')
-
                     setExpirationStartDate('')
-
                     setExpirationEndDate('')
-
-                    setBlacklistedTickers(['', '', '', '', ''])
+                    setBlacklistedTickers(['', '', '', '', '', '', '', '', '', ''])
+                    setSelectedOrderSides([])
                   }}
-                  className="px-6 py-3 bg-gray-700 text-white text-xl md:text-base rounded-lg border border-gray-600 hover:bg-gray-600 hover:border-gray-500 transition-all font-medium shadow-lg"
-                  style={{
-                    boxShadow:
-                      'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)',
-                  }}
+                  style={{ flex: 1, padding: '12px', background: '#111', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', color: '#ffffff', fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.15s ease' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}
                 >
                   Clear All
                 </button>
 
                 <Button
                   onClick={() => setIsFilterDialogOpen(false)}
-                  className="px-8 py-3 bg-orange-600 text-white text-xl md:text-base rounded-lg border border-orange-500 hover:bg-orange-500 hover:border-orange-400 transition-all font-bold shadow-lg"
-                  style={{
-                    boxShadow:
-                      'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 8px rgba(255, 165, 0, 0.3)',
-                  }}
+                  style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer', boxShadow: '0 4px 14px rgba(249,115,22,0.35)', transition: 'all 0.15s ease' }}
+                  onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.1)')}
+                  onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
                 >
                   Apply Filters
                 </Button>
@@ -4932,12 +4032,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                               cursor: 'pointer',
                             }}
                             onMouseEnter={(e) => {
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
+                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
+                                ; (e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
                             }}
                             onMouseLeave={(e) => {
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#555'
+                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
+                                ; (e.currentTarget as HTMLButtonElement).style.color = '#555'
                             }}
                           >
                             DEL
@@ -4972,7 +4072,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           className="bg-black border-b border-gray-700 flex-shrink-0"
           style={{
-            zIndex: 10,
+            position: 'relative',
+
+            zIndex: 1001,
 
             width: '100%',
 
@@ -5229,11 +4331,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                     disabled={loading}
-                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${
-                      loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '40px',
 
@@ -5262,84 +4363,59 @@ Stock Reaction: ${scores.stockReaction}/15`
                         onClick={() => setMobileMenuOpen(false)}
                       />
 
-                      <div className="absolute right-0 mt-2 w-48 bg-black border border-orange-500 rounded shadow-lg z-[9999]">
+                      <div className="fixed z-[99999]" style={{ top: '190px', right: '8px', width: '134px', background: '#000', border: '2px solid #f97316', borderRadius: '6px', boxShadow: '0 8px 32px rgba(0,0,0,0.9)' }}>
+                        {/* SAVE */}
                         <button
-                          onClick={() => {
-                            handleSaveFlow()
-
-                            setMobileMenuOpen(false)
-                          }}
+                          onClick={() => { handleSaveFlow(); setMobileMenuOpen(false); }}
                           disabled={savingFlow || !data || data.length === 0}
-                          className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)', color: '#fff', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderBottom: '1px solid #1e3a8a', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
+                          onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
+                          onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
+                          onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.9)')}
+                          onMouseUp={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
                         >
-                          <svg
-                            className="w-5 h-5 text-blue-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                            />
+                          <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} className="group-hover:-translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+                            <polyline strokeLinecap="round" strokeLinejoin="round" points="17 21 17 13 7 13 7 21" />
+                            <polyline strokeLinecap="round" strokeLinejoin="round" points="7 3 7 8 15 8" />
                           </svg>
-
-                          <span className="font-bold">Save</span>
+                          <span>SAVE</span>
                         </button>
 
+                        {/* HISTORY */}
                         <button
-                          onClick={() => {
-                            loadFlowHistory()
-
-                            setMobileMenuOpen(false)
-                          }}
+                          onClick={() => { loadFlowHistory(); setMobileMenuOpen(false); }}
                           disabled={loadingHistory}
-                          className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{ background: 'linear-gradient(135deg, #f0f0f0 0%, #e5e7eb 100%)', color: '#111', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderBottom: '1px solid #9ca3af', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
+                          onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(0.93)')}
+                          onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
+                          onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.85)')}
+                          onMouseUp={e => (e.currentTarget.style.filter = 'brightness(0.93)')}
                         >
-                          <svg
-                            className="w-5 h-5 text-purple-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
+                          <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-
-                          <span className="font-bold">History</span>
+                          <span>HISTORY</span>
                         </button>
 
+                        {/* CLEAR */}
                         {onClearData && (
                           <button
-                            onClick={() => {
-                              onClearData()
-
-                              setMobileMenuOpen(false)
-                            }}
+                            onClick={() => { onClearData(); setMobileMenuOpen(false); }}
                             disabled={loading}
-                            className="w-full text-left px-4 py-3 text-red-400 hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed border-t border-gray-700"
+                            className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
+                            style={{ background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)', color: '#fff', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderRadius: '0 0 6px 6px', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
+                            onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
+                            onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
+                            onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.9)')}
+                            onMouseUp={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
                           >
-                            <svg
-                              className="w-5 h-5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
+                            <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
-
-                            <span className="font-bold">Clear</span>
+                            <span>CLEAR</span>
                           </button>
                         )}
                       </div>
@@ -5352,11 +4428,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={handleSaveFlow}
                   disabled={savingFlow || !data || data.length === 0}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
-                    savingFlow || !data || data.length === 0
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                  }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${savingFlow || !data || data.length === 0
+                    ? 'cursor-not-allowed opacity-40'
+                    : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                   style={{
                     height: '40px',
 
@@ -5449,11 +4524,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={loadFlowHistory}
                   disabled={loadingHistory}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
-                    loadingHistory
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                  }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${loadingHistory
+                    ? 'cursor-not-allowed opacity-40'
+                    : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                   style={{
                     height: '40px',
 
@@ -6219,11 +5293,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                       }
                     }}
                     disabled={!inputTicker.trim() || loading}
-                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${
-                      !inputTicker.trim() || loading
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${!inputTicker.trim() || loading
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '48px',
 
@@ -6435,11 +5508,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => onRefresh?.()}
                       disabled={loading}
-                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -6527,11 +5599,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={onClearData}
                       disabled={loading}
-                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -6589,11 +5660,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                       disabled={loading}
-                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -6717,11 +5787,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
-                      savingFlow || !data || data.length === 0
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '48px',
 
@@ -6814,11 +5883,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={loadFlowHistory}
                     disabled={loadingHistory}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
-                      loadingHistory
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${loadingHistory
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '48px',
 
@@ -7059,11 +6127,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <button
                               key={pageNum}
                               onClick={() => setCurrentPage(pageNum)}
-                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
-                                currentPage === pageNum
-                                  ? 'bg-orange-500 text-black border-orange-500 font-bold'
-                                  : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
-                              }`}
+                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${currentPage === pageNum
+                                ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                                : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
+                                }`}
                             >
                               {pageNum}
                             </button>
@@ -7292,16 +6359,16 @@ Stock Reaction: ${scores.stockReaction}/15`
                             cursor: isNotablePick ? 'pointer' : 'default',
                             ...(isNotablePick
                               ? {
-                                  outline: '3px solid #FFD700',
+                                outline: '3px solid #FFD700',
 
-                                  outlineOffset: '-3px',
-                                }
+                                outlineOffset: '-3px',
+                              }
                               : {}),
 
                             ...(isEfiHighlight
                               ? isBullishEfi
                                 ? {
-                                    background: `
+                                  background: `
 
                               radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
 
@@ -7345,15 +6412,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    borderLeft: '5px solid #00ff00',
+                                  borderLeft: '5px solid #00ff00',
 
-                                    borderRight: '5px solid #00ff00',
+                                  borderRight: '5px solid #00ff00',
 
-                                    borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                                  borderTop: '2px solid rgba(0, 255, 0, 0.2)',
 
-                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                    boxShadow: `
+                                  boxShadow: `
 
                               inset 0 4px 16px rgba(0, 255, 0, 0.2),
 
@@ -7375,18 +6442,18 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    position: 'relative' as const,
+                                  position: 'relative' as const,
 
-                                    transform: 'translateZ(0)',
+                                  transform: 'translateZ(0)',
 
-                                    backdropFilter: 'blur(0.5px)',
+                                  backdropFilter: 'blur(0.5px)',
 
-                                    WebkitBackdropFilter: 'blur(0.5px)',
+                                  WebkitBackdropFilter: 'blur(0.5px)',
 
-                                    isolation: 'isolate' as const,
-                                  }
+                                  isolation: 'isolate' as const,
+                                }
                                 : {
-                                    background: `
+                                  background: `
 
                               radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
 
@@ -7430,15 +6497,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    borderLeft: '5px solid #ff0000',
+                                  borderLeft: '5px solid #ff0000',
 
-                                    borderRight: '5px solid #ff0000',
+                                  borderRight: '5px solid #ff0000',
 
-                                    borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                                  borderTop: '2px solid rgba(255, 0, 0, 0.2)',
 
-                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                    boxShadow: `
+                                  boxShadow: `
 
                               inset 0 4px 16px rgba(255, 0, 0, 0.2),
 
@@ -7460,19 +6527,19 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    position: 'relative' as const,
+                                  position: 'relative' as const,
 
-                                    transform: 'translateZ(0)',
+                                  transform: 'translateZ(0)',
 
-                                    backdropFilter: 'blur(0.5px)',
+                                  backdropFilter: 'blur(0.5px)',
 
-                                    WebkitBackdropFilter: 'blur(0.5px)',
+                                  WebkitBackdropFilter: 'blur(0.5px)',
 
-                                    isolation: 'isolate' as const,
-                                  }
+                                  isolation: 'isolate' as const,
+                                }
                               : {
-                                  backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
-                                }),
+                                backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
+                              }),
 
                             position: 'relative' as const,
 
@@ -7486,11 +6553,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${
-                                    selectedTickerFilter === trade.underlying_ticker
-                                      ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                      : ''
-                                  }`}
+                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
+                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                    : ''
+                                    }`}
                                 >
                                   {trade.underlying_ticker}
                                 </button>
@@ -7542,11 +6608,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
-                                  selectedTickerFilter === trade.underlying_ticker
-                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                    : ''
-                                }`}
+                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker
+                                  ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                  : ''
+                                  }`}
                                 style={
                                   isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}
                                 }
@@ -7629,17 +6694,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                 {(trade as any).fill_style && (
                                   <span
-                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${
-                                      (trade as any).fill_style === 'A'
-                                        ? 'text-green-400 bg-green-400/20 border border-green-400/40'
-                                        : (trade as any).fill_style === 'AA'
-                                          ? 'text-green-300 bg-green-300/20 border border-green-300/40'
-                                          : (trade as any).fill_style === 'B'
-                                            ? 'text-red-400 bg-red-400/20 border border-red-400/40'
-                                            : (trade as any).fill_style === 'BB'
-                                              ? 'text-red-300 bg-red-300/20 border border-red-300/40'
-                                              : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
-                                    }`}
+                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${(trade as any).fill_style === 'A'
+                                      ? 'text-green-400 bg-green-400/20 border border-green-400/40'
+                                      : (trade as any).fill_style === 'AA'
+                                        ? 'text-green-300 bg-green-300/20 border border-green-300/40'
+                                        : (trade as any).fill_style === 'B'
+                                          ? 'text-red-400 bg-red-400/20 border border-red-400/40'
+                                          : (trade as any).fill_style === 'BB'
+                                            ? 'text-red-300 bg-red-300/20 border border-red-300/40'
+                                            : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
+                                      }`}
                                   >
                                     {(trade as any).fill_style}
                                   </span>
@@ -7686,17 +6750,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                   {(trade as any).fill_style && (
                                     <span
-                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
-                                        (trade as any).fill_style === 'A'
-                                          ? 'text-green-400 bg-green-400/10 border border-green-400/30'
-                                          : (trade as any).fill_style === 'AA'
-                                            ? 'text-green-300 bg-green-300/10 border border-green-300/30'
-                                            : (trade as any).fill_style === 'B'
-                                              ? 'text-red-400 bg-red-400/10 border border-red-400/30'
-                                              : (trade as any).fill_style === 'BB'
-                                                ? 'text-red-300 bg-red-300/10 border border-red-300/30'
-                                                : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
-                                      }`}
+                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A'
+                                        ? 'text-green-400 bg-green-400/10 border border-green-400/30'
+                                        : (trade as any).fill_style === 'AA'
+                                          ? 'text-green-300 bg-green-300/10 border border-green-300/30'
+                                          : (trade as any).fill_style === 'B'
+                                            ? 'text-red-400 bg-red-400/10 border border-red-400/30'
+                                            : (trade as any).fill_style === 'BB'
+                                              ? 'text-red-300 bg-red-300/10 border border-red-300/30'
+                                              : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                        }`}
                                       style={{ fontSize: '12px' }}
                                     >
                                       <span
@@ -7792,7 +6855,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                           <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
                             {typeof trade.volume === 'number' &&
-                            typeof trade.open_interest === 'number' ? (
+                              typeof trade.open_interest === 'number' ? (
                               <div className="flex items-center justify-center gap-1">
                                 <span
                                   className="text-cyan-400 font-bold"
@@ -7850,22 +6913,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const t1 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                      trade.spot_price,
-                                      sigma,
-                                      trade.days_to_expiry,
-                                      80,
-                                      targetIsUpside
-                                    )
+                                    trade.spot_price,
+                                    sigma,
+                                    trade.days_to_expiry,
+                                    80,
+                                    targetIsUpside
+                                  )
                                   : null
                               const t2 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                      trade.spot_price,
-                                      sigma,
-                                      trade.days_to_expiry,
-                                      90,
-                                      targetIsUpside
-                                    )
+                                    trade.spot_price,
+                                    sigma,
+                                    trade.days_to_expiry,
+                                    90,
+                                    targetIsUpside
+                                  )
                                   : null
                               return (
                                 <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
@@ -8468,6 +7531,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                   </span>
                                                 </div>
 
+                                                {gradeData.stdDevError && (
+                                                  <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
+                                                    ⚠ StdDev fetch failed — Price Action unscored
+                                                  </div>
+                                                )}
+
                                                 <div
                                                   style={{
                                                     position: 'absolute',
@@ -8667,6 +7736,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                   </span>
                                                 </div>
 
+                                                {gradeData.stdDevError && (
+                                                  <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
+                                                    ⚠ StdDev fetch failed — Price Action unscored
+                                                  </div>
+                                                )}
+
                                                 <div
                                                   style={{
                                                     position: 'absolute',
@@ -8756,22 +7831,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                             const t1m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma2,
-                                    trade.days_to_expiry,
-                                    80,
-                                    targetUp2
-                                  )
+                                  trade.spot_price,
+                                  sigma2,
+                                  trade.days_to_expiry,
+                                  80,
+                                  targetUp2
+                                )
                                 : null
                             const t2m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma2,
-                                    trade.days_to_expiry,
-                                    90,
-                                    targetUp2
-                                  )
+                                  trade.spot_price,
+                                  sigma2,
+                                  trade.days_to_expiry,
+                                  90,
+                                  targetUp2
+                                )
                                 : null
                             const zones2 = dealerZoneCache[trade.underlying_ticker]
                             const dirBg = targetUp2 ? 'rgba(0,180,60,0.22)' : 'rgba(200,30,30,0.22)'
@@ -9705,7 +8780,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                  chartWidth
+                                chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -9732,35 +8807,35 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const shadingRects =
                                 stockTimeframe === '1D'
                                   ? chartData.map((point, i) => {
-                                      const x =
-                                        padding.left + (i / (chartData.length - 1)) * chartWidth
+                                    const x =
+                                      padding.left + (i / (chartData.length - 1)) * chartWidth
 
-                                      const nextX =
-                                        i < chartData.length - 1
-                                          ? padding.left +
-                                            ((i + 1) / (chartData.length - 1)) * chartWidth
-                                          : padding.left + chartWidth
+                                    const nextX =
+                                      i < chartData.length - 1
+                                        ? padding.left +
+                                        ((i + 1) / (chartData.length - 1)) * chartWidth
+                                        : padding.left + chartWidth
 
-                                      const rectWidth = nextX - x
+                                    const rectWidth = nextX - x
 
-                                      const isMarket = isMarketHours(point.timestamp)
+                                    const isMarket = isMarketHours(point.timestamp)
 
-                                      if (!isMarket) {
-                                        return (
-                                          <rect
-                                            key={`shade-${i}`}
-                                            x={x}
-                                            y={padding.top}
-                                            width={rectWidth}
-                                            height={chartHeight}
-                                            fill="#555555"
-                                            opacity="0.15"
-                                          />
-                                        )
-                                      }
+                                    if (!isMarket) {
+                                      return (
+                                        <rect
+                                          key={`shade-${i}`}
+                                          x={x}
+                                          y={padding.top}
+                                          width={rectWidth}
+                                          height={chartHeight}
+                                          fill="#555555"
+                                          opacity="0.15"
+                                        />
+                                      )
+                                    }
 
-                                      return null
-                                    })
+                                    return null
+                                  })
                                   : []
 
                               // Y-axis labels
@@ -9852,11 +8927,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1D'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1D'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1D'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1D
                                       </button>
@@ -9875,11 +8949,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1W'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1W'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1W'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1W
                                       </button>
@@ -9898,11 +8971,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1M'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1M'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1M'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1M
                                       </button>
@@ -10114,7 +9186,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                  chartWidth
+                                chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -10209,11 +9281,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1D')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1D'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1D'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1D
                                       </button>
@@ -10228,11 +9299,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1W')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1W'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1W'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1W
                                       </button>
@@ -10247,11 +9317,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1M')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1M'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1M'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1M
                                       </button>
@@ -10416,7 +9485,12 @@ Stock Reaction: ${scores.stockReaction}/15`
             zIndex: 50,
           }}
         >
-          <FlowTrackingPanel />
+          <FlowTrackingPanel
+            relativeStrengthData={relativeStrengthData}
+            historicalStdDevs={historicalStdDevs}
+            comboTradeMap={comboTradeMap}
+            dealerZoneCache={dealerZoneCache}
+          />
         </div>
       )}
 
@@ -10434,7 +9508,13 @@ Stock Reaction: ${scores.stockReaction}/15`
             overflowY: 'auto',
           }}
         >
-          <FlowTrackingPanel onClose={() => setIsFlowTrackingOpen(false)} />
+          <FlowTrackingPanel
+            onClose={() => setIsFlowTrackingOpen(false)}
+            relativeStrengthData={relativeStrengthData}
+            historicalStdDevs={historicalStdDevs}
+            comboTradeMap={comboTradeMap}
+            dealerZoneCache={dealerZoneCache}
+          />
         </div>
       )}
     </div>

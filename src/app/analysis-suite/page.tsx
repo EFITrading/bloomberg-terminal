@@ -4,10 +4,9 @@ import React, { useState } from 'react'
 
 import DealerGEXChart from '../../components/analytics/DealerGEXChart'
 import DealerOpenInterestChart from '../../components/analytics/DealerOpenInterestChart'
-import MarketHeatmap from '../../components/analytics/MarketHeatmap'
-import RRGAnalytics from '../../components/analytics/RRGAnalytics'
+import HistoricalEventsResearch from '../../components/analytics/HistoricalEventsResearch'
+import MarketCycleIndicator from '../../components/analytics/MarketCycleIndicator'
 import UnifiedScreenerPanel from '../../components/analytics/UnifiedScreenerPanel'
-import PerformanceDashboard from '../../components/charts/PerformanceDashboard'
 
 export default function AnalysisSuite() {
   const [tickerInput, setTickerInput] = useState('')
@@ -506,45 +505,21 @@ export default function AnalysisSuite() {
           <UnifiedScreenerPanel />
         </div>
 
-        {/* RRG Analytics Section */}
-        <div
-          style={{
-            background: 'rgba(0, 0, 0, 0.95)',
-            borderRadius: '0px',
-            marginTop: '20px',
-            border: '1px solid #333',
-            overflow: 'hidden',
-          }}
-        >
-          <RRGAnalytics defaultTimeframe="14 weeks" defaultBenchmark="SPY" />
+        {/* Market Cycle Indicator */}
+        <div style={{ marginTop: '20px', border: '1px solid #1a1a1a', borderRadius: '12px', overflow: 'hidden' }}>
+          <MarketCycleIndicator />
         </div>
 
-        {/* Performance Dashboard Section */}
+        {/* Historical Events Research Panel */}
         <div
           style={{
-            background: 'rgba(0, 0, 0, 0.95)',
             borderRadius: '0px',
             marginTop: '20px',
-            border: '1px solid #333',
+            border: '1px solid #1a1a1a',
             overflow: 'hidden',
-            minHeight: '600px',
           }}
         >
-          <PerformanceDashboard isVisible={true} />
-        </div>
-
-        {/* Market Heatmap Section */}
-        <div
-          style={{
-            background: 'rgba(0, 0, 0, 0.95)',
-            borderRadius: '0px',
-            marginTop: '20px',
-            border: '1px solid #333',
-            overflow: 'hidden',
-            minHeight: '600px',
-          }}
-        >
-          <MarketHeatmap />
+          <HistoricalEventsResearch />
         </div>
       </div>
     </div>

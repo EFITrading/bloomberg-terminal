@@ -9283,6 +9283,7 @@ export default function TradingViewChart({
     const handleKeyDown = (e: KeyboardEvent) => {
 
       if (e.target && (e.target as HTMLElement).tagName === 'INPUT') return; // Don't interfere with inputs
+      if (e.target && ((e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable)) return; // Don't interfere with text editing
 
 
 

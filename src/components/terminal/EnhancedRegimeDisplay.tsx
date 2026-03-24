@@ -663,12 +663,14 @@ interface EnhancedRegimeDisplayProps {
   regimeAnalysis: Record<string, RegimeAnalysis>
   selectedPeriod?: string
   watchlistData?: Record<string, any>
+  sectorFlowData?: Record<string, number>
 }
 
 function EnhancedRegimeDisplay({
   regimeAnalysis,
   selectedPeriod = '1d',
   watchlistData = {},
+  sectorFlowData = {},
 }: EnhancedRegimeDisplayProps) {
   const [showSummary, setShowSummary] = useState(() => {
     try {
@@ -953,8 +955,57 @@ function EnhancedRegimeDisplay({
   }
 
   const compositeSpreadBeforeVix = compositeSpread
-  // Fixed budget blend: sectors occupy 0.95, VIX occupies up to 0.05, total = 1.0
-  compositeSpread = compositeSpread * 0.95 + vixSignal * vixActiveWeight
+
+  // ── Flow Score Signal (12.5% of 25% total) ─────────────────────────────────
+  // SECTOR SCORES: High XLK/XLC/XLY → RISK ON (negative). High XLP/XLU/XLRE/XLV → DEFENSIVE (positive).
+  // MARKET SCORES: SPY/QQQ/IWM high score → RISK ON. DIA high score → mild defensive/value.
+  let flowScoreSignal = 0
+  const defScores = ['XLP', 'XLU', 'XLRE', 'XLV']
+    .map(t => watchlistData[t]?.score as number | undefined)
+    .filter((s): s is number => s !== undefined)
+  const growthScores = ['XLY', 'XLK', 'XLC']
+    .map(t => watchlistData[t]?.score as number | undefined)
+    .filter((s): s is number => s !== undefined)
+  if (defScores.length > 0 && growthScores.length > 0) {
+    const defScoreAvg = defScores.reduce((a, b) => a + b, 0) / defScores.length
+    const growthScoreAvg = growthScores.reduce((a, b) => a + b, 0) / growthScores.length
+    // SPY/QQQ/IWM = risk-on growth side. DIA = value/mild defensive.
+    const mktRiskOnScores = ['SPY', 'QQQ', 'IWM']
+      .map(t => watchlistData[t]?.score as number | undefined)
+      .filter((s): s is number => s !== undefined)
+    const diaScore = watchlistData['DIA']?.score as number | undefined
+    const mktRiskOnAvg = mktRiskOnScores.length > 0
+      ? mktRiskOnScores.reduce((a, b) => a + b, 0) / mktRiskOnScores.length : 50
+    const mktDefAvg = diaScore ?? 50
+    // positive = defensive, negative = risk on (same sign convention as compositeSpread)
+    const sectorPart = ((defScoreAvg - growthScoreAvg) / 100) * 4.0
+    const marketPart = ((mktDefAvg - mktRiskOnAvg) / 100) * 2.0
+    flowScoreSignal = sectorPart * 0.65 + marketPart * 0.35
+  }
+
+  // ── Fund Flow Signal (12.5% of 25% total) ──────────────────────────────────
+  // SECTOR FLOWS: XLP/XLU/XLRE/XLV inflows → DEFENSIVE. XLK/XLC/XLY inflows → RISK ON.
+  // MARKET FLOWS: SPY/QQQ/IWM inflows → RISK ON. DIA inflows → value/mild defensive.
+  let fundFlowSignal = 0
+  if (Object.keys(sectorFlowData).length > 0) {
+    const defensiveNet = ['XLP', 'XLU', 'XLRE', 'XLV']
+      .reduce((sum, t) => sum + (sectorFlowData[t] ?? 0), 0)
+    const growthNet = ['XLY', 'XLK', 'XLC']
+      .reduce((sum, t) => sum + (sectorFlowData[t] ?? 0), 0)
+    // SPY + QQQ + IWM all count as risk-on inflows. DIA = value/mild defensive.
+    const mktRiskOnFlow = (sectorFlowData['SPY'] ?? 0) * 0.4
+      + (sectorFlowData['QQQ'] ?? 0) * 0.35
+      + (sectorFlowData['IWM'] ?? 0) * 0.25
+    const mktDefFlow = sectorFlowData['DIA'] ?? 0
+    const norm = 1e9 // $1B = 1.0 unit
+    const sectorFlowDiff = (defensiveNet - growthNet) / norm
+    const marketFlowDiff = (mktDefFlow - mktRiskOnFlow) / norm
+    fundFlowSignal = Math.max(-4, Math.min(4, sectorFlowDiff * 0.65 + marketFlowDiff * 0.35))
+  }
+
+  // Budget: price=0.65, VIX≤0.05, flowScore=0.15, fundFlow=0.15 → total=1.0
+  compositeSpread = compositeSpread * 0.65 + vixSignal * vixActiveWeight
+    + flowScoreSignal * 0.15 + fundFlowSignal * 0.15
 
   // Determine composite regime
   const getCompositeRegime = () => {

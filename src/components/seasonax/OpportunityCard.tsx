@@ -71,16 +71,16 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
       zoomLevel === 1
         ? 0
         : Math.max(
-            0,
-            Math.floor(((0 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
-          )
+          0,
+          Math.floor(((0 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
+        )
     const visEnd =
       zoomLevel === 1
         ? maxDays - 1
         : Math.min(
-            maxDays - 1,
-            Math.ceil(((1 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
-          )
+          maxDays - 1,
+          Math.ceil(((1 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
+        )
     const visPts = avgLine.filter((p) => p.x >= visStart && p.x <= visEnd)
     const rawMin = visPts.length > 0 ? Math.min(...visPts.map((p) => p.pct)) : data.minPct
     const rawMax = visPts.length > 0 ? Math.max(...visPts.map((p) => p.pct)) : data.maxPct
@@ -316,6 +316,36 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
     perf13d: { status: string; color: string }
     perf21d: { status: string; color: string }
   } | null>(null)
+
+  // ── Trend sync: directional agreement between seasonal avg and most-recent year ──
+  const trendSync = React.useMemo(() => {
+    if (!miniChart || miniChart.yearLines.length === 0 || miniChart.avgLine.length < 5) return null
+    const recent = miniChart.yearLines[0]
+    if (!recent || recent.points.length < 4) return null
+    const minLen = Math.min(recent.points.length, miniChart.avgLine.length)
+    // Build per-step delta arrays
+    const avgDeltas: number[] = []
+    const actualDeltas: number[] = []
+    for (let i = 1; i < minLen; i++) {
+      avgDeltas.push(miniChart.avgLine[i].pct - miniChart.avgLine[i - 1].pct)
+      actualDeltas.push(recent.points[i].pct - recent.points[i - 1].pct)
+    }
+    if (avgDeltas.length < 3) return null
+    const wSize = Math.min(5, Math.max(2, Math.floor(avgDeltas.length / 3)))
+    let agreements = 0, total = 0
+    for (let i = wSize; i <= avgDeltas.length; i++) {
+      const avgDir = avgDeltas.slice(i - wSize, i).reduce((a, b) => a + b, 0) >= 0
+      const actDir = actualDeltas.slice(i - wSize, i).reduce((a, b) => a + b, 0) >= 0
+      if (avgDir === actDir) agreements++
+      total++
+    }
+    if (total === 0) return null
+    const score = Math.round((agreements / total) * 100)
+    const yr = `'${String(recent.year).slice(2)}`
+    if (score >= 65) return { score, label: 'SYNCED', color: '#00FF88', yr }
+    if (score >= 45) return { score, label: 'MIXED', color: '#FFD700', yr }
+    return { score, label: 'DRIFT', color: '#FF4444', yr }
+  }, [miniChart])
   const [optionsSetup, setOptionsSetup] = useState<{
     direction: string
     currentPrice: number
@@ -667,6 +697,10 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
  color: ${perfData ? perfData.perf21d.color : '#ffffff'} !important;
  text-shadow: none !important;
  }
+ .${cardId} .opp-stat-sync {
+ color: ${trendSync ? trendSync.color : '#888888'} !important;
+ text-shadow: none !important;
+ }
  .${cardId} .opp-stat-label { color: #ffffff !important; }
  .${cardId} .opp-opt-badge-call { color: #00FF88 !important; }
  .${cardId} .opp-opt-badge-put  { color: #FF4444 !important; }
@@ -678,10 +712,10 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
  .${cardId} .opp-opt-prem { color: #ffffff !important; }
  .${cardId} .opp-row-winrate { color: ${pattern.winRate >= 85 ? '#00FF88' : pattern.winRate >= 75 ? '#00BFFF' : '#FF9500'} !important; text-shadow: 0 0 14px ${pattern.winRate >= 85 ? 'rgba(0,255,136,0.85)' : pattern.winRate >= 75 ? 'rgba(0,191,255,0.85)' : 'rgba(255,149,0,0.85)'} !important; }
  .${cardId} .opp-row-avg { color: ${isPositive ? '#00FF88' : '#FF4444'} !important; text-shadow: 0 0 14px ${isPositive ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,68,0.85)'} !important; }
+ .${cardId} .opp-row-corr { color: ${trendSync ? trendSync.color : '#ffffff'} !important; text-shadow: 0 0 14px ${trendSync ? trendSync.color + 'AA' : 'transparent'} !important; }
  .${cardId} .opp-seasoned-count { color: ${seasonedQualifying && seasonedQualifying >= 4 ? '#FFD700' : seasonedQualifying === 3 ? '#00FF88' : '#00d4ff'} !important; text-shadow: 0 0 12px ${seasonedQualifying && seasonedQualifying >= 4 ? 'rgba(255,215,0,0.85)' : seasonedQualifying === 3 ? 'rgba(0,255,136,0.85)' : 'rgba(0,212,255,0.85)'} !important; }
- ${
-   isHighWinRate
-     ? `
+ ${isHighWinRate
+            ? `
  .${cardId}::before {
    content: '';
    position: absolute;
@@ -701,8 +735,8 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
    transform: translateY(-3px) scale(1.007) translateZ(0) !important;
    transition: all 0.22s cubic-bezier(0.23,1,0.32,1) !important;
  }`
-     : ''
- }
+            : ''
+          }
  `}
       </style>
       <div
@@ -722,14 +756,14 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           transition: 'all 0.35s cubic-bezier(0.23,1,0.32,1)',
           boxShadow: isHighWinRate
             ? [
-                `inset 0 1px 0 rgba(255,255,255,0.08)`,
-                `inset 0 -1px 0 rgba(0,0,0,0.55)`,
-                `0 0 0 1px ${isPositive ? 'rgba(0,255,136,0.07)' : 'rgba(255,68,68,0.07)'}`,
-                `0 4px 14px rgba(0,0,0,0.55)`,
-                `0 14px 48px rgba(0,0,0,0.8)`,
-                `0 28px 88px rgba(0,0,0,0.95)`,
-                `0 0 50px ${isPositive ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)'}`,
-              ].join(',')
+              `inset 0 1px 0 rgba(255,255,255,0.08)`,
+              `inset 0 -1px 0 rgba(0,0,0,0.55)`,
+              `0 0 0 1px ${isPositive ? 'rgba(0,255,136,0.07)' : 'rgba(255,68,68,0.07)'}`,
+              `0 4px 14px rgba(0,0,0,0.55)`,
+              `0 14px 48px rgba(0,0,0,0.8)`,
+              `0 28px 88px rgba(0,0,0,0.95)`,
+              `0 0 50px ${isPositive ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)'}`,
+            ].join(',')
             : `${boxShadow}, inset 0 2px 20px rgba(255, 255, 255, 0.03)`,
           backdropFilter: 'blur(12px)',
           transform: 'translateZ(0)',
@@ -1042,13 +1076,12 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       fontSize: '11px',
                       fontWeight: 'bold',
                       fontFamily: 'monospace',
-                      boxShadow: `0 2px 10px ${
-                        seasonedQualifying >= 4
-                          ? 'rgba(255, 215, 0, 0.6)'
-                          : seasonedQualifying === 3
-                            ? 'rgba(0, 255, 136, 0.6)'
-                            : 'rgba(0, 212, 255, 0.6)'
-                      }`,
+                      boxShadow: `0 2px 10px ${seasonedQualifying >= 4
+                        ? 'rgba(255, 215, 0, 0.6)'
+                        : seasonedQualifying === 3
+                          ? 'rgba(0, 255, 136, 0.6)'
+                          : 'rgba(0, 212, 255, 0.6)'
+                        }`,
                       textAlign: 'center',
                       minWidth: '24px',
                       border: '2px solid #000000',
@@ -1211,38 +1244,32 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         </div>
                       </div>
                     )}
-                    {miniChart &&
-                      miniChart.avgLine.length > 0 &&
-                      (() => {
-                        const avg = miniChart.avgLine[miniChart.avgLine.length - 1].pct
-                        return (
-                          <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
-                            <div
-                              style={{
-                                fontSize: '7px',
-                                color: '#ffffff',
-                                fontFamily: "'Courier New',monospace",
-                                letterSpacing: '1.5px',
-                                marginBottom: '3px',
-                              }}
-                            >
-                              AVG RETURN
-                            </div>
-                            <div
-                              className="opp-row-avg"
-                              style={{
-                                fontSize: '18px',
-                                fontWeight: '900',
-                                fontFamily: "'Courier New',monospace",
-                                lineHeight: 1,
-                              }}
-                            >
-                              {avg >= 0 ? '+' : ''}
-                              {avg.toFixed(2)}%
-                            </div>
-                          </div>
-                        )
-                      })()}
+                    {trendSync && (
+                      <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
+                        <div
+                          style={{
+                            fontSize: '7px',
+                            color: '#ffffff',
+                            fontFamily: "'Courier New',monospace",
+                            letterSpacing: '1.5px',
+                            marginBottom: '3px',
+                          }}
+                        >
+                          CORRELATION
+                        </div>
+                        <div
+                          className="opp-row-corr"
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: '900',
+                            fontFamily: "'Courier New',monospace",
+                            lineHeight: 1,
+                          }}
+                        >
+                          {trendSync.score}%
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -1318,24 +1345,25 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                 const cells: Cell[] = [
                   ...(attractionInfo
                     ? [
-                        {
-                          label: 'PRICE',
-                          value: fmt(attractionInfo.currentPrice),
-                          cls: 'opp-stat-price',
-                        },
-                        {
-                          label: 'ATTRACT',
-                          value: fmt(attractionInfo.attractionLevel),
-                          cls: 'opp-stat-attract',
-                        },
-                      ]
+                      {
+                        label: 'PRICE',
+                        value: fmt(attractionInfo.currentPrice),
+                        cls: 'opp-stat-price',
+                      },
+                      {
+                        label: 'ATTRACT',
+                        value: fmt(attractionInfo.attractionLevel),
+                        cls: 'opp-stat-attract',
+                      },
+                    ]
                     : []),
                   ...(perfData
                     ? [
-                        { label: '13D', value: perfData.perf13d.status, cls: 'opp-stat-13d' },
-                        { label: '1M', value: perfData.perf21d.status, cls: 'opp-stat-21d' },
-                      ]
+                      { label: '13D', value: perfData.perf13d.status, cls: 'opp-stat-13d' },
+                      { label: '1M', value: perfData.perf21d.status, cls: 'opp-stat-21d' },
+                    ]
                     : []),
+
                 ]
                 if (cells.length === 0) return null
                 return (

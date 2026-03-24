@@ -80,6 +80,27 @@ async function fetchBars(
   return json.results.map((r: any) => ({ t: r.t, c: r.c }))
 }
 
+// ─── Flow Score (0–100) from close-only bars ────────────────────────────────
+// Count-based: trend (0-30, close > SMA20) + momentum (0-30, up-days), scaled 0-100
+function computeFlowScore(barIdx: number, bars: { t: number; c: number }[]): number {
+  if (barIdx < 31) return 50 // insufficient history → neutral
+  // Trend: count closes above 20-day SMA in last 30 bars
+  let trendCount = 0
+  for (let i = barIdx - 30; i < barIdx; i++) {
+    const winStart = Math.max(0, i - 19)
+    let smaSum = 0
+    for (let j = winStart; j <= i; j++) smaSum += bars[j].c
+    if (bars[i].c > smaSum / (i - winStart + 1)) trendCount++
+  }
+  // Momentum: count up-days in last 30 bars
+  let momCount = 0
+  for (let i = barIdx - 29; i < barIdx; i++) {
+    if (bars[i].c > bars[i - 1].c) momCount++
+  }
+  // Scale to 0-100 (max raw = 60)
+  return Math.round((trendCount + momCount) / 60 * 100)
+}
+
 // ─── Compute composite score for a single date index ─────────────────────────
 function computeCompositeAt(
   dateIndex: number,
@@ -149,22 +170,39 @@ function computeCompositeAt(
   // Normalize
   compositeSpread /= totalWeight
 
-  // ── VIX adjustment (0.05 budget) ─────────────────────────────────
+  // ── Flow Score Signal (10%) ──────────────────────────────────────────────
+  // Computed from already-fetched OHLCV bars — no extra API calls needed.
+  // Fund flow (shares_outstanding) not available for historical dates → 0.
+  const dateStr = dateKeys[dateIndex]
+  const getFlowScore = (symbol: string): number => {
+    const bars = allBars[symbol]
+    if (!bars) return 50
+    const idx = bars.findIndex(b => new Date(b.t).toISOString().split('T')[0] === dateStr)
+    if (idx < 0) return 50
+    return computeFlowScore(idx, bars)
+  }
+  const defFlowAvg = DEFENSIVE_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / DEFENSIVE_SECTORS.length
+  const growthFlowAvg = GROWTH_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / GROWTH_SECTORS.length
+  // High defensive sector scores → positive. High growth sector scores → negative (risk on).
+  // Fund flow (shares_outstanding) not available historically → 0, so flowScore takes full 25% here.
+  const flowScoreSignal = ((defFlowAvg - growthFlowAvg) / 100) * 4.0
+
+  // ── VIX adjustment (0.05 budget) ─────────────────────────────────────────
   const vixBars = allBars['VIX']
   if (vixBars && vixBars.length > 0) {
-    const dateStr = dateKeys[dateIndex]
     const vixBarIdx = vixBars.findIndex(
       (b) => new Date(b.t).toISOString().split('T')[0] === dateStr
     )
     if (vixBarIdx >= 0) {
       const vixPrice = vixBars[vixBarIdx].c
       const { weight: vixWeight, signal: vixSig } = getVixAdjustment(vixPrice)
-      compositeSpread = compositeSpread * 0.95 + vixSig * vixWeight
+      // Budget: price=0.65, VIX≤0.05, flowScore=0.30 (absorbs fund flow share since no historical fund flow)
+      compositeSpread = compositeSpread * 0.65 + vixSig * vixWeight + flowScoreSignal * 0.30
     } else {
-      compositeSpread = compositeSpread * 0.95
+      compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.30
     }
   } else {
-    compositeSpread = compositeSpread * 0.95
+    compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.30
   }
 
   // ── Derive regime label ───────────────────────────────────────────

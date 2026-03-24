@@ -65,7 +65,57 @@ const formatDate = (dateString: string) => {
 const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
 
-export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } = {}) {
+function _bsNCD(x: number): number {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+  const sign = x >= 0 ? 1 : -1
+  const ax = Math.abs(x)
+  const t = 1.0 / (1.0 + p * ax)
+  const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax)
+  return 0.5 * (1 + sign * y)
+}
+function _bsD2FTP(S: number, K: number, r: number, sigma: number, T: number): number {
+  return (Math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+}
+function bsStrikeForProbFTP(S: number, sigma: number, dte: number, prob: number, isCall: boolean): number | null {
+  if (!sigma || sigma <= 0 || dte <= 0) return null
+  const r = 0.0387
+  const T = dte / 365
+  const copCall = (K: number) => (1 - _bsNCD(_bsD2FTP(S, K, r, sigma, T))) * 100
+  const copPut = (K: number) => _bsNCD(_bsD2FTP(S, K, r, sigma, T)) * 100
+  if (isCall) {
+    let lo = S + 0.01, hi = S * 1.5
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = copCall(mid)
+      if (Math.abs(p - prob) < 0.1) return mid
+      p < prob ? (lo = mid) : (hi = mid)
+    }
+    return (lo + hi) / 2
+  } else {
+    let lo = S * 0.5, hi = S - 0.01
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = copPut(mid)
+      if (Math.abs(p - prob) < 0.1) return mid
+      p < prob ? (hi = mid) : (lo = mid)
+    }
+    return (lo + hi) / 2
+  }
+}
+
+export default function FlowTrackingPanel({
+  onClose,
+  relativeStrengthData,
+  historicalStdDevs: historicalStdDevsFromParent,
+  comboTradeMap: comboTradeMapFromParent,
+  dealerZoneCache: dealerZoneCacheFromParent,
+}: {
+  onClose?: () => void
+  relativeStrengthData?: Map<string, number>
+  historicalStdDevs?: Map<string, number>
+  comboTradeMap?: Map<string, boolean>
+  dealerZoneCache?: Record<string, { golden: number | null; purple: number | null; atmIV: number | null; goldenExpiry?: string | null; purpleExpiry?: string | null }>
+} = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
   const [flowTrackingFilters, setFlowTrackingFilters] = useState({
@@ -79,6 +129,9 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
   const [touchCurrent, setTouchCurrent] = useState<number>(0)
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
   const [currentStockPrices, setCurrentStockPrices] = useState<Record<string, number>>({})
+  const [ownStdDevs, setOwnStdDevs] = useState<Map<string, number>>(new Map())
+  const [ownStdDevFailed, setOwnStdDevFailed] = useState<Set<string>>(new Set())
+  const [ownDealerZones, setOwnDealerZones] = useState<Record<string, { golden: number | null; purple: number | null; atmIV: number | null }>>({})
   const [stockChartData, setStockChartData] = useState<
     Record<string, { price: number; timestamp: number }[]>
   >({})
@@ -136,6 +189,76 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
       fetchCurrentStockPrices(trackedFlows)
     }, 30000)
     return () => clearInterval(interval)
+  }, [trackedFlows.length])
+
+  // Fetch stdDevs for tracked tickers once on mount / when new tickers appear
+  useEffect(() => {
+    if (trackedFlows.length === 0) return
+    const tickers = [...new Set(trackedFlows.map((f) => f.underlying_ticker))]
+    const missing = tickers.filter((t) => !ownStdDevs.has(t))
+    if (missing.length === 0) return
+    missing.forEach(async (ticker, idx) => {
+      await new Promise((r) => setTimeout(r, idx * 150))
+      try {
+        const end = new Date().toISOString().split('T')[0]
+        const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+        const res = await fetch(
+          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${POLYGON_API_KEY}`,
+          { signal: AbortSignal.timeout(8000) }
+        )
+        if (res.ok) {
+          const data = await res.json()
+          if (data.results && data.results.length > 1) {
+            const returns: number[] = []
+            for (let i = 1; i < data.results.length; i++) {
+              const prev = data.results[i - 1].c
+              const curr = data.results[i].c
+              returns.push(((curr - prev) / prev) * 100)
+            }
+            const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+            const variance = returns.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / returns.length
+            setOwnStdDevs((prev) => new Map(prev).set(ticker, Math.sqrt(variance)))
+          } else {
+            setOwnStdDevFailed((prev) => new Set(prev).add(ticker))
+          }
+        } else {
+          setOwnStdDevFailed((prev) => new Set(prev).add(ticker))
+        }
+      } catch {
+        setOwnStdDevFailed((prev) => new Set(prev).add(ticker))
+      }
+    })
+  }, [trackedFlows.length])
+
+  // Fetch dealer zones (magnet/pivot/atmIV) for tracked tickers
+  useEffect(() => {
+    if (trackedFlows.length === 0) return
+    const tickers = [...new Set(trackedFlows.map((f) => f.underlying_ticker))]
+    const missing = tickers.filter((t) => {
+      const parent = dealerZoneCacheFromParent?.[t]
+      if (parent && (parent.golden !== null || parent.purple !== null)) return false
+      return !(t in ownDealerZones)
+    })
+    if (missing.length === 0) return
+    missing.forEach(async (ticker, idx) => {
+      await new Promise((r) => setTimeout(r, idx * 200))
+      try {
+        const res = await fetch(`/api/dealer-zones?ticker=${ticker}`, { signal: AbortSignal.timeout(8000) })
+        if (res.ok) {
+          const result = await res.json()
+          if (result.success) {
+            setOwnDealerZones((prev) => ({
+              ...prev,
+              [ticker]: { golden: result.golden ?? null, purple: result.purple ?? null, atmIV: result.atmIV ?? null },
+            }))
+            return
+          }
+        }
+        setOwnDealerZones((prev) => ({ ...prev, [ticker]: { golden: null, purple: null, atmIV: null } }))
+      } catch {
+        setOwnDealerZones((prev) => ({ ...prev, [ticker]: { golden: null, purple: null, atmIV: null } }))
+      }
+    })
   }, [trackedFlows.length])
 
   const fetchCurrentStockPrices = async (trades: OptionsFlowData[]) => {
@@ -487,21 +610,47 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
           </div>
         ) : (
           (() => {
-            // Build comboMap from tracked flows (same logic as OptionsFlowTable)
-            const comboMap = new Map<string, boolean>()
-            const comboCount = new Map<string, number>()
-            trackedFlows.forEach((f) => {
-              const key = `${f.underlying_ticker}-${f.strike}-${f.expiry}-${f.type}-${f.fill_style || ''}`
-              comboCount.set(key, (comboCount.get(key) || 0) + 1)
-            })
-            comboCount.forEach((count, key) => {
-              if (count > 1) comboMap.set(key, true)
-            })
-            // Empty RS/stddev maps — same defaults as OptionsFlowTable uses during initial load
-            const emptyRS = new Map<string, number>()
-            const defaultStdDevs = new Map<string, number>(
-              trackedFlows.map((f) => [f.underlying_ticker, 2.5])
-            )
+            // Use parent's comboTradeMap (built from all trades with opposite-leg detection)
+            // If not provided, fall back to opposite-leg detection within tracked flows
+            let comboMap: Map<string, boolean>
+            if (comboTradeMapFromParent) {
+              comboMap = comboTradeMapFromParent
+            } else {
+              comboMap = new Map<string, boolean>()
+              const byBase = new Map<string, typeof trackedFlows>()
+              trackedFlows.forEach((f) => {
+                const key = `${f.underlying_ticker}-${f.expiry}`
+                if (!byBase.has(key)) byBase.set(key, [])
+                byBase.get(key)!.push(f)
+              })
+              byBase.forEach((trades) => {
+                trades.forEach((trade) => {
+                  const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.fill_style || ''}`
+                  const isCall = trade.type === 'call'
+                  const fillStyle = trade.fill_style || ''
+                  const hasCombo = trades.some((t) => {
+                    if (Math.abs(t.strike - trade.strike) > trade.strike * 0.1) return false
+                    const oppFill = t.fill_style || ''
+                    const oppType = t.type.toLowerCase()
+                    if (isCall && (fillStyle === 'A' || fillStyle === 'AA'))
+                      return oppType === 'put' && (oppFill === 'B' || oppFill === 'BB')
+                    if (isCall && (fillStyle === 'B' || fillStyle === 'BB'))
+                      return oppType === 'put' && (oppFill === 'A' || oppFill === 'AA')
+                    if (!isCall && (fillStyle === 'B' || fillStyle === 'BB'))
+                      return oppType === 'call' && (oppFill === 'A' || oppFill === 'AA')
+                    if (!isCall && (fillStyle === 'A' || fillStyle === 'AA'))
+                      return oppType === 'call' && (oppFill === 'B' || oppFill === 'BB')
+                    return false
+                  })
+                  comboMap.set(tradeKey, hasCombo)
+                })
+              })
+            }
+            // Use real RS/stddev data from parent if available, otherwise fall back to defaults
+            const emptyRS = relativeStrengthData ?? new Map<string, number>()
+            const defaultStdDevs = ownStdDevs.size > 0
+              ? ownStdDevs
+              : (historicalStdDevsFromParent ?? new Map<string, number>())
 
             return trackedFlows
               .filter((flow) => {
@@ -526,7 +675,9 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
                     currentStockPrices,
                     emptyRS,
                     defaultStdDevs,
-                    comboMap
+                    comboMap,
+                    (flow as any).frozenComboScore,
+                    (flow as any).frozenRsScore
                   )
                   if (result.grade === 'N/A') return false
                   const gradeChar = result.grade.charAt(0)
@@ -576,7 +727,9 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
                   currentStockPrices,
                   emptyRS,
                   defaultStdDevs,
-                  comboMap
+                  comboMap,
+                  (flow as any).frozenComboScore,
+                  (flow as any).frozenRsScore
                 )
 
                 const flowId = generateFlowId(flow)
@@ -763,7 +916,56 @@ export default function FlowTrackingPanel({ onClose }: { onClose?: () => void } 
                                       {liveGrade.grade}
                                     </span>
                                   )}
+                                  {ownStdDevFailed.has(flow.underlying_ticker) && (
+                                    <span
+                                      title="StdDev fetch failed — Price Action unscored"
+                                      style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', cursor: 'help' }}
+                                    >
+                                      ⚠
+                                    </span>
+                                  )}
                                 </div>
+                              </td>
+                            </tr>
+                            <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                              <td colSpan={5} className="p-1">
+                                {(() => {
+                                  const parentZones = dealerZoneCacheFromParent?.[flow.underlying_ticker]
+                                  const zones = (parentZones && (parentZones.golden !== null || parentZones.purple !== null))
+                                    ? parentZones
+                                    : (ownDealerZones[flow.underlying_ticker] ?? null)
+                                  const isCall3 = flow.type === 'call'
+                                  const fillStyle3 = flow.fill_style || ''
+                                  const isSold3 = fillStyle3 === 'B' || fillStyle3 === 'BB'
+                                  const targetUp = (isCall3 && !isSold3) || (!isCall3 && isSold3)
+                                  // Use live DTE instead of stale snapshot value
+                                  const todayMs = new Date().setHours(0, 0, 0, 0)
+                                  const expD = new Date(flow.expiry)
+                                  const expLocal = new Date(expD.getUTCFullYear(), expD.getUTCMonth(), expD.getUTCDate())
+                                  const liveDTE = Math.max(0, Math.floor((expLocal.getTime() - todayMs) / 86400000))
+                                  const sigma3 = (zones?.atmIV && zones.atmIV > 0)
+                                    ? zones.atmIV
+                                    : (flow.implied_volatility && flow.implied_volatility > 0 ? flow.implied_volatility : 0)
+                                  const t1 = sigma3 > 0 ? bsStrikeForProbFTP(flow.spot_price, sigma3, liveDTE, 80, targetUp) : null
+                                  const t2 = sigma3 > 0 ? bsStrikeForProbFTP(flow.spot_price, sigma3, liveDTE, 90, targetUp) : null
+                                  const targetColor = targetUp ? '#00ff88' : '#ff4466'
+                                  const stockNow = currentStockPrices[flow.underlying_ticker]
+                                  const chip = (label: string, value: string, color: string): React.ReactElement => (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                      <span style={{ fontSize: '14px', fontWeight: 700, color, letterSpacing: '0.3px' }}>{label}</span>
+                                      <span style={{ fontSize: '16px', fontWeight: 900, color }}>{value}</span>
+                                    </div>
+                                  )
+                                  return (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px', flexWrap: 'wrap', gap: '6px' }}>
+                                      {chip('Magnet', zones?.golden ? `$${zones.golden.toFixed(2)}` : '—', '#FFD700')}
+                                      {chip('Pivot', zones?.purple ? `$${zones.purple.toFixed(2)}` : '—', '#a855f7')}
+                                      {chip('Target 1', t1 ? `$${t1.toFixed(2)}` : '—', targetColor)}
+                                      {chip('Target 2', t2 ? `$${t2.toFixed(2)}` : '—', targetColor)}
+                                      {chip('Stock', stockNow ? `$${stockNow.toFixed(2)}` : '—', '#ffffff')}
+                                    </div>
+                                  )
+                                })()}
                               </td>
                             </tr>
                           </tbody>

@@ -1,51 +1,51 @@
 /**
  * Utility functions for calculating o console.log(' console.log('� RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]); GET NEXT FRIDAY: CRITICAL - if today is Oct 1 2025 (Wed=3), next Friday should be Oct 3');tions expiration dates
- * All calculations use Eastern Time (NYSE timezone) for accurate market dates
+ * All calculations use PST (America/Los_Angeles) for accurate market dates
  */
 
 /**
- * Get current date in Eastern Time (as a date-only object)
+ * Get current date in PST (as a date-only object)
  */
-function getEasternDate(): Date {
-  // Get current time in Pacific timezone
-  const easternFormatter = new Intl.DateTimeFormat('en-US', {
+function getPSTDate(): Date {
+  // Get current time in PST
+  const pstFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   })
 
-  const parts = easternFormatter.formatToParts(new Date())
+  const parts = pstFormatter.formatToParts(new Date())
   const year = parseInt(parts.find((p) => p.type === 'year')?.value || '0')
   const month = parseInt(parts.find((p) => p.type === 'month')?.value || '0')
   const day = parseInt(parts.find((p) => p.type === 'day')?.value || '0')
 
   // Create date object in UTC to avoid timezone conversion issues
-  const easternDate = new Date(Date.UTC(year, month - 1, day))
+  const pstDate = new Date(Date.UTC(year, month - 1, day))
 
   console.log('🕐 FIXED TIMEZONE: Current UTC Time:', new Date().toISOString())
-  console.log('🕐 FIXED TIMEZONE: Eastern Date Parts:', { year, month, day })
-  console.log('🕐 FIXED TIMEZONE: Parsed Date:', easternDate.toISOString())
+  console.log('🕐 FIXED TIMEZONE: PST Date Parts:', { year, month, day })
+  console.log('🕐 FIXED TIMEZONE: Parsed Date:', pstDate.toISOString())
   console.log(
     '🕐 FIXED TIMEZONE: Day of week:',
-    easternDate.getUTCDay(),
+    pstDate.getUTCDay(),
     '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)'
   )
 
-  return easternDate
+  return pstDate
 }
 
 /**
- * Get the next Friday from a given date (in Eastern Time)
+ * Get the next Friday from a given date (in PST)
  * Mon-Thu: Returns this week's Friday
  * Fri: Returns next week's Friday (assumes market close, looking ahead)
  * Sat-Sun: Returns next week's Friday
  */
 export function getNextFriday(fromDate?: Date): Date {
-  const easternDate = fromDate ? new Date(fromDate) : getEasternDate()
+  const pstDate = fromDate ? new Date(fromDate) : getPSTDate()
 
-  const dayOfWeek = easternDate.getUTCDay() // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
-  console.log('📅 GET NEXT FRIDAY: Input date:', easternDate.toISOString())
+  const dayOfWeek = pstDate.getUTCDay() // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+  console.log('📅 GET NEXT FRIDAY: Input date:', pstDate.toISOString())
   console.log(
     '📅 GET NEXT FRIDAY: Day of week:',
     dayOfWeek,
@@ -74,10 +74,10 @@ export function getNextFriday(fromDate?: Date): Date {
   }
 
   console.log('📊 CALCULATION: Days until Friday:', daysUntilFriday)
-  console.log('📊 CALCULATION: Starting from date:', easternDate.toISOString().split('T')[0])
+  console.log('📊 CALCULATION: Starting from date:', pstDate.toISOString().split('T')[0])
 
-  const nextFriday = new Date(easternDate)
-  nextFriday.setUTCDate(easternDate.getUTCDate() + daysUntilFriday)
+  const nextFriday = new Date(pstDate)
+  nextFriday.setUTCDate(pstDate.getUTCDate() + daysUntilFriday)
 
   console.log('🎯 RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0])
 
@@ -119,7 +119,7 @@ export function getThirdFridayOfMonth(year: number, month: number): Date {
  * Get the next monthly expiration date (third Friday of current or next month)
  */
 export function getNextMonthlyExpiration(fromDate?: Date): Date {
-  const currentDate = fromDate ? new Date(fromDate) : getEasternDate()
+  const currentDate = fromDate ? new Date(fromDate) : getPSTDate()
   const currentYear = currentDate.getUTCFullYear()
   const currentMonth = currentDate.getUTCMonth() + 1 // JavaScript months are 0-based
 
@@ -205,7 +205,7 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
   monthlyDate: Date
 }> {
   const availableDates = await fetchAvailableExpirationDates(symbol)
-  const now = getEasternDate()
+  const now = getPSTDate()
 
   // Filter dates that are in the future
   const futureDates = availableDates.filter((date) => {
@@ -219,7 +219,7 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
   }
 
   // Get current week number of the month
-  const today = getEasternDate()
+  const today = getPSTDate()
   const currentWeekOfMonth = Math.ceil(today.getUTCDate() / 7)
 
   // Weekly expiry: Next Friday this week or next week
@@ -317,9 +317,9 @@ export function getCalculatedExpirationDates(): {
   weeklyDate: Date
   monthlyDate: Date
 } {
-  const easternNow = getEasternDate()
-  const weeklyDate = getNextFriday(easternNow)
-  const monthlyDate = getNextMonthlyExpiration(easternNow)
+  const pstNow = getPSTDate()
+  const weeklyDate = getNextFriday(pstNow)
+  const monthlyDate = getNextMonthlyExpiration(pstNow)
 
   return {
     weeklyExpiry: formatDateForAPI(weeklyDate),
@@ -344,10 +344,10 @@ export function getExpirationDates(): {
 }
 
 /**
- * Get days until expiration (using Eastern Time)
+ * Get days until expiration (using PST)
  */
 export function getDaysUntilExpiration(expirationDate: Date): number {
-  const easternNow = getEasternDate()
-  const timeDiff = expirationDate.getTime() - easternNow.getTime()
+  const pstNow = getPSTDate()
+  const timeDiff = expirationDate.getTime() - pstNow.getTime()
   return Math.ceil(timeDiff / (1000 * 3600 * 24))
 }

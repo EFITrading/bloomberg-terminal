@@ -794,13 +794,7 @@ export class IndustryAnalysisService {
         signal: AbortSignal.timeout(3000), // 3 second timeout
       })
 
-      if (response.ok) {
-        console.log(' API connection verified')
-      } else {
-        console.warn(' API health check failed, but continuing with default URL')
-      }
-    } catch (error) {
-      console.warn(' Could not connect to API, ensure development server is running')
+    } catch {
     }
   }
 
@@ -841,168 +835,14 @@ export class IndustryAnalysisService {
           }
           return dataMap
         } else {
-          console.warn(
-            `[IndustryAnalysis] Bulk endpoint returned success=false:`,
-            bulkResult.error || bulkResult
-          )
+          throw new Error('[IndustryAnalysis] Bulk endpoint returned success=false')
         }
       } else {
-        console.warn(
-          `[IndustryAnalysis] Bulk endpoint HTTP ${response.status}, falling back to individual requests`
-        )
+        throw new Error(`[IndustryAnalysis] Bulk endpoint HTTP ${response.status}`)
       }
     } catch (error) {
-      console.warn(
-        `[IndustryAnalysis] Bulk endpoint error:`,
-        error,
-        `— falling back to individual requests`
-      )
+      throw error
     }
-
-    // Fallback to individual requests if bulk fails
-    return this.legacyBatchFetchHistoricalData(symbols, days)
-  }
-
-  // Legacy batch fetch method as fallback
-  private static async legacyBatchFetchHistoricalData(
-    symbols: string[],
-    days: number
-  ): Promise<Map<string, any>> {
-    // Calculate actual calendar days needed to get the requested number of trading days
-    const calendarDays = calculateTradingDays(days)
-
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(endDate.getDate() - calendarDays)
-    const dateKey = `${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}`
-
-    const dataMap = new Map<string, any>()
-    const uncachedSymbols: string[] = []
-    const now = Date.now()
-
-    // Check cache with expiry
-    for (const symbol of symbols) {
-      const cacheKey = `${symbol}_${dateKey}`
-      const expiry = this.cacheExpiry.get(cacheKey)
-
-      if (this.historicalDataCache.has(cacheKey) && expiry && now < expiry) {
-        dataMap.set(symbol, this.historicalDataCache.get(cacheKey))
-      } else {
-        uncachedSymbols.push(symbol)
-        // Clean expired cache entries
-        if (expiry && now >= expiry) {
-          this.historicalDataCache.delete(cacheKey)
-          this.cacheExpiry.delete(cacheKey)
-        }
-      }
-    }
-
-    if (uncachedSymbols.length === 0) {
-      return dataMap
-    }
-
-    // Create batches
-    const batches: string[][] = []
-    for (let i = 0; i < uncachedSymbols.length; i += this.BATCH_SIZE) {
-      batches.push(uncachedSymbols.slice(i, i + this.BATCH_SIZE))
-    }
-
-    // Process batches concurrently
-    const batchPromises: Promise<void>[] = []
-
-    for (let i = 0; i < batches.length; i += this.MAX_CONCURRENT_BATCHES) {
-      const concurrentBatches = batches.slice(i, i + this.MAX_CONCURRENT_BATCHES)
-
-      const concurrentPromise = Promise.all(
-        concurrentBatches.map(async (batch, batchIndex) => {
-          const actualBatchIndex = i + batchIndex
-          console.log(
-            ` Processing batch ${actualBatchIndex + 1}/${batches.length} (${batch.length} symbols)`
-          )
-
-          const batchPromises = batch.map(async (symbol, index) => {
-            // Add staggered delay to prevent overwhelming the server
-            if (index > 0) {
-              await new Promise((resolve) => setTimeout(resolve, index * 50)) // 50ms delay between requests
-            }
-
-            try {
-              // Add timeout and retry logic for better reliability
-              const controller = new AbortController()
-              const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-
-              const response = await fetch(
-                `${this.baseUrl}/historical-data?symbol=${symbol}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}&keepDesc=true`,
-                {
-                  signal: controller.signal,
-                  headers: {
-                    Accept: 'application/json',
-                    'Content-Type': 'application/json',
-                  },
-                }
-              )
-
-              clearTimeout(timeoutId)
-
-              if (!response.ok) {
-                if (response.status === 404) {
-                  console.warn(` No data found for ${symbol}`)
-                  return {
-                    symbol,
-                    data: { results: [], status: 'OK', message: 'No data available' },
-                  }
-                }
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-              }
-
-              const data = await response.json()
-
-              // Cache with expiry
-              const cacheKey = `${symbol}_${dateKey}`
-              this.historicalDataCache.set(cacheKey, data)
-              this.cacheExpiry.set(cacheKey, now + this.CACHE_DURATION)
-
-              return { symbol, data }
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-              if (error instanceof Error && error.name === 'AbortError') {
-                console.warn(`⏱ Timeout fetching data for ${symbol}`)
-              } else if (
-                errorMessage.includes('Failed to fetch') ||
-                errorMessage.includes('CONNECTION_REFUSED')
-              ) {
-                console.warn(
-                  ` Connection error for ${symbol}: Server may not be running on expected port`
-                )
-              } else {
-                console.error(` Error fetching data for ${symbol}:`, error)
-              }
-
-              // Return empty data instead of null to prevent cascading errors
-              return { symbol, data: { results: [], status: 'ERROR', message: errorMessage } }
-            }
-          })
-
-          const batchResults = await Promise.all(batchPromises)
-
-          for (const { symbol, data } of batchResults) {
-            if (data) {
-              dataMap.set(symbol, data)
-            }
-          }
-        })
-      ).then(() => {
-        // Minimal delay optimized for Professional Plan
-        return new Promise<void>((resolve) => setTimeout(resolve, this.REQUEST_DELAY))
-      })
-      batchPromises.push(concurrentPromise)
-    }
-
-    await Promise.all(batchPromises)
-    console.log(` Completed fetching ${uncachedSymbols.length} symbols`)
-
-    return dataMap
   }
 
   // Calculate ETF/SPY ratio and check structure confirmation
@@ -1076,8 +916,7 @@ export class IndustryAnalysisService {
       }
 
       return { hasStructure, ratio, emaRatio }
-    } catch (error) {
-      console.error('Error calculating ratio structure:', error)
+    } catch {
       return { hasStructure: false, ratio: [], emaRatio: 0 }
     }
   }
@@ -1113,8 +952,7 @@ export class IndustryAnalysisService {
 
       // Return relative performance (ETF vs SPY)
       return relativePerf
-    } catch (error) {
-      console.error('Error calculating relative performance from data:', error)
+    } catch {
       return 0
     }
   }
@@ -1142,8 +980,7 @@ export class IndustryAnalysisService {
 
       // Return relative performance (Holding vs ETF)
       return holdingChange - etfChange
-    } catch (error) {
-      console.error('Error calculating holding performance from data:', error)
+    } catch {
       return 0
     }
   }
@@ -1216,14 +1053,10 @@ export class IndustryAnalysisService {
   }
 
   // Analyze industry performance for a specific timeframe using bulk data
-  static async analyzeTimeframe(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
-    // No timeout - let analysis complete naturally
-
+  static async analyzeTimeframe(days: number, timeframeName: string, preloadedDataMap?: Map<string, any>): Promise<TimeframeAnalysis> {
     try {
-      return await this.performTimeframeAnalysis(days, timeframeName)
-    } catch (error) {
-      console.error(`[IndustryAnalysis] ${timeframeName} analysis failed:`, error)
-      // Return empty analysis instead of hanging
+      return await this.performTimeframeAnalysis(days, timeframeName, preloadedDataMap)
+    } catch {
       return {
         timeframe: timeframeName,
         days,
@@ -1310,9 +1143,22 @@ export class IndustryAnalysisService {
   }
 
   // Separate the actual analysis logic to enable timeout handling
+  private static buildAllSymbols(): string[] {
+    const allSymbols = new Set<string>()
+    allSymbols.add('SPY')
+    for (const etf of INDUSTRY_ETFS) {
+      allSymbols.add(etf.symbol)
+      for (const holding of etf.holdings) {
+        allSymbols.add(holding)
+      }
+    }
+    return Array.from(allSymbols)
+  }
+
   private static async performTimeframeAnalysis(
     days: number,
-    timeframeName: string
+    timeframeName: string,
+    preloadedDataMap?: Map<string, any>
   ): Promise<TimeframeAnalysis> {
     // Define sub-windows with timeframe-specific logic
     let shortWindow, midWindow
@@ -1331,27 +1177,13 @@ export class IndustryAnalysisService {
     }
     const fullWindow = days
 
-    // Collect all unique symbols (ETFs + holdings + SPY)
-    const allSymbols = new Set<string>()
-    allSymbols.add('SPY') // Always include SPY for relative performance
-
-    for (const etf of INDUSTRY_ETFS) {
-      allSymbols.add(etf.symbol)
-      for (const holding of etf.holdings) {
-        allSymbols.add(holding)
-      }
-    }
-
-    // Bulk fetch all historical data (fetch full window)
-    const historicalDataMap = await this.batchFetchHistoricalData(
-      Array.from(allSymbols),
-      fullWindow
-    )
+    // Use shared pre-fetched data if provided, otherwise fetch independently
+    const historicalDataMap = preloadedDataMap ??
+      await this.batchFetchHistoricalData(this.buildAllSymbols(), fullWindow)
 
     const spyData = historicalDataMap.get('SPY')
 
     if (!spyData) {
-      console.error('Failed to fetch SPY data')
       return {
         timeframe: timeframeName,
         days,
@@ -1461,8 +1293,7 @@ export class IndustryAnalysisService {
           topPerformers,
           worstPerformers,
         })
-      } catch (error) {
-        console.error(`Error analyzing ${etf.symbol}:`, error)
+      } catch {
       }
     }
 
@@ -1479,13 +1310,17 @@ export class IndustryAnalysisService {
   static async getMarketRegimeDataWithProgress(
     progressCallback?: (stage: string, progress: number) => void
   ): Promise<MarketRegimeData> {
-    if (progressCallback) progressCallback('Initializing parallel analysis...', 10)
+    if (progressCallback) progressCallback('Fetching market data...', 10)
 
-    // Track actual progress with Promise.allSettled to monitor completion
+    // Fetch ALL symbols ONCE with max window (80d). Life (5d) uses last 5 bars from the same data.
+    const sharedDataMap = await this.batchFetchHistoricalData(this.buildAllSymbols(), 80)
+
+    if (progressCallback) progressCallback('Analyzing timeframes...', 25)
+
     const completedTasks = { count: 0, total: 2 }
 
     const trackablePromises = [
-      this.analyzeTimeframe(5, 'Life').then((result) => {
+      this.analyzeTimeframe(5, 'Life', sharedDataMap).then((result) => {
         completedTasks.count++
         if (progressCallback) {
           const progress = 25 + (completedTasks.count / completedTasks.total) * 70
@@ -1496,7 +1331,7 @@ export class IndustryAnalysisService {
         }
         return result
       }),
-      this.analyzeTimeframe(80, 'Momentum').then((result) => {
+      this.analyzeTimeframe(80, 'Momentum', sharedDataMap).then((result) => {
         completedTasks.count++
         if (progressCallback) {
           const progress = 25 + (completedTasks.count / completedTasks.total) * 70
@@ -1530,22 +1365,30 @@ export class IndustryAnalysisService {
     // Initialize service and check API connection
     try {
       await this.initializeService()
-    } catch (error) {
-      console.error('Failed to initialize Market Regime Service:', error)
+    } catch {
     }
 
-    if (progressCallback) progressCallback('API connection verified, starting analysis...', 10)
+    if (progressCallback) progressCallback('Fetching market data...', 10)
+
+    // Fetch ALL symbols ONCE with max window. Life (5d) uses last 5 bars from same data.
+    let sharedDataMap: Map<string, any> | undefined
+    try {
+      sharedDataMap = await this.batchFetchHistoricalData(this.buildAllSymbols(), 80)
+    } catch {
+    }
+
+    if (progressCallback) progressCallback('Data loaded, analyzing timeframes...', 20)
 
     // Initialize empty result object
     const result: Partial<MarketRegimeData> = {}
 
-    // Analysis configurations - use more calendar days to ensure sufficient trading days
+    // Analysis configurations
     const timeframes = [
       { days: 5, name: 'life' as keyof MarketRegimeData, label: 'Life' },
       { days: 80, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' },
     ]
 
-    // Execute analyses sequentially to prevent resource exhaustion
+    // Execute analyses sequentially (data is pre-loaded so each is pure CPU)
     const completedAnalyses: any[] = []
 
     for (const { days, name, label } of timeframes) {
@@ -1556,7 +1399,7 @@ export class IndustryAnalysisService {
             20 + timeframes.findIndex((t) => t.name === name) * 20
           )
 
-        const data = await this.analyzeTimeframe(days, label)
+        const data = await this.analyzeTimeframe(days, label, sharedDataMap)
         result[name] = data
 
         // Stream the result immediately when ready
@@ -1571,9 +1414,7 @@ export class IndustryAnalysisService {
           )
 
         completedAnalyses.push(data)
-      } catch (error) {
-        console.error(`Error analyzing ${label} timeframe:`, error)
-
+      } catch {
         // Don't throw - instead create empty timeframe data and continue
         const emptyData: TimeframeAnalysis = {
           timeframe: label,
@@ -1595,10 +1436,7 @@ export class IndustryAnalysisService {
       if (progressCallback) progressCallback('All timeframes complete', 100)
 
       return result as MarketRegimeData
-    } catch (error) {
-      console.error('Error in streaming market regime analysis:', error)
-
-      // Return partial results even if there were errors
+    } catch {
       return result as MarketRegimeData
     }
   }

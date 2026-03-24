@@ -15,6 +15,7 @@ import {
   TbBellOff,
   TbBellRinging,
   TbBoxMultiple,
+  TbBulb,
   TbBrush,
   TbCalculator,
   TbCalendar,
@@ -69,6 +70,7 @@ import {
   getExpirationDatesFromAPI,
 } from '../../lib/optionsExpirationUtils'
 import PolygonService from '../../lib/polygonService'
+import { polygonStocksWS } from '../../lib/polygonStocksWS'
 import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
 import FlowTrackingPanel from '../FlowTrackingPanel'
@@ -79,6 +81,7 @@ import { OptionsFlowTable } from '../OptionsFlowTable'
 import RRGScreener from '../RRGScreener'
 import RSScreener from '../RSScreener'
 import BuySellButton from './BuySellButton'
+import InsightPanel from './InsightPanel'
 import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import DealerAttraction from '../analytics/DealerAttraction'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
@@ -3470,7 +3473,7 @@ interface TradingViewChartProps {
 }
 
 // ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
-function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallbackCandles: any[] }) {
+export function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallbackCandles: any[] }) {
   const POPUP_TIMEFRAMES = [
     { label: '5M', value: '5m', days: 10, defaultBars: 78 },  // ~1 trading day visible
     { label: '1H', value: '1h', days: 365, defaultBars: 120 },  // ~3 months visible
@@ -3485,6 +3488,7 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
   const dragRef = React.useRef({ active: false, mode: 'pan' as 'pan' | 'yscale', startX: 0, startY: 0, startOffset: 0, startMultiplier: 1, lastX: 0, lastTime: 0, velocity: 0 })
   const inertiaRef = React.useRef<number | null>(null)
   const yScaleRef = React.useRef({ multiplier: 1, centerPrice: null as number | null })
+  const crosshairRef = React.useRef({ x: -1, y: -1, visible: false })
 
   // Sync when fallbackCandles prop changes (peer symbol swap)
   React.useEffect(() => {
@@ -3536,6 +3540,16 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Bulletproof price formatter — strips minus sign completely
+    const fmtPrice = (v: number) => {
+      const a = Math.abs(v)
+      const s = a >= 1000 ? a.toFixed(0) : a >= 100 ? a.toFixed(1) : a.toFixed(2)
+      return s.replace(/^-/, '')
+    }
+
+    // Reset any stale canvas state from previous draw
+    ctx.setLineDash([])
+
     // DPR fix — crispy retina rendering
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
@@ -3558,7 +3572,7 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
     const visible = candles.slice(start, end)
     if (visible.length === 0) return
 
-    const PAD_L = 8, PAD_R = 58, PAD_T = 14, PAD_B = 38
+    const PAD_L = 8, PAD_R = 62, PAD_T = 14, PAD_B = 44
     const chartW = W - PAD_L - PAD_R
     const chartH = H - PAD_T - PAD_B
     const VOLUME_H = Math.floor(chartH * 0.18)
@@ -3620,7 +3634,7 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
       ctx.fillRect(x + barW * 0.1, bodyTop, barW * 0.8, bodyH)
     })
 
-    // Volume bars
+    // Volume bars — solid colors
     const volumes = visible.map((c: any) => c.volume ?? c.v ?? 0)
     const maxVol = Math.max(...volumes, 1)
     const volY0 = PAD_T + CANDLE_H + 6
@@ -3628,52 +3642,53 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
       const x = PAD_L + i * barW
       const vol = c.volume ?? c.v ?? 0
       const volH = Math.max(1, (vol / maxVol) * VOLUME_H)
-      ctx.fillStyle = (c.close >= (c.open ?? c.close)) ? 'rgba(0,191,255,0.55)' : 'rgba(255,0,0,0.5)'
+      ctx.fillStyle = (c.close >= (c.open ?? c.close)) ? '#00BFFF' : '#ff0000'
       ctx.fillRect(x + barW * 0.1, volY0 + VOLUME_H - volH, barW * 0.8, volH)
     })
 
-    // Last price dashed line
-    const lastClose = visible[visible.length - 1]?.close
-    if (lastClose !== undefined) {
-      const lastY = toY(lastClose)
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 4])
-      ctx.beginPath()
-      ctx.moveTo(PAD_L, lastY)
-      ctx.lineTo(W - PAD_R, lastY)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // Y-axis — crispy white
-    ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 13px "Courier New", monospace'
+    // Y-axis — crispy white, 30% bigger, abs values
+    ctx.font = 'bold 17px "Courier New", monospace'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     for (let i = 0; i <= 4; i++) {
       const val = lo + (range / 4) * (4 - i)
       const y = PAD_T + (CANDLE_H / 4) * i
-      const label = val >= 1000 ? val.toFixed(0) : val >= 100 ? val.toFixed(1) : val.toFixed(2)
+      const label = fmtPrice(val)
+      ctx.fillStyle = '#ffffff'
       ctx.fillText(label, W - PAD_R + 5, y)
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = 1
-      ctx.beginPath(); ctx.moveTo(W - PAD_R, y); ctx.lineTo(W - PAD_R + 3, y); ctx.stroke()
     }
 
-    // X-axis dates — crispy white
+    // Last price — orange pill only (no dashed line)
+    const lastClose = visible[visible.length - 1]?.close
+    if (lastClose !== undefined) {
+      const lastY = toY(lastClose)
+      const lastLabel = fmtPrice(lastClose)
+      ctx.fillStyle = '#ff6600'
+      ctx.fillRect(W - PAD_R + 1, lastY - 10, PAD_R - 2, 20)
+      ctx.fillStyle = '#000000'
+      ctx.font = 'bold 12px "Courier New", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(lastLabel, W - PAD_R + (PAD_R - 2) / 2 + 1, lastY)
+    }
+
+    // X-axis dates — crispy white, 30% bigger
     ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 12px "Courier New", monospace'
+    ctx.font = 'bold 16px "Courier New", monospace'
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'alphabetic'
+    ctx.textBaseline = 'middle'
     const step = Math.max(1, Math.floor(visible.length / 5))
-    visible.forEach((c: any, i: number) => {
-      if (i % step !== 0) return
+    for (let i = 0; i < visible.length; i++) {
+      if (i % step !== 0) continue
+      const c = visible[i]
       const x = PAD_L + i * barW + barW * 0.5
       const ts = c.timestamp ?? c.t
       const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
-      ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, x, H - 6)
-    })
+      const label = (timeframe === '5M' || timeframe === '1H')
+        ? `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+        : `${d.getMonth() + 1}/${d.getDate()}`
+      ctx.fillText(label, x, H - PAD_B + 20)
+    }
 
     // Axis border
     ctx.strokeStyle = 'rgba(255,255,255,0.4)'
@@ -3683,7 +3698,55 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
     ctx.lineTo(PAD_L, H - PAD_B)
     ctx.lineTo(W - PAD_R, H - PAD_B)
     ctx.stroke()
-  }, [candles, fetching, timeframe])
+
+    // Ticker watermark — centered, small
+    ctx.save()
+    ctx.font = `bold ${Math.floor(H * 0.084)}px "Courier New", monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'
+    ctx.fillText(symbol, PAD_L + chartW / 2, PAD_T + CANDLE_H / 2)
+    ctx.restore()
+
+    // Crosshair
+    const ch = crosshairRef.current
+    if (ch.visible && ch.x >= PAD_L && ch.x <= W - PAD_R && ch.y >= PAD_T && ch.y <= PAD_T + CANDLE_H) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 4])
+      ctx.beginPath(); ctx.moveTo(ch.x, PAD_T); ctx.lineTo(ch.x, H - PAD_B); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(PAD_L, ch.y); ctx.lineTo(W - PAD_R, ch.y); ctx.stroke()
+      ctx.setLineDash([])
+      // Price label
+      const chPrice = hi - ((ch.y - PAD_T) / CANDLE_H) * range
+      const chPriceLabel = fmtPrice(chPrice)
+      ctx.fillStyle = '#ff6600'
+      ctx.fillRect(W - PAD_R + 1, ch.y - 9, PAD_R - 2, 18)
+      ctx.fillStyle = '#000000'
+      ctx.font = 'bold 11px "Courier New", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(chPriceLabel, W - PAD_R + PAD_R / 2, ch.y)
+      // Date label
+      const chBarIdx = Math.floor((ch.x - PAD_L) / barW)
+      if (chBarIdx >= 0 && chBarIdx < visible.length) {
+        const chC = visible[chBarIdx]
+        const chTs = chC.timestamp ?? chC.t
+        const chD = chTs ? new Date(chTs) : new Date((chC.date || '') + 'T00:00:00')
+        const chDateStr = (timeframe === '5M' || timeframe === '1H')
+          ? `${chD.getMonth() + 1}/${chD.getDate()} ${chD.getHours()}:${String(chD.getMinutes()).padStart(2, '0')}`
+          : `${chD.getMonth() + 1}/${chD.getDate()}/${chD.getFullYear().toString().slice(2)}`
+        ctx.font = 'bold 11px "Courier New", monospace'
+        const chTw = ctx.measureText(chDateStr).width
+        ctx.fillStyle = '#ff6600'
+        ctx.fillRect(ch.x - chTw / 2 - 4, H - PAD_B + 1, chTw + 8, 16)
+        ctx.fillStyle = '#000000'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(chDateStr, ch.x, H - PAD_B + 9)
+      }
+    }
+  }, [candles, fetching, timeframe, symbol])
 
   // Canvas DPR setup + ResizeObserver
   React.useEffect(() => {
@@ -3709,7 +3772,7 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
   React.useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const PAD_L = 8, PAD_R = 58
+    const PAD_L = 8, PAD_R = 62
 
     const clampOffset = (o: number, bars: number, total: number) =>
       Math.max(0, Math.min(Math.max(0, total - bars), o))
@@ -3765,7 +3828,7 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
     const canvas = canvasRef.current
     const offsetX = e.nativeEvent.offsetX
     const W = canvas?.offsetWidth ?? 500
-    const isYAxis = offsetX > W - 58
+    const isYAxis = offsetX > W - 62
     if (isYAxis) {
       if (yScaleRef.current.centerPrice === null) {
         const total = candles.length
@@ -3789,11 +3852,16 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
     const canvas = canvasRef.current
 
     const onMove = (e: MouseEvent) => {
-      // Cursor feedback on canvas hover (only when not dragging)
-      if (canvas && !dragRef.current.active) {
+      if (canvas) {
         const rect = canvas.getBoundingClientRect()
         const offsetX = e.clientX - rect.left
-        canvas.style.cursor = offsetX > (canvas.offsetWidth - 58) ? 'ns-resize' : 'crosshair'
+        const offsetY = e.clientY - rect.top
+        if (!dragRef.current.active) {
+          canvas.style.cursor = offsetX > (canvas.offsetWidth - 62) ? 'ns-resize' : 'crosshair'
+          const inCanvas = offsetX >= 0 && offsetX <= canvas.offsetWidth && offsetY >= 0 && offsetY <= canvas.offsetHeight
+          crosshairRef.current = { x: offsetX, y: offsetY, visible: inCanvas }
+          drawRef.current()
+        }
       }
       if (!dragRef.current.active) return
 
@@ -3857,15 +3925,23 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
   const onDoubleClick = (e: React.MouseEvent) => {
     const canvas = canvasRef.current
     if (!canvas) return
-    if (e.nativeEvent.offsetX > canvas.offsetWidth - 58) {
+    if (e.nativeEvent.offsetX > canvas.offsetWidth - 62) {
       yScaleRef.current = { multiplier: 1, centerPrice: null }
       drawRef.current()
     }
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', alignItems: 'center' }}>
+    <div style={{ position: 'relative', width: '50%', height: '476px' }}>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.25)' }}
+        onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
+        onMouseLeave={() => { crosshairRef.current.visible = false; drawRef.current() }}
+      />
+      {/* Timeframe buttons — top-left overlay */}
+      <div style={{ position: 'absolute', top: '8px', left: '8px', display: 'flex', gap: '4px', zIndex: 10 }}>
         {POPUP_TIMEFRAMES.map(tf => (
           <button
             key={tf.label}
@@ -3875,30 +3951,24 @@ function TradePopupChart({ symbol, fallbackCandles }: { symbol: string; fallback
               fontFamily: '"Courier New", monospace',
               fontSize: '10px',
               fontWeight: 700,
-              background: timeframe === tf.label ? '#ff6600' : '#000000',
+              background: timeframe === tf.label ? '#ff6600' : 'rgba(0,0,0,0.75)',
               color: timeframe === tf.label ? '#000000' : '#ffffff',
-              border: `1px solid ${timeframe === tf.label ? '#ff6600' : 'rgba(255,255,255,0.35)'}`,
-              boxShadow: timeframe === tf.label ? 'none' : 'none',
+              border: `1px solid ${timeframe === tf.label ? '#ff6600' : 'rgba(255,255,255,0.3)'}`,
               borderRadius: '4px',
               cursor: 'pointer',
               transition: 'all 0.12s',
+              backdropFilter: 'blur(4px)',
             }}
           >
             {tf.label}
           </button>
         ))}
         {fetching && (
-          <span style={{ fontFamily: '"Courier New", monospace', fontSize: '9px', color: '#ff6600', marginLeft: '4px' }}>
+          <span style={{ fontFamily: '"Courier New", monospace', fontSize: '9px', color: '#ff6600', lineHeight: '22px' }}>
             LOADING…
           </span>
         )}
       </div>
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: '280px', display: 'block', cursor: 'crosshair', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.25)' }}
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-      />
     </div>
   )
 }
@@ -4455,6 +4525,107 @@ export default function TradingViewChart({
 
   // Prefetch composite history on mount so the chart is ready before the watchlist panel opens
   useEffect(() => { prefetchCompositeHistory() }, [])
+
+  // ─── Polygon WebSocket — live minute-bar prices via shared singleton ───
+  // ONE connection is shared across all components (TickerScroller, watchlist hooks, etc.)
+  // to avoid Polygon's max_connections limit.
+  const wsPrevCloseRef = useRef<Record<string, number>>({}) // prev-day close per symbol (seeded by REST on mount)
+
+  const trackingSyms = [
+    'SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT',
+    'NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA',
+    'JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX',
+    'OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX',
+    'PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU',
+    'XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV',
+    'OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK',
+  ]
+
+  useEffect(() => {
+    if (!polygonStocksWS) return
+
+    const allAMSyms = Array.from(new Set([...trackingSyms, symbol]))
+
+    const unsub = polygonStocksWS.subscribe('efi-chart-ws', {
+      amSymbols: allAMSyms,
+      onAM: (msg) => {
+        const sym = msg.sym
+        const price = msg.c
+
+        if (sym === symbol) {
+          setCurrentPrice(price)
+          const prevClose = wsPrevCloseRef.current[sym]
+          if (prevClose) {
+            setPriceChange(price - prevClose)
+            setPriceChangePercent(((price - prevClose) / prevClose) * 100)
+          }
+        }
+
+        setWatchlistData(prev => {
+          const entry = prev[sym]
+          if (!entry) return prev
+          const prevClose = wsPrevCloseRef.current[sym] ?? entry.price
+          const change1d = prevClose ? ((price - prevClose) / prevClose) * 100 : entry.change1d
+          return { ...prev, [sym]: { ...entry, price, change1d } }
+        })
+
+        setTrackingData(prev => {
+          const entry = prev[sym]
+          if (!entry) return prev
+          const prevClose = entry.previousDayClose ?? entry.price
+          const change = prevClose ? ((price - prevClose) / prevClose) * 100 : entry.change
+          return { ...prev, [sym]: { ...entry, price, change } }
+        })
+      },
+      aSymbol: symbol,
+      onA: (msg) => {
+        const tf = chartTimeframeRef.current
+        const BAR_MS: Record<string, number> = {
+          '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
+          '1h': 3_600_000, '4h': 14_400_000,
+          '1d': 86_400_000, '1w': 604_800_000,
+          '1mo': 2_592_000_000, '1y': 31_536_000_000,
+        }
+        const barMs = BAR_MS[tf] ?? 86_400_000
+        const secTs: number = msg.s
+        const secPeriod = Math.floor(secTs / barMs)
+
+        setData(prev => {
+          if (prev.length === 0) return prev
+          const last = prev[prev.length - 1]
+          const lastPeriod = Math.floor(last.timestamp / barMs)
+
+          if (secPeriod === lastPeriod) {
+            const updated = {
+              ...last,
+              close: msg.c,
+              high: Math.max(last.high, msg.h ?? msg.c),
+              low: Math.min(last.low, msg.l ?? msg.c),
+              volume: (last.volume || 0) + (msg.v || 0),
+            }
+            const d = [...prev]
+            d[d.length - 1] = updated
+            return d
+          } else if (secPeriod > lastPeriod) {
+            const newBar: ChartDataPoint = {
+              timestamp: secTs,
+              open: msg.o ?? msg.c,
+              high: msg.h ?? msg.c,
+              low: msg.l ?? msg.c,
+              close: msg.c,
+              volume: msg.v || 0,
+              date: new Date(secTs).toISOString().split('T')[0],
+              time: new Date(secTs).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            }
+            return [...prev, newBar]
+          }
+          return prev
+        })
+      },
+    })
+
+    return unsub
+  }, [symbol]) // re-subscribe A.{symbol} for live candles when symbol changes
 
   // Canvas refs
   const containerRef = useRef<HTMLDivElement>(null)
@@ -5336,7 +5507,7 @@ export default function TradingViewChart({
               cumulative.putsPlus += data.putsPlus
               cumulative.putsMinus += data.putsMinus
 
-              // Parse timestamp from key - MUST BE IN ET TIMEZONE
+              // Parse timestamp from key - MUST BE IN PST TIMEZONE
               let timestamp: number
               let displayLabel: string
 
@@ -5354,15 +5525,15 @@ export default function TradingViewChart({
                 const month = String(pstNow.getMonth() + 1).padStart(2, '0')
                 const day = String(pstNow.getDate() - 1).padStart(2, '0')
 
-                // Create ET timestamp using ISO string with ET offset
-                const etDateStr = `${year}-${month}-${day}T${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:00-05:00`
-                timestamp = new Date(etDateStr).getTime()
+                // Create PST timestamp using ISO string with PST offset
+                const pstDateStr = `${year}-${month}-${day}T${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:00-08:00`
+                timestamp = new Date(pstDateStr).getTime()
 
                 const hour12 = hour % 12 === 0 ? 12 : hour % 12
                 const ampm = hour < 12 ? 'AM' : 'PM'
                 displayLabel = `${hour12}:${minStr} ${ampm}`
               } else {
-                // Multi-day: Create timestamp for ET time
+                // Multi-day: Create timestamp for PST time
                 const [date, time] = key.split('_')
                 const [year, month, day] = date.split('-')
                 const [hourStr, minStr] = time.split(':')
@@ -8588,7 +8759,7 @@ export default function TradingViewChart({
 
   // BUY/SELL Indicator state
   const [showBuySellIndicator, setShowBuySellIndicator] = useState(false)
-  const [buySellData, setBuySellData] = useState<Array<{ date: string; score: number }>>([])
+  const [buySellData, setBuySellData] = useState<Array<{ date: string; score: number; smoothed: number; signal: number }>>([])
   const [buySellLoadingProgress, setBuySellLoadingProgress] = useState(0)
   const [buySellPanelHeight, setBuySellPanelHeight] = useState(120)
   const [isDraggingBuySellPanel, setIsDraggingBuySellPanel] = useState(false)
@@ -8901,9 +9072,12 @@ export default function TradingViewChart({
       changeYTD: number
       performance: string
       performanceColor: string
+      score: number
     }
   }>({}) // Loading state for watchlist data
   const [watchlistLoading, setWatchlistLoading] = useState(true)
+  // ETF fund flow data: maps ticker → weekly net dollar flow (delta shares × price)
+  const [sectorFlowData, setSectorFlowData] = useState<Record<string, number>>({})
 
   // ETF Holdings Modal state
   const [selectedETF, setSelectedETF] = useState<{ symbol: string; name: string } | null>(null)
@@ -9233,6 +9407,7 @@ export default function TradingViewChart({
           changeYTD: number
           performance: string
           performanceColor: string
+          score: number
         }
       } = {}
 
@@ -9348,6 +9523,33 @@ export default function TradingViewChart({
                 ? ((currentPrice - yearStartPrice) / yearStartPrice) * 100
                 : 0
 
+            // ── Flow Score (0-100): Capital Flow (0-40) + Trend (0-30) + Momentum (0-30) ──
+            // Capital Flow: # of last 40 bars where close is in upper half of day's range (MFM > 0)
+            const cfBars = data.slice(-40)
+            const capFlowScore = cfBars.filter((b: any) => {
+              const hl = b.h - b.l
+              return hl > 0 && (b.c - b.l) > (b.h - b.c)
+            }).length
+
+            // Trend: # of last 30 bars where close > rolling 20-day SMA
+            let trendScore = 0
+            if (data.length >= 50) {
+              const trendStart = data.length - 30
+              for (let ti = trendStart; ti < data.length; ti++) {
+                if (ti < 20) continue
+                const sma20 = data.slice(ti - 20, ti).reduce((s: number, b: any) => s + b.c, 0) / 20
+                if (data[ti].c > sma20) trendScore++
+              }
+            }
+
+            // Momentum: # of last 30 bars where close > prior close
+            const mw = data.slice(-31)
+            let momScore = 0
+            for (let mi = 1; mi < mw.length; mi++) {
+              if (mw[mi].c > mw[mi - 1].c) momScore++
+            }
+            const score = Math.min(100, capFlowScore + trendScore + Math.min(30, momScore))
+
             return {
               symbol,
               data: {
@@ -9360,6 +9562,7 @@ export default function TradingViewChart({
                 changeYTD,
                 performance: 'Neutral',
                 performanceColor: 'text-white',
+                score,
               },
             }
           } catch (symbolError) {
@@ -9371,10 +9574,15 @@ export default function TradingViewChart({
         // Wait for ALL fetches to complete in parallel
         const allResults = await Promise.all(allPromises)
 
-        // Process successful results
+        // Process successful results + seed WebSocket prev-close map
         allResults.forEach((result) => {
           if (result) {
             processedData[result.symbol] = result.data
+            // Seed prev-close so WebSocket AM.* messages can compute change1d correctly
+            if (result.data.price && result.data.change1d !== undefined) {
+              const prevClose = result.data.price / (1 + result.data.change1d / 100)
+              wsPrevCloseRef.current[result.symbol] = prevClose
+            }
           }
         })
 
@@ -9682,13 +9890,110 @@ export default function TradingViewChart({
     // Initial fetch
     fetchRealMarketData(true) // true = initial load, show spinner
 
-    // Set up interval for regular updates (don't show loading for updates)
+    // Refresh SCORE + history every 5 minutes — prices are now live via WebSocket
     const interval = setInterval(() => {
-      fetchRealMarketData(false) // false = update, no spinner
-    }, 30000) // Update every 30 seconds
+      fetchRealMarketData(false)
+    }, 5 * 60 * 1000) // 5 minutes — only needed for SCORE/YTD recalc, not live price
 
     return () => clearInterval(interval)
   }, []) // Empty dependency array to run only once
+
+  // Fetch real ETF weekly fund flows using share_class_shares_outstanding from Polygon.
+  // Runs once after initial watchlist data is loaded. Flow = Δ(shares) × price.
+  useEffect(() => {
+    if (watchlistLoading) return
+
+    const etfSymbols = [
+      'XLE', 'XLU', 'XLRE', 'XLB', 'XLI', 'XLV', 'XLK', 'XLC', 'XLP', 'XLF', 'XLY',
+      'SPY', 'QQQ', 'IWM', 'DIA',
+      'IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB',
+      'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'VNQ', 'JETS', 'KWEB',
+    ]
+
+    let cancelled = false
+
+    const getISODate = (daysBack: number) => {
+      const d = new Date()
+      d.setDate(d.getDate() - daysBack)
+      return d.toISOString().split('T')[0]
+    }
+
+    // Fetch shares_outstanding for one ticker on one date
+    const fetchShares = async (ticker: string, date: string): Promise<number | null> => {
+      try {
+        const res = await fetch(
+          `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLYGON_API_KEY}`,
+          { headers: { Accept: 'application/json' } }
+        )
+        if (!res.ok) return null
+        const json = await res.json()
+        return json.results?.share_class_shares_outstanding || null
+      } catch { return null }
+    }
+
+    async function runFlowFetches() {
+      if (cancelled) return
+
+      // Step 1: Bulk price fetch — all missing tickers in one snapshot request
+      const priceMap: Record<string, number> = {}
+      etfSymbols.forEach(t => { const p = watchlistData[t]?.price; if (p) priceMap[t] = p })
+
+      const missing = etfSymbols.filter(t => !priceMap[t])
+      if (missing.length > 0) {
+        try {
+          const snapRes = await fetch(
+            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${missing.join(',')}&apiKey=${POLYGON_API_KEY}`,
+            { headers: { Accept: 'application/json' } }
+          )
+          if (snapRes.ok) {
+            const snapJson = await snapRes.json()
+              ; (snapJson.tickers as any[] || []).forEach((t: any) => {
+                const p = t.day?.c || t.prevDay?.c
+                if (p) priceMap[t.ticker] = p
+              })
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (cancelled) return
+
+      // Step 2: All 33 tickers run in parallel. Each does sequential date probing
+      // with early exit so we only fetch as many dates as needed.
+      // Date offsets: today (0), then 5, 12, 19, 26 days back covering weekly cadence.
+      const DATE_OFFSETS = [0, 5, 12, 19, 26]
+      const updates: Record<string, number> = {}
+
+      await Promise.all(
+        etfSymbols.map(async (ticker) => {
+          if (cancelled) return
+          const price = priceMap[ticker]
+          if (!price) return
+
+          let prevShares: number | null = null
+          let prevDaysBack = 0
+          for (const daysBack of DATE_OFFSETS) {
+            if (cancelled) return
+            const shares = await fetchShares(ticker, getISODate(daysBack))
+            if (!shares) continue
+            if (prevShares === null) { prevShares = shares; prevDaysBack = daysBack; continue }
+            if (shares !== prevShares) {
+              // flow = change in shares × price; positive = inflows, negative = outflows
+              updates[ticker] = (prevShares - shares) * price
+              return
+            }
+            prevDaysBack = daysBack
+          }
+        })
+      )
+
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setSectorFlowData(updates)
+      }
+    }
+
+    runFlowFetches()
+    return () => { cancelled = true }
+  }, [watchlistLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch data for Tracking tab - auto-fetch on mount
   useEffect(() => {
@@ -9965,13 +10270,11 @@ export default function TradingViewChart({
       }
     }
 
+    // Fetch sparkline + initial price once on mount — live price updates come from WebSocket
     fetchAllData()
 
-    const interval = setInterval(() => {
-      fetchAllData()
-    }, 30000)
-
-    return () => clearInterval(interval)
+    // No polling interval — WebSocket AM.* keeps prices live
+    return () => { }
   }, [])
 
   // Clear Tracking data when timeframe changes
@@ -10972,6 +11275,10 @@ export default function TradingViewChart({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Ref so the WebSocket message handler can always read the current timeframe without stale closure
+  const chartTimeframeRef = useRef(config.timeframe)
+  useEffect(() => { chartTimeframeRef.current = config.timeframe }, [config.timeframe])
+
   // Compute BUY/SELL pressure scores using already-loaded chart candles
   useEffect(() => {
     if (!showBuySellIndicator || data.length === 0) {
@@ -10982,6 +11289,8 @@ export default function TradingViewChart({
     setBuySellData([])
     setBuySellLoadingProgress(5)
 
+    const controller = new AbortController()
+
     const endDate = new Date().toISOString().split('T')[0]
     const startDate = new Date(data[0].timestamp).toISOString().split('T')[0]
 
@@ -10990,9 +11299,11 @@ export default function TradingViewChart({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbols: ['SPY'], timeframe: '1d', startDate, endDate }),
+      signal: controller.signal,
     })
       .then(r => r.json())
       .then(spyResult => {
+        if (controller.signal.aborted) return
         setBuySellLoadingProgress(70)
         const symbolPrices: ChartDataPoint[] = data
         const spyPrices: ChartDataPoint[] = spyResult?.data?.['SPY'] || []
@@ -11003,6 +11314,7 @@ export default function TradingViewChart({
         const highs = symbolPrices.map(d => d.high)
         const lows = symbolPrices.map(d => d.low)
         const vols = symbolPrices.map(d => d.volume || 0)
+        const opens = symbolPrices.map(d => d.open ?? d.close)
 
         // --- EMA helper ---
         const calcEma = (src: number[], period: number): number[] => {
@@ -11012,36 +11324,79 @@ export default function TradingViewChart({
           return result
         }
 
-        // 1. RSI(14)
-        const RSI_P = 14
-        const rsiArr = new Array<number>(n).fill(50)
-        for (let i = RSI_P; i < n; i++) {
-          let g = 0, l = 0
-          for (let j = i - RSI_P + 1; j <= i; j++) {
-            const d = closes[j] - closes[j - 1]
-            if (d > 0) g += d; else l -= d
-          }
-          const ag = g / RSI_P, al = l / RSI_P
-          rsiArr[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al)
+        // 1. ATR-Normalized Momentum — volatility z-score of the move
+        //    A 2% move in a 0.5%-ATR stock = ~4σ. Same 2% in a 3%-ATR stock = noise.
+        //    RSI/MACD never account for this context.
+        const ATR_P = 14
+        const atrArr = new Array<number>(n).fill(0)
+        for (let i = 1; i < n; i++) {
+          const tr = Math.max(
+            highs[i] - lows[i],
+            Math.abs(highs[i] - closes[i - 1]),
+            Math.abs(lows[i] - closes[i - 1])
+          )
+          atrArr[i] = i < ATR_P ? tr : atrArr[i - 1] * (ATR_P - 1) / ATR_P + tr / ATR_P
+        }
+        const atrMomArr = new Array<number>(n).fill(0)
+        for (let i = ATR_P; i < n; i++) {
+          const change = closes[i] - closes[i - ATR_P]
+          const scale = atrArr[i] * Math.sqrt(ATR_P)
+          // ±3σ maps to ±100
+          atrMomArr[i] = scale > 0 ? Math.max(-100, Math.min(100, (change / scale) * 33)) : 0
         }
 
-        // 2. MACD histogram (12/26/9)
-        const ema12 = calcEma(closes, 12)
-        const ema26 = calcEma(closes, 26)
-        const macdLine = ema12.map((v, i) => v - ema26[i])
-        const signalLine = calcEma(macdLine, 9)
-        const macdHist = macdLine.map((v, i) => v - signalLine[i])
+        // 2. Institutional Volume Pressure (IVP) — large-print directional fingerprint
+        //    High-volume sessions with strong directional closes = institutional intent
+        //    log(volRatio) dampens retail noise, elevates block-level prints
+        const avgVol20Arr = new Array<number>(n).fill(0)
+        for (let i = 20; i < n; i++) {
+          avgVol20Arr[i] = vols.slice(i - 19, i + 1).reduce((a, b) => a + b, 0) / 20
+        }
+        const ivpRaw = new Array<number>(n).fill(0)
+        for (let i = 1; i < n; i++) {
+          const range = highs[i] - lows[i]
+          const direction = range > 0 ? (closes[i] - opens[i]) / range : 0
+          const volRatio = avgVol20Arr[i] > 0 ? vols[i] / avgVol20Arr[i] : 1
+          ivpRaw[i] = direction * Math.log1p(volRatio)
+        }
+        const ivpSmooth = calcEma(ivpRaw, 5)
+        const ivpArr = new Array<number>(n).fill(0)
+        for (let i = 50; i < n; i++) {
+          const w = ivpSmooth.slice(i - 49, i + 1)
+          const maxAbs = Math.max(...w.map(Math.abs), 1e-9)
+          ivpArr[i] = Math.max(-100, Math.min(100, (ivpSmooth[i] / maxAbs) * 100))
+        }
 
-        // 3. Money Flow Index(14) — RSI weighted by volume
-        const tp = symbolPrices.map(d => (d.high + d.low + d.close) / 3)
-        const mfiArr = new Array<number>(n).fill(50)
-        for (let i = RSI_P; i < n; i++) {
-          let pos = 0, neg = 0
-          for (let j = i - RSI_P + 1; j <= i; j++) {
-            const mf = tp[j] * vols[j]
-            if (tp[j] > tp[j - 1]) pos += mf; else neg += mf
-          }
-          mfiArr[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg)
+        // 3. Elder Force Index (EFI) — price-change × volume, EMA-13, normalised ±100
+        const rawEfi = new Array<number>(n).fill(0)
+        for (let i = 1; i < n; i++) rawEfi[i] = (closes[i] - closes[i - 1]) * vols[i]
+        const efiSmooth = calcEma(rawEfi, 13)
+        const efiArr = new Array<number>(n).fill(0)
+        for (let i = 50; i < n; i++) {
+          const window = efiSmooth.slice(i - 49, i + 1)
+          const maxAbs = Math.max(...window.map(Math.abs), 1e-9)
+          efiArr[i] = Math.max(-100, Math.min(100, (efiSmooth[i] / maxAbs) * 100))
+        }
+
+        // 4. Price-Volume Divergence (PVD) — the highest-edge institutional signal
+        //    Price up + A/D line down = distribution into strength (bearish)
+        //    Price down + A/D line up = accumulation on weakness (bullish)
+        //    Amplifies when price+volume agree; penalizes on divergence
+        const adLine: number[] = [0]
+        for (let i = 1; i < n; i++) {
+          const rng = highs[i] - lows[i]
+          const mfm = rng > 0 ? ((closes[i] - lows[i]) - (highs[i] - closes[i])) / rng : 0
+          adLine.push(adLine[i - 1] + mfm * vols[i])
+        }
+        const PVD_P = 20
+        const pvdArr = new Array<number>(n).fill(0)
+        for (let i = PVD_P + 20; i < n; i++) {
+          const priceChange = closes[i] - closes[i - PVD_P]
+          const adChange = adLine[i] - adLine[i - PVD_P]
+          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
+          const adNorm = Math.max(-1, Math.min(1, adChange / (avgVol * PVD_P)))
+          const agree = Math.sign(priceChange) === Math.sign(adNorm) && priceChange !== 0
+          pvdArr[i] = Math.max(-100, Math.min(100, adNorm * 100 * (agree ? 1.2 : 0.6)))
         }
 
         // 4. Chaikin Money Flow(20) — accumulation/distribution
@@ -11066,37 +11421,40 @@ export default function TradingViewChart({
           else obvArr.push(obvArr[i - 1])
         }
 
-        // 6. RS vs SPY (20-day)
+
+
+        // 8. RS vs SPY (20-day)
         const spyMap = new Map(spyPrices.map(d => [new Date(d.timestamp).toDateString(), d]))
 
+        if (controller.signal.aborted) return
         setBuySellLoadingProgress(90)
 
         const scores = symbolPrices.map((candle, i) => {
           const date = new Date(candle.timestamp).toISOString().split('T')[0]
-          if (i < 26) return { date, score: 0 }
+          // Warmup: 50 bars (IVP normalisation window)
+          if (i < 50) return { date, score: 0 }
 
-          // RSI → -100..+100 centred at 50
-          const rsiScore = (rsiArr[i] - 50) * 2
+          // ATR-Normalized Momentum — how significant is this move vs recent volatility
+          const atrMomScore = atrMomArr[i]
 
-          // MACD histogram normalised by close price
-          const macdScore = closes[i] > 0
-            ? Math.max(-100, Math.min(100, (macdHist[i] / closes[i]) * 5000))
-            : 0
+          // Institutional Volume Pressure — are large prints bullish or bearish
+          const ivpScore = ivpArr[i]
 
-          // MFI → -100..+100
-          const mfiScore = (mfiArr[i] - 50) * 2
+          // Price-Volume Divergence — are smart money and price agreeing
+          const pvdScore = pvdArr[i]
+
+          // Elder Force Index — raw directional force
+          const efiScore = efiArr[i]
 
           // CMF -1..+1 → -100..+100
           const cmfScore = cmfArr[i] * 100
 
-          // OBV 20-day change normalised by avg daily volume
+          // OBV 20-day momentum normalised by avg volume
+          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
           const obvChange = obvArr[i] - obvArr[i - 20]
-          const avgVol20 = vols.slice(Math.max(0, i - 20), i + 1).reduce((a, b) => a + b, 0) / 20
-          const obvScore = avgVol20 > 0
-            ? Math.max(-100, Math.min(100, (obvChange / (avgVol20 * 20)) * 100))
-            : 0
+          const obvScore = Math.max(-100, Math.min(100, (obvChange / (avgVol * 20)) * 100))
 
-          // RS vs SPY
+          // RS vs SPY — relative outperformance vs benchmark
           const spyCur = spyMap.get(new Date(candle.timestamp).toDateString())
           const spyBase = spyMap.get(new Date(symbolPrices[i - 20].timestamp).toDateString())
           let rsScore = 0
@@ -11106,27 +11464,51 @@ export default function TradingViewChart({
             rsScore = Math.max(-100, Math.min(100, (stockRet - spyRet) * 300))
           }
 
-          // Weighted composite: CMF(25) + MACD(20) + MFI(20) + RSI(15) + OBV(10) + RS(10)
+          // Weighted composite — 7 unique dimensions, zero RSI/MACD derivatives:
+          // ATR-Mom(22) + IVP(22) + PVD(20) + CMF(16) + EFI(12) + OBV(5) + RS(3)
           const composite =
-            cmfScore * 0.25 +
-            macdScore * 0.20 +
-            mfiScore * 0.20 +
-            rsiScore * 0.15 +
-            obvScore * 0.10 +
-            rsScore * 0.10
+            atrMomScore * 0.22 +
+            ivpScore * 0.22 +
+            pvdScore * 0.20 +
+            cmfScore * 0.16 +
+            efiScore * 0.12 +
+            obvScore * 0.05 +
+            rsScore * 0.03
 
           return { date, score: Math.max(-100, Math.min(100, composite)) }
         })
 
+        // Post-process: EMA-3 smoothing of composite → smoothed line; EMA-9 of smoothed → signal line
+        const emaK3 = 2 / (3 + 1)
+        const emaK9 = 2 / (9 + 1)
+        const smoothedArr: number[] = [scores[0].score]
+        for (let i = 1; i < n; i++) {
+          smoothedArr.push(scores[i].score * emaK3 + smoothedArr[i - 1] * (1 - emaK3))
+        }
+        const signalArr: number[] = [smoothedArr[0]]
+        for (let i = 1; i < n; i++) {
+          signalArr.push(smoothedArr[i] * emaK9 + signalArr[i - 1] * (1 - emaK9))
+        }
+
+        const enrichedScores = scores.map((s, i) => ({
+          ...s,
+          smoothed: Math.max(-100, Math.min(100, smoothedArr[i])),
+          signal: Math.max(-100, Math.min(100, signalArr[i])),
+        }))
+
+        if (controller.signal.aborted) return
         setBuySellLoadingProgress(100)
-        setBuySellData(scores)
+        setBuySellData(enrichedScores)
       })
-      .catch(() => {
+      .catch(err => {
+        if (err?.name === 'AbortError') return
         setBuySellLoadingProgress(0)
         setBuySellData([])
       })
+
+    return () => controller.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showBuySellIndicator, config.symbol, data.length])
+  }, [showBuySellIndicator, config.symbol, data])
 
   // Chart interaction state
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 })
@@ -11463,13 +11845,60 @@ export default function TradingViewChart({
 
   // Handle search input change - direct input without dropdown
   const handleSearchInputChange = useCallback((value: string) => {
-    setSearchQuery(value.toUpperCase())
+    setSearchQuery(value.trim().toUpperCase())
   }, [])
 
   // Search handler with quick validation
+  // Map common shorthand crypto tickers to Polygon format
+  const normalizeTicker = (sym: string): string => {
+    const cryptoMap: Record<string, string> = {
+      // Short form (BTC, ETH, SOL...)
+      'BTC': 'X:BTCUSD',
+      'ETH': 'X:ETHUSD',
+      'SOL': 'X:SOLUSD',
+      'XRP': 'X:XRPUSD',
+      'DOGE': 'X:DOGEUSD',
+      'ADA': 'X:ADAUSD',
+      'AVAX': 'X:AVAXUSD',
+      'BNB': 'X:BNBUSD',
+      'LTC': 'X:LTCUSD',
+      'LINK': 'X:LINKUSD',
+      'DOT': 'X:DOTUSD',
+      'MATIC': 'X:MATICUSD',
+      'UNI': 'X:UNIUSD',
+      'ATOM': 'X:ATOMUSD',
+      'NEAR': 'X:NEARUSD',
+      'SUI': 'X:SUIUSD',
+      'APT': 'X:APTUSD',
+      'PEPE': 'X:PEPEUSD',
+      'SHIB': 'X:SHIBUSD',
+      // With USD suffix
+      'BTCUSD': 'X:BTCUSD',
+      'ETHUSD': 'X:ETHUSD',
+      'SOLUSD': 'X:SOLUSD',
+      'XRPUSD': 'X:XRPUSD',
+      'DOGEUSD': 'X:DOGEUSD',
+      'ADAUSD': 'X:ADAUSD',
+      'AVAXUSD': 'X:AVAXUSD',
+      'BNBUSD': 'X:BNBUSD',
+      'LTCUSD': 'X:LTCUSD',
+      'LINKUSD': 'X:LINKUSD',
+      'DOTUSD': 'X:DOTUSD',
+      'MATICUSD': 'X:MATICUSD',
+      'UNIUSD': 'X:UNIUSD',
+      'ATOMUSD': 'X:ATOMUSD',
+      'NEARUSD': 'X:NEARUSD',
+      'SUIUSD': 'X:SUIUSD',
+      'APTUSD': 'X:APTUSD',
+      'PEPEUSD': 'X:PEPEUSD',
+      'SHIBUSD': 'X:SHIBUSD',
+    }
+    return cryptoMap[sym] ?? sym
+  }
+
   const handleSearch = async (symbol: string) => {
     if (symbol && symbol.length > 0) {
-      const upperSymbol = symbol.toUpperCase()
+      const upperSymbol = normalizeTicker(symbol.trim().toUpperCase())
 
       // Check if this is a benchmark pattern (Ticker/Ticker)
       if (upperSymbol.includes('/')) {
@@ -11841,28 +12270,17 @@ export default function TradingViewChart({
     }
   }, [isBenchmarkMode, benchmarkSymbol1, benchmarkSymbol2, config.timeframe, fetchData])
 
-  // Fetch current price independently when symbol changes
+  // Fetch current price independently when symbol changes — also seeds wsPrevCloseRef with prev-day close
   useEffect(() => {
     // Don't fetch if ticker is invalid
     if (!invalidTicker) {
-      fetchRealTimePrice(symbol)
+      fetchRealTimePrice(symbol).then(() => {
+        // After the REST call seeds currentPrice + prevClose, the WebSocket AM.* takes over
+      })
     }
   }, [symbol, fetchRealTimePrice, invalidTicker])
 
-  // Price change calculation removed - now handled in fetchRealTimePrice using previous day's close
-
-  // Set up live price updates every 5 seconds for live data
-  useEffect(() => {
-    // Don't poll if ticker is invalid
-    if (invalidTicker) return
-
-    const interval = setInterval(() => {
-      fetchRealTimePrice(symbol)
-    }, 5000) // Update every 5 seconds
-
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, invalidTicker])
+  // Price updates now handled by Polygon WebSocket (AM.* minute aggregates) — no polling needed
 
   // CRITICAL: Ensure scroll position shows most recent data when data loads
   useEffect(() => {
@@ -12316,14 +12734,15 @@ export default function TradingViewChart({
           setVisibleCandleCount(Math.min(100, data.length))
           break
         case 'Delete':
-        case 'Backspace':
-          // Don't prevent default if user is typing in an input/textarea
+        case 'Backspace': {
+          // Don't prevent default if user is typing in an input/textarea/contentEditable
           const target = e.target as HTMLElement
-          if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+          if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
             return
           }
           e.preventDefault()
           break
+        }
       }
     }
 
@@ -12494,7 +12913,6 @@ export default function TradingViewChart({
     // When canvases are mounted, the canvas listener fires first, then this fires on bubble —
     // calling preventDefault a second time is harmless (idempotent).
     const handleWheelContainer = (e: WheelEvent) => {
-      console.log('[WHEEL container] target:', (e.target as Element)?.tagName, '|', (e.target as Element)?.className?.toString().slice(0, 80), '| deltaY:', e.deltaY, '| data.length:', data.length, '| overlayCanvas:', !!overlayCanvas, '| chartCanvas:', !!chartCanvas)
       e.preventDefault()
     }
 
@@ -13397,7 +13815,7 @@ export default function TradingViewChart({
   // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
   const drawBuySellPanel = (
     ctx: CanvasRenderingContext2D,
-    bsData: Array<{ date: string; score: number }>,
+    bsData: Array<{ date: string; score: number; smoothed: number; signal: number }>,
     visibleData: ChartDataPoint[],
     chartWidth: number,
     panelStartY: number,
@@ -13407,66 +13825,28 @@ export default function TradingViewChart({
     if (!bsData.length || !visibleData.length) return
 
     const padLeft = 40
-    const rightEdge = chartWidth - 80  // match main chart right boundary
+    const rightEdge = chartWidth - 80
 
     // Background
     ctx.fillStyle = 'rgba(0,0,0,0.85)'
     ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
 
-
-
     // Match scored data to visible candles by date
-    const dateToScore = new Map(bsData.map(d => [d.date, d.score]))
-    const scores = visibleData.map(c =>
-      dateToScore.get(new Date(c.timestamp).toISOString().split('T')[0]) ?? null
-    )
+    const dateToData = new Map(bsData.map(d => [d.date, d]))
+    const entries = visibleData.map(c => {
+      const key = new Date(c.timestamp).toISOString().split('T')[0]
+      return dateToData.get(key) ?? null
+    })
 
-    // Use exact same spacing as main price chart so last candle aligns with final date
     const candleSpacing = chartWidth / visibleCandleCount
     const midY = panelStartY + panelHeight / 2
-    const amplitude = (panelHeight / 2) * 0.7
+    const amplitude = (panelHeight / 2) * 0.75
 
-    // Zone fills
-    const zoneW = rightEdge - padLeft
+    // Subtle zone fills
     ctx.fillStyle = 'rgba(34,197,94,0.06)'
-    ctx.fillRect(padLeft, panelStartY, zoneW, panelHeight / 2)
+    ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight / 2)
     ctx.fillStyle = 'rgba(239,68,68,0.06)'
-    ctx.fillRect(padLeft, midY, zoneW, panelHeight / 2)
-
-    // Dotted lines at the average of the true highest peaks and lowest valleys
-    const allScores = bsData.map(d => d.score)
-    const peakScores: number[] = []
-    const valleyScores: number[] = []
-    for (let i = 2; i < allScores.length - 2; i++) {
-      const v = allScores[i]
-      if (v > allScores[i - 1] && v > allScores[i - 2] && v > allScores[i + 1] && v > allScores[i + 2]) peakScores.push(v)
-      if (v < allScores[i - 1] && v < allScores[i - 2] && v < allScores[i + 1] && v < allScores[i + 2]) valleyScores.push(v)
-    }
-    const avgHigh = peakScores.length > 0 ? Math.max(...peakScores) : 70
-    const avgLow = valleyScores.length > 0 ? Math.min(...valleyScores) : -70
-    const avgHighY = midY - (avgHigh / 100) * amplitude
-    const avgLowY = midY - (avgLow / 100) * amplitude
-
-    ctx.save()
-    ctx.setLineDash([3, 5])
-    ctx.lineWidth = 1
-
-    // High line — green
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.55)'
-    ctx.beginPath()
-    ctx.moveTo(padLeft, avgHighY)
-    ctx.lineTo(rightEdge, avgHighY)
-    ctx.stroke()
-
-    // Low line — red
-    ctx.strokeStyle = 'rgba(255, 50, 50, 0.55)'
-    ctx.beginPath()
-    ctx.moveTo(padLeft, avgLowY)
-    ctx.lineTo(rightEdge, avgLowY)
-    ctx.stroke()
-
-    ctx.setLineDash([])
-    ctx.restore()
+    ctx.fillRect(padLeft, midY, rightEdge - padLeft, panelHeight / 2)
 
     // Zero line
     ctx.strokeStyle = 'rgba(255,255,255,0.2)'
@@ -13478,15 +13858,17 @@ export default function TradingViewChart({
     ctx.stroke()
     ctx.setLineDash([])
 
-    // Score line — pure RGB crispy green/red/grey, aligned to same x as price candles
-    for (let i = 1; i < scores.length; i++) {
-      if (scores[i - 1] === null || scores[i] === null) continue
+    // ── Smoothed composite line — color-coded solid ─────────────────────────────
+    for (let i = 1; i < entries.length; i++) {
+      const prev = entries[i - 1]
+      const curr = entries[i]
+      if (!prev || !curr) continue
       const x0 = padLeft + (i - 1) * candleSpacing + candleSpacing / 2
       const x1 = padLeft + i * candleSpacing + candleSpacing / 2
-      const y0 = midY - ((scores[i - 1] as number) / 100) * amplitude
-      const y1 = midY - ((scores[i] as number) / 100) * amplitude
-      const avg = ((scores[i - 1] as number) + (scores[i] as number)) / 2
-      ctx.strokeStyle = avg >= 20 ? '#00ff00' : avg <= -20 ? '#ff0000' : '#cccccc'
+      const y0 = midY - (prev.smoothed / 100) * amplitude
+      const y1 = midY - (curr.smoothed / 100) * amplitude
+      const avg = (prev.smoothed + curr.smoothed) / 2
+      ctx.strokeStyle = avg >= 15 ? '#00ff00' : avg <= -15 ? '#ff3232' : '#cccccc'
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(x0, y0)
@@ -13494,29 +13876,26 @@ export default function TradingViewChart({
       ctx.stroke()
     }
 
-    // BUY / SHORT signal label — check final score against high/low lines
-    const lastScore = scores.findLast(s => s !== null) as number | undefined
-    if (lastScore !== undefined) {
-      const isBuy = lastScore < avgLow
-      const isShort = lastScore > avgHigh
-      if (isBuy || isShort) {
-        const labelX = rightEdge + 6
-        const labelY = midY - (lastScore / 100) * amplitude
-        const label = isBuy ? 'BUY' : 'SHORT'
-        const labelColor = isBuy ? '#00ff00' : '#ff3232'
-        ctx.save()
-        ctx.font = 'bold 13px JetBrains Mono, monospace'
-        ctx.textAlign = 'left'
-        ctx.shadowColor = labelColor
-        ctx.shadowBlur = 8
-        ctx.fillStyle = labelColor
-        ctx.fillText(label, labelX, labelY + 5)
-        ctx.shadowBlur = 0
-        ctx.restore()
-      }
+    // ── BUY / SHORT label at right edge ─────────────────────────────────────────
+    const lastEntry = [...entries].reverse().find(e => e !== null)
+    if (lastEntry) {
+      const isBullish = lastEntry.smoothed >= 0
+      const label = isBullish ? 'BUY' : 'SHORT'
+      const labelColor = isBullish ? '#00ff00' : '#ff3232'
+      const labelX = rightEdge + 6
+      const labelY = midY - (lastEntry.smoothed / 100) * amplitude
+      ctx.save()
+      ctx.font = 'bold 13px JetBrains Mono, monospace'
+      ctx.textAlign = 'left'
+      ctx.shadowColor = labelColor
+      ctx.shadowBlur = 8
+      ctx.fillStyle = labelColor
+      ctx.fillText(label, labelX, labelY + 5)
+      ctx.shadowBlur = 0
+      ctx.restore()
     }
 
-    // Y-axis labels — crispy colors, 18px font
+    // ── Y-axis labels ────────────────────────────────────────────────────────────
     const yAxisX = rightEdge + 4
     ctx.font = 'bold 18px JetBrains Mono, monospace'
     ctx.textAlign = 'left'
@@ -13527,7 +13906,10 @@ export default function TradingViewChart({
       ctx.fillText(label, yAxisX, ly + 6)
     }
 
-    // Title — centered, glossy white
+    // ── Title with live score readout ────────────────────────────────────────────
+    const lastBs = [...bsData].reverse().find(d => d.smoothed !== 0)
+    const scoreNum = lastBs ? Math.round(lastBs.smoothed) : 0
+    const scoreStr = scoreNum > 0 ? `+${scoreNum}` : `${scoreNum}`
     const titleX = (padLeft + rightEdge) / 2
     const titleY = panelStartY + 18
     ctx.font = 'bold 14px JetBrains Mono, monospace'
@@ -13535,11 +13917,11 @@ export default function TradingViewChart({
     ctx.shadowColor = 'rgba(255,255,255,0.4)'
     ctx.shadowBlur = 6
     ctx.fillStyle = '#ffffff'
-    ctx.fillText('BUY/SELL PRESSURE', titleX, titleY)
+    ctx.fillText(`BUY/SELL PRESSURE  ${scoreStr}`, titleX, titleY)
     ctx.shadowBlur = 0
     ctx.globalAlpha = 0.45
     ctx.fillStyle = '#e0f0ff'
-    ctx.fillText('BUY/SELL PRESSURE', titleX, titleY - 1)
+    ctx.fillText(`BUY/SELL PRESSURE  ${scoreStr}`, titleX, titleY - 1)
     ctx.globalAlpha = 1
     ctx.shadowBlur = 0
   }
@@ -14788,11 +15170,13 @@ export default function TradingViewChart({
 
     for (let i = 0; i <= steps; i++) {
       const ratio = i / steps
-      const price = minPrice + (maxPrice - minPrice) * (1 - ratio)
+      const rawPrice = minPrice + (maxPrice - minPrice) * (1 - ratio)
+      const absPrice = Math.abs(rawPrice)
+      const priceLabel = absPrice >= 1000 ? absPrice.toFixed(0) : absPrice >= 100 ? absPrice.toFixed(1) : absPrice.toFixed(2)
       const y = topPadding + (usableHeight / steps) * i
 
       // Draw price label with more left margin
-      ctx.fillText(`$${price.toFixed(2)}`, width - 85, y + 4)
+      ctx.fillText(`$${priceLabel}`, width - 85, y + 4)
 
       // Draw tick mark
       ctx.strokeStyle = colors.grid
@@ -16134,7 +16518,7 @@ export default function TradingViewChart({
           closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))]
         }
 
-        // Format date and time in ET timezone
+        // Format date and time in PST timezone
         const date = new Date(timestamp)
         const dateStr = date.toLocaleDateString('en-US', {
           month: 'short',
@@ -17797,14 +18181,15 @@ export default function TradingViewChart({
                   regimeAnalysis={regimeAnalysis}
                   selectedPeriod="1d"
                   watchlistData={watchlistData}
+                  sectorFlowData={sectorFlowData}
                 />
               </div>
             )}
 
-            {/* Bloomberg-style Column Headers - 9 Columns */}
+            {/* Bloomberg-style Column Headers - 11 Columns */}
             <div
               className="grid gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner"
-              style={{ gridTemplateColumns: '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr' }}
+              style={{ gridTemplateColumns: '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr' }}
             >
               <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600 text-center">
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">
@@ -17836,8 +18221,14 @@ export default function TradingViewChart({
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
                 <span className="text-white font-bold md:text-xs text-[9.7px]">QUARTER</span>
               </div>
-              <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
+              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
                 <span className="text-white font-bold text-xs">YTD</span>
+              </div>
+              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-yellow-400 font-bold text-xs">SCORE</span>
+              </div>
+              <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
+                <span className="text-yellow-400 font-bold text-xs">FLOW</span>
               </div>
             </div>
 
@@ -17934,7 +18325,7 @@ export default function TradingViewChart({
                       return (
                         <div key={uniqueId}>
                           {separatorRows}
-                          <div className="grid grid-cols-9 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900">
+                          <div className="grid grid-cols-11 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900">
                             <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
                               <span className="font-mono font-bold text-white text-sm">
                                 {symbol}
@@ -17963,6 +18354,12 @@ export default function TradingViewChart({
                             </div>
                             <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
                               <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+                            </div>
+                            <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                              <div className="h-4 w-12 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+                            </div>
+                            <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                              <div className="h-4 w-14 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
                             </div>
                           </div>
                         </div>
@@ -17998,7 +18395,7 @@ export default function TradingViewChart({
                           className="grid gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
                           style={{
                             gridTemplateColumns:
-                              '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr',
+                              '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
                           }}
                           title={(() => {
                             const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA']
@@ -18129,6 +18526,39 @@ export default function TradingViewChart({
                             >
                               {perfYTD.status}
                             </span>
+                          </div>
+
+                          {/* Flow Score */}
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                            <span
+                              className={`font-mono font-bold md:text-base text-[12px] ${(data.score ?? 0) >= 60
+                                ? 'text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]'
+                                : (data.score ?? 0) >= 40
+                                  ? 'text-yellow-400'
+                                  : 'text-red-400'
+                                }`}
+                            >
+                              {data.score ?? '--'}
+                            </span>
+                          </div>
+
+                          {/* ETF Weekly Flow */}
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-1 flex items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                            {sectorFlowData[symbol] !== undefined ? (
+                              <span
+                                className={`font-mono font-bold md:text-base text-[12px] ${sectorFlowData[symbol] >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                                style={{ whiteSpace: 'nowrap' }}
+                              >
+                                {sectorFlowData[symbol] >= 0 ? '+' : '-'}$
+                                {Math.abs(sectorFlowData[symbol]) >= 1e9
+                                  ? `${(Math.abs(sectorFlowData[symbol]) / 1e9).toFixed(1)}B`
+                                  : Math.abs(sectorFlowData[symbol]) >= 1e6
+                                    ? `${Math.round(Math.abs(sectorFlowData[symbol]) / 1e6)}M`
+                                    : `${Math.round(Math.abs(sectorFlowData[symbol]) / 1e3)}K`}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600 md:text-xs text-[9px]">—</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -26354,6 +26784,7 @@ export default function TradingViewChart({
                   { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
                   { id: 'screeners', icon: TbFilter, label: 'SCREENERS', accent: 'teal' },
                   { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' },
+                  { id: 'insight', icon: TbBulb, label: 'INSIGHT', accent: 'platinum' },
                 ].map((item, index) => {
                   const IconComponent = item.icon
 
@@ -26365,6 +26796,7 @@ export default function TradingViewChart({
                     amber: '#F59E0B',
                     red: '#EF4444',
                     violet: '#8B5CF6',
+                    platinum: '#C4CBD6',
                     cyan: '#06B6D4',
                     purple: '#A855F7',
                     orange: '#F97316',
@@ -30214,6 +30646,9 @@ export default function TradingViewChart({
                       )}
                     </div>
                   </div>
+                )}
+                {activeSidebarPanel === 'insight' && (
+                  <InsightPanel onClose={() => setActiveSidebarPanel(null)} />
                 )}
               </div>
             </div>,

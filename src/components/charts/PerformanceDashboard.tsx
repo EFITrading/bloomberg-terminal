@@ -934,7 +934,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     const numXLabels = 8
     const visiblePoints = endIdx - startIdx
 
-    // For weekly view, find indices where market opens (9:30 AM ET) to mark day boundaries
+    // For weekly view, find indices where market opens (6:30 AM PST) to mark day boundaries
     const dayBoundaries: number[] = []
     if (timeframe === '1W') {
       let lastDate = ''

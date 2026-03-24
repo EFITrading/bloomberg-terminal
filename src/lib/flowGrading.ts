@@ -25,7 +25,9 @@ export function calculateFlowGrade(
   currentStockPrices: Record<string, number>,
   relativeStrengthData: Map<string, number>,
   historicalStdDevs: Map<string, number>,
-  comboMap: Map<string, boolean>
+  comboMap: Map<string, boolean>,
+  frozenComboScore?: number,
+  frozenRsScore?: number
 ): GradeResult {
   const expiry = trade.expiry.replace(/-/g, '').slice(2)
   const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
@@ -76,26 +78,20 @@ export function calculateFlowGrade(
   else scores.contractPrice = 6
   confidenceScore += scores.contractPrice
 
-  // 3. Relative Strength Score (10 pts)
-  const rs = relativeStrengthData.get(trade.underlying_ticker)
-  if (rs !== undefined) {
-    const fillStyle = trade.fill_style || ''
-    const isCall = trade.type === 'call'
-    const isBullishFlow =
-      (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
-      (!isCall && (fillStyle === 'B' || fillStyle === 'BB'))
-    const isBearishFlow =
-      (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
-      (!isCall && (fillStyle === 'A' || fillStyle === 'AA'))
-    const aligned = (isBullishFlow && rs > 0) || (isBearishFlow && rs < 0)
-    if (aligned) scores.relativeStrength = 10
+  // 3. Relative Strength Score (10 pts) — always use frozen value (snapshotted at star-time)
+  if (frozenRsScore !== undefined) {
+    scores.relativeStrength = frozenRsScore
   }
   confidenceScore += scores.relativeStrength
 
-  // 4. Combo Trade Score (10 pts)
+  // 4. Combo Trade Score (10 pts) — use frozen value if snapshot was captured at star-time
   const fillStyle = trade.fill_style || ''
   const comboLookupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${fillStyle}`
-  if (comboMap.get(comboLookupKey)) scores.combo = 10
+  if (frozenComboScore !== undefined) {
+    scores.combo = frozenComboScore
+  } else if (comboMap.get(comboLookupKey)) {
+    scores.combo = 10
+  }
   confidenceScore += scores.combo
 
   // 5. Price Action Score (25 pts)

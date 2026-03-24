@@ -135,92 +135,126 @@ if (parentPort) {
                      }
               }
 
-              // Smart timestamp logic for live vs historical scanning
+              // US market holidays 2025-2026 — used for holiday detection without API calls
+              const WORKER_MARKET_HOLIDAYS = [
+                     '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18',
+                     '2025-05-26', '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+                     '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03',
+                     '2026-05-25', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+              ];
+
+              /**
+               * Build the exact millisecond timestamp for 6:30 AM PST/PDT (market open) on a given
+               * YYYY-MM-DD string. Uses the America/Los_Angeles DST flag for the correct PST/PDT offset.
+               */
+              function marketOpenMs(dateStr) {
+                     const [y, m, d] = dateStr.split('-').map(Number);
+                     const probe = new Date(y, m - 1, d, 12, 0, 0);
+                     const isPDT = probe.toLocaleString('en-US', {
+                            timeZone: 'America/Los_Angeles', timeZoneName: 'short'
+                     }).includes('PDT');
+                     const pstOffset = isPDT ? '-07:00' : '-08:00';
+                     return new Date(`${dateStr}T06:30:00${pstOffset}`).getTime(); // 6:30 AM PST = market open
+              }
+
+              function marketCloseMs(dateStr) {
+                     const [y, m, d] = dateStr.split('-').map(Number);
+                     const probe = new Date(y, m - 1, d, 12, 0, 0);
+                     const isPDT = probe.toLocaleString('en-US', {
+                            timeZone: 'America/Los_Angeles', timeZoneName: 'short'
+                     }).includes('PDT');
+                     const pstOffset = isPDT ? '-07:00' : '-08:00';
+                     return new Date(`${dateStr}T13:00:00${pstOffset}`).getTime(); // 1:00 PM PST = market close
+              }
+
+              /**
+               * Returns the most recent trading day (YYYY-MM-DD) using the inline holiday list.
+               * No API call required.
+               */
+              function getLastTradingDayWorker(pstNow) {
+                     const currentTime = pstNow.getHours() + pstNow.getMinutes() / 60;
+                     const candidate = new Date(pstNow);
+                     // Before 1 AM PST: current calendar day hasn't had pre-market yet
+                     if (currentTime < 1.0) candidate.setDate(candidate.getDate() - 1);
+
+                     for (let i = 0; i < 14; i++) {
+                            const y = candidate.getFullYear();
+                            const m = String(candidate.getMonth() + 1).padStart(2, '0');
+                            const d = String(candidate.getDate()).padStart(2, '0');
+                            const dateStr = `${y}-${m}-${d}`;
+                            const dow = candidate.getDay();
+                            if (dow !== 0 && dow !== 6 && !WORKER_MARKET_HOLIDAYS.includes(dateStr)) {
+                                   return dateStr;
+                            }
+                            candidate.setDate(candidate.getDate() - 1);
+                     }
+                     // Fallback
+                     const y = candidate.getFullYear();
+                     const m = String(candidate.getMonth() + 1).padStart(2, '0');
+                     const d = String(candidate.getDate()).padStart(2, '0');
+                     return `${y}-${m}-${d}`;
+              }
+
+              /**
+               * Smart timestamp logic for live vs historical scanning.
+               *
+               * Live data windows (PST / America/Los_Angeles, confirmed from Polygon tests):
+               *   PRE_MARKET:  1:00 AM – 6:29 AM PST  weekday non-holiday
+               *   MARKET:      6:30 AM – 12:59 PM PST  weekday non-holiday
+               *   AFTER_HOURS: 1:00 PM – 4:59 PM PST  weekday non-holiday
+               *   CLOSED:      5:00 PM – 12:59 AM PST, weekends, holidays → use last trading day
+               */
               function getSmartTimeRange() {
                      try {
                             const now = new Date();
-                            const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
-                            const easternHour = eastern.getHours();
-                            const easternMinute = eastern.getMinutes();
-                            const currentTime = easternHour + (easternMinute / 60);
-                            const day = eastern.getDay(); // 0 = Sunday, 6 = Saturday
+                            const pst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+                            const dayOfWeek = pst.getDay();
+                            const currentTime = pst.getHours() + (pst.getMinutes() / 60);
 
-                            // Market hours: 9:30 AM - 4:00 PM ET
-                            const marketOpen = 9.5; // 9:30 AM
-                            const marketClose = 16; // 4:00 PM
-                            const isMarketOpen = (day >= 1 && day <= 5) && (currentTime >= marketOpen && currentTime < marketClose);
+                            const year = pst.getFullYear();
+                            const month = String(pst.getMonth() + 1).padStart(2, '0');
+                            const dayOfMonth = String(pst.getDate()).padStart(2, '0');
+                            const todayStr = `${year}-${month}-${dayOfMonth}`;
 
-                            if (isMarketOpen) {
-                                   // LIVE MODE: Market is open - Get 9:30 AM ET today
-                                   const year = eastern.getFullYear();
-                                   const month = eastern.getMonth() + 1;
-                                   const dayOfMonth = eastern.getDate();
+                            // Check if live data is available:
+                            //   weekday + not holiday + PST time in [1:00 AM, 5:00 PM)
+                            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+                            const isHoliday = WORKER_MARKET_HOLIDAYS.includes(todayStr);
+                            const isLiveWindow = currentTime >= 1.0 && currentTime < 17.0;
+                            const isLive = isWeekday && !isHoliday && isLiveWindow;
 
-                                   // Determine if we're in EDT or EST
-                                   const isDST = now.toLocaleString('en-US', {
-                                          timeZone: 'America/Los_Angeles',
-                                          timeZoneName: 'short'
-                                   }).includes('PDT');
+                            if (isLive) {
+                                   // LIVE MODE: pre-market, market, or after-hours on a trading day
+                                   let sessionLabel = 'MARKET';
+                                   if (currentTime < 6.5) sessionLabel = 'PRE-MARKET';     // before 6:30 AM
+                                   else if (currentTime >= 13.0) sessionLabel = 'AFTER-HOURS'; // after 1:00 PM
 
-                                   const tzOffset = isDST ? '-0400' : '-0500';
-                                   const dateStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 09:30:00 GMT${tzOffset}`;
+                                   const startMs = marketOpenMs(todayStr);
+                                   const endMs = now.getTime();
 
-                                   const todayMarketOpen = new Date(dateStr);
-                                   const startTime = todayMarketOpen.getTime() * 1000000; // Convert to nanoseconds
-                                   const endTime = now.getTime() * 1000000; // Current time in nanoseconds
-
-                                   console.log(` Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
-                                   console.log(`   - Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
-                                   return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
+                                   console.log(` Worker ${workerIndex}: LIVE MODE (${sessionLabel}) - scanning today ${todayStr}`);
+                                   console.log(`   - Start: ${new Date(startMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
+                                   return {
+                                          startTime: startMs * 1000000, // nanoseconds
+                                          endTime: endMs * 1000000,
+                                          isLive: true,
+                                          date: todayStr,
+                                   };
                             } else {
-                                   // HISTORICAL MODE: Market is closed
-                                   const tradingDate = new Date(eastern);
+                                   // CLOSED MODE: overnight dead-zone, weekend, or holiday
+                                   const lastTradingDay = getLastTradingDayWorker(pst);
+                                   const startMs = marketOpenMs(lastTradingDay);
+                                   const endMs = marketCloseMs(lastTradingDay);
 
-                                   // If today is weekday but after hours, scan today's session
-                                   if (day >= 1 && day <= 5 && currentTime >= marketClose) {
-                                          // Today was a trading day but market closed - scan today's full session
-                                          console.log(` Worker ${workerIndex}: AFTER-HOURS MODE - Scanning today's completed session`);
-                                   } else {
-                                          // Weekend or before market open - find last trading day
-                                          if (day === 0) { // Sunday
-                                                 tradingDate.setDate(tradingDate.getDate() - 2); // Friday
-                                          } else if (day === 6) { // Saturday
-                                                 tradingDate.setDate(tradingDate.getDate() - 1); // Friday
-                                          } else if (currentTime < marketOpen) {
-                                                 // Before market open on weekday - use previous day
-                                                 tradingDate.setDate(tradingDate.getDate() - 1);
-                                                 if (tradingDate.getDay() === 0) tradingDate.setDate(tradingDate.getDate() - 2); // Skip Sunday
-                                                 if (tradingDate.getDay() === 6) tradingDate.setDate(tradingDate.getDate() - 1); // Skip Saturday
-                                          }
-                                          console.log(` Worker ${workerIndex}: HISTORICAL MODE - Scanning last trading day`);
-                                   }
-
-                                   // Create full trading day range (6:30 AM - 1:00 PM PST)
-                                   const year = tradingDate.getFullYear();
-                                   const month = tradingDate.getMonth() + 1;
-                                   const dayOfMonth = tradingDate.getDate();
-
-                                   // Determine if we're in PDT or PST for this date
-                                   const isDST = tradingDate.toLocaleString('en-US', {
-                                          timeZone: 'America/Los_Angeles',
-                                          timeZoneName: 'short'
-                                   }).includes('PDT');
-
-                                   const tzOffset = isDST ? '-0400' : '-0500';
-
-                                   const marketOpenStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 09:30:00 GMT${tzOffset}`;
-                                   const marketCloseStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 16:00:00 GMT${tzOffset}`;
-
-                                   const marketOpenTime = new Date(marketOpenStr);
-                                   const marketCloseTime = new Date(marketCloseStr);
-
-                                   const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
-                                   const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
-
-                                   console.log(`   - Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
-                                   console.log(`   - Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
-
-                                   return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
+                                   console.log(` Worker ${workerIndex}: CLOSED MODE - using last trading day ${lastTradingDay}`);
+                                   console.log(`   - Start: ${new Date(startMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
+                                   console.log(`   - End:   ${new Date(endMs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`);
+                                   return {
+                                          startTime: startMs * 1000000,
+                                          endTime: endMs * 1000000,
+                                          isLive: false,
+                                          date: lastTradingDay,
+                                   };
                             }
                      } catch (error) {
                             console.error(` Worker ${workerIndex}: Error calculating time range:`, error);

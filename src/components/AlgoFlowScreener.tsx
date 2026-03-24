@@ -21,7 +21,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-import TradingViewChart from './trading/TradingViewChart'
+import TradingViewChart from './trading/EFICharting'
 
 // Polygon API key for bid/ask analysis
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
@@ -661,7 +661,7 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
 
     // Update progress if possible (would need to pass callback from component)
     if (typeof window !== 'undefined' && (window as any).updateAnalysisProgress) {
-      ;(window as any).updateAnalysisProgress(currentChunk, totalChunks)
+      ; (window as any).updateAnalysisProgress(currentChunk, totalChunks)
     }
     const chunkResults = await Promise.allSettled(
       batchChunk.map(async (batch, batchIndex) => {
@@ -781,8 +781,8 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
             analyzedTrade.type === trade.type &&
             Math.abs(analyzedTrade.strike - trade.strike) / trade.strike < 0.1 &&
             Math.abs(analyzedTrade.total_premium - trade.total_premium) /
-              Math.max(trade.total_premium, 1) <
-              0.5
+            Math.max(trade.total_premium, 1) <
+            0.5
         )
 
       if (similarTrades.length > 0) {
@@ -793,7 +793,7 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
         )
         trade.executionType = Object.entries(executionCounts).reduce((a, b) =>
           executionCounts[a[0] as keyof typeof executionCounts] >
-          executionCounts[b[0] as keyof typeof executionCounts]
+            executionCounts[b[0] as keyof typeof executionCounts]
             ? a
             : b
         )[0]
@@ -1114,7 +1114,7 @@ export default function AlgoFlowScreener() {
     if (algoFlowScore > 0.25) flowTrend = 'BULLISH'
     else if (algoFlowScore < -0.25) flowTrend = 'BEARISH'
 
-    // Create time-based chart data (group by selected interval in ET time, market hours only)
+    // Create time-based chart data (group by selected interval in PST, market hours only)
     const intervalData: Record<
       string,
       { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }
@@ -1146,10 +1146,10 @@ export default function AlgoFlowScreener() {
     const getTradingDays = (timeframe: '1D' | '3D' | '1W'): string[] => {
       const days: string[] = []
       const now = new Date()
-      const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
       const daysNeeded = timeframe === '1D' ? 1 : timeframe === '3D' ? 3 : 5
-      const currentDate = new Date(etNow)
+      const currentDate = new Date(pstNow)
       currentDate.setDate(currentDate.getDate() - 1) // Start from yesterday
 
       while (days.length < daysNeeded) {
@@ -1194,9 +1194,9 @@ export default function AlgoFlowScreener() {
           intervalMinutes = 60
       }
 
-      // Market hours: 9:30 AM to 4:00 PM ET
-      const marketOpenMinutes = 9 * 60 + 30 // 570 minutes = 9:30 AM
-      const marketCloseMinutes = 16 * 60 // 960 minutes = 4:00 PM
+      // Market hours: 6:30 AM to 1:00 PM PST
+      const marketOpenMinutes = 6 * 60 + 30 // 390 minutes = 6:30 AM PST
+      const marketCloseMinutes = 13 * 60 // 780 minutes = 1:00 PM PST
 
       if (timeframe === '1D') {
         // Single day: Generate time slots from market open through market close
@@ -1396,14 +1396,14 @@ export default function AlgoFlowScreener() {
           acc.length > 0
             ? acc[acc.length - 1]
             : {
-                callsPlus: 0,
-                callsMinus: 0,
-                putsPlus: 0,
-                putsMinus: 0,
-                netFlow: 0,
-                bullishTotal: 0,
-                bearishTotal: 0,
-              }
+              callsPlus: 0,
+              callsMinus: 0,
+              putsPlus: 0,
+              putsMinus: 0,
+              netFlow: 0,
+              bullishTotal: 0,
+              bearishTotal: 0,
+            }
 
         // Add current to previous for cumulative sum
         const cumulative = {
@@ -1614,12 +1614,12 @@ export default function AlgoFlowScreener() {
           `🔍 ANALYSIS TRADES SAMPLE:`,
           result?.trades?.[0]
             ? {
-                ticker: result.trades[0].ticker,
-                volume: result.trades[0].volume,
-                open_interest: result.trades[0].open_interest,
-                hasVolume: !!result.trades[0].volume,
-                hasOI: !!result.trades[0].open_interest,
-              }
+              ticker: result.trades[0].ticker,
+              volume: result.trades[0].volume,
+              open_interest: result.trades[0].open_interest,
+              hasVolume: !!result.trades[0].volume,
+              hasOI: !!result.trades[0].open_interest,
+            }
             : 'NO TRADES'
         )
         setAnalysis(result)
@@ -1726,14 +1726,14 @@ export default function AlgoFlowScreener() {
                     setIsStreamComplete(true)
                     setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
-                    performAnalysis(tradesWithVolOI).catch(() => {})
+                    performAnalysis(tradesWithVolOI).catch(() => { })
                   })
                   .catch(() => {
                     setFlowData(completeTrades)
                     liveOICache.clear()
                     setStreamStatus('Complete (volume/OI unavailable)')
                     setLoading(false)
-                    performAnalysis(completeTrades).catch(() => {})
+                    performAnalysis(completeTrades).catch(() => { })
                   })
               } else {
                 setError(`No options flow data found for ${tickerToSearch}`)
@@ -1929,13 +1929,12 @@ export default function AlgoFlowScreener() {
                   ${analysis.currentPrice.toFixed(2)}
                 </div>
                 <div
-                  className={`px-4 py-1 border-2 font-black text-sm tracking-widest ${
-                    analysis.flowTrend === 'BULLISH'
-                      ? 'border-green-500 text-green-500'
-                      : analysis.flowTrend === 'BEARISH'
-                        ? 'border-red-500 text-red-500'
-                        : 'border-yellow-500 text-yellow-500'
-                  }`}
+                  className={`px-4 py-1 border-2 font-black text-sm tracking-widest ${analysis.flowTrend === 'BULLISH'
+                    ? 'border-green-500 text-green-500'
+                    : analysis.flowTrend === 'BEARISH'
+                      ? 'border-red-500 text-red-500'
+                      : 'border-yellow-500 text-yellow-500'
+                    }`}
                 >
                   {analysis.flowTrend}
                 </div>
@@ -2111,62 +2110,56 @@ export default function AlgoFlowScreener() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setChartTimeframe('1D')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartTimeframe === '1D'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1D'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
                   >
                     1D
                   </button>
                   <button
                     onClick={() => setChartTimeframe('3D')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartTimeframe === '3D'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '3D'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
                   >
                     3D
                   </button>
                   <button
                     onClick={() => setChartTimeframe('1W')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartTimeframe === '1W'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1W'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
                   >
                     1W
                   </button>
                   <div className="w-px bg-white mx-2"></div>
                   <button
                     onClick={() => setChartViewMode('detailed')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartViewMode === 'detailed'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'detailed'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
                   >
                     ALL
                   </button>
                   <button
                     onClick={() => setChartViewMode('simplified')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartViewMode === 'simplified'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'simplified'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
                   >
                     BULL/BEAR
                   </button>
                   <button
                     onClick={() => setChartViewMode('net')}
-                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${
-                      chartViewMode === 'net'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
-                    }`}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'net'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
                   >
                     NET
                   </button>
@@ -2497,29 +2490,28 @@ export default function AlgoFlowScreener() {
                           <td className="p-3 text-white text-base font-bold">
                             {scanTimeframe === '3D' || scanTimeframe === '1W'
                               ? new Date(trade.trade_timestamp).toLocaleString('en-US', {
-                                  month: 'numeric',
-                                  day: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  timeZone: 'America/Los_Angeles',
-                                })
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                timeZone: 'America/Los_Angeles',
+                              })
                               : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                  timeZone: 'America/Los_Angeles',
-                                })}
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                timeZone: 'America/Los_Angeles',
+                              })}
                           </td>
                           <td className="p-3 text-white text-lg font-black tracking-wider">
                             {trade.underlying_ticker}
                           </td>
                           <td className="p-3">
                             <span
-                              className={`text-base font-black tracking-wider ${
-                                trade.type === 'call'
-                                  ? 'text-[rgb(0,255,94)]'
-                                  : 'text-[rgb(255,0,0)]'
-                              }`}
+                              className={`text-base font-black tracking-wider ${trade.type === 'call'
+                                ? 'text-[rgb(0,255,94)]'
+                                : 'text-[rgb(255,0,0)]'
+                                }`}
                             >
                               {trade.type.toUpperCase()}
                             </span>
@@ -2531,9 +2523,8 @@ export default function AlgoFlowScreener() {
                                   selectedStrike === trade.strike ? null : trade.strike
                                 )
                               }
-                              className={`text-white text-lg font-bold hover:text-cyan-400 transition-colors ${
-                                selectedStrike === trade.strike ? 'text-cyan-400' : ''
-                              }`}
+                              className={`text-white text-lg font-bold hover:text-cyan-400 transition-colors ${selectedStrike === trade.strike ? 'text-cyan-400' : ''
+                                }`}
                             >
                               ${trade.strike}
                             </button>
@@ -2560,9 +2551,8 @@ export default function AlgoFlowScreener() {
                                   selectedExpiry === trade.expiry ? null : trade.expiry
                                 )
                               }
-                              className={`text-white text-base font-bold hover:text-cyan-400 transition-colors ${
-                                selectedExpiry === trade.expiry ? 'text-cyan-400' : ''
-                              }`}
+                              className={`text-white text-base font-bold hover:text-cyan-400 transition-colors ${selectedExpiry === trade.expiry ? 'text-cyan-400' : ''
+                                }`}
                             >
                               {trade.expiry.split('T')[0]}
                             </button>
@@ -2643,11 +2633,10 @@ export default function AlgoFlowScreener() {
                               <button
                                 key={pageNum}
                                 onClick={() => setCurrentPage(pageNum)}
-                                className={`px-3 py-1 text-xs font-black tracking-wider ${
-                                  currentPage === pageNum
-                                    ? 'bg-cyan-400 text-black'
-                                    : 'bg-black text-white border border-white hover:bg-white hover:text-black'
-                                }`}
+                                className={`px-3 py-1 text-xs font-black tracking-wider ${currentPage === pageNum
+                                  ? 'bg-cyan-400 text-black'
+                                  : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                                  }`}
                               >
                                 {pageNum}
                               </button>
