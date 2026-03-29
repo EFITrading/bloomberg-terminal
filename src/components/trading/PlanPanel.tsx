@@ -291,7 +291,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
   // Fetch current option premium prices for open options trades and update unrealizedPnL
   useEffect(() => {
-    const POLY_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
     const openOptionTrades = trades.filter(
       (t) => t.isOptions && t.status === 'open' && t.strike && t.expiry
     )
@@ -452,7 +452,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     setEditingTrade(null)
   }, [tradeFormData, editingTrade]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   // Real-time market data fetching
   const fetchMarketData = useCallback(
@@ -819,7 +819,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     )
     if (openOptionTrades.length === 0) return
 
-    const POLYGON_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
     const buildOptionTicker = (trade: Trade): string => {
       const sym = trade.symbol.toUpperCase()

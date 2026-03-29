@@ -469,7 +469,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         console.log(`Fetching ${eventType} data for ${eventDate.getFullYear()}: ${from} to ${to}`)
 
         const response = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+          `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
         )
 
         if (!response.ok) {
@@ -644,7 +644,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       console.log(`Fetching ${yearsBack} years of data from ${startStr} to ${endStr}`)
 
-      const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
 
       const response = await fetch(url)

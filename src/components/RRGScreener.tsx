@@ -785,7 +785,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
 
       // For 1D intraday, we need to fetch separately (daily data won't work)
       if (chartTimeframe === '1D') {
-        const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
         const now = new Date()
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
         const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -860,7 +860,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
         }
       } else {
         // For all other timeframes, we need to fetch daily data for proper sparklines
-        const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
         const now = new Date()
         let daysBack = 5
         const multiplier = 1

@@ -36,7 +36,7 @@ export function prefetchCompositeHistory() {
         _historyCacheTs = Date.now()
       }
     })
-    .catch(() => { })
+    .catch(() => {})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -684,7 +684,7 @@ function EnhancedRegimeDisplay({
       const next = !prev
       try {
         localStorage.setItem('enhancedRegime_showSummary', String(next))
-      } catch { }
+      } catch {}
       return next
     })
   const [selectedTimeframe, setSelectedTimeframe] = useState(selectedPeriod)
@@ -705,13 +705,13 @@ function EnhancedRegimeDisplay({
     try {
       const s = localStorage.getItem('compositeTfRange')
       if (s === '1Y' || s === '3Y' || s === '5Y') return s
-    } catch { }
+    } catch {}
     return '1Y'
   })
   const handleSetTfRange = useCallback((v: '1Y' | '3Y' | '5Y') => {
     try {
       localStorage.setItem('compositeTfRange', v)
-    } catch { }
+    } catch {}
     setTfRange(v)
   }, [])
 
@@ -737,7 +737,7 @@ function EnhancedRegimeDisplay({
   const handleSetCompositeView = (v: 'gauge' | 'chart') => {
     try {
       localStorage.setItem('compositeView', v)
-    } catch { }
+    } catch {}
     setCompositeView(v)
   }
 
@@ -781,14 +781,15 @@ function EnhancedRegimeDisplay({
     const fetchVix = async () => {
       try {
         const res = await fetch(
-          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=' +
+            (process.env.NEXT_PUBLIC_POLYGON_API_KEY || '')
         )
         const data = await res.json()
         if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {
           const price = data.results[0].underlying_asset.value
           setVixPrice(price)
         }
-      } catch (_) { }
+      } catch (_) {}
     }
     fetchVix()
     // Refresh VIX every 5 minutes
@@ -961,21 +962,23 @@ function EnhancedRegimeDisplay({
   // MARKET SCORES: SPY/QQQ/IWM high score → RISK ON. DIA high score → mild defensive/value.
   let flowScoreSignal = 0
   const defScores = ['XLP', 'XLU', 'XLRE', 'XLV']
-    .map(t => watchlistData[t]?.score as number | undefined)
+    .map((t) => watchlistData[t]?.score as number | undefined)
     .filter((s): s is number => s !== undefined)
   const growthScores = ['XLY', 'XLK', 'XLC']
-    .map(t => watchlistData[t]?.score as number | undefined)
+    .map((t) => watchlistData[t]?.score as number | undefined)
     .filter((s): s is number => s !== undefined)
   if (defScores.length > 0 && growthScores.length > 0) {
     const defScoreAvg = defScores.reduce((a, b) => a + b, 0) / defScores.length
     const growthScoreAvg = growthScores.reduce((a, b) => a + b, 0) / growthScores.length
     // SPY/QQQ/IWM = risk-on growth side. DIA = value/mild defensive.
     const mktRiskOnScores = ['SPY', 'QQQ', 'IWM']
-      .map(t => watchlistData[t]?.score as number | undefined)
+      .map((t) => watchlistData[t]?.score as number | undefined)
       .filter((s): s is number => s !== undefined)
     const diaScore = watchlistData['DIA']?.score as number | undefined
-    const mktRiskOnAvg = mktRiskOnScores.length > 0
-      ? mktRiskOnScores.reduce((a, b) => a + b, 0) / mktRiskOnScores.length : 50
+    const mktRiskOnAvg =
+      mktRiskOnScores.length > 0
+        ? mktRiskOnScores.reduce((a, b) => a + b, 0) / mktRiskOnScores.length
+        : 50
     const mktDefAvg = diaScore ?? 50
     // positive = defensive, negative = risk on (same sign convention as compositeSpread)
     const sectorPart = ((defScoreAvg - growthScoreAvg) / 100) * 4.0
@@ -988,14 +991,16 @@ function EnhancedRegimeDisplay({
   // MARKET FLOWS: SPY/QQQ/IWM inflows → RISK ON. DIA inflows → value/mild defensive.
   let fundFlowSignal = 0
   if (Object.keys(sectorFlowData).length > 0) {
-    const defensiveNet = ['XLP', 'XLU', 'XLRE', 'XLV']
-      .reduce((sum, t) => sum + (sectorFlowData[t] ?? 0), 0)
-    const growthNet = ['XLY', 'XLK', 'XLC']
-      .reduce((sum, t) => sum + (sectorFlowData[t] ?? 0), 0)
+    const defensiveNet = ['XLP', 'XLU', 'XLRE', 'XLV'].reduce(
+      (sum, t) => sum + (sectorFlowData[t] ?? 0),
+      0
+    )
+    const growthNet = ['XLY', 'XLK', 'XLC'].reduce((sum, t) => sum + (sectorFlowData[t] ?? 0), 0)
     // SPY + QQQ + IWM all count as risk-on inflows. DIA = value/mild defensive.
-    const mktRiskOnFlow = (sectorFlowData['SPY'] ?? 0) * 0.4
-      + (sectorFlowData['QQQ'] ?? 0) * 0.35
-      + (sectorFlowData['IWM'] ?? 0) * 0.25
+    const mktRiskOnFlow =
+      (sectorFlowData['SPY'] ?? 0) * 0.4 +
+      (sectorFlowData['QQQ'] ?? 0) * 0.35 +
+      (sectorFlowData['IWM'] ?? 0) * 0.25
     const mktDefFlow = sectorFlowData['DIA'] ?? 0
     const norm = 1e9 // $1B = 1.0 unit
     const sectorFlowDiff = (defensiveNet - growthNet) / norm
@@ -1004,8 +1009,11 @@ function EnhancedRegimeDisplay({
   }
 
   // Budget: price=0.65, VIX≤0.05, flowScore=0.15, fundFlow=0.15 → total=1.0
-  compositeSpread = compositeSpread * 0.65 + vixSignal * vixActiveWeight
-    + flowScoreSignal * 0.15 + fundFlowSignal * 0.15
+  compositeSpread =
+    compositeSpread * 0.65 +
+    vixSignal * vixActiveWeight +
+    flowScoreSignal * 0.15 +
+    fundFlowSignal * 0.15
 
   // Determine composite regime
   const getCompositeRegime = () => {

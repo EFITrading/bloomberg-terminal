@@ -1771,7 +1771,7 @@ const addTradingDays = (date: Date, days: number): Date => {
 }
 
 // Polygon API Integration for Expected Range Calculations
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 const riskFreeRate = 0.0387 // 3.87% risk-free rate (Federal Funds Rate)
 
 // Black-Scholes price calculation
@@ -6610,7 +6610,7 @@ export default function TradingViewChart({
       const optionTicker = `O:${option.symbol}${expiry}${optionType}${strikeFormatted}`
 
       const today = new Date()
-      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
       // Roll a date back until it lands on a weekday (Mon-Fri)
       const lastTradingDay = (d: Date, extraDays = 0): Date => {
@@ -6685,7 +6685,7 @@ export default function TradingViewChart({
   // Fetch current option quotes (bid/ask/last)
   const fetchLiveOptionQuotes = useCallback(async (options: any[]) => {
     try {
-      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
       for (const option of options) {
         const expiry = option.expiration.split('-').join('').slice(2)
@@ -6733,7 +6733,7 @@ export default function TradingViewChart({
   // Fetch ATR (Average True Range) for stock volatility calculation
   const fetchStockATR = useCallback(async (symbols: string[]) => {
     try {
-      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const uniqueSymbols = [...new Set(symbols)]
 
       for (const symbol of uniqueSymbols) {
@@ -7025,7 +7025,7 @@ export default function TradingViewChart({
     { symbol: 'IWO', name: 'Small Cap Growth', color: '#ff0088' },
   ]
 
-  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   // Performance Dashboard Data Fetching Functions
   const getPdDateRange = (tf: typeof pdTimeframe): { from: string; to: string } => {
@@ -7912,7 +7912,7 @@ export default function TradingViewChart({
       occurrences: number
     }>
   > => {
-    const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
     const currentYear = new Date().getFullYear()
     const today = new Date()
     const oneMonthBefore = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -8111,7 +8111,7 @@ export default function TradingViewChart({
       const startStr = startDate.toISOString().split('T')[0]
       const endStr = endDate.toISOString().split('T')[0]
 
-      const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
 
       const response = await fetch(url)
@@ -8994,7 +8994,7 @@ export default function TradingViewChart({
   // Event seasonal calculation with Polygon API
   const calculateEventSeasonal = useCallback(
     async (eventType: string, chartData: ChartDataPoint[]) => {
-      const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const currentYear = new Date().getFullYear()
 
       const getEventDates = (event: string): Date[] => {
@@ -10945,7 +10945,7 @@ export default function TradingViewChart({
   useEffect(() => {
     setTrackingLoading(true)
 
-    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
     const categories = {
       Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'],
@@ -12762,7 +12762,7 @@ export default function TradingViewChart({
       const todayStr = today.toISOString().split('T')[0]
       const yesterdayStr = yesterday.toISOString().split('T')[0]
 
-      const recentUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+      const recentUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
       const response = await fetchWithRetry(recentUrl)
       const result = await response.json()
 
@@ -12772,7 +12772,7 @@ export default function TradingViewChart({
 
         // Get previous day's close using Polygon /prev endpoint for accurate day-over-day change
         // This includes pre-market and after-hours moves: if prev close = $692, after-hours = $689, shows -$3
-        const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+        const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
         try {
           const prevResponse = await fetchWithRetry(prevDayUrl)
           if (prevResponse.ok) {
@@ -12801,7 +12801,7 @@ export default function TradingViewChart({
         }
       } else {
         // Fallback: Try to get the most recent close price from daily data
-        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
         try {
           const fallbackResponse = await fetchWithRetry(fallbackUrl)
           const fallbackResult = await fallbackResponse.json()

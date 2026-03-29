@@ -16,7 +16,7 @@ interface TradingKnowledge {
 export class TradingAssistant {
   private knowledge: TradingKnowledge
   private baseUrl: string
-  private POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+  private POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   constructor(baseUrl: string = '') {
     this.baseUrl = baseUrl

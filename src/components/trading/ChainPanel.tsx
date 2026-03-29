@@ -93,7 +93,7 @@ interface WatchlistOption {
   stockPrice: number // Stock price when added
 }
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 function ChainPanel({
   symbol: initialSymbol,

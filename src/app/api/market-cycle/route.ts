@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
-const FRED_API_KEY = process.env.FRED_API_KEY || '8c728c7ae1e59b0a43694fa3ff0a8580'
+const FRED_API_KEY = process.env.FRED_API_KEY!
 
 interface Bar {
   close: number

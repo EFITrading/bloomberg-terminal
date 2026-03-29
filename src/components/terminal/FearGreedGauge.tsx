@@ -33,7 +33,8 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
     const fetchVix = async () => {
       try {
         const res = await fetch(
-          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=' +
+            (process.env.NEXT_PUBLIC_POLYGON_API_KEY || '')
         )
         const data = await res.json()
         if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {

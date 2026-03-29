@@ -1,22 +1,22 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface SectorDataPoint {
-  timestamp: number;
-  value: number;
-  isMarketHours?: boolean; // Track if this point is during market hours
+  timestamp: number
+  value: number
+  isMarketHours?: boolean // Track if this point is during market hours
 }
 
 interface SectorPerformance {
-  symbol: string;
-  name: string;
-  color: string;
-  data: SectorDataPoint[];
-  currentPerformance: number;
+  symbol: string
+  name: string
+  color: string
+  data: SectorDataPoint[]
+  currentPerformance: number
 }
 
-type Timeframe = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD';
+type Timeframe = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD'
 
 const SECTORS_AND_ETFS = [
   { symbol: 'XLK', name: 'Technology', color: '#00d4ff' },
@@ -33,857 +33,908 @@ const SECTORS_AND_ETFS = [
   { symbol: 'DIA', name: 'Dow Jones', color: '#ffffff' },
   { symbol: 'SPY', name: 'S&P 500', color: '#00ff00' },
   { symbol: 'QQQ', name: 'Nasdaq', color: '#ff0000' },
-  { symbol: 'IWM', name: 'Russell 2000', color: '#ffa500' }
-];
+  { symbol: 'IWM', name: 'Russell 2000', color: '#ffa500' },
+]
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 const SectorPerformanceChart: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const timeframeRef = useRef<Timeframe>('1W'); // Use ref to persist timeframe
-  const lastDrawParamsRef = useRef<any>(null); // Store last draw parameters
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const timeframeRef = useRef<Timeframe>('1W') // Use ref to persist timeframe
+  const lastDrawParamsRef = useRef<any>(null) // Store last draw parameters
   // Initialize timeframe from localStorage or default to 1W
   const [timeframe, setTimeframe] = useState<Timeframe>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sectorPerformanceTimeframe');
-      return (saved as Timeframe) || '1W';
+      const saved = localStorage.getItem('sectorPerformanceTimeframe')
+      return (saved as Timeframe) || '1W'
     }
-    return '1W';
-  });
-  const [performanceData, setPerformanceData] = useState<SectorPerformance[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [hoveredSector, setHoveredSector] = useState<string | null>(null);
-  
+    return '1W'
+  })
+  const [performanceData, setPerformanceData] = useState<SectorPerformance[]>([])
+  const [loading, setLoading] = useState(true)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const [hoveredSector, setHoveredSector] = useState<string | null>(null)
+
   // Professional zoom/pan state
-  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 1 }); // 0 to 1 as percentage
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, rangeStart: 0 });
-  
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 1 }) // 0 to 1 as percentage
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, rangeStart: 0 })
+
   // Crosshair state - use ref to avoid re-renders
-  const crosshairRef = useRef<{ x: number; y: number } | null>(null);
-  
+  const crosshairRef = useRef<{ x: number; y: number } | null>(null)
+
   // Benchmarked mode state
-  const [isBenchmarked, setIsBenchmarked] = useState(false);
-  
+  const [isBenchmarked, setIsBenchmarked] = useState(false)
+
   // Custom date range state
-  const [customStartDate, setCustomStartDate] = useState<string>('');
-  const [customEndDate, setCustomEndDate] = useState<string>('');
-  const [useCustomDates, setUseCustomDates] = useState(false);
-  
+  const [customStartDate, setCustomStartDate] = useState<string>('')
+  const [customEndDate, setCustomEndDate] = useState<string>('')
+  const [useCustomDates, setUseCustomDates] = useState(false)
+
   // Category filter state - all active by default
   const [activeCategories, setActiveCategories] = useState({
     growth: true,
     value: true,
-    defensives: true
-  });
-  
+    defensives: true,
+  })
+
   // Fullscreen state
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
   // Category definitions
-  const GROWTH_TICKERS = ['XLK', 'XLY', 'XLC'];
-  const VALUE_TICKERS = ['XLB', 'XLF', 'XLI', 'XLE'];
-  const DEFENSIVE_TICKERS = ['XLRE', 'XLV', 'XLP', 'XLU'];
-  
+  const GROWTH_TICKERS = ['XLK', 'XLY', 'XLC']
+  const VALUE_TICKERS = ['XLB', 'XLF', 'XLI', 'XLE']
+  const DEFENSIVE_TICKERS = ['XLRE', 'XLV', 'XLP', 'XLU']
+
   // Toggle category filter
   const toggleCategory = (category: 'growth' | 'value' | 'defensives') => {
-    setActiveCategories(prev => ({
+    setActiveCategories((prev) => ({
       ...prev,
-      [category]: !prev[category]
-    }));
-  };
-  
+      [category]: !prev[category],
+    }))
+  }
+
   // Fullscreen handler - toggles expanded view
   const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
-  
+    setIsFullscreen(!isFullscreen)
+  }
+
   // Filter performance data based on active categories
   const getFilteredData = () => {
-    const allowedTickers: string[] = [];
-    if (activeCategories.growth) allowedTickers.push(...GROWTH_TICKERS);
-    if (activeCategories.value) allowedTickers.push(...VALUE_TICKERS);
-    if (activeCategories.defensives) allowedTickers.push(...DEFENSIVE_TICKERS);
-    
-    let filteredData = performanceData.filter(sector => allowedTickers.includes(sector.symbol));
-    
+    const allowedTickers: string[] = []
+    if (activeCategories.growth) allowedTickers.push(...GROWTH_TICKERS)
+    if (activeCategories.value) allowedTickers.push(...VALUE_TICKERS)
+    if (activeCategories.defensives) allowedTickers.push(...DEFENSIVE_TICKERS)
+
+    let filteredData = performanceData.filter((sector) => allowedTickers.includes(sector.symbol))
+
     // Apply benchmarking if enabled
     if (isBenchmarked) {
-      filteredData = calculateBenchmarkedData(filteredData);
+      filteredData = calculateBenchmarkedData(filteredData)
     }
-    
-    return filteredData;
-  };
-  
+
+    return filteredData
+  }
+
   // Calculate benchmarked performance (ticker/SPY)
   const calculateBenchmarkedData = (data: SectorPerformance[]): SectorPerformance[] => {
-    const spyData = performanceData.find(sector => sector.symbol === 'SPY');
-    if (!spyData || spyData.data.length === 0) return data;
-    
-    return data.map(sector => {
+    const spyData = performanceData.find((sector) => sector.symbol === 'SPY')
+    if (!spyData || spyData.data.length === 0) return data
+
+    return data.map((sector) => {
       if (sector.symbol === 'SPY') {
         // SPY/SPY = 0% (flat line)
         return {
           ...sector,
-          data: sector.data.map(point => ({ ...point, value: 0 })),
-          currentPerformance: 0
-        };
+          data: sector.data.map((point) => ({ ...point, value: 0 })),
+          currentPerformance: 0,
+        }
       }
-      
+
       // Calculate ticker - SPY for each data point (simple subtraction)
       const benchmarkedData = sector.data.map((point, index) => {
-        const spyPoint = spyData.data[index];
-        if (!spyPoint) return point;
-        
+        const spyPoint = spyData.data[index]
+        if (!spyPoint) return point
+
         // Simple subtraction: ticker% - SPY%
-        const relativePerformance = point.value - spyPoint.value;
-        
+        const relativePerformance = point.value - spyPoint.value
+
         return {
           ...point,
-          value: relativePerformance
-        };
-      });
-      
-      const currentBenchmarkedPerf = benchmarkedData.length > 0 
-        ? benchmarkedData[benchmarkedData.length - 1].value 
-        : 0;
-      
+          value: relativePerformance,
+        }
+      })
+
+      const currentBenchmarkedPerf =
+        benchmarkedData.length > 0 ? benchmarkedData[benchmarkedData.length - 1].value : 0
+
       return {
         ...sector,
         data: benchmarkedData,
-        currentPerformance: currentBenchmarkedPerf
-      };
-    });
-  };
+        currentPerformance: currentBenchmarkedPerf,
+      }
+    })
+  }
 
   // Calculate date range based on timeframe
   const getDateRange = (tf: Timeframe): { from: string; to: string } => {
-    const now = new Date();
-    const to = now.toISOString().split('T')[0];
-    
+    const now = new Date()
+    const to = now.toISOString().split('T')[0]
+
     // Use custom dates if start date is provided
     if (useCustomDates && customStartDate) {
-      return { 
-        from: customStartDate, 
-        to: customEndDate || to // If no end date, use today
-      };
+      return {
+        from: customStartDate,
+        to: customEndDate || to, // If no end date, use today
+      }
     }
-    
-    let from = new Date();
+
+    let from = new Date()
 
     switch (tf) {
       case '1D':
         // For intraday view, start from today (not yesterday)
-        from.setDate(now.getDate());
-        from.setHours(0, 0, 0, 0);
-        break;
+        from.setDate(now.getDate())
+        from.setHours(0, 0, 0, 0)
+        break
       case '1W':
         // For 1W, show last 5 trading days
-        from.setDate(now.getDate() - 7);
-        break;
+        from.setDate(now.getDate() - 7)
+        break
       case '1M':
-        from.setMonth(now.getMonth() - 1);
-        break;
+        from.setMonth(now.getMonth() - 1)
+        break
       case '3M':
-        from.setMonth(now.getMonth() - 3);
-        break;
+        from.setMonth(now.getMonth() - 3)
+        break
       case '6M':
-        from.setMonth(now.getMonth() - 6);
-        break;
+        from.setMonth(now.getMonth() - 6)
+        break
       case '1Y':
-        from.setFullYear(now.getFullYear() - 1);
-        break;
+        from.setFullYear(now.getFullYear() - 1)
+        break
       case '2Y':
-        from.setFullYear(now.getFullYear() - 2);
-        break;
+        from.setFullYear(now.getFullYear() - 2)
+        break
       case '5Y':
-        from.setFullYear(now.getFullYear() - 5);
-        break;
+        from.setFullYear(now.getFullYear() - 5)
+        break
       case '10Y':
-        from.setFullYear(now.getFullYear() - 10);
-        break;
+        from.setFullYear(now.getFullYear() - 10)
+        break
       case '20Y':
-        from.setFullYear(now.getFullYear() - 20);
-        break;
+        from.setFullYear(now.getFullYear() - 20)
+        break
       case 'YTD':
-        from = new Date(now.getFullYear(), 0, 1);
-        break;
+        from = new Date(now.getFullYear(), 0, 1)
+        break
     }
 
-    return { from: from.toISOString().split('T')[0], to };
-  };
+    return { from: from.toISOString().split('T')[0], to }
+  }
 
   // Fetch data from Polygon API
   const fetchSectorData = async () => {
-    setLoading(true);
-    const { from, to } = getDateRange(timeframe);
-    const multiplier = (timeframe === '1D' || timeframe === '1W') ? 5 : 1;
-    const timespan = (timeframe === '1D' || timeframe === '1W') ? 'minute' : 'day';
+    setLoading(true)
+    const { from, to } = getDateRange(timeframe)
+    const multiplier = timeframe === '1D' || timeframe === '1W' ? 5 : 1
+    const timespan = timeframe === '1D' || timeframe === '1W' ? 'minute' : 'day'
 
     try {
       // Helper function to check if time is during market hours (6:30 AM - 1:00 PM PST)
       const isMarketHours = (timestamp: number): boolean => {
-        const date = new Date(timestamp);
-        const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-        const hoursPST = datePST.getHours();
-        const minutesPST = datePST.getMinutes();
-        const totalMinutesPST = hoursPST * 60 + minutesPST;
-        
+        const date = new Date(timestamp)
+        const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        const hoursPST = datePST.getHours()
+        const minutesPST = datePST.getMinutes()
+        const totalMinutesPST = hoursPST * 60 + minutesPST
+
         // 6:30 AM = 390 minutes, 1:00 PM = 780 minutes
-        return totalMinutesPST >= 390 && totalMinutesPST <= 780;
-      };
+        return totalMinutesPST >= 390 && totalMinutesPST <= 780
+      }
 
       // Optimized fetch with aggressive retry and request reuse
-      const fetchWithRetry = async (sector: typeof SECTORS_AND_ETFS[0], retries = 5): Promise<SectorPerformance | null> => {
-        const url = `https://api.polygon.io/v2/aggs/ticker/${sector.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
-        
+      const fetchWithRetry = async (
+        sector: (typeof SECTORS_AND_ETFS)[0],
+        retries = 5
+      ): Promise<SectorPerformance | null> => {
+        const url = `https://api.polygon.io/v2/aggs/ticker/${sector.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+
         for (let attempt = 0; attempt < retries; attempt++) {
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-            
-            const response = await fetch(url, { 
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 10000) // 10s timeout
+
+            const response = await fetch(url, {
               signal: controller.signal,
               headers: {
-                'Connection': 'keep-alive'
-              }
-            });
-            
-            clearTimeout(timeoutId);
-            
+                Connection: 'keep-alive',
+              },
+            })
+
+            clearTimeout(timeoutId)
+
             if (!response.ok) {
               if (response.status === 429) {
                 // Rate limited - wait longer
-                await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
-                continue;
+                await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)))
+                continue
               }
               if (attempt < retries - 1) {
-                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                continue;
+                await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+                continue
               }
-              return null;
+              return null
             }
-            
-            const data = await response.json();
+
+            const data = await response.json()
 
             if (data.results && data.results.length > 0) {
-              let results = data.results;
-              
+              let results = data.results
+
               // For 1D timeframe, filter to only show market hours (6:30 AM - 1:00 PM PST)
               if (timeframe === '1D') {
-                results = results.filter((point: any) => isMarketHours(point.t));
+                results = results.filter((point: any) => isMarketHours(point.t))
               }
-              
-              if (results.length === 0) return null;
-              
-              const firstPrice = results[0].c;
+
+              if (results.length === 0) return null
+
+              const firstPrice = results[0].c
               const normalizedData: SectorDataPoint[] = results.map((point: any) => ({
                 timestamp: point.t,
                 value: ((point.c - firstPrice) / firstPrice) * 100,
-                isMarketHours: timeframe === '1W' ? isMarketHours(point.t) : true
-              }));
+                isMarketHours: timeframe === '1W' ? isMarketHours(point.t) : true,
+              }))
 
-              const currentPerformance = normalizedData[normalizedData.length - 1]?.value || 0;
+              const currentPerformance = normalizedData[normalizedData.length - 1]?.value || 0
 
               return {
                 symbol: sector.symbol,
                 name: sector.name,
                 color: sector.color,
                 data: normalizedData,
-                currentPerformance
-              };
+                currentPerformance,
+              }
             }
-            return null;
+            return null
           } catch (error: any) {
             if (error.name === 'AbortError') {
-              console.warn(`Timeout fetching ${sector.symbol}, attempt ${attempt + 1}/${retries}`);
+              console.warn(`Timeout fetching ${sector.symbol}, attempt ${attempt + 1}/${retries}`)
             }
             if (attempt < retries - 1) {
-              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-              continue;
+              await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+              continue
             }
-            console.error(`Failed to fetch ${sector.symbol} after ${retries} attempts:`, error);
-            return null;
+            console.error(`Failed to fetch ${sector.symbol} after ${retries} attempts:`, error)
+            return null
           }
         }
-        return null;
-      };
+        return null
+      }
 
       // Parallel processing with chunking - process 6 at a time with minimal delay
-      const chunkSize = 6;
-      const results: (SectorPerformance | null)[] = [];
-      
+      const chunkSize = 6
+      const results: (SectorPerformance | null)[] = []
+
       for (let i = 0; i < SECTORS_AND_ETFS.length; i += chunkSize) {
-        const chunk = SECTORS_AND_ETFS.slice(i, i + chunkSize);
-        const chunkPromises = chunk.map(sector => fetchWithRetry(sector));
-        const chunkResults = await Promise.all(chunkPromises);
-        results.push(...chunkResults);
-        
+        const chunk = SECTORS_AND_ETFS.slice(i, i + chunkSize)
+        const chunkPromises = chunk.map((sector) => fetchWithRetry(sector))
+        const chunkResults = await Promise.all(chunkPromises)
+        results.push(...chunkResults)
+
         // Minimal delay only between chunks
         if (i + chunkSize < SECTORS_AND_ETFS.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, 50))
         }
       }
 
-      const validResults = results.filter((r): r is SectorPerformance => r !== null);
-      setPerformanceData(validResults);
+      const validResults = results.filter((r): r is SectorPerformance => r !== null)
+      setPerformanceData(validResults)
     } catch (error) {
-      console.error('Error fetching sector data:', error);
+      console.error('Error fetching sector data:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   // Update dimensions
   useEffect(() => {
     const updateDimensions = () => {
       if (containerRef.current) {
-        const { width, height } = containerRef.current.getBoundingClientRect();
-        setDimensions({ width, height });
+        const { width, height } = containerRef.current.getBoundingClientRect()
+        setDimensions({ width, height })
       }
-    };
+    }
 
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, []);
-  
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
+    return () => window.removeEventListener('resize', updateDimensions)
+  }, [])
+
   // Update dimensions when fullscreen changes
   useLayoutEffect(() => {
     if (containerRef.current) {
       // Wait for CSS transition to complete (300ms) then measure
       setTimeout(() => {
         if (containerRef.current) {
-          const { width, height } = containerRef.current.getBoundingClientRect();
-          console.log('Fullscreen dimensions update:', { width, height, isFullscreen });
-          setDimensions({ width, height });
+          const { width, height } = containerRef.current.getBoundingClientRect()
+          console.log('Fullscreen dimensions update:', { width, height, isFullscreen })
+          setDimensions({ width, height })
         }
-      }, 350); // Wait for 300ms transition + 50ms buffer
+      }, 350) // Wait for 300ms transition + 50ms buffer
     }
-  }, [isFullscreen]);
+  }, [isFullscreen])
 
   // Fetch data when timeframe changes
   useEffect(() => {
-    fetchSectorData();
-    
+    fetchSectorData()
+
     // Set up 1-minute auto-refresh interval
     const refreshInterval = setInterval(() => {
-      fetchSectorData();
-    }, 300000); // 300000ms = 5 minutes
-    
-    return () => clearInterval(refreshInterval);
-  }, [timeframe, useCustomDates, customStartDate, customEndDate]);
+      fetchSectorData()
+    }, 300000) // 300000ms = 5 minutes
+
+    return () => clearInterval(refreshInterval)
+  }, [timeframe, useCustomDates, customStartDate, customEndDate])
 
   // Draw chart
   useEffect(() => {
-    if (!canvasRef.current || performanceData.length === 0 || dimensions.width === 0) return;
+    if (!canvasRef.current || performanceData.length === 0 || dimensions.width === 0) return
 
     const drawChart = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
 
       // Get device pixel ratio for sharp rendering
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = window.devicePixelRatio || 1
 
       // Set canvas size with device pixel ratio for crisp rendering
-      canvas.width = dimensions.width * dpr;
-      canvas.height = dimensions.height * dpr;
-      
+      canvas.width = dimensions.width * dpr
+      canvas.height = dimensions.height * dpr
+
       // Scale context to match device pixel ratio
-      ctx.scale(dpr, dpr);
-      
+      ctx.scale(dpr, dpr)
+
       // Set canvas display size
-      canvas.style.width = dimensions.width + 'px';
-      canvas.style.height = dimensions.height + 'px';
+      canvas.style.width = dimensions.width + 'px'
+      canvas.style.height = dimensions.height + 'px'
 
       // Clear canvas
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, dimensions.width, dimensions.height);
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
       // Chart margins - dynamic bottom margin based on fullscreen state
-      const margin = { 
-        top: 40, 
-        right: 100, 
-        bottom: isFullscreen ? 30 : 80, 
-        left: 60 
-      };
-      const chartWidth = dimensions.width - margin.left - margin.right;
-      const chartHeight = dimensions.height - margin.top - margin.bottom;
+      const margin = {
+        top: 40,
+        right: 100,
+        bottom: isFullscreen ? 30 : 80,
+        left: 60,
+      }
+      const chartWidth = dimensions.width - margin.left - margin.right
+      const chartHeight = dimensions.height - margin.top - margin.bottom
 
       // Get filtered data based on active categories
-      const filteredData = getFilteredData();
+      const filteredData = getFilteredData()
 
-    // Calculate visible data range
-    const totalDataPoints = performanceData[0]?.data.length || 1;
-    const startIndex = Math.floor(visibleRange.start * totalDataPoints);
-    const endIndex = Math.ceil(visibleRange.end * totalDataPoints);
-    const visibleDataPoints = endIndex - startIndex;
+      // Calculate visible data range
+      const totalDataPoints = performanceData[0]?.data.length || 1
+      const startIndex = Math.floor(visibleRange.start * totalDataPoints)
+      const endIndex = Math.ceil(visibleRange.end * totalDataPoints)
+      const visibleDataPoints = endIndex - startIndex
 
-    // Find min/max values from visible range only (use filtered data)
-    const visibleValues = filteredData.flatMap(sector => 
-      sector.data.slice(startIndex, endIndex).map(d => d.value)
-    );
-    const minValue = visibleValues.length > 0 ? Math.min(...visibleValues) : 0;
-    const maxValue = visibleValues.length > 0 ? Math.max(...visibleValues) : 0;
-    const valueRange = maxValue - minValue || 1;
-    const padding = valueRange * 0.1;
+      // Find min/max values from visible range only (use filtered data)
+      const visibleValues = filteredData.flatMap((sector) =>
+        sector.data.slice(startIndex, endIndex).map((d) => d.value)
+      )
+      const minValue = visibleValues.length > 0 ? Math.min(...visibleValues) : 0
+      const maxValue = visibleValues.length > 0 ? Math.max(...visibleValues) : 0
+      const valueRange = maxValue - minValue || 1
+      const padding = valueRange * 0.1
 
-    // Scale functions - map data index to screen position
-    const xScale = (index: number, total: number) => {
-      const relativeIndex = (index - startIndex) / visibleDataPoints;
-      return margin.left + relativeIndex * chartWidth;
-    };
-    
-    const yScale = (value: number) => 
-      margin.top + chartHeight - ((value - (minValue - padding)) / (valueRange + 2 * padding)) * chartHeight;
-
-    // Draw grid lines - REMOVED dashed lines
-    // ctx.strokeStyle = '#1a1a1a';
-    // ctx.lineWidth = 1;
-    // ctx.setLineDash([5, 5]);
-    
-    // Adaptive grid lines based on zoom level
-    const zoom = 1 / (visibleRange.end - visibleRange.start);
-    const gridLines = Math.min(10, Math.max(5, Math.floor(5 * Math.sqrt(zoom))));
-    
-    // Draw Y-axis labels
-    for (let i = 0; i <= gridLines; i++) {
-      const y = margin.top + (chartHeight * i / gridLines);
-      const value = maxValue + padding - ((valueRange + 2 * padding) * i / gridLines);
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 15px monospace';
-      ctx.textAlign = 'right';
-      const decimals = zoom > 2 ? 2 : 1;
-      const label = `${value.toFixed(decimals)}%`;
-      ctx.fillText(label, margin.left - 10, y + 4);
-    }
-    
-    // ctx.setLineDash([]);
-
-    // Draw zero line
-    if (minValue < 0 && maxValue > 0) {
-      const zeroY = yScale(0);
-      ctx.strokeStyle = '#444444';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(margin.left, zeroY);
-      ctx.lineTo(margin.left + chartWidth, zeroY);
-      ctx.stroke();
-    }
-
-    // Clip to chart area to prevent overflow
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(margin.left, margin.top, chartWidth, chartHeight);
-    ctx.clip();
-
-    // Draw gray shading for pre-market and after-hours
-    if (filteredData.length > 0 && filteredData[0].data.length > 0) {
-      ctx.fillStyle = 'rgba(50, 50, 50, 0.3)'; // Gray with transparency
-      
-      let shadingStart: number | null = null;
-      
-      filteredData[0].data.forEach((point, index) => {
-        if (index < startIndex || index > endIndex) return;
-        
-        const isMarket = point.isMarketHours !== false; // Default to true if not specified
-        
-        if (!isMarket && shadingStart === null) {
-          // Start of pre-market/after-hours period
-          shadingStart = index;
-        } else if (isMarket && shadingStart !== null) {
-          // End of pre-market/after-hours period - draw the shaded region
-          const x1 = xScale(shadingStart, filteredData[0].data.length);
-          const x2 = xScale(index, filteredData[0].data.length);
-          ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
-          shadingStart = null;
-        }
-      });
-      
-      // If we ended in a pre-market/after-hours period, draw to the end
-      if (shadingStart !== null) {
-        const x1 = xScale(shadingStart, filteredData[0].data.length);
-        const x2 = margin.left + chartWidth;
-        ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
-      }
-    }
-
-    // Draw sector lines with antialiasing
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    
-    filteredData.forEach((sector) => {
-      const isHovered = hoveredSector === sector.symbol;
-      ctx.strokeStyle = sector.color;
-      ctx.lineWidth = isHovered ? 1.5 : 1;
-      ctx.globalAlpha = isHovered || !hoveredSector ? 1 : 0.3;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-
-      ctx.beginPath();
-      sector.data.forEach((point, index) => {
-        const x = xScale(index, sector.data.length);
-        const y = yScale(point.value);
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-      ctx.stroke();
-    });
-
-    ctx.globalAlpha = 1;
-    
-    // Restore context to remove clipping
-    ctx.restore();
-
-    // Draw legend on the right - only show ticker symbols without percentages
-    const legendX = margin.left + chartWidth + 30;
-    let legendY = margin.top + 20;
-
-    // Sort by performance (use filtered data)
-    const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
-
-    // Dynamic spacing and font size based on fullscreen mode
-    const itemSpacing = isFullscreen ? 55 : 55;
-    const fontSize = isFullscreen ? 22.5 : 18.75;
-    const hoveredFontSize = isFullscreen ? 24.375 : 20.625;
-
-    sortedData.forEach((sector, index) => {
-      const y = legendY + (index * itemSpacing);
-      const isHovered = hoveredSector === sector.symbol;
-
-      // Background for hovered item
-      if (isHovered) {
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(legendX - 5, y - 14, 190, 26);
+      // Scale functions - map data index to screen position
+      const xScale = (index: number, total: number) => {
+        const relativeIndex = (index - startIndex) / visibleDataPoints
+        return margin.left + relativeIndex * chartWidth
       }
 
-      // Ticker - use sector color
-      ctx.fillStyle = sector.color;
-      ctx.font = isHovered ? `bold ${hoveredFontSize}px monospace` : `${fontSize}px monospace`;
-      ctx.textAlign = 'left';
-      ctx.fillText(sector.symbol, legendX, y);
-      
-      // Percentage below ticker
-      const perfColor = sector.currentPerformance >= 0 ? '#00ff00' : '#ff0000';
-      ctx.fillStyle = perfColor;
-      ctx.font = isHovered ? `bold ${hoveredFontSize - 2}px monospace` : `${fontSize - 2}px monospace`;
-      const perfText = `${sector.currentPerformance >= 0 ? '+' : ''}${sector.currentPerformance.toFixed(2)}%`;
-      ctx.fillText(perfText, legendX, y + 16);
-    });
+      const yScale = (value: number) =>
+        margin.top +
+        chartHeight -
+        ((value - (minValue - padding)) / (valueRange + 2 * padding)) * chartHeight
 
-    // X-axis time labels - adaptive based on zoom and timeframe (Koyfin-style)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px monospace';
-    ctx.textAlign = 'center';
+      // Draw grid lines - REMOVED dashed lines
+      // ctx.strokeStyle = '#1a1a1a';
+      // ctx.lineWidth = 1;
+      // ctx.setLineDash([5, 5]);
 
-    const xLabelCount = Math.min(12, Math.max(6, Math.floor(6 * zoom)));
-    let lastDateShown = '';
-    
-    for (let i = 0; i <= xLabelCount; i++) {
-      const dataIndex = startIndex + Math.floor(visibleDataPoints * i / xLabelCount);
-      if (performanceData[0]?.data[dataIndex]) {
-        const x = xScale(dataIndex, totalDataPoints);
-        if (x >= margin.left && x <= margin.left + chartWidth) {
-          const date = new Date(performanceData[0].data[dataIndex].timestamp);
-          const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-          
-          let label: string;
-          
-          if (timeframe === '1D') {
-            // 1D: Show only time (6:30, 7:00, 11:30)
-            const hours = datePST.getHours();
-            const minutes = datePST.getMinutes();
-            label = `${hours}:${minutes.toString().padStart(2, '0')}`;
-            
-          } else if (timeframe === '1W') {
-            // 1W: Calculate visible time span to determine label format
-            const visibleTimeSpan = performanceData[0].data[endIndex - 1]?.timestamp - performanceData[0].data[startIndex]?.timestamp;
-            const daysVisible = visibleTimeSpan / (1000 * 60 * 60 * 24);
-            
-            if (daysVisible <= 3) {
-              // 3 days or less: show time only (intraday view)
-              const hours = datePST.getHours();
-              const minutes = datePST.getMinutes();
-              label = `${hours}:${minutes.toString().padStart(2, '0')}`;
-            } else {
-              // More than 3 days: show date once per day, then times
-              const month = datePST.getMonth() + 1;
-              const day = datePST.getDate();
-              const currentDate = `${month}/${day}`;
-              
-              if (currentDate !== lastDateShown) {
-                // First time seeing this date - show it
-                label = currentDate;
-                lastDateShown = currentDate;
-              } else {
-                // Same day - just show time
-                const hours = datePST.getHours();
-                const minutes = datePST.getMinutes();
-                label = `${hours}:${minutes.toString().padStart(2, '0')}`;
-              }
-            }
-            
-          } else {
-            // 1M, 3M, 6M, 1Y+: Show only dates (Mon DD format)
-            label = datePST.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      // Adaptive grid lines based on zoom level
+      const zoom = 1 / (visibleRange.end - visibleRange.start)
+      const gridLines = Math.min(10, Math.max(5, Math.floor(5 * Math.sqrt(zoom))))
+
+      // Draw Y-axis labels
+      for (let i = 0; i <= gridLines; i++) {
+        const y = margin.top + (chartHeight * i) / gridLines
+        const value = maxValue + padding - ((valueRange + 2 * padding) * i) / gridLines
+
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 15px monospace'
+        ctx.textAlign = 'right'
+        const decimals = zoom > 2 ? 2 : 1
+        const label = `${value.toFixed(decimals)}%`
+        ctx.fillText(label, margin.left - 10, y + 4)
+      }
+
+      // ctx.setLineDash([]);
+
+      // Draw zero line
+      if (minValue < 0 && maxValue > 0) {
+        const zeroY = yScale(0)
+        ctx.strokeStyle = '#444444'
+        ctx.lineWidth = 2
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(margin.left, zeroY)
+        ctx.lineTo(margin.left + chartWidth, zeroY)
+        ctx.stroke()
+      }
+
+      // Clip to chart area to prevent overflow
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(margin.left, margin.top, chartWidth, chartHeight)
+      ctx.clip()
+
+      // Draw gray shading for pre-market and after-hours
+      if (filteredData.length > 0 && filteredData[0].data.length > 0) {
+        ctx.fillStyle = 'rgba(50, 50, 50, 0.3)' // Gray with transparency
+
+        let shadingStart: number | null = null
+
+        filteredData[0].data.forEach((point, index) => {
+          if (index < startIndex || index > endIndex) return
+
+          const isMarket = point.isMarketHours !== false // Default to true if not specified
+
+          if (!isMarket && shadingStart === null) {
+            // Start of pre-market/after-hours period
+            shadingStart = index
+          } else if (isMarket && shadingStart !== null) {
+            // End of pre-market/after-hours period - draw the shaded region
+            const x1 = xScale(shadingStart, filteredData[0].data.length)
+            const x2 = xScale(index, filteredData[0].data.length)
+            ctx.fillRect(x1, margin.top, x2 - x1, chartHeight)
+            shadingStart = null
           }
-          
-          ctx.fillText(label, x, dimensions.height - margin.bottom + 30);
+        })
+
+        // If we ended in a pre-market/after-hours period, draw to the end
+        if (shadingStart !== null) {
+          const x1 = xScale(shadingStart, filteredData[0].data.length)
+          const x2 = margin.left + chartWidth
+          ctx.fillRect(x1, margin.top, x2 - x1, chartHeight)
         }
       }
-    }
+
+      // Draw sector lines with antialiasing
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+
+      filteredData.forEach((sector) => {
+        const isHovered = hoveredSector === sector.symbol
+        ctx.strokeStyle = sector.color
+        ctx.lineWidth = isHovered ? 1.5 : 1
+        ctx.globalAlpha = isHovered || !hoveredSector ? 1 : 0.3
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+
+        ctx.beginPath()
+        sector.data.forEach((point, index) => {
+          const x = xScale(index, sector.data.length)
+          const y = yScale(point.value)
+
+          if (index === 0) {
+            ctx.moveTo(x, y)
+          } else {
+            ctx.lineTo(x, y)
+          }
+        })
+        ctx.stroke()
+      })
+
+      ctx.globalAlpha = 1
+
+      // Restore context to remove clipping
+      ctx.restore()
+
+      // Draw legend on the right - only show ticker symbols without percentages
+      const legendX = margin.left + chartWidth + 30
+      const legendY = margin.top + 20
+
+      // Sort by performance (use filtered data)
+      const sortedData = [...filteredData].sort(
+        (a, b) => b.currentPerformance - a.currentPerformance
+      )
+
+      // Dynamic spacing and font size based on fullscreen mode
+      const itemSpacing = isFullscreen ? 55 : 55
+      const fontSize = isFullscreen ? 22.5 : 18.75
+      const hoveredFontSize = isFullscreen ? 24.375 : 20.625
+
+      sortedData.forEach((sector, index) => {
+        const y = legendY + index * itemSpacing
+        const isHovered = hoveredSector === sector.symbol
+
+        // Background for hovered item
+        if (isHovered) {
+          ctx.fillStyle = '#1a1a1a'
+          ctx.fillRect(legendX - 5, y - 14, 190, 26)
+        }
+
+        // Ticker - use sector color
+        ctx.fillStyle = sector.color
+        ctx.font = isHovered ? `bold ${hoveredFontSize}px monospace` : `${fontSize}px monospace`
+        ctx.textAlign = 'left'
+        ctx.fillText(sector.symbol, legendX, y)
+
+        // Percentage below ticker
+        const perfColor = sector.currentPerformance >= 0 ? '#00ff00' : '#ff0000'
+        ctx.fillStyle = perfColor
+        ctx.font = isHovered
+          ? `bold ${hoveredFontSize - 2}px monospace`
+          : `${fontSize - 2}px monospace`
+        const perfText = `${sector.currentPerformance >= 0 ? '+' : ''}${sector.currentPerformance.toFixed(2)}%`
+        ctx.fillText(perfText, legendX, y + 16)
+      })
+
+      // X-axis time labels - adaptive based on zoom and timeframe (Koyfin-style)
+      ctx.fillStyle = '#ffffff'
+      ctx.font = 'bold 18px monospace'
+      ctx.textAlign = 'center'
+
+      const xLabelCount = Math.min(12, Math.max(6, Math.floor(6 * zoom)))
+      let lastDateShown = ''
+
+      for (let i = 0; i <= xLabelCount; i++) {
+        const dataIndex = startIndex + Math.floor((visibleDataPoints * i) / xLabelCount)
+        if (performanceData[0]?.data[dataIndex]) {
+          const x = xScale(dataIndex, totalDataPoints)
+          if (x >= margin.left && x <= margin.left + chartWidth) {
+            const date = new Date(performanceData[0].data[dataIndex].timestamp)
+            const datePST = new Date(
+              date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            )
+
+            let label: string
+
+            if (timeframe === '1D') {
+              // 1D: Show only time (6:30, 7:00, 11:30)
+              const hours = datePST.getHours()
+              const minutes = datePST.getMinutes()
+              label = `${hours}:${minutes.toString().padStart(2, '0')}`
+            } else if (timeframe === '1W') {
+              // 1W: Calculate visible time span to determine label format
+              const visibleTimeSpan =
+                performanceData[0].data[endIndex - 1]?.timestamp -
+                performanceData[0].data[startIndex]?.timestamp
+              const daysVisible = visibleTimeSpan / (1000 * 60 * 60 * 24)
+
+              if (daysVisible <= 3) {
+                // 3 days or less: show time only (intraday view)
+                const hours = datePST.getHours()
+                const minutes = datePST.getMinutes()
+                label = `${hours}:${minutes.toString().padStart(2, '0')}`
+              } else {
+                // More than 3 days: show date once per day, then times
+                const month = datePST.getMonth() + 1
+                const day = datePST.getDate()
+                const currentDate = `${month}/${day}`
+
+                if (currentDate !== lastDateShown) {
+                  // First time seeing this date - show it
+                  label = currentDate
+                  lastDateShown = currentDate
+                } else {
+                  // Same day - just show time
+                  const hours = datePST.getHours()
+                  const minutes = datePST.getMinutes()
+                  label = `${hours}:${minutes.toString().padStart(2, '0')}`
+                }
+              }
+            } else {
+              // 1M, 3M, 6M, 1Y+: Show only dates (Mon DD format)
+              label = datePST.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            }
+
+            ctx.fillText(label, x, dimensions.height - margin.bottom + 30)
+          }
+        }
+      }
 
       // Draw crosshair if mouse is hovering
-      const crosshair = crosshairRef.current;
-      if (crosshair && crosshair.x >= margin.left && crosshair.x <= margin.left + chartWidth &&
-          crosshair.y >= margin.top && crosshair.y <= margin.top + chartHeight) {
-        
+      const crosshair = crosshairRef.current
+      if (
+        crosshair &&
+        crosshair.x >= margin.left &&
+        crosshair.x <= margin.left + chartWidth &&
+        crosshair.y >= margin.top &&
+        crosshair.y <= margin.top + chartHeight
+      ) {
         // Crosshair lines
-        ctx.strokeStyle = '#888888';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        
+        ctx.strokeStyle = '#888888'
+        ctx.lineWidth = 1
+        ctx.setLineDash([5, 5])
+
         // Vertical line
-        ctx.beginPath();
-        ctx.moveTo(crosshair.x, margin.top);
-        ctx.lineTo(crosshair.x, margin.top + chartHeight);
-        ctx.stroke();
-        
+        ctx.beginPath()
+        ctx.moveTo(crosshair.x, margin.top)
+        ctx.lineTo(crosshair.x, margin.top + chartHeight)
+        ctx.stroke()
+
         // Horizontal line
-        ctx.beginPath();
-        ctx.moveTo(margin.left, crosshair.y);
-        ctx.lineTo(margin.left + chartWidth, crosshair.y);
-        ctx.stroke();
-        
-        ctx.setLineDash([]);
-        
+        ctx.beginPath()
+        ctx.moveTo(margin.left, crosshair.y)
+        ctx.lineTo(margin.left + chartWidth, crosshair.y)
+        ctx.stroke()
+
+        ctx.setLineDash([])
+
         // Calculate and display Y-axis value
-        const yValue = maxValue + padding - ((crosshair.y - margin.top) / chartHeight) * (valueRange + 2 * padding);
-      
-      // Y-axis label background
-      ctx.fillStyle = '#ff6600';
-      const yLabelText = `${yValue.toFixed(2)}%`;
-      ctx.font = 'bold 12px monospace';
-      const yLabelWidth = ctx.measureText(yLabelText).width;
-      ctx.fillRect(margin.left - yLabelWidth - 20, crosshair.y - 10, yLabelWidth + 10, 20);
-      
-      // Y-axis label text
-      ctx.fillStyle = '#000000';
-      ctx.textAlign = 'right';
-      ctx.fillText(yLabelText, margin.left - 15, crosshair.y + 5);
-      
-      // Calculate and display X-axis date
-      const xPercent = (crosshair.x - margin.left) / chartWidth;
-      const dataIndex = Math.floor(startIndex + xPercent * visibleDataPoints);
-      
-      if (performanceData[0]?.data[dataIndex]) {
-        const date = new Date(performanceData[0].data[dataIndex].timestamp);
-        const dateLabel = timeframe === '1D'
-          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-        
-        // X-axis label background
-        ctx.fillStyle = '#ff6600';
-        ctx.textAlign = 'center';
-        const xLabelWidth = ctx.measureText(dateLabel).width;
-        ctx.fillRect(crosshair.x - xLabelWidth / 2 - 5, dimensions.height - margin.bottom + 15, xLabelWidth + 10, 20);
-        
-        // X-axis label text
-        ctx.fillStyle = '#000000';
-        ctx.fillText(dateLabel, crosshair.x, dimensions.height - margin.bottom + 30);
+        const yValue =
+          maxValue +
+          padding -
+          ((crosshair.y - margin.top) / chartHeight) * (valueRange + 2 * padding)
+
+        // Y-axis label background
+        ctx.fillStyle = '#ff6600'
+        const yLabelText = `${yValue.toFixed(2)}%`
+        ctx.font = 'bold 12px monospace'
+        const yLabelWidth = ctx.measureText(yLabelText).width
+        ctx.fillRect(margin.left - yLabelWidth - 20, crosshair.y - 10, yLabelWidth + 10, 20)
+
+        // Y-axis label text
+        ctx.fillStyle = '#000000'
+        ctx.textAlign = 'right'
+        ctx.fillText(yLabelText, margin.left - 15, crosshair.y + 5)
+
+        // Calculate and display X-axis date
+        const xPercent = (crosshair.x - margin.left) / chartWidth
+        const dataIndex = Math.floor(startIndex + xPercent * visibleDataPoints)
+
+        if (performanceData[0]?.data[dataIndex]) {
+          const date = new Date(performanceData[0].data[dataIndex].timestamp)
+          const dateLabel =
+            timeframe === '1D'
+              ? date.toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })
+              : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+
+          // X-axis label background
+          ctx.fillStyle = '#ff6600'
+          ctx.textAlign = 'center'
+          const xLabelWidth = ctx.measureText(dateLabel).width
+          ctx.fillRect(
+            crosshair.x - xLabelWidth / 2 - 5,
+            dimensions.height - margin.bottom + 15,
+            xLabelWidth + 10,
+            20
+          )
+
+          // X-axis label text
+          ctx.fillStyle = '#000000'
+          ctx.fillText(dateLabel, crosshair.x, dimensions.height - margin.bottom + 30)
+        }
       }
     }
-    };
-    
-    drawChart();
-  }, [performanceData, dimensions, hoveredSector, visibleRange, activeCategories, isBenchmarked, timeframe]);
+
+    drawChart()
+  }, [
+    performanceData,
+    dimensions,
+    hoveredSector,
+    visibleRange,
+    activeCategories,
+    isBenchmarked,
+    timeframe,
+  ])
 
   // Attach wheel event listener with passive: false
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = canvasRef.current
+    if (!canvas) return
 
     const handleWheelNative = (event: WheelEvent) => {
-      event.preventDefault();
-      
-      const rect = canvas.getBoundingClientRect();
-      const margin = { top: 40, right: 100, bottom: 80, left: 60 };
-      const chartWidth = dimensions.width - margin.left - margin.right;
-      const mouseX = event.clientX - rect.left;
-      
+      event.preventDefault()
+
+      const rect = canvas.getBoundingClientRect()
+      const margin = { top: 40, right: 100, bottom: 80, left: 60 }
+      const chartWidth = dimensions.width - margin.left - margin.right
+      const mouseX = event.clientX - rect.left
+
       // Only zoom if mouse is over chart area
-      if (mouseX < margin.left || mouseX > margin.left + chartWidth) return;
-      
+      if (mouseX < margin.left || mouseX > margin.left + chartWidth) return
+
       // Calculate mouse position relative to data (0 to 1)
-      const mouseDataPos = visibleRange.start + ((mouseX - margin.left) / chartWidth) * (visibleRange.end - visibleRange.start);
-      
+      const mouseDataPos =
+        visibleRange.start +
+        ((mouseX - margin.left) / chartWidth) * (visibleRange.end - visibleRange.start)
+
       // Zoom factor
-      const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
-      const currentRange = visibleRange.end - visibleRange.start;
-      let newRange = currentRange * zoomFactor;
-      
+      const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9
+      const currentRange = visibleRange.end - visibleRange.start
+      let newRange = currentRange * zoomFactor
+
       // Limit zoom range
-      newRange = Math.max(0.02, Math.min(1, newRange)); // Min 2% of data, max 100%
-      
+      newRange = Math.max(0.02, Math.min(1, newRange)) // Min 2% of data, max 100%
+
       // Calculate new start/end centered on mouse position
-      const mousePercent = (mouseX - margin.left) / chartWidth;
-      let newStart = mouseDataPos - newRange * mousePercent;
-      let newEnd = newStart + newRange;
-      
+      const mousePercent = (mouseX - margin.left) / chartWidth
+      let newStart = mouseDataPos - newRange * mousePercent
+      let newEnd = newStart + newRange
+
       // Constrain to bounds
       if (newStart < 0) {
-        newStart = 0;
-        newEnd = newRange;
+        newStart = 0
+        newEnd = newRange
       }
       if (newEnd > 1) {
-        newEnd = 1;
-        newStart = 1 - newRange;
+        newEnd = 1
+        newStart = 1 - newRange
       }
-      
-      setVisibleRange({ start: newStart, end: newEnd });
-    };
 
-    canvas.addEventListener('wheel', handleWheelNative, { passive: false });
+      setVisibleRange({ start: newStart, end: newEnd })
+    }
+
+    canvas.addEventListener('wheel', handleWheelNative, { passive: false })
     return () => {
-      canvas.removeEventListener('wheel', handleWheelNative);
-    };
-  }, [dimensions, visibleRange]);
+      canvas.removeEventListener('wheel', handleWheelNative)
+    }
+  }, [dimensions, visibleRange])
 
   // Handle mouse move for hover and drag
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current) return
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
-    
-    const margin = { top: 40, right: 100, bottom: 80, left: 60 };
-    const chartWidth = dimensions.width - margin.left - margin.right;
-    const chartHeight = dimensions.height - margin.top - margin.bottom;
+    const rect = canvasRef.current.getBoundingClientRect()
+    const mouseX = event.clientX - rect.left
+    const mouseY = event.clientY - rect.top
+
+    const margin = { top: 40, right: 100, bottom: 80, left: 60 }
+    const chartWidth = dimensions.width - margin.left - margin.right
+    const chartHeight = dimensions.height - margin.top - margin.bottom
 
     // Update crosshair position if mouse is within chart area
-    if (mouseX >= margin.left && mouseX <= margin.left + chartWidth &&
-        mouseY >= margin.top && mouseY <= margin.top + chartHeight) {
-      crosshairRef.current = { x: mouseX, y: mouseY };
+    if (
+      mouseX >= margin.left &&
+      mouseX <= margin.left + chartWidth &&
+      mouseY >= margin.top &&
+      mouseY <= margin.top + chartHeight
+    ) {
+      crosshairRef.current = { x: mouseX, y: mouseY }
     } else {
-      crosshairRef.current = null;
+      crosshairRef.current = null
     }
 
     // Handle dragging for pan
     if (isDragging) {
-      const deltaX = mouseX - dragStart.x;
-      const rangeSize = visibleRange.end - visibleRange.start;
-      const rangeDelta = -(deltaX / chartWidth) * rangeSize;
-      
-      let newStart = dragStart.rangeStart + rangeDelta;
-      let newEnd = newStart + rangeSize;
-      
+      const deltaX = mouseX - dragStart.x
+      const rangeSize = visibleRange.end - visibleRange.start
+      const rangeDelta = -(deltaX / chartWidth) * rangeSize
+
+      let newStart = dragStart.rangeStart + rangeDelta
+      let newEnd = newStart + rangeSize
+
       // Constrain to data bounds
       if (newStart < 0) {
-        newStart = 0;
-        newEnd = rangeSize;
+        newStart = 0
+        newEnd = rangeSize
       }
       if (newEnd > 1) {
-        newEnd = 1;
-        newStart = 1 - rangeSize;
+        newEnd = 1
+        newStart = 1 - rangeSize
       }
-      
-      setVisibleRange({ start: newStart, end: newEnd });
-      return;
+
+      setVisibleRange({ start: newStart, end: newEnd })
+      return
     }
 
-    const legendX = dimensions.width - margin.right + 30;
-    const legendY = margin.top + 20;
-    const itemSpacing = isFullscreen ? 55 : 55; // Match the drawing spacing
+    const legendX = dimensions.width - margin.right + 30
+    const legendY = margin.top + 20
+    const itemSpacing = isFullscreen ? 55 : 55 // Match the drawing spacing
 
-    let found = false;
-    const filteredData = getFilteredData(); // Use same filtered data as drawing
-    const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
-    
+    let found = false
+    const filteredData = getFilteredData() // Use same filtered data as drawing
+    const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance)
+
     sortedData.forEach((sector, index) => {
-      const y = legendY + (index * itemSpacing);
-      if (mouseX >= legendX - 5 && mouseX <= legendX + 185 && 
-          mouseY >= y - 18 && mouseY <= y + 35) { // Expanded to cover ticker + percentage + spacing
+      const y = legendY + index * itemSpacing
+      if (
+        mouseX >= legendX - 5 &&
+        mouseX <= legendX + 185 &&
+        mouseY >= y - 18 &&
+        mouseY <= y + 35
+      ) {
+        // Expanded to cover ticker + percentage + spacing
         if (hoveredSector !== sector.symbol) {
-          setHoveredSector(sector.symbol);
+          setHoveredSector(sector.symbol)
         }
-        found = true;
+        found = true
       }
-    });
+    })
 
     if (!found && hoveredSector !== null) {
-      setHoveredSector(null);
+      setHoveredSector(null)
     }
-  };
+  }
 
   // Handle mouse down to start dragging
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setIsDragging(true);
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setIsDragging(true)
     setDragStart({
       x: event.clientX - rect.left,
-      rangeStart: visibleRange.start
-    });
-  };
+      rangeStart: visibleRange.start,
+    })
+  }
 
   // Handle mouse up to stop dragging
   const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-
+    setIsDragging(false)
+  }
 
   return (
-    <div className="sector-performance-chart" style={{ 
-      width: '1000px',
-      height: isFullscreen ? '905px' : '905px',
-      backgroundColor: '#000000',
-      border: '1px solid #333',
-      borderRadius: '4px',
-      padding: '20px',
-      position: 'relative',
-      overflow: 'hidden',
-      transition: 'height 0.3s ease'
-    }}>
+    <div
+      className="sector-performance-chart"
+      style={{
+        width: '1000px',
+        height: isFullscreen ? '905px' : '905px',
+        backgroundColor: '#000000',
+        border: '1px solid #333',
+        borderRadius: '4px',
+        padding: '20px',
+        position: 'relative',
+        overflow: 'hidden',
+        transition: 'height 0.3s ease',
+      }}
+    >
       {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'flex-start', 
-        alignItems: 'center',
-        marginBottom: '15px',
-        gap: '20px'
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-start',
+          alignItems: 'center',
+          marginBottom: '15px',
+          gap: '20px',
+        }}
+      >
         {/* Timeframe Dropdown */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <label style={{ 
-            color: '#999999', 
-            fontSize: '11px', 
-            fontFamily: 'monospace',
-            fontWeight: 'bold'
-          }}>
+          <label
+            style={{
+              color: '#999999',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              fontWeight: 'bold',
+            }}
+          >
             Timeframe:
           </label>
           <select
             value={timeframe}
             onChange={(e) => {
-              const newTimeframe = e.target.value as Timeframe;
-              timeframeRef.current = newTimeframe;
-              setTimeframe(newTimeframe);
+              const newTimeframe = e.target.value as Timeframe
+              timeframeRef.current = newTimeframe
+              setTimeframe(newTimeframe)
               if (typeof window !== 'undefined') {
-                localStorage.setItem('sectorPerformanceTimeframe', newTimeframe);
+                localStorage.setItem('sectorPerformanceTimeframe', newTimeframe)
               }
             }}
             style={{
@@ -896,7 +947,7 @@ const SectorPerformanceChart: React.FC = () => {
               fontSize: '11px',
               fontWeight: 'bold',
               fontFamily: 'monospace',
-              outline: 'none'
+              outline: 'none',
             }}
           >
             <option value="1D">1D</option>
@@ -914,7 +965,14 @@ const SectorPerformanceChart: React.FC = () => {
         </div>
 
         {/* Category Filter Buttons */}
-        <div style={{ display: 'flex', gap: '8px', borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            borderLeft: '1px solid #333333',
+            paddingLeft: '20px',
+          }}
+        >
           <button
             onClick={() => toggleCategory('growth')}
             style={{
@@ -927,18 +985,18 @@ const SectorPerformanceChart: React.FC = () => {
               fontSize: '11px',
               fontWeight: activeCategories.growth ? 'bold' : 'normal',
               fontFamily: 'monospace',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!activeCategories.growth) {
-                e.currentTarget.style.backgroundColor = '#2a2a2a';
-                e.currentTarget.style.borderColor = '#555555';
+                e.currentTarget.style.backgroundColor = '#2a2a2a'
+                e.currentTarget.style.borderColor = '#555555'
               }
             }}
             onMouseLeave={(e) => {
               if (!activeCategories.growth) {
-                e.currentTarget.style.backgroundColor = '#1a1a1a';
-                e.currentTarget.style.borderColor = '#333333';
+                e.currentTarget.style.backgroundColor = '#1a1a1a'
+                e.currentTarget.style.borderColor = '#333333'
               }
             }}
           >
@@ -956,18 +1014,18 @@ const SectorPerformanceChart: React.FC = () => {
               fontSize: '11px',
               fontWeight: activeCategories.value ? 'bold' : 'normal',
               fontFamily: 'monospace',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!activeCategories.value) {
-                e.currentTarget.style.backgroundColor = '#2a2a2a';
-                e.currentTarget.style.borderColor = '#555555';
+                e.currentTarget.style.backgroundColor = '#2a2a2a'
+                e.currentTarget.style.borderColor = '#555555'
               }
             }}
             onMouseLeave={(e) => {
               if (!activeCategories.value) {
-                e.currentTarget.style.backgroundColor = '#1a1a1a';
-                e.currentTarget.style.borderColor = '#333333';
+                e.currentTarget.style.backgroundColor = '#1a1a1a'
+                e.currentTarget.style.borderColor = '#333333'
               }
             }}
           >
@@ -985,25 +1043,25 @@ const SectorPerformanceChart: React.FC = () => {
               fontSize: '11px',
               fontWeight: activeCategories.defensives ? 'bold' : 'normal',
               fontFamily: 'monospace',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!activeCategories.defensives) {
-                e.currentTarget.style.backgroundColor = '#2a2a2a';
-                e.currentTarget.style.borderColor = '#555555';
+                e.currentTarget.style.backgroundColor = '#2a2a2a'
+                e.currentTarget.style.borderColor = '#555555'
               }
             }}
             onMouseLeave={(e) => {
               if (!activeCategories.defensives) {
-                e.currentTarget.style.backgroundColor = '#1a1a1a';
-                e.currentTarget.style.borderColor = '#333333';
+                e.currentTarget.style.backgroundColor = '#1a1a1a'
+                e.currentTarget.style.borderColor = '#333333'
               }
             }}
           >
             Defensives
           </button>
         </div>
-        
+
         {/* Benchmarked Button */}
         <div style={{ borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
           <button
@@ -1018,47 +1076,51 @@ const SectorPerformanceChart: React.FC = () => {
               fontSize: '11px',
               fontWeight: isBenchmarked ? 'bold' : 'normal',
               fontFamily: 'monospace',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               if (!isBenchmarked) {
-                e.currentTarget.style.backgroundColor = '#2a2a2a';
-                e.currentTarget.style.borderColor = '#555555';
+                e.currentTarget.style.backgroundColor = '#2a2a2a'
+                e.currentTarget.style.borderColor = '#555555'
               }
             }}
             onMouseLeave={(e) => {
               if (!isBenchmarked) {
-                e.currentTarget.style.backgroundColor = '#1a1a1a';
-                e.currentTarget.style.borderColor = '#333333';
+                e.currentTarget.style.backgroundColor = '#1a1a1a'
+                e.currentTarget.style.borderColor = '#333333'
               }
             }}
           >
             Benchmarked
           </button>
         </div>
-        
+
         {/* Custom Date Range */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '8px', 
-          alignItems: 'center',
-          borderLeft: '1px solid #333333', 
-          paddingLeft: '20px' 
-        }}>
-          <label style={{ 
-            color: '#999999', 
-            fontSize: '11px', 
-            fontFamily: 'monospace' 
-          }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+            borderLeft: '1px solid #333333',
+            paddingLeft: '20px',
+          }}
+        >
+          <label
+            style={{
+              color: '#999999',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+            }}
+          >
             Start:
           </label>
           <input
             type="date"
             value={customStartDate}
             onChange={(e) => {
-              setCustomStartDate(e.target.value);
+              setCustomStartDate(e.target.value)
               if (e.target.value) {
-                setUseCustomDates(true);
+                setUseCustomDates(true)
               }
             }}
             style={{
@@ -1069,24 +1131,26 @@ const SectorPerformanceChart: React.FC = () => {
               borderRadius: '3px',
               fontSize: '11px',
               fontFamily: 'monospace',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           />
-          
-          <label style={{ 
-            color: '#999999', 
-            fontSize: '11px', 
-            fontFamily: 'monospace' 
-          }}>
+
+          <label
+            style={{
+              color: '#999999',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+            }}
+          >
             End:
           </label>
           <input
             type="date"
             value={customEndDate}
             onChange={(e) => {
-              setCustomEndDate(e.target.value);
+              setCustomEndDate(e.target.value)
               if (customStartDate) {
-                setUseCustomDates(true);
+                setUseCustomDates(true)
               }
             }}
             style={{
@@ -1097,16 +1161,16 @@ const SectorPerformanceChart: React.FC = () => {
               borderRadius: '3px',
               fontSize: '11px',
               fontFamily: 'monospace',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           />
-          
+
           {useCustomDates && (
             <button
               onClick={() => {
-                setUseCustomDates(false);
-                setCustomStartDate('');
-                setCustomEndDate('');
+                setUseCustomDates(false)
+                setCustomStartDate('')
+                setCustomEndDate('')
               }}
               style={{
                 padding: '4px 8px',
@@ -1117,13 +1181,13 @@ const SectorPerformanceChart: React.FC = () => {
                 cursor: 'pointer',
                 fontSize: '11px',
                 fontFamily: 'monospace',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
               }}
             >
               Clear
             </button>
           )}
-          
+
           {/* Top/Bottom Button */}
           <button
             style={{
@@ -1137,7 +1201,7 @@ const SectorPerformanceChart: React.FC = () => {
               fontFamily: 'monospace',
               fontWeight: 'bold',
               boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.5)',
-              marginLeft: '12px'
+              marginLeft: '12px',
             }}
           >
             Top/Bottom
@@ -1146,26 +1210,28 @@ const SectorPerformanceChart: React.FC = () => {
       </div>
 
       {/* Chart Canvas */}
-      <div 
-        ref={containerRef} 
-        style={{ 
-          width: '100%', 
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
           height: isFullscreen ? '820px' : '820px',
           position: 'relative',
           backgroundColor: '#000000',
-          transition: 'height 0.3s ease'
+          transition: 'height 0.3s ease',
         }}
       >
         {loading ? (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#666666',
-            fontSize: '14px',
-            fontFamily: 'monospace'
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: '#666666',
+              fontSize: '14px',
+              fontFamily: 'monospace',
+            }}
+          >
             Loading data...
           </div>
         ) : (
@@ -1176,25 +1242,24 @@ const SectorPerformanceChart: React.FC = () => {
               onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
               onMouseLeave={() => {
-                crosshairRef.current = null;
+                crosshairRef.current = null
                 if (hoveredSector !== null) {
-                  setHoveredSector(null);
+                  setHoveredSector(null)
                 }
                 if (isDragging) {
-                  setIsDragging(false);
+                  setIsDragging(false)
                 }
               }}
-
-              style={{ 
+              style={{
                 cursor: isDragging ? 'grabbing' : 'grab',
-                display: 'block'
+                display: 'block',
               }}
             />
           </>
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default SectorPerformanceChart;
+export default SectorPerformanceChart

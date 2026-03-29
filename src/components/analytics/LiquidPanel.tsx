@@ -3443,7 +3443,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION')
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM'>('MM')
 
-  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   // Calculate number of active tables and update parent container width
   const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length
@@ -5716,7 +5716,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
     const recalculateHistoricalGEX = async () => {
       try {
-        const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
         // Fetch ALL options contracts (increase limit to get all expirations)
         const allContracts: any[] = []

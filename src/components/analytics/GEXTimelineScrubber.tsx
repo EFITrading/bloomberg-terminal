@@ -77,7 +77,7 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
     const fetchTimeline = async () => {
       setLoading(true)
       try {
-        const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
         const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/5/minute/${date}/${date}?adjusted=true&sort=asc&limit=5000&apiKey=${apiKey}`
 
         const response = await fetch(url)

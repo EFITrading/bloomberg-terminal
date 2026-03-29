@@ -19,7 +19,7 @@ const { createCanvas } = require('canvas')
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN
 const BOT_PREFIX = process.env.BOT_PREFIX || '!'
 const BASE_URL = process.env.BASE_URL || 'https://www.efitrading.com'
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 
 // Helper function to convert HTML to Discord markdown
 function htmlToDiscordMarkdown(html) {

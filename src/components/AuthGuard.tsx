@@ -27,7 +27,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const hasAccess = (session as any)?.hasAccess || cookieAuth
 
     if (!isPublicPath && !hasAccess) {
-      router.push('/login')
+      router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
     }
   }, [session, status, pathname, router])
 

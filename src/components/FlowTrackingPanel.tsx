@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { calculateFlowGrade } from '@/lib/flowGrading'
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 interface OptionsFlowData {
   ticker: string
@@ -66,7 +66,12 @@ const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
 
 function _bsNCD(x: number): number {
-  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+  const a1 = 0.254829592,
+    a2 = -0.284496736,
+    a3 = 1.421413741,
+    a4 = -1.453152027,
+    a5 = 1.061405429,
+    p = 0.3275911
   const sign = x >= 0 ? 1 : -1
   const ax = Math.abs(x)
   const t = 1.0 / (1.0 + p * ax)
@@ -76,14 +81,21 @@ function _bsNCD(x: number): number {
 function _bsD2FTP(S: number, K: number, r: number, sigma: number, T: number): number {
   return (Math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
 }
-function bsStrikeForProbFTP(S: number, sigma: number, dte: number, prob: number, isCall: boolean): number | null {
+function bsStrikeForProbFTP(
+  S: number,
+  sigma: number,
+  dte: number,
+  prob: number,
+  isCall: boolean
+): number | null {
   if (!sigma || sigma <= 0 || dte <= 0) return null
   const r = 0.0387
   const T = dte / 365
   const copCall = (K: number) => (1 - _bsNCD(_bsD2FTP(S, K, r, sigma, T))) * 100
   const copPut = (K: number) => _bsNCD(_bsD2FTP(S, K, r, sigma, T)) * 100
   if (isCall) {
-    let lo = S + 0.01, hi = S * 1.5
+    let lo = S + 0.01,
+      hi = S * 1.5
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2
       const p = copCall(mid)
@@ -92,7 +104,8 @@ function bsStrikeForProbFTP(S: number, sigma: number, dte: number, prob: number,
     }
     return (lo + hi) / 2
   } else {
-    let lo = S * 0.5, hi = S - 0.01
+    let lo = S * 0.5,
+      hi = S - 0.01
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2
       const p = copPut(mid)
@@ -114,7 +127,16 @@ export default function FlowTrackingPanel({
   relativeStrengthData?: Map<string, number>
   historicalStdDevs?: Map<string, number>
   comboTradeMap?: Map<string, boolean>
-  dealerZoneCache?: Record<string, { golden: number | null; purple: number | null; atmIV: number | null; goldenExpiry?: string | null; purpleExpiry?: string | null }>
+  dealerZoneCache?: Record<
+    string,
+    {
+      golden: number | null
+      purple: number | null
+      atmIV: number | null
+      goldenExpiry?: string | null
+      purpleExpiry?: string | null
+    }
+  >
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
@@ -131,7 +153,9 @@ export default function FlowTrackingPanel({
   const [currentStockPrices, setCurrentStockPrices] = useState<Record<string, number>>({})
   const [ownStdDevs, setOwnStdDevs] = useState<Map<string, number>>(new Map())
   const [ownStdDevFailed, setOwnStdDevFailed] = useState<Set<string>>(new Set())
-  const [ownDealerZones, setOwnDealerZones] = useState<Record<string, { golden: number | null; purple: number | null; atmIV: number | null }>>({})
+  const [ownDealerZones, setOwnDealerZones] = useState<
+    Record<string, { golden: number | null; purple: number | null; atmIV: number | null }>
+  >({})
   const [stockChartData, setStockChartData] = useState<
     Record<string, { price: number; timestamp: number }[]>
   >({})
@@ -243,20 +267,32 @@ export default function FlowTrackingPanel({
     missing.forEach(async (ticker, idx) => {
       await new Promise((r) => setTimeout(r, idx * 200))
       try {
-        const res = await fetch(`/api/dealer-zones?ticker=${ticker}`, { signal: AbortSignal.timeout(8000) })
+        const res = await fetch(`/api/dealer-zones?ticker=${ticker}`, {
+          signal: AbortSignal.timeout(8000),
+        })
         if (res.ok) {
           const result = await res.json()
           if (result.success) {
             setOwnDealerZones((prev) => ({
               ...prev,
-              [ticker]: { golden: result.golden ?? null, purple: result.purple ?? null, atmIV: result.atmIV ?? null },
+              [ticker]: {
+                golden: result.golden ?? null,
+                purple: result.purple ?? null,
+                atmIV: result.atmIV ?? null,
+              },
             }))
             return
           }
         }
-        setOwnDealerZones((prev) => ({ ...prev, [ticker]: { golden: null, purple: null, atmIV: null } }))
+        setOwnDealerZones((prev) => ({
+          ...prev,
+          [ticker]: { golden: null, purple: null, atmIV: null },
+        }))
       } catch {
-        setOwnDealerZones((prev) => ({ ...prev, [ticker]: { golden: null, purple: null, atmIV: null } }))
+        setOwnDealerZones((prev) => ({
+          ...prev,
+          [ticker]: { golden: null, purple: null, atmIV: null },
+        }))
       }
     })
   }, [trackedFlows.length])
@@ -648,9 +684,10 @@ export default function FlowTrackingPanel({
             }
             // Use real RS/stddev data from parent if available, otherwise fall back to defaults
             const emptyRS = relativeStrengthData ?? new Map<string, number>()
-            const defaultStdDevs = ownStdDevs.size > 0
-              ? ownStdDevs
-              : (historicalStdDevsFromParent ?? new Map<string, number>())
+            const defaultStdDevs =
+              ownStdDevs.size > 0
+                ? ownStdDevs
+                : (historicalStdDevsFromParent ?? new Map<string, number>())
 
             return trackedFlows
               .filter((flow) => {
@@ -919,7 +956,12 @@ export default function FlowTrackingPanel({
                                   {ownStdDevFailed.has(flow.underlying_ticker) && (
                                     <span
                                       title="StdDev fetch failed — Price Action unscored"
-                                      style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', cursor: 'help' }}
+                                      style={{
+                                        color: '#ef4444',
+                                        fontSize: '12px',
+                                        fontWeight: 'bold',
+                                        cursor: 'help',
+                                      }}
                                     >
                                       ⚠
                                     </span>
@@ -930,10 +972,13 @@ export default function FlowTrackingPanel({
                             <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                               <td colSpan={5} className="p-1">
                                 {(() => {
-                                  const parentZones = dealerZoneCacheFromParent?.[flow.underlying_ticker]
-                                  const zones = (parentZones && (parentZones.golden !== null || parentZones.purple !== null))
-                                    ? parentZones
-                                    : (ownDealerZones[flow.underlying_ticker] ?? null)
+                                  const parentZones =
+                                    dealerZoneCacheFromParent?.[flow.underlying_ticker]
+                                  const zones =
+                                    parentZones &&
+                                    (parentZones.golden !== null || parentZones.purple !== null)
+                                      ? parentZones
+                                      : (ownDealerZones[flow.underlying_ticker] ?? null)
                                   const isCall3 = flow.type === 'call'
                                   const fillStyle3 = flow.fill_style || ''
                                   const isSold3 = fillStyle3 === 'B' || fillStyle3 === 'BB'
@@ -941,28 +986,102 @@ export default function FlowTrackingPanel({
                                   // Use live DTE instead of stale snapshot value
                                   const todayMs = new Date().setHours(0, 0, 0, 0)
                                   const expD = new Date(flow.expiry)
-                                  const expLocal = new Date(expD.getUTCFullYear(), expD.getUTCMonth(), expD.getUTCDate())
-                                  const liveDTE = Math.max(0, Math.floor((expLocal.getTime() - todayMs) / 86400000))
-                                  const sigma3 = (zones?.atmIV && zones.atmIV > 0)
-                                    ? zones.atmIV
-                                    : (flow.implied_volatility && flow.implied_volatility > 0 ? flow.implied_volatility : 0)
-                                  const t1 = sigma3 > 0 ? bsStrikeForProbFTP(flow.spot_price, sigma3, liveDTE, 80, targetUp) : null
-                                  const t2 = sigma3 > 0 ? bsStrikeForProbFTP(flow.spot_price, sigma3, liveDTE, 90, targetUp) : null
+                                  const expLocal = new Date(
+                                    expD.getUTCFullYear(),
+                                    expD.getUTCMonth(),
+                                    expD.getUTCDate()
+                                  )
+                                  const liveDTE = Math.max(
+                                    0,
+                                    Math.floor((expLocal.getTime() - todayMs) / 86400000)
+                                  )
+                                  const sigma3 =
+                                    zones?.atmIV && zones.atmIV > 0
+                                      ? zones.atmIV
+                                      : flow.implied_volatility && flow.implied_volatility > 0
+                                        ? flow.implied_volatility
+                                        : 0
+                                  const t1 =
+                                    sigma3 > 0
+                                      ? bsStrikeForProbFTP(
+                                          flow.spot_price,
+                                          sigma3,
+                                          liveDTE,
+                                          80,
+                                          targetUp
+                                        )
+                                      : null
+                                  const t2 =
+                                    sigma3 > 0
+                                      ? bsStrikeForProbFTP(
+                                          flow.spot_price,
+                                          sigma3,
+                                          liveDTE,
+                                          90,
+                                          targetUp
+                                        )
+                                      : null
                                   const targetColor = targetUp ? '#00ff88' : '#ff4466'
                                   const stockNow = currentStockPrices[flow.underlying_ticker]
-                                  const chip = (label: string, value: string, color: string): React.ReactElement => (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                      <span style={{ fontSize: '14px', fontWeight: 700, color, letterSpacing: '0.3px' }}>{label}</span>
-                                      <span style={{ fontSize: '16px', fontWeight: 900, color }}>{value}</span>
+                                  const chip = (
+                                    label: string,
+                                    value: string,
+                                    color: string
+                                  ): React.ReactElement => (
+                                    <div
+                                      style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: '14px',
+                                          fontWeight: 700,
+                                          color,
+                                          letterSpacing: '0.3px',
+                                        }}
+                                      >
+                                        {label}
+                                      </span>
+                                      <span style={{ fontSize: '16px', fontWeight: 900, color }}>
+                                        {value}
+                                      </span>
                                     </div>
                                   )
                                   return (
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px', flexWrap: 'wrap', gap: '6px' }}>
-                                      {chip('Magnet', zones?.golden ? `$${zones.golden.toFixed(2)}` : '—', '#FFD700')}
-                                      {chip('Pivot', zones?.purple ? `$${zones.purple.toFixed(2)}` : '—', '#a855f7')}
-                                      {chip('Target 1', t1 ? `$${t1.toFixed(2)}` : '—', targetColor)}
-                                      {chip('Target 2', t2 ? `$${t2.toFixed(2)}` : '—', targetColor)}
-                                      {chip('Stock', stockNow ? `$${stockNow.toFixed(2)}` : '—', '#ffffff')}
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '2px 4px',
+                                        flexWrap: 'wrap',
+                                        gap: '6px',
+                                      }}
+                                    >
+                                      {chip(
+                                        'Magnet',
+                                        zones?.golden ? `$${zones.golden.toFixed(2)}` : '—',
+                                        '#FFD700'
+                                      )}
+                                      {chip(
+                                        'Pivot',
+                                        zones?.purple ? `$${zones.purple.toFixed(2)}` : '—',
+                                        '#a855f7'
+                                      )}
+                                      {chip(
+                                        'Target 1',
+                                        t1 ? `$${t1.toFixed(2)}` : '—',
+                                        targetColor
+                                      )}
+                                      {chip(
+                                        'Target 2',
+                                        t2 ? `$${t2.toFixed(2)}` : '—',
+                                        targetColor
+                                      )}
+                                      {chip(
+                                        'Stock',
+                                        stockNow ? `$${stockNow.toFixed(2)}` : '—',
+                                        '#ffffff'
+                                      )}
                                     </div>
                                   )
                                 })()}

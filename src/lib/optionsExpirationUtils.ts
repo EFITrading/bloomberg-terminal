@@ -150,7 +150,7 @@ export function formatDateForAPI(date: Date): string {
  */
 export async function fetchAvailableExpirationDates(symbol: string = 'SPY'): Promise<string[]> {
   try {
-    const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+    const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
     const allExpirations = new Set<string>()
     let nextUrl: string | null =
       `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${apiKey}`

@@ -24,7 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import TradingViewChart from './trading/EFICharting'
 
 // Polygon API key for bid/ask analysis
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 // Function to fetch volume and open interest data for trades
 const fetchVolumeAndOpenInterest = async (
@@ -687,7 +687,7 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
               const checkTime = new Date(tradeTime.getTime() + 1000) // 1 second AFTER trade
               const checkTimestamp = checkTime.getTime() * 1000000
 
-              const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.gte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+              const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.gte=${checkTimestamp}&limit=1&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
 
               const response = await fetch(quotesUrl, {
                 signal: controller.signal,

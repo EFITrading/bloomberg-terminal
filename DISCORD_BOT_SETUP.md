@@ -99,7 +99,7 @@ BASE_URL=http://localhost:3000
 # BASE_URL=https://your-terminal-domain.com
 
 # Your Polygon.io API key
-POLYGON_API_KEY=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf
+POLYGON_API_KEY=YOUR_POLYGON_API_KEY_HERE
 ```
 
 ## 🚀 Step 4: Start Your Terminal
@@ -107,6 +107,7 @@ POLYGON_API_KEY=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf
 Your Bloomberg Terminal must be running for the bot to fetch data.
 
 **For local development:**
+
 ```powershell
 npm run dev
 ```
@@ -147,6 +148,7 @@ node discord-bot.js
 ```
 
 You should see:
+
 ```
 ✅ Logged in as YourBot#1234
 📊 Serving 1 servers
@@ -160,11 +162,13 @@ In your Discord server, try these commands:
 ### Basic Commands
 
 **Get help:**
+
 ```
 !help
 ```
 
 **Options flow for a ticker:**
+
 ```
 !flow AMD
 !flow NVDA
@@ -172,12 +176,14 @@ In your Discord server, try these commands:
 ```
 
 **EFI Highlights (filtered trades):**
+
 ```
 !efi AMD
 !efi AAPL
 ```
 
 **Best flow (A+ to A- grade):**
+
 ```
 !best NVDA
 !best TSLA
@@ -186,18 +192,21 @@ In your Discord server, try these commands:
 ### Scan Categories
 
 **Magnificent 7 stocks:**
+
 ```
 !flow MAG7
 !efi MAG7
 ```
 
 **Major ETFs:**
+
 ```
 !flow ETF
 !efi ETF
 ```
 
 **All tickers:**
+
 ```
 !flow ALL
 !best ALL
@@ -205,12 +214,12 @@ In your Discord server, try these commands:
 
 ## 🎯 Command Reference
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `!help` | Show all available commands | `!help` |
-| `!flow <TICKER>` | Get options flow for ticker | `!flow AMD` |
-| `!efi <TICKER>` | Get EFI highlight trades | `!efi NVDA` |
-| `!best <TICKER>` | Get A grade trades only | `!best TSLA` |
+| Command          | Description                 | Example      |
+| ---------------- | --------------------------- | ------------ |
+| `!help`          | Show all available commands | `!help`      |
+| `!flow <TICKER>` | Get options flow for ticker | `!flow AMD`  |
+| `!efi <TICKER>`  | Get EFI highlight trades    | `!efi NVDA`  |
+| `!best <TICKER>` | Get A grade trades only     | `!best TSLA` |
 
 ### Supported Tickers
 
@@ -222,24 +231,28 @@ In your Discord server, try these commands:
 ## 🛠️ Troubleshooting
 
 ### Bot doesn't respond
+
 - ✅ Check bot is online in Discord (green status)
 - ✅ Verify MESSAGE CONTENT INTENT is enabled
 - ✅ Check bot has permission to read/send messages in the channel
 - ✅ Verify you're using correct prefix (default: `!`)
 
 ### "No data found" errors
+
 - ✅ Ensure Bloomberg Terminal is running
 - ✅ Check BASE_URL is correct in `.env.local`
 - ✅ Verify Polygon API key is valid
 - ✅ Check terminal logs for API errors
 
 ### Bot crashes
+
 - ✅ Check Node.js version (16.9.0+)
 - ✅ Verify all dependencies installed
 - ✅ Check environment variables are set
 - ✅ Review bot console for error messages
 
 ### Rate limiting
+
 - Discord has rate limits (5 commands per 5 seconds per user)
 - Terminal API may rate limit requests
 - Solution: Wait a few seconds between commands
@@ -249,6 +262,7 @@ In your Discord server, try these commands:
 ### Option 1: Run on Same Server as Terminal
 
 1. Use process manager like PM2:
+
 ```bash
 npm install -g pm2
 pm2 start discord-bot.js --name "trading-bot"
@@ -271,6 +285,7 @@ pm2 startup
 ### Option 3: Docker Container
 
 Create `Dockerfile`:
+
 ```dockerfile
 FROM node:18-alpine
 WORKDIR /app
@@ -281,6 +296,7 @@ CMD ["node", "discord-bot.js"]
 ```
 
 Build and run:
+
 ```bash
 docker build -t trading-bot .
 docker run -d --env-file .env.local trading-bot
@@ -289,6 +305,7 @@ docker run -d --env-file .env.local trading-bot
 ## 🔒 Security Best Practices
 
 1. **Never commit `.env.local` to git**
+
    ```bash
    echo ".env.local" >> .gitignore
    ```
@@ -308,9 +325,9 @@ Add logging to track bot usage:
 ```javascript
 // Add to discord-bot.js
 client.on('messageCreate', async (message) => {
-  console.log(`[${new Date().toISOString()}] ${message.author.tag}: ${message.content}`);
+  console.log(`[${new Date().toISOString()}] ${message.author.tag}: ${message.content}`)
   // ... rest of code
-});
+})
 ```
 
 ## 🆘 Support
@@ -326,6 +343,7 @@ If you encounter issues:
 ## 📈 Features
 
 The bot includes:
+
 - ✅ Real-time options flow data
 - ✅ EFI criteria filtering
 - ✅ Grade scoring (A+ to F)

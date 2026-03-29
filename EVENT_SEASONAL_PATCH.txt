@@ -2,7 +2,7 @@
 
   // Event seasonal calculation with Polygon API
   const calculateEventSeasonal = useCallback(async (eventType: string) => {
-    const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
     const currentYear = new Date().getFullYear();
     
     const getEventDates = (event: string): Date[] => {

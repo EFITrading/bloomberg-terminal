@@ -255,7 +255,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
 
   const fetchChartData = async (symbol: string, timeframe: '1D' | '5D' | '1M') => {
     try {
-      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const now = new Date()
       const pstDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 

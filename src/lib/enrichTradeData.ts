@@ -1,6 +1,6 @@
 'use client'
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 const getOptionTicker = (trade: any) => {
   const expiry = trade.expiry.replace(/-/g, '').slice(2)
