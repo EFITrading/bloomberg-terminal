@@ -335,23 +335,27 @@ if (parentPort) {
                                                  console.log(` Worker ${workerIndex}: ${ticker} price $${spotPrice} (from snapshot)`);
                                           }
 
-                                          // Calculate strike range: ATM to 1% OTM only
-                                          const callStrikeMin = Math.floor(spotPrice); // ATM
-                                          const callStrikeMax = Math.ceil(spotPrice * 1.01);  // 1% OTM
-                                          const putStrikeMin = Math.floor(spotPrice * 0.99);  // 1% OTM
-                                          const putStrikeMax = Math.ceil(spotPrice);   // ATM
+                                          // Strike range: ±5% from ATM — captures meaningful OTM flow across all expirations
+                                          const callStrikeMax = Math.ceil(spotPrice * 1.05);   // 5% OTM calls
+                                          const putStrikeMin = Math.floor(spotPrice * 0.95);   // 5% OTM puts
 
-                                          console.log(` Worker ${workerIndex}: SPX strike range - Calls: $${callStrikeMin}-$${callStrikeMax}, Puts: $${putStrikeMin}-$${putStrikeMax}`);
+                                          console.log(` Worker ${workerIndex}: SPX strike range ±5% - $${putStrikeMin} to $${callStrikeMax}`);
 
-                                          // Get ODTE + next day only
+                                          // Scan next 30 days of expirations (FLOW mode — ODTRIO uses its own scanner)
                                           const today = new Date().toISOString().split('T')[0];
-                                          const tomorrow = new Date();
-                                          tomorrow.setDate(tomorrow.getDate() + 1);
-                                          const maxExpiry = tomorrow.toISOString().split('T')[0];
+                                          const maxExpiryDate = new Date();
+                                          maxExpiryDate.setDate(maxExpiryDate.getDate() + 30);
+                                          const maxExpiry = maxExpiryDate.toISOString().split('T')[0];
 
-                                          // Use reference API with proper filtering (ODTE + next day only)
-                                          const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&expiration_date.lte=${maxExpiry}&strike_price.gte=${putStrikeMin}&strike_price.lte=${callStrikeMax}&limit=1000&apikey=${apiKey}`;
-                                          contractsResponse = await makePolygonRequest(contractsUrl);
+                                          // Paginate through all matching contracts (reference API caps at 1000 per page)
+                                          const allSpxContracts = [];
+                                          let nextContractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&expiration_date.lte=${maxExpiry}&strike_price.gte=${putStrikeMin}&strike_price.lte=${callStrikeMax}&limit=1000&apikey=${apiKey}`;
+                                          while (nextContractsUrl) {
+                                                 const page = await makePolygonRequest(nextContractsUrl);
+                                                 if (page.results) allSpxContracts.push(...page.results);
+                                                 nextContractsUrl = page.next_url ? `${page.next_url}&apikey=${apiKey}` : null;
+                                          }
+                                          contractsResponse = { results: allSpxContracts };
                                    } else {
                                           // Regular stocks: Get price first, then contracts
                                           try {
@@ -435,13 +439,9 @@ if (parentPort) {
 
                                                  const pctFromMoney = (strike - spotPrice) / spotPrice;
 
-                                                 // SPX already filtered by API, just validate range
+                                                 // SPX: ±5% from ATM across 30-day expirations
                                                  if (ticker === 'SPX') {
-                                                        if (contractType === 'call') {
-                                                               return pctFromMoney >= 0 && pctFromMoney <= 0.01;
-                                                        } else if (contractType === 'put') {
-                                                               return pctFromMoney <= 0 && pctFromMoney >= -0.01;
-                                                        }
+                                                        return Math.abs(pctFromMoney) <= 0.05;
                                                  } else {
                                                         // VIX and regular stocks: 5% ITM + all OTM
                                                         if (contractType === 'call') {
@@ -455,7 +455,7 @@ if (parentPort) {
                                           });
 
                                           const filterDesc = ticker === 'SPX'
-                                                 ? 'ATM to 1% OTM (ODTE + next day only)'
+                                                 ? '±5% ATM (next 30-day expirations)'
                                                  : '5% ITM + all OTM';
                                           console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} ΓåÆ ${validContracts.length} contracts after ${filterDesc} filter`);
 

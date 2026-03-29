@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const ticker = searchParams.get('ticker') || searchParams.get('symbol') || 'SPY'
   const specificExpiration = searchParams.get('expiration')
-  const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+  const apiKey = process.env.POLYGON_API_KEY!
 
   try {
     // Get current stock price - handle SPX/VIX differently (use snapshot)
@@ -24,13 +24,22 @@ export async function GET(request: NextRequest) {
           currentPrice = snapshotData.results[0].underlying_asset.value
         }
       } else {
-        // For regular stocks, use last trade
+        // Use most recent 1-minute bar close — same as EFI chart
+        const today = new Date().toISOString().split('T')[0]
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
         const priceRes = await fetch(
-          `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`
+          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${yesterday}/${today}?adjusted=true&sort=desc&limit=1&apikey=${apiKey}`
         )
         const priceData = await priceRes.json()
-        if (priceData.status === 'OK' && priceData.results) {
-          currentPrice = priceData.results.p || priceData.results.P
+        if (priceData.status === 'OK' && priceData.results?.[0]?.c) {
+          currentPrice = priceData.results[0].c
+        } else {
+          // Fallback to prev day close
+          const prevRes = await fetch(
+            `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`
+          )
+          const prevData = await prevRes.json()
+          if (prevData.results?.[0]?.c) currentPrice = prevData.results[0].c
         }
       }
     } catch (error) {
@@ -126,112 +135,82 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: cached.data,
-        currentPrice: cached.currentPrice,
+        currentPrice: currentPrice ?? cached.currentPrice,
         fromCache: true,
       })
     }
 
-    const allExpirations = new Set<string>()
-    let nextUrl: string | null =
-      `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${apiKey}`
+    // Single paginated sweep — Polygon returns contracts sorted by expiration asc.
+    // Stop as soon as we see a date past the 3-month cutoff. No reference/contracts
+    // step, no per-expiration sub-requests, no artificial delays.
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
+    const cutoff = new Date(today)
+    cutoff.setMonth(cutoff.getMonth() + 3)
+    const cutoffStr = cutoff.toISOString().split('T')[0]
 
-    // Discover expirations using contracts API with pagination
-    while (nextUrl) {
-      try {
-        const res: Response = await fetch(nextUrl)
-        const data: any = await res.json()
-
-        if (data.status === 'OK' && data.results && data.results.length > 0) {
-          data.results.forEach((contract: any) => {
-            if (contract.expiration_date) {
-              allExpirations.add(contract.expiration_date)
-            }
-          })
-
-          // Check for next page
-          nextUrl = data.next_url ? `${data.next_url}&apikey=${apiKey}` : null
-
-          // Rate limiting between requests
-          if (nextUrl) {
-            await new Promise((r) => setTimeout(r, 100))
-          }
-        } else {
-          break
-        }
-      } catch (error) {
-        break
-      }
-    }
-
-    const validExpirations = Array.from(allExpirations).sort()
-
-    // Get snapshot data for each expiration
     const groupedByExpiration: Record<
       string,
       { calls: Record<string, any>; puts: Record<string, any> }
     > = {}
+    let stoppedEarly = false
 
-    for (const expDate of validExpirations) {
-      try {
-        // FETCH ALL PAGES for this expiration, not just first page
-        const allContracts: any[] = []
-        let snapNextUrl: string | null =
-          `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${expDate}&limit=250&apikey=${apiKey}`
+    let sweepUrl: string | null =
+      `https://api.polygon.io/v3/snapshot/options/${ticker}?limit=250&apikey=${apiKey}`
 
-        while (snapNextUrl) {
-          const snapRes = await fetch(snapNextUrl)
-          const snapData = await snapRes.json()
+    while (sweepUrl) {
+      const snapRes: Response = await fetch(sweepUrl)
+      const snapData: any = await snapRes.json()
 
-          if (snapData.status === 'OK' && snapData.results && snapData.results.length > 0) {
-            allContracts.push(...snapData.results)
-          } else {
-            break
-          }
+      if (!snapData.results || snapData.results.length === 0) break
 
-          snapNextUrl = snapData.next_url
-          if (snapNextUrl && !snapNextUrl.includes(apiKey)) {
-            snapNextUrl += `&apikey=${apiKey}`
-          }
+      for (const contract of snapData.results) {
+        const exp = contract.details?.expiration_date
+        const strike = contract.details?.strike_price?.toString()
+        const contractType = contract.details?.contract_type?.toLowerCase()
+
+        if (!exp || !strike || !contractType) continue
+        if (exp < todayStr) continue
+        if (exp > cutoffStr) {
+          stoppedEarly = true
+          break
         }
 
-        const calls: Record<string, any> = {}
-        const puts: Record<string, any> = {}
+        if (currentPrice === null && contract.underlying_asset?.value) {
+          currentPrice = contract.underlying_asset.value
+        }
 
-        allContracts.forEach((contract: any) => {
-          const strike = contract.details?.strike_price?.toString()
-          const contractType = contract.details?.contract_type?.toLowerCase()
+        if (!groupedByExpiration[exp]) groupedByExpiration[exp] = { calls: {}, puts: {} }
 
-          if (!strike || !contractType) return
+        const contractData = {
+          open_interest: contract.open_interest || 0,
+          strike_price: contract.details.strike_price,
+          expiration_date: exp,
+          implied_volatility: contract.implied_volatility,
+          last_price: contract.last_quote?.last?.price || contract.day?.close || 0,
+          bid: contract.last_quote?.bid || 0,
+          ask: contract.last_quote?.ask || 0,
+          greeks: {
+            delta: contract.greeks?.delta,
+            gamma: contract.greeks?.gamma,
+            theta: contract.greeks?.theta,
+            vega: contract.greeks?.vega,
+          },
+        }
 
-          const contractData = {
-            open_interest: contract.open_interest || 0,
-            strike_price: contract.details.strike_price,
-            expiration_date: expDate,
-            implied_volatility: contract.implied_volatility,
-            last_price: contract.last_quote?.last?.price || contract.day?.close || 0,
-            bid: contract.last_quote?.bid || 0,
-            ask: contract.last_quote?.ask || 0,
-            greeks: {
-              delta: contract.greeks?.delta,
-              gamma: contract.greeks?.gamma,
-              theta: contract.greeks?.theta,
-              vega: contract.greeks?.vega,
-            },
-          }
-
-          if (contractType === 'call') {
-            calls[strike] = contractData
-          } else if (contractType === 'put') {
-            puts[strike] = contractData
-          }
-        })
-
-        groupedByExpiration[expDate] = { calls, puts }
-      } catch (error) {
-        groupedByExpiration[expDate] = { calls: {}, puts: {} }
+        if (contractType === 'call') {
+          groupedByExpiration[exp].calls[strike] = contractData
+        } else if (contractType === 'put') {
+          groupedByExpiration[exp].puts[strike] = contractData
+        }
       }
 
-      await new Promise((r) => setTimeout(r, 25))
+      if (stoppedEarly) break
+
+      sweepUrl = snapData.next_url
+      if (sweepUrl && !sweepUrl.includes(apiKey)) {
+        sweepUrl += `&apikey=${apiKey}`
+      }
     }
 
     const finalExpirationDates = Object.keys(groupedByExpiration).sort()

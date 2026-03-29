@@ -469,23 +469,23 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
 interface GEXData {
   strike: number
   [key: string]:
-  | number
-  | {
-    call: number
-    put: number
-    net: number
-    callOI: number
-    putOI: number
-    callPremium?: number
-    putPremium?: number
-    callVex?: number
-    putVex?: number
-    callDelta?: number
-    putDelta?: number
-    flowCall?: number
-    flowPut?: number
-    flowNet?: number
-  }
+    | number
+    | {
+        call: number
+        put: number
+        net: number
+        callOI: number
+        putOI: number
+        callPremium?: number
+        putPremium?: number
+        callVex?: number
+        putVex?: number
+        callDelta?: number
+        putDelta?: number
+        flowCall?: number
+        flowPut?: number
+        flowNet?: number
+      }
 }
 
 interface ServerGEXData {
@@ -933,7 +933,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
   // Calculate MM data with standard ±20% strike range
   const mmData = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return []
-
     const strikeRange = currentPrice * 0.2 // ±20% standard range
     const minStrike = currentPrice - strikeRange
     const maxStrike = currentPrice + strikeRange
@@ -1091,15 +1090,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
     const totalNetTheta = mmData.reduce((sum, item) => sum + item.netTheta, 0)
     const totalNetVega = mmData.reduce((sum, item) => sum + item.netVega, 0)
 
-    // DEBUG: Log actual Greek totals before normalization
-    console.log('🎯 GREEK TOTALS BEFORE NORMALIZATION:', {
-      totalNetDelta,
-      totalNetGamma,
-      totalNetTheta,
-      totalNetVega,
-      mmDataCount: mmData.length,
-    })
-
     // Calculate absolute exposure (total notional risk)
     const totalCallDelta = mmData.reduce((sum, item) => sum + Math.abs(item.callDelta), 0)
     const totalPutDelta = mmData.reduce((sum, item) => sum + Math.abs(item.putDelta), 0)
@@ -1128,13 +1118,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
     // Vega values are typically in thousands, normalize accordingly
     const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000)) // Changed from 10000 to 1000
 
-    console.log('🎯 GREEK SCORES AFTER NORMALIZATION:', {
-      deltaScore,
-      gammaScore,
-      thetaScore,
-      vegaScore,
-    })
-
     // === COMPOSITE SIGNAL ALGORITHM ===
     // Weight the Greeks based on their importance for trading decisions
     const DELTA_WEIGHT = 0.3 // 30% - Direction matters most
@@ -1147,16 +1130,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
       gammaScore * GAMMA_WEIGHT +
       thetaScore * THETA_WEIGHT +
       vegaScore * VEGA_WEIGHT
-
-    console.log('🎯 COMPOSITE SCORE:', {
-      compositeScore,
-      breakdown: {
-        deltaContribution: deltaScore * DELTA_WEIGHT,
-        gammaContribution: gammaScore * GAMMA_WEIGHT,
-        thetaContribution: thetaScore * THETA_WEIGHT,
-        vegaContribution: vegaScore * VEGA_WEIGHT,
-      },
-    })
 
     // === SIGNAL CLASSIFICATION ===
     let signal = 'WAIT'
@@ -1630,12 +1603,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
               <div
-                className={`md:text-3xl text-lg font-bold ${metrics.signal.includes('BUY')
-                  ? 'text-green-400'
-                  : metrics.signal.includes('SELL')
-                    ? 'text-red-400'
-                    : 'text-yellow-400'
-                  }`}
+                className={`md:text-3xl text-lg font-bold ${
+                  metrics.signal.includes('BUY')
+                    ? 'text-green-400'
+                    : metrics.signal.includes('SELL')
+                      ? 'text-red-400'
+                      : 'text-yellow-400'
+                }`}
               >
                 {metrics.compositeScore > 0 ? '+' : ''}
                 {metrics.compositeScore.toFixed(1)}
@@ -1846,12 +1820,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
               <div
-                className={`md:text-3xl text-lg font-bold ${siMetrics.siNorm > 2
-                  ? 'text-green-400'
-                  : siMetrics.siNorm < -2
-                    ? 'text-red-400'
-                    : 'text-yellow-400'
-                  }`}
+                className={`md:text-3xl text-lg font-bold ${
+                  siMetrics.siNorm > 2
+                    ? 'text-green-400'
+                    : siMetrics.siNorm < -2
+                      ? 'text-red-400'
+                      : 'text-yellow-400'
+                }`}
               >
                 {siMetrics.siNorm > 0 ? '+' : ''}
                 {siMetrics.siNorm.toFixed(1)}
@@ -1958,23 +1933,25 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
 
             {/* Dealer Pressure */}
             <div
-              className={`border-l-2 px-2 py-1.5 ${quickMaxPain.dealerPressure === 'DOWNWARD'
-                ? 'bg-red-950/20 border-red-500'
-                : quickMaxPain.dealerPressure === 'UPWARD'
-                  ? 'bg-green-950/20 border-green-500'
-                  : 'bg-yellow-950/20 border-yellow-500'
-                }`}
+              className={`border-l-2 px-2 py-1.5 ${
+                quickMaxPain.dealerPressure === 'DOWNWARD'
+                  ? 'bg-red-950/20 border-red-500'
+                  : quickMaxPain.dealerPressure === 'UPWARD'
+                    ? 'bg-green-950/20 border-green-500'
+                    : 'bg-yellow-950/20 border-yellow-500'
+              }`}
             >
               <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">
                 Pressure
               </div>
               <div
-                className={`text-xs font-bold leading-tight ${quickMaxPain.dealerPressure === 'DOWNWARD'
-                  ? 'text-red-400'
-                  : quickMaxPain.dealerPressure === 'UPWARD'
-                    ? 'text-green-400'
-                    : 'text-yellow-400'
-                  }`}
+                className={`text-xs font-bold leading-tight ${
+                  quickMaxPain.dealerPressure === 'DOWNWARD'
+                    ? 'text-red-400'
+                    : quickMaxPain.dealerPressure === 'UPWARD'
+                      ? 'text-green-400'
+                      : 'text-yellow-400'
+                }`}
               >
                 {quickMaxPain.dealerPressure === 'DOWNWARD'
                   ? '↓ DOWNWARD'
@@ -2138,14 +2115,16 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
                   </div>
                   <div className="flex-1 bg-gray-800 rounded-sm h-3 relative overflow-hidden">
                     <div
-                      className={`h-full transition-all ${item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
-                        }`}
+                      className={`h-full transition-all ${
+                        item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
+                      }`}
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
                   <div
-                    className={`w-12 text-right font-mono ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                      }`}
+                    className={`w-12 text-right font-mono ${
+                      item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
                   >
                     {formatMM(item.netMM)}
                   </div>
@@ -2169,12 +2148,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
           <div className="space-y-3">
             <div className="text-center">
               <div
-                className={`text-2xl font-bold ${metrics.netDirectionalBias === 'BULLISH'
-                  ? 'text-green-400'
-                  : metrics.netDirectionalBias === 'BEARISH'
-                    ? 'text-red-400'
-                    : 'text-gray-400'
-                  }`}
+                className={`text-2xl font-bold ${
+                  metrics.netDirectionalBias === 'BULLISH'
+                    ? 'text-green-400'
+                    : metrics.netDirectionalBias === 'BEARISH'
+                      ? 'text-red-400'
+                      : 'text-gray-400'
+                }`}
               >
                 {metrics.netDirectionalBias}
               </div>
@@ -2185,8 +2165,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Delta:</span>
                 <span
-                  className={`font-bold font-mono ${metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}
+                  className={`font-bold font-mono ${
+                    metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
                 >
                   {(metrics.totalNetDelta / 1000000).toFixed(2)}M
                 </span>
@@ -2213,8 +2194,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
           <div className="space-y-3">
             <div className="text-center">
               <div
-                className={`text-2xl font-bold ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}
+                className={`text-2xl font-bold ${
+                  metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                }`}
               >
                 {metrics.totalNetGamma > 0 ? 'LONG' : 'SHORT'}
               </div>
@@ -2225,8 +2207,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Γ:</span>
                 <span
-                  className={`font-bold font-mono ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}
+                  className={`font-bold font-mono ${
+                    metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
                 >
                   {(metrics.totalNetGamma / 1000).toFixed(1)}K
                 </span>
@@ -2253,8 +2236,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
           <div className="space-y-3">
             <div className="text-center">
               <div
-                className={`text-2xl font-bold ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-                  }`}
+                className={`text-2xl font-bold ${
+                  metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                }`}
               >
                 {metrics.totalNetTheta < 0 ? 'DECAY' : 'GAIN'}
               </div>
@@ -2265,8 +2249,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Daily θ:</span>
                 <span
-                  className={`font-bold font-mono ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-                    }`}
+                  className={`font-bold font-mono ${
+                    metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                  }`}
                 >
                   ${(metrics.totalNetTheta / 1000).toFixed(1)}K
                 </span>
@@ -2291,8 +2276,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
           <div className="space-y-3">
             <div className="text-center">
               <div
-                className={`text-2xl font-bold ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}
+                className={`text-2xl font-bold ${
+                  metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                }`}
               >
                 {metrics.totalNetVega > 0 ? 'LONG VOL' : 'SHORT VOL'}
               </div>
@@ -2303,8 +2289,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net ν:</span>
                 <span
-                  className={`font-bold font-mono ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}
+                  className={`font-bold font-mono ${
+                    metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}
                 >
                   {(metrics.totalNetVega / 1000).toFixed(1)}K
                 </span>
@@ -2325,19 +2312,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
         <div className="flex md:hidden border-b border-gray-600 mb-0">
           <button
             onClick={() => setStrikeTableTab('mm')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'mm'
-              ? 'bg-black text-white border-b-2 border-orange-500'
-              : 'bg-gray-900 text-gray-400 hover:text-white'
-              }`}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'mm'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
           >
             MM BY STRIKE
           </button>
           <button
             onClick={() => setStrikeTableTab('risk')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'risk'
-              ? 'bg-black text-white border-b-2 border-orange-500'
-              : 'bg-gray-900 text-gray-400 hover:text-white'
-              }`}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'risk'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
           >
             STRIKE-LEVEL RISK
           </button>
@@ -2407,8 +2396,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
                             </div>
                           </td>
                           <td
-                            className={`px-4 py-3 text-right font-mono font-bold ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                              }`}
+                            className={`px-4 py-3 text-right font-mono font-bold ${
+                              item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}
                           >
                             {formatMM(item.netMM)}
                           </td>
@@ -2524,26 +2514,28 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
                       return (
                         <tr
                           key={item.strike}
-                          className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain
-                            ? 'bg-red-950/20'
-                            : isHighestRisk
-                              ? 'bg-purple-950/20'
-                              : isATM
-                                ? 'bg-orange-950/10'
-                                : ''
-                            }`}
+                          className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                            isMaxPain
+                              ? 'bg-red-950/20'
+                              : isHighestRisk
+                                ? 'bg-purple-950/20'
+                                : isATM
+                                  ? 'bg-orange-950/10'
+                                  : ''
+                          }`}
                         >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`font-mono text-sm font-semibold ${isMaxPain
-                                  ? 'text-red-400'
-                                  : isHighestRisk
-                                    ? 'text-purple-400'
-                                    : isATM
-                                      ? 'text-orange-400'
-                                      : 'text-white'
-                                  }`}
+                                className={`font-mono text-sm font-semibold ${
+                                  isMaxPain
+                                    ? 'text-red-400'
+                                    : isHighestRisk
+                                      ? 'text-purple-400'
+                                      : isATM
+                                        ? 'text-orange-400'
+                                        : 'text-white'
+                                }`}
                               >
                                 ${item.strike.toFixed(1)}
                               </span>
@@ -2591,12 +2583,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
                           </td>
                           <td className="px-4 py-2.5 text-right">
                             <span
-                              className={`font-mono text-xs ${Math.abs(item.distance) < 1
-                                ? 'text-yellow-400 font-bold'
-                                : item.distance > 0
-                                  ? 'text-red-400'
-                                  : 'text-green-400'
-                                }`}
+                              className={`font-mono text-xs ${
+                                Math.abs(item.distance) < 1
+                                  ? 'text-yellow-400 font-bold'
+                                  : item.distance > 0
+                                    ? 'text-red-400'
+                                    : 'text-green-400'
+                              }`}
                             >
                               {item.distance >= 0 ? '+' : ''}
                               {item.distance.toFixed(2)}
@@ -2604,12 +2597,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({
                           </td>
                           <td className="px-4 py-2.5 text-center">
                             <span
-                              className={`text-xs font-bold ${item.callOI > item.putOI * 1.5
-                                ? 'text-green-400'
-                                : item.putOI > item.callOI * 1.5
-                                  ? 'text-red-400'
-                                  : 'text-gray-500'
-                                }`}
+                              className={`text-xs font-bold ${
+                                item.callOI > item.putOI * 1.5
+                                  ? 'text-green-400'
+                                  : item.putOI > item.callOI * 1.5
+                                    ? 'text-red-400'
+                                    : 'text-gray-500'
+                              }`}
                             >
                               {item.callOI > item.putOI * 1.5
                                 ? 'CALL'
@@ -2965,21 +2959,23 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
           <div className="lg:col-span-4 flex flex-col gap-3">
             {/* Dealer Pressure */}
             <div
-              className={`flex-1 border-l-4 px-4 py-2 rounded ${priceDistance > 0
-                ? 'bg-red-950/30 border-red-500'
-                : 'bg-green-950/30 border-green-500'
-                }`}
+              className={`flex-1 border-l-4 px-4 py-2 rounded ${
+                priceDistance > 0
+                  ? 'bg-red-950/30 border-red-500'
+                  : 'bg-green-950/30 border-green-500'
+              }`}
             >
               <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">
                 Dealer Pressure
               </div>
               <div
-                className={`text-sm font-bold leading-tight ${Math.abs(priceDistance) < currentPrice * 0.01
-                  ? 'text-yellow-400'
-                  : priceDistance > 0
-                    ? 'text-red-400'
-                    : 'text-green-400'
-                  }`}
+                className={`text-sm font-bold leading-tight ${
+                  Math.abs(priceDistance) < currentPrice * 0.01
+                    ? 'text-yellow-400'
+                    : priceDistance > 0
+                      ? 'text-red-400'
+                      : 'text-green-400'
+                }`}
               >
                 {Math.abs(priceDistance) < currentPrice * 0.01
                   ? '● PINNED'
@@ -3076,26 +3072,28 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
                 return (
                   <tr
                     key={item.strike}
-                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain
-                      ? 'bg-red-950/20'
-                      : isHighestRisk
-                        ? 'bg-purple-950/20'
-                        : isATM
-                          ? 'bg-orange-950/10'
-                          : ''
-                      }`}
+                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                      isMaxPain
+                        ? 'bg-red-950/20'
+                        : isHighestRisk
+                          ? 'bg-purple-950/20'
+                          : isATM
+                            ? 'bg-orange-950/10'
+                            : ''
+                    }`}
                   >
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <span
-                          className={`font-mono text-sm font-semibold ${isMaxPain
-                            ? 'text-red-400'
-                            : isHighestRisk
-                              ? 'text-purple-400'
-                              : isATM
-                                ? 'text-orange-400'
-                                : 'text-white'
-                            }`}
+                          className={`font-mono text-sm font-semibold ${
+                            isMaxPain
+                              ? 'text-red-400'
+                              : isHighestRisk
+                                ? 'text-purple-400'
+                                : isATM
+                                  ? 'text-orange-400'
+                                  : 'text-white'
+                          }`}
                         >
                           ${item.strike.toFixed(1)}
                         </span>
@@ -3139,12 +3137,13 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <span
-                        className={`font-mono text-xs ${Math.abs(item.distance) < 1
-                          ? 'text-yellow-400 font-bold'
-                          : item.distance > 0
-                            ? 'text-red-400'
-                            : 'text-green-400'
-                          }`}
+                        className={`font-mono text-xs ${
+                          Math.abs(item.distance) < 1
+                            ? 'text-yellow-400 font-bold'
+                            : item.distance > 0
+                              ? 'text-red-400'
+                              : 'text-green-400'
+                        }`}
                       >
                         {item.distance >= 0 ? '+' : ''}
                         {item.distance.toFixed(2)}
@@ -3152,12 +3151,13 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <span
-                        className={`text-xs font-bold ${item.callOI > item.putOI * 1.5
-                          ? 'text-green-400'
-                          : item.putOI > item.callOI * 1.5
-                            ? 'text-red-400'
-                            : 'text-gray-500'
-                          }`}
+                        className={`text-xs font-bold ${
+                          item.callOI > item.putOI * 1.5
+                            ? 'text-green-400'
+                            : item.putOI > item.callOI * 1.5
+                              ? 'text-red-400'
+                              : 'text-gray-500'
+                        }`}
                       >
                         {item.callOI > item.putOI * 1.5
                           ? 'CALL'
@@ -3206,11 +3206,69 @@ const calculateVanna = (
   return vanna
 }
 
-interface DealerAttractionProps {
+interface LiquidPanelProps {
   onClose?: () => void
 }
 
-const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
+const LIVE_QUOTES = [
+  "Real-time data doesn't remove uncertainty — it just makes you faster at being wrong.",
+  'The tape never lies. Only the traders who read it do.',
+  'Momentum is a fact. Direction is an opinion.',
+  'Every print tells a story. Most traders skip to the last page.',
+  'Flow precedes price. Always follow the paper.',
+  'Options flow is the shadow of informed money moving through walls.',
+  'When the smart money speaks, it speaks in size.',
+  'The open interest never forgets. It remembers every position ever taken.',
+  'Gamma is the accelerator. Delta is just where you are.',
+  'Live data is a weapon. Interpretation is the trigger.',
+  "The dealer's hedge today is tomorrow's price magnet.",
+  'In live markets, hesitation is a position.',
+  "Unusual options activity isn't always smart money — but it's always worth watching.",
+  'The market moves toward max pain like a river to the sea.',
+  "Size doesn't guarantee direction, but it always guarantees attention.",
+  'The market is the only place where things go on sale and everyone runs out of the store.',
+  'Bulls make money, bears make money, pigs get slaughtered. — Wall Street proverb',
+  'Never confuse a bull market with brains. — Humphrey Neill',
+  "The time to buy is when there's blood in the streets. — Baron Rothschild",
+  'Compound interest is the eighth wonder of the world. — attributed to Einstein',
+  'Know what you own and know why you own it. — Peter Lynch',
+  'The market is not your enemy. Your emotions are. — anonymous',
+  "A stock doesn't know you own it. — anonymous",
+  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. — Mark Twain',
+]
+
+const MARKET_QUOTES = [
+  'The market is a device for transferring money from the impatient to the patient. — Warren Buffett',
+  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. — Benjamin Graham',
+  "The four most dangerous words in investing are: 'This time it's different.' — Sir John Templeton",
+  "Risk comes from not knowing what you're doing. — Warren Buffett",
+  'The stock market is filled with individuals who know the price of everything, but the value of nothing. — Philip Fisher',
+  'Be fearful when others are greedy, and greedy when others are fearful. — Warren Buffett',
+  'Markets can remain irrational longer than you can remain solvent. — John Maynard Keynes',
+  'The trend is your friend until the end. — Ed Seykota',
+  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. — Warren Buffett',
+  'Everyone has a plan until the market punches them in the face. — adapted',
+  'Cut your losses short and let your winners run. — Wall Street axiom',
+  'The market can do anything. — Mark Douglas',
+  'Price is what you pay. Value is what you get. — Warren Buffett',
+  'Volatility is not risk. The permanent loss of capital is risk. — Howard Marks',
+  "If you don't know who the sucker at the table is, it's you. — Warren Buffett",
+  'An investment in knowledge pays the best interest. — Benjamin Franklin',
+  'Wide diversification is only required when investors do not understand what they are doing. — Warren Buffett',
+  'The goal of a successful trader is to make the best trades. Money is secondary. — Alexander Elder',
+  'In investing, what is comfortable is rarely profitable. — Robert Arnott',
+  'The biggest risk is not taking any risk. — Mark Zuckerberg',
+  "The stock market is a no-called-strike game. You don't have to swing at everything. — Warren Buffett",
+  'Investing is the intersection of economics and psychology. — Seth Klarman',
+  'The secret to investing is to figure out the value of something and then pay a lot less for it. — Joel Greenblatt',
+  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. — Peter Lynch",
+  'The time of maximum pessimism is the best time to buy. — Sir John Templeton',
+  'Successful investing is about managing risk, not avoiding it. — Benjamin Graham',
+  "It's not whether you're right or wrong that's important, but how much money you make when you're right. — George Soros",
+  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. — anonymous',
+]
+
+const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const [data, setData] = useState<GEXData[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3354,8 +3412,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [flowTradesData, setFlowTradesData] = useState<any[]>([]) // Store all trades with premiums
   const [liveOILoading, setLiveOILoading] = useState(false)
   const [liveOIProgress, setLiveOIProgress] = useState(0)
-  const [showVEX, setShowVEX] = useState(false)
-  const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX')
   const [useBloombergTheme, setUseBloombergTheme] = useState(true) // Bloomberg Terminal theme - default ON
   const [showODTRIO, setShowODTRIO] = useState(false) // ODTRIO mode for SPX, QQQ, SPY
   const [odtrioData, setOdtrioData] = useState<{
@@ -3418,8 +3474,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           // OI + 1 table: 1200px + 900px = 2100px
           sidebarPanel.style.width = '2100px'
         } else if (duoMode && !showOI && activeTableCount === 2) {
-          // DUO MODE: 2 tables at 540px each = 1080px
-          sidebarPanel.style.width = '1080px'
+          // DUO MODE: wider to fit all header controls
+          sidebarPanel.style.width = '1400px'
         } else {
           // 2 tables (no OI) - 1775px
           sidebarPanel.style.width = '1775px'
@@ -3481,30 +3537,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
           const allContracts = new Map()
 
-          // Fetch data for each expiration
+          // Fetch data for each expiration — paginate to get ALL contracts (SPX has >250 per expiry)
           for (let i = 0; i < uniqueExpirations.length; i++) {
             const expiry = uniqueExpirations[i]
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
 
             try {
-              const response = await fetch(
+              let pageUrl: string | null =
                 `https://api.polygon.io/v3/snapshot/options/${tickerToScan}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
-              )
-
-              if (response.ok) {
-                const chainData = await response.json()
+              let totalForExpiry = 0
+              while (pageUrl) {
+                const response: Response = await fetch(pageUrl)
+                if (!response.ok) {
+                  console.warn(`🔴 [LIVE] Expiry ${expiryParam} — HTTP ${response.status}`)
+                  break
+                }
+                const chainData: any = await response.json()
                 if (chainData.results) {
                   chainData.results.forEach((contract: any) => {
                     if (contract.details && contract.details.ticker) {
                       allContracts.set(contract.details.ticker, {
                         volume: contract.day?.volume || 0,
                         open_interest: contract.open_interest || 0,
+                        bid: contract.last_quote?.bid || 0,
+                        ask: contract.last_quote?.ask || 0,
                       })
                     }
                   })
+                  totalForExpiry += chainData.results.length
                 }
+                pageUrl = chainData.next_url
+                  ? `${chainData.next_url}&apiKey=${POLYGON_API_KEY}`
+                  : null
               }
-
               // Update progress: 20% to 60% during contract fetching
               setLiveOIProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
             } catch (error) {
@@ -3552,10 +3617,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           }
 
           // Build deduplicated batch payload — unique by contract + second bucket (same as AlgoFlow)
+          // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C06560000)
+          // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for lookups
           type QuoteKey = string
           const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
           for (const trade of enrichedTrades) {
-            const contract = buildOptionTicker(trade)
+            const contract = trade.ticker // already correct OCC ticker from Polygon
             const tradeMs =
               typeof trade.trade_timestamp === 'number'
                 ? trade.trade_timestamp
@@ -3566,7 +3633,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
           }
 
-          // Single batch POST — server fans out all Polygon historical quote calls simultaneously
+          // Single batch POST — server fans out Polygon /v3/quotes calls with timestamp.lte
+          // to get the exact bid/ask at the moment each trade printed (works for SPX too)
           const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
           const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
           try {
@@ -3581,20 +3649,22 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               bid: number | null
               ask: number | null
             }[]) {
-              quoteResultMap.set(
-                r.id,
-                r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
-              )
+              if (r.bid && r.ask && r.bid > 0 && r.ask > 0) {
+                quoteResultMap.set(r.id, { bid: r.bid, ask: r.ask })
+              } else {
+                quoteResultMap.set(r.id, null)
+              }
             }
           } catch {
             // All trades fall through to N/A fill style
+            console.warn(`🔴 [LIVE] Historical quote batch failed — all fills will be N/A`)
           }
 
           setLiveOIProgress(78) // 78% - historical quotes fetched
 
-          // Map historical quotes back to each trade
+          // Map historical quotes back to each trade using trade.ticker as the key
           const tradesWithFillStyle: any[] = enrichedTrades.map((trade) => {
-            const contract = buildOptionTicker(trade)
+            const contract = trade.ticker
             const tradeMs =
               typeof trade.trade_timestamp === 'number'
                 ? trade.trade_timestamp
@@ -3677,31 +3747,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
           setLiveOIData(liveOIMap)
           setLiveOIProgress(100) // 100% - complete
-          // console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
-
-          // Step 5: Calculate simple premium-based flow (no GEX, no Greeks)
-          // console.log(`💰 Flow Map: Simple premium tracking for new trades (AA, A, BB fill styles)`);
-
-          // console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
 
           // Check if base options data exists, if not fetch it first
-          if (Object.keys(gexByStrikeByExpiration).length === 0) {
-            console.log(`⚠️ Base options data not loaded yet. Fetching now...`)
-            setLiveOILoading(false)
-            setLiveOIProgress(100)
-            // Fetch base data with the live OI and trades
-            await fetchOptionsData(liveOIMap, tradesWithFillStyle)
-          } else {
-            // Base data exists, just trigger recalculation
-
-            setLiveOILoading(false)
-            setLiveOIProgress(100)
-            // Force a recalculation by calling fetchOptionsData with the live data
-            await fetchOptionsData(liveOIMap, tradesWithFillStyle)
-          }
+          await fetchOptionsData(liveOIMap, tradesWithFillStyle)
+          setLiveOILoading(false)
+          setLiveOIProgress(100)
         }
       } catch (error) {
-        console.error('❌ Error in Live OI update:', error)
+        console.error('🔴 [LIVE] ❌ Error:', error)
         setLiveOILoading(false)
         setLiveOIProgress(0)
       }
@@ -3970,8 +4023,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   useEffect(() => {
     if (selectedTicker) {
       const ticker = selectedTicker.toUpperCase()
-      // For SPY and QQQ, use 2% default; for all others use 20%
-      if (ticker === 'SPY' || ticker === 'QQQ') {
+      // For SPX, SPY, QQQ, use 2% default; for all others use 20%
+      if (ticker === 'SPX' || ticker === 'SPY' || ticker === 'QQQ') {
         setOtmFilter('2%')
       } else {
         setOtmFilter('20%')
@@ -4546,8 +4599,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           // For puts
           const putGamma = gexData.put_gex
             ? Math.abs(
-              gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
-            )
+                gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
+              )
             : 0
           const putDelta = -0.5 // Approximation
           const putVanna = 0 // Approximation
@@ -4595,14 +4648,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     liveOIMapOverride?: Map<string, number>,
     tradesDataOverride?: any[]
   ) => {
-    const totalStartTime = performance.now()
-    setLoading(true)
+    if (!liveOIMapOverride) setLoading(true)
     setError(null)
     setProgress(0)
 
     try {
       // Get options chain data
-      const apiStartTime = performance.now()
       setProgress(10)
       await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
@@ -4624,26 +4675,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         throw new Error(optionsResult.error || 'Failed to fetch options data')
       }
 
-      // DEBUG: Log what we received from SPX API for Nov 10
-      if (selectedTicker === 'SPX' && optionsResult.data['2025-11-10']) {
-        const nov10Data = optionsResult.data['2025-11-10']
-
-        console.log(`  Calls: ${Object.keys(nov10Data.calls || {}).length}`)
-        console.log(`  Puts: ${Object.keys(nov10Data.puts || {}).length}`)
-        console.log(
-          `  6700 PUT from API: ${nov10Data.puts?.['6700']?.open_interest || 'NOT FOUND'}`
-        )
-        console.log(
-          `  6750 PUT from API: ${nov10Data.puts?.['6750']?.open_interest || 'NOT FOUND'}`
-        )
-        console.log(
-          `  6850 PUT from API: ${nov10Data.puts?.['6850']?.open_interest || 'NOT FOUND'}`
-        )
-        console.log(
-          `  6900 PUT from API: ${nov10Data.puts?.['6900']?.open_interest || 'NOT FOUND'}`
-        )
-      }
-
       const currentPrice = optionsResult.currentPrice
       setCurrentPrice(currentPrice)
 
@@ -4656,7 +4687,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       setExpirations(allAvailableExpirations)
 
       // Calculate OI, GEX, VEX for all expiration dates with organized processing order
-      const calcStartTime = performance.now()
       setProgress(25)
       await new Promise((resolve) => setTimeout(resolve, 0)) // Force UI update
 
@@ -5272,17 +5302,20 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     }
   }
 
-  // Auto-trigger Live OI scan when Flow GEX is enabled (only if not already in live mode)
+  // Auto-trigger data fetch when ticker or flow mode changes
   useEffect(() => {
     if (selectedTicker && showFlowGEX && !liveMode) {
       // Flow Map enabled and not in live mode yet - trigger live scan
       setLiveMode(true)
       updateLiveOI()
+    } else if (selectedTicker && liveMode) {
+      // Ticker changed while live mode is already on — fetch fresh base data first, then live scan
+      setLiveOIData(new Map())
+      fetchOptionsData().then(() => updateLiveOI())
     } else if (selectedTicker && !showFlowGEX && !liveMode) {
-      // Flow GEX disabled and not in live mode - fetch normally
+      // Normal fetch
       fetchOptionsData()
     }
-    // If already in live mode, do nothing - data is already live
   }, [selectedTicker, showFlowGEX])
 
   // Memoize GEX calculated data (always uses Net GEX formula)
@@ -5450,7 +5483,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     if (!hasLiveData) return []
 
     // If base data not yet captured (first load, live never triggered), treat base == live → result is pure dealer
-    const effectiveBase = (baseData && Object.keys(baseData).length > 0) ? baseData : liveData
+    const effectiveBase = baseData && Object.keys(baseData).length > 0 ? baseData : liveData
 
     const allStrikes = Array.from(
       new Set([
@@ -5466,8 +5499,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         const live = liveData[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 }
 
         // 70% base dealer GEX + 30% live dealer GEX
-        const weightedCall = (base.call || 0) * 0.70 + (live.call || 0) * 0.30
-        const weightedPut = (base.put || 0) * 0.70 + (live.put || 0) * 0.30
+        const weightedCall = (base.call || 0) * 0.7 + (live.call || 0) * 0.3
+        const weightedPut = (base.put || 0) * 0.7 + (live.put || 0) * 0.3
 
         row[exp] = {
           call: weightedCall,
@@ -6138,29 +6171,31 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     return tv
   }, [allDealerCalculatedData, expirations, selectedTicker, liveMode, liveOIData, setDealerZone])
 
-  const flowTopValues = useMemo(() => calculateTopValues(allFlowWeightedDealerData, 'dealer', 'Net Dealer'), [allFlowWeightedDealerData])
-  const vexTopValues = useMemo(
-    () => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode),
-    [allCalculatedData, gexMode, vexMode]
+  const flowTopValues = useMemo(
+    () => calculateTopValues(allFlowWeightedDealerData, 'dealer', 'Net Dealer'),
+    [allFlowWeightedDealerData]
   )
+
+  const loadingQuoteRef = useRef(
+    (() => {
+      const q = MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]
+      const body = q.includes(' — ') ? q.split(' — ')[0] : q
+      const author = q.includes(' — ') ? '— ' + q.split(' — ')[1] : ''
+      return { body, author }
+    })()
+  )
+  const loadingQuote = loadingQuoteRef.current
+
+  const liveLoadingQuoteRef = useRef(LIVE_QUOTES[Math.floor(Math.random() * LIVE_QUOTES.length)])
+  const liveLoadingQuote = { body: liveLoadingQuoteRef.current, author: '' }
 
   // Legacy topValues for backward compatibility (uses first active mode)
   const topValues = useMemo(() => {
     if (showFlowGEX) return flowTopValues
     if (showDealer) return dealerTopValues
     if (showGEX) return gexTopValues
-    if (showVEX) return vexTopValues
     return gexTopValues
-  }, [
-    showFlowGEX,
-    showDealer,
-    showGEX,
-    showVEX,
-    flowTopValues,
-    dealerTopValues,
-    gexTopValues,
-    vexTopValues,
-  ])
+  }, [showFlowGEX, showDealer, showGEX, flowTopValues, dealerTopValues, gexTopValues])
 
   // Detect clusters of high GEX values (top 3 if in same column AND consecutive strikes)
   const detectGEXClusters = useMemo(() => {
@@ -6329,11 +6364,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     const isHighestPositive =
       value > 0 &&
       Math.abs(value - topVals.highestPositive) <
-      Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
+        Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
     const isHighestNegative =
       value < 0 &&
       Math.abs(Math.abs(value) - topVals.highestNegative) <
-      Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
+        Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
 
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
@@ -6547,7 +6582,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       `}</style>
       <div className="dealer-attraction-container">
         <div
-          className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[95vw]'} px-4 mx-auto`}
+          className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[99vw]'} px-4 mx-auto`}
         >
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40">
@@ -6558,10 +6593,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 <div className="flex gap-0 w-full mb-2 md:mb-4 relative">
                   <button
                     onClick={() => setActiveTab('WORKBENCH')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'WORKBENCH'
-                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                      }`}
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
+                      activeTab === 'WORKBENCH'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                    }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
                     {activeTab === 'WORKBENCH' && (
@@ -6578,10 +6614,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   </button>
                   <button
                     onClick={() => setActiveTab('ATTRACTION')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'ATTRACTION'
-                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                      }`}
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
+                      activeTab === 'ATTRACTION'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                    }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
                     {activeTab === 'ATTRACTION' && (
@@ -6663,9 +6700,25 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           </svg>
                         </div>
 
-                        {/* LIVE Button */}
-                        <button
+                        {/* LIVE Checkbox */}
+                        <div
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all"
+                          style={{
+                            height: '36px',
+                            background: liveMode
+                              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)'
+                              : 'transparent',
+                            border: liveMode
+                              ? '1px solid rgba(34, 197, 94, 0.3)'
+                              : '1px solid transparent',
+                            boxShadow: liveMode
+                              ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)'
+                              : 'none',
+                            opacity: liveOILoading ? 0.6 : 1,
+                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
+                          }}
                           onClick={() => {
+                            if (liveOILoading) return
                             const currentTicker = tickerInput.trim() || selectedTicker
                             if (!currentTicker || currentTicker.trim() === '') {
                               alert(
@@ -6682,37 +6735,33 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               setLiveMode(true)
                               updateLiveOI()
                             } else {
-                              console.log('🔴 TURNING OFF LIVE MODE')
                               setLiveMode(false)
                               setLiveOIData(new Map())
-                              console.log(
-                                '🔴 LIVE MODE OFF - liveMode now false, liveOIData cleared to empty Map'
-                              )
-                              console.log('🔴 Restoring base (original) data...')
-
-                              // Restore original base data
                               setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
                               setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
-                              console.log('✅ Base data restored from backup')
                             }
                           }}
-                          disabled={liveOILoading}
-                          className="flex items-center justify-center gap-1 px-3 border-2 border-gray-800 hover:border-orange-500 text-black font-black text-xs uppercase tracking-wider transition-all rounded whitespace-nowrap"
-                          style={{
-                            background: liveMode ? '#22c55e' : '#ef4444',
-                            boxShadow: liveMode
-                              ? 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(34,197,94,0.4)'
-                              : 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(239,68,68,0.4)',
-                            height: '36px',
-                            minWidth: '60px',
-                            opacity: liveOILoading ? 0.5 : 1,
-                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
-                          }}
                         >
-                          <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                            {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
+                          <input
+                            type="checkbox"
+                            checked={liveMode}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#22c55e',
+                              boxShadow: liveMode ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none',
+                            }}
+                          />
+                          <span
+                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
+                            style={{
+                              color: liveMode ? '#22c55e' : '#ffffff',
+                              textShadow: liveMode ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none',
+                            }}
+                          >
+                            {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
                           </span>
-                        </button>
+                        </div>
 
                         {/* Range Selector */}
                         <div
@@ -6724,18 +6773,18 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             onChange={(e) =>
                               setOtmFilter(
                                 e.target.value as
-                                | '1%'
-                                | '2%'
-                                | '3%'
-                                | '5%'
-                                | '8%'
-                                | '10%'
-                                | '15%'
-                                | '20%'
-                                | '25%'
-                                | '40%'
-                                | '50%'
-                                | '100%'
+                                  | '1%'
+                                  | '2%'
+                                  | '3%'
+                                  | '5%'
+                                  | '8%'
+                                  | '10%'
+                                  | '15%'
+                                  | '20%'
+                                  | '25%'
+                                  | '40%'
+                                  | '50%'
+                                  | '100%'
                               )
                             }
                             className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-2 text-white text-xs font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap w-full"
@@ -6835,7 +6884,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showOI}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#3b82f6',
@@ -6856,10 +6905,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
-                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                            }`}
+                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
+                            useBloombergTheme
+                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
+                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                          }`}
                           style={{
                             height: '36px',
                             width: '36px',
@@ -6876,10 +6926,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {!showODTRIO && (
                           <button
                             onClick={() => setShowHistoricalGEX(!showHistoricalGEX)}
-                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
-                              ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
-                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
-                              }`}
+                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
+                              showHistoricalGEX
+                                ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
+                                : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
+                            }`}
                             style={{
                               height: '36px',
                               minWidth: '90px',
@@ -6989,7 +7040,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showGEX}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#22c55e',
@@ -7031,7 +7082,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showDealer}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#a855f7',
@@ -7069,7 +7120,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showFlowGEX}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#f97316',
@@ -7084,48 +7135,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             }}
                           >
                             FLOW MAP
-                          </span>
-                        </div>
-
-                        <div
-                          className="hidden md:flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showVEX
-                              ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%)'
-                              : 'transparent',
-                            border: showVEX
-                              ? '1px solid rgba(234, 179, 8, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showVEX
-                              ? 'inset 0 1px 2px rgba(234, 179, 8, 0.1), 0 2px 4px rgba(234, 179, 8, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => {
-                            const newValue = !showVEX
-                            setShowVEX(newValue)
-                            if (newValue) setVexMode('Net VEX')
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showVEX}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#eab308',
-                              boxShadow: showVEX ? '0 0 6px rgba(234, 179, 8, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showVEX ? '#eab308' : '#c084fc',
-                              textShadow: showVEX ? '0 0 8px rgba(234, 179, 8, 0.5)' : 'none',
-                            }}
-                          >
-                            <span className="hidden md:inline">VOLATILITY</span>
-                            <span className="md:hidden">VEX</span>
                           </span>
                         </div>
 
@@ -7174,7 +7183,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showOI}
-                            onChange={() => { }}
+                            onChange={() => {}}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#3b82f6',
@@ -7194,7 +7203,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       </div>
                     </div>
                     {/* Desktop Layout - Original Horizontal */}
-                    <div className="hidden md:flex md:items-center md:justify-between w-full">
+                    <div className="hidden md:flex md:items-center w-full">
                       {/* Left Controls */}
                       <div className="flex items-center gap-4 md:gap-8">
                         {/* Ticker Search */}
@@ -7267,10 +7276,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     setShowDealer(false)
                                   }
                                 }}
-                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
-                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
-                                  }`}
+                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  duoMode
+                                    ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <span
@@ -7282,10 +7292,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                               {/* NORMAL (GEX) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
-                                  ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showGEX
+                                    ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -7309,10 +7320,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                               {/* MM ACTIVITY (Dealer) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer
-                                  ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showDealer
+                                    ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -7336,10 +7348,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                               {/* FLOW MAP Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX
-                                  ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showFlowGEX
+                                    ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -7367,38 +7380,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 </label>
                               </div>
 
-                              {/* VOLATILITY (VEX) Checkbox */}
-                              <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showVEX
-                                  ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-purple-500/40 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]'
-                                  }`}
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
-                                <input
-                                  type="checkbox"
-                                  checked={showVEX}
-                                  onChange={(e) => {
-                                    setShowVEX(e.target.checked)
-                                    if (e.target.checked) {
-                                      setVexMode('Net VEX')
-                                    }
-                                  }}
-                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-purple-500 border-purple-500/60 focus:ring-purple-500 accent-purple-500"
-                                />
-                                <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showVEX ? 'text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]' : 'text-purple-400'}`}
-                                >
-                                  VOLATILITY
-                                </span>
-                              </div>
-
                               {/* OI Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
-                                  ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showOI
+                                    ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -7414,67 +7402,54 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 </span>
                               </div>
 
-                              {/* LIVE Button */}
-                              <div className="relative flex items-center gap-2">
-                                <button
-                                  onClick={() => {
-                                    // Check if ticker is typed in search bar (even without clicking enter)
-                                    const currentTicker = tickerInput.trim() || selectedTicker
-                                    if (!currentTicker || currentTicker.trim() === '') {
-                                      alert(
-                                        'Please type a ticker in the search bar first before enabling Live OI'
-                                      )
-                                      return
-                                    }
-
-                                    // If ticker is typed but not searched yet, trigger search first
-                                    if (
-                                      tickerInput.trim() &&
-                                      tickerInput.trim() !== selectedTicker
-                                    ) {
-                                      const newTicker = tickerInput.trim().toUpperCase()
-                                      setSelectedTicker(newTicker)
-                                      setTickerInput(newTicker)
-                                    }
-
-                                    if (!liveMode) {
-                                      setLiveMode(true)
-                                      updateLiveOI()
-                                    } else {
-                                      console.log('🔴 TURNING OFF LIVE MODE (second button)')
-                                      setLiveMode(false)
-                                      setLiveOIData(new Map())
-
-                                      // Restore original base data
-                                      setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
-                                      setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
-                                      console.log('✅ Base data restored from backup')
-                                    }
-                                  }}
-                                  disabled={liveOILoading}
-                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${liveMode
-                                    ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
-                                    } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                              {/* LIVE Checkbox */}
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  liveMode
+                                    ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 border border-green-400/70 shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-green-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                                } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                onClick={() => {
+                                  if (liveOILoading) return
+                                  const currentTicker = tickerInput.trim() || selectedTicker
+                                  if (!currentTicker || currentTicker.trim() === '') {
+                                    alert(
+                                      'Please type a ticker in the search bar first before enabling Live OI'
+                                    )
+                                    return
+                                  }
+                                  if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
+                                    const newTicker = tickerInput.trim().toUpperCase()
+                                    setSelectedTicker(newTicker)
+                                    setTickerInput(newTicker)
+                                  }
+                                  if (!liveMode) {
+                                    setLiveMode(true)
+                                    updateLiveOI()
+                                  } else {
+                                    setLiveMode(false)
+                                    setLiveOIData(new Map())
+                                    setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                                    setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                                  }
+                                }}
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                <input
+                                  type="checkbox"
+                                  checked={liveMode}
+                                  onChange={() => {}}
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-green-500 border-green-500/60 focus:ring-green-500 accent-green-500 pointer-events-none"
+                                />
+                                <span
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${
+                                    liveMode
+                                      ? 'text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]'
+                                      : 'text-white'
+                                  }`}
                                 >
-                                  <span className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></span>
-                                  <span className="relative z-10">
-                                    {liveOILoading ? 'LOADING...' : liveMode ? '● LIVE' : 'LIVE'}
-                                  </span>
-                                </button>
-                                {liveOILoading && (
-                                  <div className="flex items-center gap-2">
-                                    <div className="relative w-32 h-2 bg-gray-800 rounded-full overflow-hidden">
-                                      <div
-                                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
-                                        style={{ width: `${liveOIProgress}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-xs text-green-400 font-bold">
-                                      {liveOIProgress}%
-                                    </span>
-                                  </div>
-                                )}
+                                  {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -7490,18 +7465,18 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 onChange={(e) =>
                                   setOtmFilter(
                                     e.target.value as
-                                    | '1%'
-                                    | '2%'
-                                    | '3%'
-                                    | '5%'
-                                    | '8%'
-                                    | '10%'
-                                    | '15%'
-                                    | '20%'
-                                    | '25%'
-                                    | '40%'
-                                    | '50%'
-                                    | '100%'
+                                      | '1%'
+                                      | '2%'
+                                      | '3%'
+                                      | '5%'
+                                      | '8%'
+                                      | '10%'
+                                      | '15%'
+                                      | '20%'
+                                      | '25%'
+                                      | '40%'
+                                      | '50%'
+                                      | '100%'
                                   )
                                 }
                                 className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
@@ -7535,84 +7510,57 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
-                      <button
-                        onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                        className={`hidden flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
-                          ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                          : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                          }`}
-                        style={{
-                          boxShadow: useBloombergTheme
-                            ? '0 0 10px rgba(245, 158, 11, 0.5)'
-                            : 'none',
-                        }}
-                        title="Toggle Bloomberg Terminal Theme"
-                      >
-                        BB
-                      </button>
-
-                      {/* ODTRIO Button - Flow Map style with blue text */}
-                      <button
-                        onClick={() => {
-                          const newState = !showODTRIO
-                          setShowODTRIO(newState)
-                          if (newState) {
-                            fetchODTRIOData()
-                          }
-                        }}
-                        className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2 border-gray-800 hover:border-gray-600"
-                        style={{
-                          background: '#000000',
-                          borderColor: '#444',
-                          color: '#3b82f6',
-                          fontWeight: '900',
-                          letterSpacing: '0.05em',
-                        }}
-                        title="ODTE Trio: SPX, QQQ, SPY"
-                      >
-                        ODTRIO
-                      </button>
-
-                      {/* ODTRIO LIVE OI Button - Desktop version */}
-                      {showODTRIO && (
+                        {/* ODTRIO Button */}
                         <button
                           onClick={() => {
-                            if (!liveMode) {
-                              setLiveMode(true)
-                              updateOdtrioLiveOI()
-                            } else {
-                              setLiveMode(false)
-                              setLiveOIData(new Map())
-                              setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
+                            const newState = !showODTRIO
+                            setShowODTRIO(newState)
+                            if (newState) {
+                              fetchODTRIOData()
                             }
                           }}
-                          disabled={liveOILoading}
-                          className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-gray-800 font-black text-sm uppercase tracking-wider transition-all duration-200"
+                          className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2"
                           style={{
-                            background: '#000000',
-                            borderColor: '#444',
-                            color: liveMode ? '#22c55e' : '#ef4444',
-                            opacity: liveOILoading ? 0.5 : 1,
-                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
+                            background: showODTRIO ? 'rgba(59,130,246,0.15)' : '#000000',
+                            borderColor: showODTRIO ? '#3b82f6' : '#444',
+                            color: '#3b82f6',
+                            fontWeight: '900',
+                            letterSpacing: '0.05em',
                           }}
-                          title="ODTRIO Live OI - Scan flow for ODTE strikes only"
+                          title="ODTE Trio: SPX, QQQ, SPY"
                         >
-                          <span>{liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}</span>
+                          ODTRIO
                         </button>
-                      )}
 
-                      {/* Desktop Refresh Button */}
-                      <button
-                        onClick={() => fetchOptionsData()}
-                        disabled={loading}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
-                      >
-                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                        {loading ? 'UPDATING' : 'REFRESH'}
-                      </button>
+                        {/* ODTRIO LIVE OI Button - Desktop version */}
+                        {showODTRIO && (
+                          <button
+                            onClick={() => {
+                              if (!liveMode) {
+                                setLiveMode(true)
+                                updateOdtrioLiveOI()
+                              } else {
+                                setLiveMode(false)
+                                setLiveOIData(new Map())
+                                setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
+                              }
+                            }}
+                            disabled={liveOILoading}
+                            className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-gray-800 font-black text-sm uppercase tracking-wider transition-all duration-200"
+                            style={{
+                              background: '#000000',
+                              borderColor: '#444',
+                              color: liveMode ? '#22c55e' : '#ef4444',
+                              opacity: liveOILoading ? 0.5 : 1,
+                              cursor: liveOILoading ? 'not-allowed' : 'pointer',
+                            }}
+                            title="ODTRIO Live OI - Scan flow for ODTE strikes only"
+                          >
+                            <span>{liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -7672,23 +7620,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <div className="flex gap-4">
                           <button
                             onClick={() => setActiveWorkbenchTab('MM')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MM'
-                              ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
-                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                              }`}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'MM'
+                                ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
                           >
                             Market Maker
                           </button>
                         </div>
-
-                        <button
-                          onClick={() => fetchOptionsData()}
-                          disabled={loading}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
-                        >
-                          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                          {loading ? 'UPDATING' : 'REFRESH'}
-                        </button>
                       </div>
                     </div>
 
@@ -7699,26 +7639,44 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             </div>
           </div>
 
-          {loading && data.length === 0 ? (
-            <div className="text-center py-32 bg-gradient-to-r from-gray-900/50 to-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50">
-              <RefreshCw size={48} className="animate-spin mx-auto mb-6 text-blue-400" />
-              <p className="text-xl font-semibold text-gray-300">Loading Real Market Data</p>
-              <p className="text-sm text-gray-500 mt-2">
-                Fetching options chains and calculating dealer attraction levels...
+          {loading ? (
+            <div
+              className="flex flex-col items-center justify-center w-full py-32 border border-orange-500/20 bg-black"
+              style={{ minHeight: '600px' }}
+            >
+              <RefreshCw size={32} className="animate-spin mb-6" style={{ color: '#ff6600' }} />
+              <p
+                className="text-base font-bold uppercase tracking-[0.25em] mb-6"
+                style={{ color: '#ff6600', fontFamily: 'monospace', fontSize: '1.65rem' }}
+              >
+                Loading Gamma Exposure Data
               </p>
-
-              {/* Web Worker Progress Bar */}
               {progress > 0 && (
-                <div className="mt-6 mx-auto max-w-md">
-                  <div className="relative w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                <div className="w-72 mb-8">
+                  <div className="relative w-full h-[2px] bg-gray-800 overflow-hidden">
                     <div
-                      className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out shadow-lg shadow-blue-500/50"
-                      style={{ width: `${progress}%` }}
+                      className="absolute top-0 left-0 h-full transition-all duration-300 ease-out"
+                      style={{ width: `${progress}%`, background: '#ff6600' }}
                     />
                   </div>
-                  <p className="text-xs text-gray-400 mt-2">Processing: {progress}%</p>
+                  <p className="text-[16px] mt-2 text-right font-mono" style={{ color: '#ff6600' }}>
+                    {progress}%
+                  </p>
                 </div>
               )}
+              <div className="max-w-lg text-center px-4">
+                <p
+                  className="text-white font-semibold leading-relaxed"
+                  style={{ fontSize: '1.2rem', textShadow: '0 0 20px rgba(255,255,255,0.15)' }}
+                >
+                  &ldquo;{loadingQuote.body}&rdquo;
+                </p>
+                {loadingQuote.author && (
+                  <p className="text-gray-400 mt-2 font-mono" style={{ fontSize: '1.05rem' }}>
+                    {loadingQuote.author}
+                  </p>
+                )}
+              </div>
             </div>
           ) : liveOILoading && data.length > 0 ? (
             <div className="relative">
@@ -7732,35 +7690,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50"
                 style={{ marginTop: '80px' }}
               >
-                <div className="text-center py-16 px-8">
-                  <RefreshCw
-                    size={64}
-                    className="animate-spin mx-auto mb-6"
-                    style={{ color: '#FFD700' }}
-                  />
-                  <p className="text-2xl font-bold text-orange-500 mb-2">LIVE MODE ACTIVE</p>
-                  <p className="text-xl font-semibold text-white">Recalculating with Live Data</p>
-                  <p className="text-sm text-gray-400 mt-2">
-                    {liveOIProgress < 20
-                      ? 'Scanning options flow...'
-                      : liveOIProgress < 60
-                        ? 'Fetching contract data...'
-                        : liveOIProgress < 80
-                          ? 'Enriching trades...'
-                          : liveOIProgress < 90
-                            ? 'Calculating Live OI...'
-                            : 'Recalculating all metrics...'}
+                <div
+                  className="flex flex-col items-center text-center px-8"
+                  style={{ paddingTop: '15vh' }}
+                >
+                  <p
+                    className="font-bold uppercase tracking-[0.25em] mb-6"
+                    style={{ color: '#ff6600', fontFamily: 'monospace', fontSize: '1.65rem' }}
+                  >
+                    Scanning Live Gamma Exposure
                   </p>
-
                   {/* Live OI Progress Bar */}
-                  <div className="mt-6 mx-auto max-w-md">
-                    <div className="relative w-full h-4 bg-gray-800 rounded-full overflow-hidden border border-orange-700">
+                  <div className="w-72 mb-8">
+                    <div className="relative w-full h-[2px] bg-gray-800 overflow-hidden">
                       <div
-                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-300 ease-out shadow-lg shadow-orange-500/50"
-                        style={{ width: `${liveOIProgress}%` }}
+                        className="absolute top-0 left-0 h-full transition-all duration-300 ease-out"
+                        style={{ width: `${liveOIProgress}%`, background: '#ff6600' }}
                       />
                     </div>
-                    <p className="text-sm text-orange-400 mt-2 font-bold">{liveOIProgress}%</p>
+                    <p
+                      className="text-[16px] mt-2 text-right font-mono"
+                      style={{ color: '#ff6600' }}
+                    >
+                      {liveOIProgress}%
+                    </p>
+                  </div>
+                  <RefreshCw size={48} className="animate-spin mb-8" style={{ color: '#ff6600' }} />
+                  <div className="max-w-lg px-4">
+                    <p
+                      className="text-white font-semibold leading-relaxed"
+                      style={{ fontSize: '1.2rem', textShadow: '0 0 20px rgba(255,255,255,0.15)' }}
+                    >
+                      &ldquo;{liveLoadingQuote.body}&rdquo;
+                    </p>
                   </div>
                 </div>
               </div>
@@ -7770,67 +7732,72 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
               {/* GEX Timeline Scrubber - Show when showHistoricalGEX is true, ticker selected, and not in OI or ODTRIO mode */}
-              {showHistoricalGEX && !showODTRIO && selectedTicker && !showOI && (
-                <div className="px-4 pb-4">
-                  <GEXTimelineScrubber
-                    key={selectedTicker}
-                    ticker={selectedTicker}
-                    date={(() => {
-                      // Get current time in PST
-                      const now = new Date()
+              {showHistoricalGEX &&
+                !showODTRIO &&
+                selectedTicker &&
+                !showOI &&
+                !['SPX', 'VIX'].includes(selectedTicker.toUpperCase()) && (
+                  <div className="px-4 pb-4">
+                    <GEXTimelineScrubber
+                      key={selectedTicker}
+                      ticker={selectedTicker}
+                      date={(() => {
+                        // Get current time in PST
+                        const now = new Date()
 
-                      // Get PST time components
-                      const etFormatter = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'America/Los_Angeles',
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                      })
+                        // Get PST time components
+                        const etFormatter = new Intl.DateTimeFormat('en-US', {
+                          timeZone: 'America/Los_Angeles',
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        })
 
-                      const parts = etFormatter.formatToParts(now)
-                      let year = parts.find((p) => p.type === 'year')!.value
-                      let month = parts.find((p) => p.type === 'month')!.value
-                      let day = parts.find((p) => p.type === 'day')!.value
-                      const hour = parseInt(parts.find((p) => p.type === 'hour')!.value)
+                        const parts = etFormatter.formatToParts(now)
+                        let year = parts.find((p) => p.type === 'year')!.value
+                        let month = parts.find((p) => p.type === 'month')!.value
+                        let day = parts.find((p) => p.type === 'day')!.value
+                        const hour = parseInt(parts.find((p) => p.type === 'hour')!.value)
 
-                      // If it's before 6:30 AM PST, use previous day's data (since market hasn't opened yet)
-                      if (
-                        hour < 9 ||
-                        (hour === 9 && parseInt(parts.find((p) => p.type === 'minute')!.value) < 30)
-                      ) {
-                        const yesterday = new Date(`${year}-${month}-${day}`)
-                        yesterday.setDate(yesterday.getDate() - 1)
-                        year = yesterday.getFullYear().toString()
-                        month = String(yesterday.getMonth() + 1).padStart(2, '0')
-                        day = String(yesterday.getDate()).padStart(2, '0')
-                      }
+                        // If it's before 6:30 AM PST, use previous day's data (since market hasn't opened yet)
+                        if (
+                          hour < 9 ||
+                          (hour === 9 &&
+                            parseInt(parts.find((p) => p.type === 'minute')!.value) < 30)
+                        ) {
+                          const yesterday = new Date(`${year}-${month}-${day}`)
+                          yesterday.setDate(yesterday.getDate() - 1)
+                          year = yesterday.getFullYear().toString()
+                          month = String(yesterday.getMonth() + 1).padStart(2, '0')
+                          day = String(yesterday.getDate()).padStart(2, '0')
+                        }
 
-                      // Create date object using the ET date components
-                      const today = new Date(`${year}-${month}-${day}T12:00:00`)
-                      const dayOfWeek = today.getDay()
+                        // Create date object using the ET date components
+                        const today = new Date(`${year}-${month}-${day}T12:00:00`)
+                        const dayOfWeek = today.getDay()
 
-                      // If Saturday (6), go back 1 day. If Sunday (0), go back 2 days.
-                      if (dayOfWeek === 0)
-                        today.setDate(today.getDate() - 2) // Sunday -> Friday
-                      else if (dayOfWeek === 6) today.setDate(today.getDate() - 1) // Saturday -> Friday
+                        // If Saturday (6), go back 1 day. If Sunday (0), go back 2 days.
+                        if (dayOfWeek === 0)
+                          today.setDate(today.getDate() - 2) // Sunday -> Friday
+                        else if (dayOfWeek === 6) today.setDate(today.getDate() - 1) // Saturday -> Friday
 
-                      // Format as YYYY-MM-DD
-                      const finalYear = today.getFullYear()
-                      const finalMonth = String(today.getMonth() + 1).padStart(2, '0')
-                      const finalDay = String(today.getDate()).padStart(2, '0')
-                      return `${finalYear}-${finalMonth}-${finalDay}`
-                    })()}
-                    currentPrice={currentPrice}
-                    onTimeChange={(timestamp, price) => {
-                      setHistoricalTimestamp(timestamp)
-                      setHistoricalPrice(price)
-                    }}
-                  />
-                </div>
-              )}
+                        // Format as YYYY-MM-DD
+                        const finalYear = today.getFullYear()
+                        const finalMonth = String(today.getMonth() + 1).padStart(2, '0')
+                        const finalDay = String(today.getDate()).padStart(2, '0')
+                        return `${finalYear}-${finalMonth}-${finalDay}`
+                      })()}
+                      currentPrice={currentPrice}
+                      onTimeChange={(timestamp, price) => {
+                        setHistoricalTimestamp(timestamp)
+                        setHistoricalPrice(price)
+                      }}
+                    />
+                  </div>
+                )}
 
               {/* ODTRIO MODE - Takes priority over everything */}
               {showODTRIO ? (
@@ -7839,49 +7806,49 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     {(() => {
                       // Count how many tickers have golden zones above current price
                       const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {}
-                        ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
-                          const tickerData = odtrioData[ticker]
-                          const tickerDataArray = tickerData?.data || []
-                          const odteExpiry = tickerData?.odteExpiry
-                          const currentPrice = tickerData?.currentPrice || 0
+                      ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
+                        const tickerData = odtrioData[ticker]
+                        const tickerDataArray = tickerData?.data || []
+                        const odteExpiry = tickerData?.odteExpiry
+                        const currentPrice = tickerData?.currentPrice || 0
 
-                          if (odteExpiry && tickerDataArray.length > 0) {
-                            const normalGEXValues = tickerDataArray
-                              .filter((row) => row.expirations && row.expirations[odteExpiry])
-                              .map((row) => {
-                                const gexData = row.expirations![odteExpiry]
-                                return (gexData.call_gex || 0) + (gexData.put_gex || 0)
-                              })
-                            const dealerGEXValues = tickerDataArray
-                              .filter((row) => row.expirations && row.expirations[odteExpiry])
-                              .map((row) => {
-                                const gexData = row.expirations![odteExpiry]
-                                return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                              })
-
-                            const highestGEX = Math.max(...normalGEXValues)
-                            const highestDealer = Math.max(...dealerGEXValues)
-
-                            // Find golden zone row (highest GEX for both columns)
-                            const goldenRow = tickerDataArray.find((row) => {
-                              const gexData = row.expirations?.[odteExpiry]
-                              if (!gexData) return false
-                              const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
-                              const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                              return (
-                                netGEX === highestGEX &&
-                                netDealer === highestDealer &&
-                                netGEX > 0 &&
-                                netDealer > 0
-                              )
+                        if (odteExpiry && tickerDataArray.length > 0) {
+                          const normalGEXValues = tickerDataArray
+                            .filter((row) => row.expirations && row.expirations[odteExpiry])
+                            .map((row) => {
+                              const gexData = row.expirations![odteExpiry]
+                              return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                            })
+                          const dealerGEXValues = tickerDataArray
+                            .filter((row) => row.expirations && row.expirations[odteExpiry])
+                            .map((row) => {
+                              const gexData = row.expirations![odteExpiry]
+                              return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
                             })
 
-                            if (goldenRow) {
-                              tickerGoldenPositions[ticker] =
-                                goldenRow.strike > currentPrice ? 'above' : 'below'
-                            }
+                          const highestGEX = Math.max(...normalGEXValues)
+                          const highestDealer = Math.max(...dealerGEXValues)
+
+                          // Find golden zone row (highest GEX for both columns)
+                          const goldenRow = tickerDataArray.find((row) => {
+                            const gexData = row.expirations?.[odteExpiry]
+                            if (!gexData) return false
+                            const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                            const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                            return (
+                              netGEX === highestGEX &&
+                              netDealer === highestDealer &&
+                              netGEX > 0 &&
+                              netDealer > 0
+                            )
+                          })
+
+                          if (goldenRow) {
+                            tickerGoldenPositions[ticker] =
+                              goldenRow.strike > currentPrice ? 'above' : 'below'
                           }
-                        })
+                        }
+                      })
 
                       const goldensAbove = Object.values(tickerGoldenPositions).filter(
                         (pos) => pos === 'above'
@@ -7897,20 +7864,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         const isLoading = tickerData?.loading
 
                         if (isLoading) {
-                          return (
-                            <div
-                              key={tricoTicker}
-                              className="flex-1 flex items-center justify-center"
-                              style={{ minWidth: 0, minHeight: '400px' }}
-                            >
-                              <div className="text-center">
-                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
-                                <div className="text-emerald-400 text-lg font-bold">
-                                  Loading {tricoTicker}...
-                                </div>
-                              </div>
-                            </div>
-                          )
+                          return null
                         }
 
                         if (!odteExpiry || tickerDataArray.length === 0) {
@@ -7940,7 +7894,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               : prev,
                           allStrikes[0]
                         )
-
                         const currentIndex = allStrikes.indexOf(closestStrike)
                         const strikesToShow = 50 // Show 50 strikes total (24 above, current at row 25, 25 below)
                         const strikesAbove = 24 // Current price will be at row 25
@@ -8969,708 +8922,770 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   </div>
                 </div>
               ) : /* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */
-                showOI ||
-                  (showGEX && showDealer) ||
-                  (showGEX && showFlowGEX) ||
-                  (showDealer && showFlowGEX) ||
-                  (showGEX && showDealer && showFlowGEX) ? (
-                  <div
-                    className="flex overflow-x-auto"
-                    style={{
-                      gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
-                    }}
-                  >
-                    {/* OI/GEX Charts - Show when OI checkbox is active */}
-                    {showOI && (
-                      <div
-                        className="flex-shrink-0"
-                        style={{
-                          width: activeTableCount === 2 ? '1100px' : '1200px',
-                          minWidth: activeTableCount === 2 ? '1100px' : '1200px',
-                        }}
-                      >
-                        <OIGEXTab selectedTicker={selectedTicker} />
-                      </div>
-                    )}
-                    {(() => {
-                      // Calculate table width based on context
-                      const tableWidths: string[] = []
+              showOI ||
+                (showGEX && showDealer) ||
+                (showGEX && showFlowGEX) ||
+                (showDealer && showFlowGEX) ||
+                (showGEX && showDealer && showFlowGEX) ? (
+                <div
+                  className="flex overflow-x-auto"
+                  style={{
+                    gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
+                  }}
+                >
+                  {/* OI/GEX Charts - Show when OI checkbox is active */}
+                  {showOI && (
+                    <div
+                      className="flex-shrink-0"
+                      style={{
+                        width: activeTableCount === 2 ? '1100px' : '1200px',
+                        minWidth: activeTableCount === 2 ? '1100px' : '1200px',
+                      }}
+                    >
+                      <OIGEXTab selectedTicker={selectedTicker} />
+                    </div>
+                  )}
+                  {(() => {
+                    // Calculate table width based on context
+                    const tableWidths: string[] = []
 
-                      if (showOI && activeTableCount === 1) {
-                        // OI + 1 table: table gets 900px
-                        tableWidths.push('900px')
-                      } else if (showOI && activeTableCount === 2) {
-                        // OI + 2 tables: each table gets 895px
-                        tableWidths.push('895px', '895px')
-                      } else if (!showOI && activeTableCount === 2 && duoMode) {
-                        // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
-                        tableWidths.push('540px', '540px')
-                      } else if (!showOI && activeTableCount === 2) {
-                        // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
-                        tableWidths.push('887px', '887px')
-                      } else if (!showOI && activeTableCount === 3) {
-                        // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
-                        tableWidths.push('887px', '887px', '886px')
-                      }
+                    if (showOI && activeTableCount === 1) {
+                      // OI + 1 table: table gets 900px
+                      tableWidths.push('900px')
+                    } else if (showOI && activeTableCount === 2) {
+                      // OI + 2 tables: each table gets 895px
+                      tableWidths.push('895px', '895px')
+                    } else if (!showOI && activeTableCount === 2 && duoMode) {
+                      // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
+                      tableWidths.push('540px', '540px')
+                    } else if (!showOI && activeTableCount === 2) {
+                      // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
+                      tableWidths.push('887px', '887px')
+                    } else if (!showOI && activeTableCount === 3) {
+                      // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
+                      tableWidths.push('887px', '887px', '886px')
+                    }
 
-                      // Mobile detection - needed for getTableWidth function
-                      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                    // Mobile detection - needed for getTableWidth function
+                    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-                      let currentTableIndex = 0
-                      const getTableWidth = () => {
-                        // On mobile, enforce equal widths so tables don't collapse when empty
-                        if (isMobile) {
-                          if (activeTableCount === 3) {
-                            return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
-                          } else if (activeTableCount === 2) {
-                            return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
-                          }
-                          return undefined
-                        }
-                        if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
-                          return {
-                            width: tableWidths[currentTableIndex],
-                            minWidth: tableWidths[currentTableIndex++],
-                          }
+                    let currentTableIndex = 0
+                    const getTableWidth = () => {
+                      // On mobile, enforce equal widths so tables don't collapse when empty
+                      if (isMobile) {
+                        if (activeTableCount === 3) {
+                          return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
+                        } else if (activeTableCount === 2) {
+                          return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
                         }
                         return undefined
                       }
-
-                      // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
-                      const allThreeActive = showGEX && showDealer && showFlowGEX
-                      const mobileStrikeWidth = isMobile ? 45 : (allThreeActive ? Math.round(workbenchStrikeWidth * 0.56) : workbenchStrikeWidth)
-                      let mobileExpWidth = isMobile ? 82 : (allThreeActive ? 50 : 90)
-
-                      // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
-                      if (duoMode && showGEX && showDealer && !isMobile) {
-                        mobileExpWidth = allThreeActive ? 50 : 70
-                      }
-
-                      let table1Expirations = expirations
-                      let table2Expirations = expirations
-                      let table3Expirations = expirations
-
-                      // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
-                      if (duoMode && showGEX && showDealer && !isMobile) {
-                        // Duo mode (no flow map): 6 expirations
-                        table1Expirations = expirations.slice(0, 6)
-                        table2Expirations = expirations.slice(0, 6)
-                        table3Expirations = expirations.slice(0, 6)
-                      } else if (allThreeActive && !duoMode && !isMobile) {
-                        // All three tables without duo mode: 8 expirations
-                        table1Expirations = expirations.slice(0, 8)
-                        table2Expirations = expirations.slice(0, 8)
-                        table3Expirations = expirations.slice(0, 8)
-                      }
-
-                      if (isMobile) {
-                        if (activeTableCount === 3) {
-                          // 3 tables on mobile: each gets 1 expiration
-                          table1Expirations = expirations.slice(0, 1)
-                          table2Expirations = expirations.slice(0, 1)
-                          table3Expirations = expirations.slice(0, 1)
-                        } else if (activeTableCount === 2) {
-                          // 2 tables on mobile: each gets 2 expirations
-                          table1Expirations = expirations.slice(0, 2)
-                          table2Expirations = expirations.slice(0, 2)
-                          table3Expirations = expirations.slice(0, 2)
+                      if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
+                        return {
+                          width: tableWidths[currentTableIndex],
+                          minWidth: tableWidths[currentTableIndex++],
                         }
                       }
+                      return undefined
+                    }
 
-                      return (
-                        <>
-                          {/* GEX/NORMAL TABLE */}
-                          {showGEX && (
-                            <div className="flex-shrink-0" style={getTableWidth()}>
-                              <div
-                                className={`${useBloombergTheme
+                    // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
+                    const allThreeActive = showGEX && showDealer && showFlowGEX
+                    const mobileStrikeWidth = isMobile
+                      ? 45
+                      : allThreeActive
+                        ? Math.round(workbenchStrikeWidth * 0.56)
+                        : workbenchStrikeWidth
+                    let mobileExpWidth = isMobile ? 82 : allThreeActive ? 50 : 90
+
+                    // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
+                    if (duoMode && showGEX && showDealer && !isMobile) {
+                      mobileExpWidth = allThreeActive ? 50 : 70
+                    }
+
+                    let table1Expirations = expirations
+                    let table2Expirations = expirations
+                    let table3Expirations = expirations
+
+                    // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
+                    if (duoMode && showGEX && showDealer && !isMobile) {
+                      // Duo mode (no flow map): 6 expirations
+                      table1Expirations = expirations.slice(0, 6)
+                      table2Expirations = expirations.slice(0, 6)
+                      table3Expirations = expirations.slice(0, 6)
+                    } else if (allThreeActive && !duoMode && !isMobile) {
+                      // All three tables without duo mode: 8 expirations
+                      table1Expirations = expirations.slice(0, 8)
+                      table2Expirations = expirations.slice(0, 8)
+                      table3Expirations = expirations.slice(0, 8)
+                    }
+
+                    if (isMobile) {
+                      if (activeTableCount === 3) {
+                        // 3 tables on mobile: each gets 1 expiration
+                        table1Expirations = expirations.slice(0, 1)
+                        table2Expirations = expirations.slice(0, 1)
+                        table3Expirations = expirations.slice(0, 1)
+                      } else if (activeTableCount === 2) {
+                        // 2 tables on mobile: each gets 2 expirations
+                        table1Expirations = expirations.slice(0, 2)
+                        table2Expirations = expirations.slice(0, 2)
+                        table3Expirations = expirations.slice(0, 2)
+                      }
+                    }
+
+                    return (
+                      <>
+                        {/* GEX/NORMAL TABLE */}
+                        {showGEX && (
+                          <div className="flex-shrink-0" style={getTableWidth()}>
+                            <div
+                              className={`${
+                                useBloombergTheme
                                   ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                                   : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                              >
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
                                 {useBloombergTheme && (
-                                  <div
-                                    className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
-                                    style={{ animationDuration: '3s' }}
-                                  ></div>
+                                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
                                 )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-                                  )}
-                                  <h3
-                                    className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
-                                    style={{
-                                      letterSpacing: '0.2em',
-                                      textShadow: useBloombergTheme
-                                        ? '0 0 20px rgba(52,211,153,0.5)'
-                                        : '0 2px 4px rgba(0,0,0,0.8)',
-                                    }}
-                                  >
-                                    NORMAL
-                                  </h3>
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-                                  )}
-                                </div>
-                              </div>
-                              <div
-                                className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                style={{
-                                  maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
-                                  overflowX: 'auto',
-                                }}
-                              >
-                                <table
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
                                   style={{
-                                    minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
-                                    width: '100%',
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(52,211,153,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
                                   }}
                                 >
-                                  <thead
-                                    className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                    style={{
-                                      top: '0',
-                                      backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                    }}
-                                  >
-                                    <tr
-                                      className={
-                                        useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                      }
-                                    >
-                                      <th
-                                        className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
-                                        style={{
-                                          width: `${mobileStrikeWidth}px`,
-                                          minWidth: `${mobileStrikeWidth}px`,
-                                          maxWidth: `${mobileStrikeWidth}px`,
-                                        }}
-                                      >
-                                        <div
-                                          className={
-                                            useBloombergTheme
-                                              ? 'bb-header text-xs md:text-sm text-gray-400'
-                                              : 'text-xs md:text-sm font-bold text-white uppercase'
-                                          }
-                                        >
-                                          Strike
-                                        </div>
-                                      </th>
-                                      {table1Expirations.map((exp) => (
-                                        <th
-                                          key={exp}
-                                          className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                          style={{
-                                            width: `${mobileExpWidth}px`,
-                                            minWidth: `${mobileExpWidth}px`,
-                                            maxWidth: `${mobileExpWidth}px`,
-                                          }}
-                                        >
-                                          <div className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}>
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {allCalculatedData
-                                      .filter((row) => {
-                                        const strikeRange = getStrikeRange(currentPrice)
-                                        return (
-                                          row.strike >= strikeRange.min &&
-                                          row.strike <= strikeRange.max
-                                        )
-                                      })
-                                      .map((row, idx) => {
-                                        // Use historical price when scrubbing, otherwise current price
-                                        const priceForRow = historicalTimestamp
-                                          ? historicalPrice
-                                          : currentPrice
-                                        const closestStrike =
-                                          priceForRow > 0
-                                            ? data.reduce((closest, current) =>
-                                              Math.abs(current.strike - priceForRow) <
-                                                Math.abs(closest.strike - priceForRow)
-                                                ? current
-                                                : closest
-                                            ).strike
-                                            : 0
-
-                                        const isCurrentPriceRow =
-                                          priceForRow > 0 && row.strike === closestStrike
-
-                                        return (
-                                          <tr
-                                            key={idx}
-                                            className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
-                                              ? 'border-2 border-orange-500'
-                                              : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
-                                          >
-                                            <td
-                                              className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                              style={{
-                                                width: `${mobileStrikeWidth}px`,
-                                                minWidth: `${mobileStrikeWidth}px`,
-                                                maxWidth: `${mobileStrikeWidth}px`,
-                                              }}
-                                            >
-                                              <div
-                                                className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                              >
-                                                {row.strike.toFixed(1)}
-                                              </div>
-                                            </td>
-                                            {table1Expirations.map((exp) => {
-                                              // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
-                                              const calculatedRow = allGEXCalculatedData.find(
-                                                (r) => r.strike === row.strike
-                                              )
-                                              const gexValue = calculatedRow?.[exp] as any
-                                              const displayValue =
-                                                (gexValue?.call || 0) + (gexValue?.put || 0)
-                                              const cellStyle = getCellStyle(
-                                                displayValue,
-                                                false,
-                                                row.strike,
-                                                exp,
-                                                gexTopValues,
-                                                'gex'
-                                              )
-
-                                              return (
-                                                <td
-                                                  key={exp}
-                                                  className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                  style={{
-                                                    width: `${mobileExpWidth}px`,
-                                                    minWidth: `${mobileExpWidth}px`,
-                                                    maxWidth: `${mobileExpWidth}px`,
-                                                  }}
-                                                >
-                                                  <div
-                                                    className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
-                                                  >
-                                                    <div className="text-sm md:text-base font-bold mb-1">
-                                                      {formatCurrency(displayValue)}
-                                                    </div>
-                                                  </div>
-                                                </td>
-                                              )
-                                            })}
-                                          </tr>
-                                        )
-                                      })}
-                                  </tbody>
-                                </table>
+                                  NORMAL
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                )}
                               </div>
                             </div>
-                          )}
-
-                          {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
-                          {showDealer && (
                             <div
-                              key={`dealer-${liveMode}-${liveOIData.size}`}
-                              className="flex-shrink-0"
-                              style={
-                                showOI && activeTableCount === 1
-                                  ? { width: '900px', minWidth: '900px' }
-                                  : getTableWidth()
-                              }
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
                             >
-                              <div
-                                className={`${useBloombergTheme
-                                  ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                                  : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                              >
-                                {useBloombergTheme && (
-                                  <div
-                                    className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
-                                    style={{ animationDuration: '3s' }}
-                                  ></div>
-                                )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
-                                  )}
-                                  <h3
-                                    className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
-                                    style={{
-                                      letterSpacing: '0.2em',
-                                      textShadow: useBloombergTheme
-                                        ? '0 0 20px rgba(251,191,36,0.5)'
-                                        : '0 2px 4px rgba(0,0,0,0.8)',
-                                    }}
-                                  >
-                                    DEALER
-                                  </h3>
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
-                                  )}
-                                </div>
-                              </div>
-                              <div
-                                className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              <table
                                 style={{
-                                  maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
-                                  overflowX: 'auto',
+                                  minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
                                 }}
                               >
-                                <table
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
                                   style={{
-                                    minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
-                                    width: '100%',
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
                                   }}
                                 >
-                                  <thead
-                                    className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                    style={{
-                                      top: '0',
-                                      backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                    }}
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
                                   >
-                                    <tr
-                                      className={
-                                        useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                      }
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
                                     >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs md:text-sm text-gray-400'
+                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table1Expirations.map((exp) => (
                                       <th
-                                        className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                         style={{
-                                          width: `${mobileStrikeWidth}px`,
-                                          minWidth: `${mobileStrikeWidth}px`,
-                                          maxWidth: `${mobileStrikeWidth}px`,
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
                                         }}
                                       >
                                         <div
-                                          className={
-                                            useBloombergTheme
-                                              ? 'bb-header text-xs md:text-sm text-gray-400'
-                                              : 'text-xs md:text-sm font-bold text-white uppercase'
-                                          }
+                                          className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
                                         >
-                                          Strike
+                                          {formatDate(exp)}
                                         </div>
                                       </th>
-                                      {table2Expirations.map((exp) => (
-                                        <th
-                                          key={exp}
-                                          className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                          style={{
-                                            width: `${mobileExpWidth}px`,
-                                            minWidth: `${mobileExpWidth}px`,
-                                            maxWidth: `${mobileExpWidth}px`,
-                                          }}
-                                        >
-                                          <div className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}>
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {allCalculatedData
-                                      .filter((row) => {
-                                        const strikeRange = getStrikeRange(currentPrice)
-                                        return (
-                                          row.strike >= strikeRange.min &&
-                                          row.strike <= strikeRange.max
-                                        )
-                                      })
-                                      .map((row, idx) => {
-                                        // Use historical price when scrubbing, otherwise current price
-                                        const priceForRow = historicalTimestamp
-                                          ? historicalPrice
-                                          : currentPrice
-                                        const closestStrike =
-                                          priceForRow > 0
-                                            ? data.reduce((closest, current) =>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
                                               Math.abs(current.strike - priceForRow) <
-                                                Math.abs(closest.strike - priceForRow)
+                                              Math.abs(closest.strike - priceForRow)
                                                 ? current
                                                 : closest
                                             ).strike
-                                            : 0
+                                          : 0
 
-                                        const isCurrentPriceRow =
-                                          priceForRow > 0 && row.strike === closestStrike
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
 
-                                        return (
-                                          <tr
-                                            key={idx}
-                                            className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
+                                      return (
+                                        <tr
+                                          key={idx}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
                                               ? 'border-2 border-orange-500'
                                               : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
+                                          }`}
+                                        >
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
                                           >
-                                            <td
-                                              className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                              style={{
-                                                width: `${mobileStrikeWidth}px`,
-                                                minWidth: `${mobileStrikeWidth}px`,
-                                                maxWidth: `${mobileStrikeWidth}px`,
-                                              }}
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                             >
-                                              <div
-                                                className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                              >
-                                                {row.strike.toFixed(1)}
-                                              </div>
-                                            </td>
-                                            {table2Expirations.map((exp) => {
-                                              // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
-                                              const calculatedRow = allDealerCalculatedData.find(
-                                                (r) => r.strike === row.strike
-                                              )
-                                              const dealerValue = calculatedRow?.[exp] as any
-                                              const displayValue =
-                                                (dealerValue?.call || 0) + (dealerValue?.put || 0)
-                                              const cellStyle = getCellStyle(
-                                                displayValue,
-                                                false,
-                                                row.strike,
-                                                exp,
-                                                dealerTopValues,
-                                                'dealer'
-                                              )
+                                              {row.strike.toFixed(1)}
+                                            </div>
+                                          </td>
+                                          {table1Expirations.map((exp) => {
+                                            // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
+                                            const calculatedRow = allGEXCalculatedData.find(
+                                              (r) => r.strike === row.strike
+                                            )
+                                            const gexValue = calculatedRow?.[exp] as any
+                                            const displayValue =
+                                              (gexValue?.call || 0) + (gexValue?.put || 0)
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              gexTopValues,
+                                              'gex'
+                                            )
 
-                                              return (
-                                                <td
-                                                  key={exp}
-                                                  className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                  style={{
-                                                    width: `${mobileExpWidth}px`,
-                                                    minWidth: `${mobileExpWidth}px`,
-                                                    maxWidth: `${mobileExpWidth}px`,
-                                                  }}
+                                            return (
+                                              <td
+                                                key={exp}
+                                                className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
+                                              >
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
                                                 >
-                                                  <div
-                                                    className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top'
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
+                                                  </div>
+                                                </div>
+                                              </td>
+                                            )
+                                          })}
+                                        </tr>
+                                      )
+                                    })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                        {showDealer && (
+                          <div
+                            key={`dealer-${liveMode}-${liveOIData.size}`}
+                            className="flex-shrink-0"
+                            style={
+                              showOI && activeTableCount === 1
+                                ? { width: '900px', minWidth: '900px' }
+                                : getTableWidth()
+                            }
+                          >
+                            <div
+                              className={`${
+                                useBloombergTheme
+                                  ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                                  : 'bg-black border-gray-700'
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                )}
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
+                                  style={{
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(251,191,36,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
+                                  }}
+                                >
+                                  DEALER
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                )}
+                              </div>
+                            </div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
+                                  >
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
+                                    >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs md:text-sm text-gray-400'
+                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table2Expirations.map((exp) => (
+                                      <th
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                        style={{
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
+                                        }}
+                                      >
+                                        <div
+                                          className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                        >
+                                          {formatDate(exp)}
+                                        </div>
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
+                                              Math.abs(current.strike - priceForRow) <
+                                              Math.abs(closest.strike - priceForRow)
+                                                ? current
+                                                : closest
+                                            ).strike
+                                          : 0
+
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
+
+                                      return (
+                                        <tr
+                                          key={idx}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
+                                              ? 'border-2 border-orange-500'
+                                              : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
+                                        >
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                            >
+                                              {row.strike.toFixed(1)}
+                                            </div>
+                                          </td>
+                                          {table2Expirations.map((exp) => {
+                                            // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
+                                            const calculatedRow = allDealerCalculatedData.find(
+                                              (r) => r.strike === row.strike
+                                            )
+                                            const dealerValue = calculatedRow?.[exp] as any
+                                            const displayValue =
+                                              (dealerValue?.call || 0) + (dealerValue?.put || 0)
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              dealerTopValues,
+                                              'dealer'
+                                            )
+
+                                            return (
+                                              <td
+                                                key={exp}
+                                                className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
+                                              >
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${
+                                                    cellStyle.clusterPosition === 'top'
                                                       ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                       : cellStyle.clusterPosition === 'middle'
                                                         ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                         : cellStyle.clusterPosition === 'bottom'
                                                           ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                           : ''
-                                                      }`}
-                                                  >
-                                                    <div className="text-sm md:text-base font-bold mb-1">
-                                                      {formatCurrency(displayValue)}
-                                                    </div>
+                                                  }`}
+                                                >
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
                                                   </div>
-                                                </td>
-                                              )
-                                            })}
-                                          </tr>
-                                        )
-                                      })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                                </div>
+                                              </td>
+                                            )
+                                          })}
+                                        </tr>
+                                      )
+                                    })}
+                                </tbody>
+                              </table>
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {/* FLOW MAP Table - conditionally rendered */}
-                          {showFlowGEX && (
+                        {/* FLOW MAP Table - conditionally rendered */}
+                        {showFlowGEX && (
+                          <div
+                            key={`flowmap-${liveMode}-${liveOIData.size}`}
+                            className="flex-shrink-0"
+                            style={
+                              showOI && activeTableCount === 1
+                                ? { width: '900px', minWidth: '900px' }
+                                : getTableWidth()
+                            }
+                          >
                             <div
-                              key={`flowmap-${liveMode}-${liveOIData.size}`}
-                              className="flex-shrink-0"
-                              style={
-                                showOI && activeTableCount === 1
-                                  ? { width: '900px', minWidth: '900px' }
-                                  : getTableWidth()
-                              }
-                            >
-                              <div
-                                className={`${useBloombergTheme
+                              className={`${
+                                useBloombergTheme
                                   ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
                                   : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                              >
+                              } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                            >
+                              {useBloombergTheme && (
+                                <div
+                                  className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
+                                  style={{ animationDuration: '3s' }}
+                                ></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
                                 {useBloombergTheme && (
-                                  <div
-                                    className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
-                                    style={{ animationDuration: '3s' }}
-                                  ></div>
+                                  <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
                                 )}
-                                <div className="flex items-center justify-center gap-3 relative z-10">
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                  )}
-                                  <h3
-                                    className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
-                                    style={{
-                                      letterSpacing: '0.2em',
-                                      textShadow: useBloombergTheme
-                                        ? '0 0 20px rgba(251,146,60,0.5)'
-                                        : '0 2px 4px rgba(0,0,0,0.8)',
-                                    }}
-                                  >
-                                    FLOW MAP
-                                  </h3>
-                                  {useBloombergTheme && (
-                                    <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                  )}
-                                </div>
-                              </div>
-                              <div
-                                className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                style={{
-                                  maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
-                                  overflowX: 'auto',
-                                }}
-                              >
-                                <table
+                                <h3
+                                  className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
                                   style={{
-                                    minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
-                                    width: '100%',
+                                    letterSpacing: '0.2em',
+                                    textShadow: useBloombergTheme
+                                      ? '0 0 20px rgba(251,146,60,0.5)'
+                                      : '0 2px 4px rgba(0,0,0,0.8)',
                                   }}
                                 >
-                                  <thead
-                                    className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                    style={{
-                                      top: '0',
-                                      backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                    }}
+                                  FLOW MAP
+                                </h3>
+                                {useBloombergTheme && (
+                                  <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                )}
+                              </div>
+                            </div>
+                            <div
+                              className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                              style={{
+                                maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)',
+                                overflowX: 'auto',
+                              }}
+                            >
+                              <table
+                                style={{
+                                  minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
+                                  width: '100%',
+                                }}
+                              >
+                                <thead
+                                  className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                  style={{
+                                    top: '0',
+                                    backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                  }}
+                                >
+                                  <tr
+                                    className={
+                                      useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                    }
                                   >
-                                    <tr
-                                      className={
-                                        useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                      }
+                                    <th
+                                      className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                      style={{
+                                        width: `${mobileStrikeWidth}px`,
+                                        minWidth: `${mobileStrikeWidth}px`,
+                                        maxWidth: `${mobileStrikeWidth}px`,
+                                      }}
                                     >
+                                      <div
+                                        className={
+                                          useBloombergTheme
+                                            ? 'bb-header text-xs md:text-sm text-gray-400'
+                                            : 'text-xs md:text-sm font-bold text-white uppercase'
+                                        }
+                                      >
+                                        Strike
+                                      </div>
+                                    </th>
+                                    {table3Expirations.map((exp) => (
                                       <th
-                                        className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                        key={exp}
+                                        className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                         style={{
-                                          width: `${mobileStrikeWidth}px`,
-                                          minWidth: `${mobileStrikeWidth}px`,
-                                          maxWidth: `${mobileStrikeWidth}px`,
+                                          width: `${mobileExpWidth}px`,
+                                          minWidth: `${mobileExpWidth}px`,
+                                          maxWidth: `${mobileExpWidth}px`,
                                         }}
                                       >
-                                        <div
-                                          className={
-                                            useBloombergTheme
-                                              ? 'bb-header text-xs md:text-sm text-gray-400'
-                                              : 'text-xs md:text-sm font-bold text-white uppercase'
-                                          }
-                                        >
-                                          Strike
+                                        <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
                                         </div>
                                       </th>
-                                      {table3Expirations.map((exp) => (
-                                        <th
-                                          key={exp}
-                                          className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                          style={{
-                                            width: `${mobileExpWidth}px`,
-                                            minWidth: `${mobileExpWidth}px`,
-                                            maxWidth: `${mobileExpWidth}px`,
-                                          }}
-                                        >
-                                          <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                            {formatDate(exp)}
-                                          </div>
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {allFlowWeightedDealerData
-                                      .filter((row) => {
-                                        const strikeRange = getStrikeRange(currentPrice)
-                                        return (
-                                          row.strike >= strikeRange.min &&
-                                          row.strike <= strikeRange.max
-                                        )
-                                      })
-                                      .map((row, idx) => {
-                                        // Use historical price when scrubbing, otherwise current price
-                                        const priceForRow = historicalTimestamp
-                                          ? historicalPrice
-                                          : currentPrice
-                                        const closestStrike =
-                                          priceForRow > 0
-                                            ? data.reduce((closest, current) =>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allFlowWeightedDealerData
+                                    .filter((row) => {
+                                      const strikeRange = getStrikeRange(currentPrice)
+                                      return (
+                                        row.strike >= strikeRange.min &&
+                                        row.strike <= strikeRange.max
+                                      )
+                                    })
+                                    .map((row, idx) => {
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp
+                                        ? historicalPrice
+                                        : currentPrice
+                                      const closestStrike =
+                                        priceForRow > 0
+                                          ? data.reduce((closest, current) =>
                                               Math.abs(current.strike - priceForRow) <
-                                                Math.abs(closest.strike - priceForRow)
+                                              Math.abs(closest.strike - priceForRow)
                                                 ? current
                                                 : closest
                                             ).strike
-                                            : 0
+                                          : 0
 
-                                        const isCurrentPriceRow =
-                                          priceForRow > 0 && row.strike === closestStrike
+                                      const isCurrentPriceRow =
+                                        priceForRow > 0 && row.strike === closestStrike
 
-                                        return (
-                                          <tr
-                                            key={idx}
-                                            className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
+                                      return (
+                                        <tr
+                                          key={idx}
+                                          className={`hover:bg-gray-800/20 transition-colors ${
+                                            isCurrentPriceRow
                                               ? 'border-2 border-orange-500'
                                               : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
+                                          }`}
+                                        >
+                                          <td
+                                            className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                            style={{
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
+                                            }}
                                           >
-                                            <td
-                                              className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                              style={{
-                                                width: `${mobileStrikeWidth}px`,
-                                                minWidth: `${mobileStrikeWidth}px`,
-                                                maxWidth: `${mobileStrikeWidth}px`,
-                                              }}
+                                            <div
+                                              className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                             >
-                                              <div
-                                                className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                              >
-                                                {row.strike.toFixed(1)}
-                                              </div>
-                                            </td>
-                                            {table3Expirations.map((exp) => {
-                                              const value = row[exp] as any
-                                              const displayValue = (value?.call || 0) + (value?.put || 0)
-                                              const cellStyle = getCellStyle(
-                                                displayValue,
-                                                false,
-                                                row.strike,
-                                                exp,
-                                                flowTopValues
-                                              )
+                                              {row.strike.toFixed(1)}
+                                            </div>
+                                          </td>
+                                          {table3Expirations.map((exp) => {
+                                            const value = row[exp] as any
+                                            const displayValue =
+                                              (value?.call || 0) + (value?.put || 0)
+                                            const cellStyle = getCellStyle(
+                                              displayValue,
+                                              false,
+                                              row.strike,
+                                              exp,
+                                              flowTopValues
+                                            )
 
-                                              return (
-                                                <td
-                                                  key={exp}
-                                                  className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                  style={{
-                                                    width: `${mobileExpWidth}px`,
-                                                    minWidth: `${mobileExpWidth}px`,
-                                                    maxWidth: `${mobileExpWidth}px`,
-                                                  }}
+                                            return (
+                                              <td
+                                                key={exp}
+                                                className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                style={{
+                                                  width: `${mobileExpWidth}px`,
+                                                  minWidth: `${mobileExpWidth}px`,
+                                                  maxWidth: `${mobileExpWidth}px`,
+                                                }}
+                                              >
+                                                <div
+                                                  className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
                                                 >
-                                                  <div
-                                                    className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
-                                                  >
-                                                    <div className="text-sm md:text-base font-bold mb-1">
-                                                      {formatCurrency(displayValue)}
-                                                    </div>
+                                                  <div className="text-sm md:text-base font-bold mb-1">
+                                                    {formatCurrency(displayValue)}
                                                   </div>
-                                                </td>
-                                              )
-                                            })}
-                                          </tr>
-                                        )
-                                      })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                                </div>
+                                              </td>
+                                            )
+                                          })}
+                                        </tr>
+                                      )
+                                    })}
+                                </tbody>
+                              </table>
                             </div>
-                          )}
-                        </>
-                      )
-                    })()}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              ) : (
+                /* Original single table when only one mode is active */
+                <div>
+                  {/* Title banner for single-table mode */}
+                  <div
+                    className={`${
+                      showGEX
+                        ? useBloombergTheme
+                          ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                          : 'bg-black border-gray-700'
+                        : showDealer
+                          ? useBloombergTheme
+                            ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                            : 'bg-black border-gray-700'
+                          : showFlowGEX
+                            ? useBloombergTheme
+                              ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                              : 'bg-black border-gray-700'
+                            : 'bg-black border-gray-700'
+                    } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                  >
+                    <div className="flex items-center justify-center gap-3 relative z-10">
+                      {useBloombergTheme && (
+                        <div
+                          className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                        ></div>
+                      )}
+                      <h3
+                        className={`text-lg font-black uppercase tracking-widest text-center ${
+                          useBloombergTheme
+                            ? showGEX
+                              ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]'
+                              : showDealer
+                                ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]'
+                                : 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]'
+                            : 'text-white'
+                        }`}
+                        style={{ letterSpacing: '0.2em' }}
+                      >
+                        {showGEX ? 'NORMAL' : showDealer ? 'DEALER' : showFlowGEX ? 'FLOW MAP' : ''}
+                      </h3>
+                      {useBloombergTheme && (
+                        <div
+                          className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                        ></div>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  /* Original single table when only one mode is active */
                   <div
                     className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                     style={{
@@ -9690,7 +9705,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       <thead
                         className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
                       >
-                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                        <tr
+                          className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}
+                        >
                           <th
                             className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
                             style={{
@@ -9724,10 +9741,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       </thead>
                       <tbody>
                         {(showFlowGEX
-                          ? data
-                          : showGEX || showDealer || showVEX
-                            ? allCalculatedData
-                            : data
+                          ? allFlowWeightedDealerData
+                          : showDealer
+                            ? allDealerCalculatedData
+                            : allGEXCalculatedData
                         )
                           .filter((row) => {
                             const strikeRange = getStrikeRange(currentPrice)
@@ -9739,11 +9756,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             const closestStrike =
                               priceForRow > 0
                                 ? data.reduce((closest, current) =>
-                                  Math.abs(current.strike - priceForRow) <
+                                    Math.abs(current.strike - priceForRow) <
                                     Math.abs(closest.strike - priceForRow)
-                                    ? current
-                                    : closest
-                                ).strike
+                                      ? current
+                                      : closest
+                                  ).strike
                                 : 0
 
                             // Find the strike with the highest GEX value using the same logic as cell highlighting
@@ -9752,71 +9769,43 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             const largestValueStrike =
                               allCalculatedData.length > 0 && topValues.highest > 0
                                 ? (allCalculatedData.find((row) => {
-                                  return expirations.some((exp) => {
-                                    const value = row[exp] as {
-                                      call: number
-                                      put: number
-                                      net: number
-                                    }
+                                    return expirations.some((exp) => {
+                                      const value = row[exp] as {
+                                        call: number
+                                        put: number
+                                        net: number
+                                      }
 
-                                    // For Net modes, check the net value
-                                    if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
-                                      const netAbs = Math.abs(value?.net || 0)
-                                      return Math.abs(netAbs - topValues.highest) < tolerance
-                                    }
+                                      // For Net modes, check the net value
+                                      if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
+                                        const netAbs = Math.abs(value?.net || 0)
+                                        return Math.abs(netAbs - topValues.highest) < tolerance
+                                      }
 
-                                    // For split modes, check call and put separately
-                                    const callAbs = Math.abs(value?.call || 0)
-                                    const putAbs = Math.abs(value?.put || 0)
-                                    return (
-                                      Math.abs(callAbs - topValues.highest) < tolerance ||
-                                      Math.abs(putAbs - topValues.highest) < tolerance
-                                    )
-                                  })
-                                })?.strike ?? 0)
+                                      // For split modes, check call and put separately
+                                      const callAbs = Math.abs(value?.call || 0)
+                                      const putAbs = Math.abs(value?.put || 0)
+                                      return (
+                                        Math.abs(callAbs - topValues.highest) < tolerance ||
+                                        Math.abs(putAbs - topValues.highest) < tolerance
+                                      )
+                                    })
+                                  })?.strike ?? 0)
                                 : 0
 
                             // Find the cell with largest VEX value (only when VEX is enabled)
-                            let largestVexCell: {
-                              strike: number | null
-                              exp: string | null
-                              type: string | null
-                              value: number
-                            } = { strike: null, exp: null, type: null, value: 0 }
-                            if (showVEX) {
-                              data.forEach((row) => {
-                                expirations.forEach((exp) => {
-                                  const value = row[exp] as any
-                                  if (Math.abs(value?.callVex || 0) > largestVexCell.value) {
-                                    largestVexCell = {
-                                      strike: row.strike,
-                                      exp,
-                                      type: 'call',
-                                      value: Math.abs(value?.callVex || 0),
-                                    }
-                                  }
-                                  if (Math.abs(value?.putVex || 0) > largestVexCell.value) {
-                                    largestVexCell = {
-                                      strike: row.strike,
-                                      exp,
-                                      type: 'put',
-                                      value: Math.abs(value?.putVex || 0),
-                                    }
-                                  }
-                                })
-                              })
-                            }
-
-                            const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike
+                            const isCurrentPriceRow =
+                              currentPrice > 0 && row.strike === closestStrike
                             const isLargestValueRow = row.strike === largestValueStrike
 
                             return (
                               <tr
                                 key={idx}
-                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
-                                  ? 'border-2 border-orange-500'
-                                  : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                  }`}
+                                className={`hover:bg-gray-800/20 transition-colors ${
+                                  isCurrentPriceRow
+                                    ? 'border-2 border-orange-500'
+                                    : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                }`}
                               >
                                 <td
                                   className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
@@ -9833,108 +9822,29 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   </div>
                                 </td>
                                 {expirations.map((exp) => {
-                                  const value = row[exp] as {
-                                    call: number
-                                    put: number
-                                    net: number
-                                    callOI: number
-                                    putOI: number
-                                    callPremium?: number
-                                    putPremium?: number
-                                    callVex?: number
-                                    putVex?: number
-                                  }
-                                  const callValue = value?.call || 0
-                                  const putValue = value?.put || 0
-                                  const netValue = value?.net || 0
-                                  let callOI = value?.callOI || 0
-                                  let putOI = value?.putOI || 0
+                                  const value = row[exp] as any
+                                  const displayValue = (value?.call || 0) + (value?.put || 0)
 
-                                  // Use Live OI if mode is selected
-                                  if (liveMode && liveOIData.size > 0) {
-                                    const callKey = `${selectedTicker}_${row.strike}_call_${exp}`
-                                    const putKey = `${selectedTicker}_${row.strike}_put_${exp}`
+                                  // Determine which top values and table type to use
+                                  const modeTopValues = showFlowGEX
+                                    ? flowTopValues
+                                    : showDealer
+                                      ? dealerTopValues
+                                      : gexTopValues
+                                  const tableType: 'gex' | 'dealer' | undefined = showFlowGEX
+                                    ? undefined
+                                    : showDealer
+                                      ? 'dealer'
+                                      : 'gex'
 
-                                    const liveCallOI = liveOIData.get(callKey)
-                                    const livePutOI = liveOIData.get(putKey)
-
-                                    if (liveCallOI !== undefined) callOI = liveCallOI
-                                    if (livePutOI !== undefined) putOI = livePutOI
-                                  }
-
-                                  const callPremium = value?.callPremium || 0
-                                  const putPremium = value?.putPremium || 0
-                                  const callVex = value?.callVex || 0
-                                  const putVex = value?.putVex || 0
-
-                                  // Check if this is the largest VEX cell
-                                  const isLargestVexCall =
-                                    showVEX &&
-                                    largestVexCell.strike === row.strike &&
-                                    largestVexCell.exp === exp &&
-                                    largestVexCell.type === 'call'
-                                  const isLargestVexPut =
-                                    showVEX &&
-                                    largestVexCell.strike === row.strike &&
-                                    largestVexCell.exp === exp &&
-                                    largestVexCell.type === 'put'
-
-                                  // Dealer attraction identification (when Live OI is active)
-                                  const tops = topValues
-                                  const absCallValue = Math.abs(callValue)
-                                  const absPutValue = Math.abs(putValue)
-                                  const netValueCalculated = callValue + putValue // Calculate net from actual call+put values
-                                  const absNetValue = Math.abs(netValueCalculated)
-
-                                  // Check if this cell is an Attraction or Reversal level
-                                  // For split mode (separate call/put cells)
-                                  const isAttractionCall =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    absCallValue === tops.highest &&
-                                    absCallValue > 0
-                                  const isAttractionPut =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    absPutValue === tops.highest &&
-                                    absPutValue > 0
-                                  const isReversalCall =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    (absCallValue === tops.second || absCallValue === tops.third) &&
-                                    absCallValue > 0
-                                  const isReversalPut =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    (absPutValue === tops.second || absPutValue === tops.third) &&
-                                    absPutValue > 0
-
-                                  // For Net GEX/Net Dealer mode (single cell with net value)
-                                  const isAttractionNet =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    (gexMode === 'Net GEX' || gexMode === 'Net Dealer') &&
-                                    absNetValue === tops.highest &&
-                                    absNetValue > 0
-                                  const isReversalNet =
-                                    liveMode &&
-                                    (showGEX || showDealer) &&
-                                    (gexMode === 'Net GEX' || gexMode === 'Net Dealer') &&
-                                    (absNetValue === tops.second || absNetValue === tops.third) &&
-                                    absNetValue > 0
-
-                                  // VEX Action Labels - Determine what to display in VEX cells
-                                  const getVexActionLabel = (
-                                    vexValue: number,
-                                    strike: number
-                                  ): string | null => {
-                                    return null
-                                  }
-
-                                  const netVexAction = getVexActionLabel(callVex + putVex, row.strike)
-                                  const callVexAction = getVexActionLabel(callVex, row.strike)
-                                  const putVexAction = getVexActionLabel(putVex, row.strike)
-
+                                  const cellStyle = getCellStyle(
+                                    displayValue,
+                                    false,
+                                    row.strike,
+                                    exp,
+                                    modeTopValues,
+                                    tableType
+                                  )
                                   return (
                                     <td
                                       key={exp}
@@ -9942,56 +9852,22 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
                                     >
                                       {/* Always display net value in a single cell */}
-                                      {(() => {
-                                        // Calculate net value based on active mode
-                                        let displayValue = 0
-                                        if (showFlowGEX) {
-                                          displayValue = (value as any)?.flowNet || 0
-                                        } else if (showVEX) {
-                                          displayValue = callVex + putVex
-                                        } else if (showGEX || showDealer) {
-                                          displayValue = callValue + putValue
-                                        }
-
-                                        // Determine which top values to use for this mode
-                                        const modeTopValues = showFlowGEX
-                                          ? flowTopValues
-                                          : showVEX
-                                            ? vexTopValues
-                                            : showDealer
-                                              ? dealerTopValues
-                                              : gexTopValues
-
-                                        const cellStyle = getCellStyle(
-                                          displayValue,
-                                          showVEX,
-                                          row.strike,
-                                          exp,
-                                          modeTopValues
-                                        )
-                                        return (
-                                          <div
-                                            className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}
-                                          >
-                                            {/* Display the net value */}
-                                            <div className="text-sm md:text-base font-bold mb-1">
-                                              {formatCurrency(displayValue)}
-                                            </div>
-
-                                            {/* Show VEX action label if applicable */}
-                                            {showVEX && netVexAction && (
-                                              <div
-                                                className="text-[9px] font-black tracking-wider text-white/90"
-                                                style={{
-                                                  textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-                                                }}
-                                              >
-                                                {netVexAction}
-                                              </div>
-                                            )}
-                                          </div>
-                                        )
-                                      })()}
+                                      <div
+                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105 ${
+                                          cellStyle.clusterPosition === 'top'
+                                            ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                            : cellStyle.clusterPosition === 'middle'
+                                              ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                              : cellStyle.clusterPosition === 'bottom'
+                                                ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
+                                                : ''
+                                        }`}
+                                      >
+                                        {/* Display the net value */}
+                                        <div className="text-sm md:text-base font-bold mb-1">
+                                          {formatCurrency(displayValue)}
+                                        </div>
+                                      </div>
                                     </td>
                                   )
                                 })}
@@ -10001,7 +9877,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       </tbody>
                     </table>
                   </div>
-                )}
+                </div>
+              )}
             </>
           ) : activeTab === 'WORKBENCH' ? (
             // WORKBENCH Panel Content
@@ -10040,4 +9917,4 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   )
 }
 
-export default DealerAttraction
+export default LiquidPanel

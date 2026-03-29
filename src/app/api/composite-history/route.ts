@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 // ─── Sector / industry groupings — exact same as calculateEnhancedRegime ─────
 const GROWTH_SECTORS = ['XLY', 'XLK', 'XLC']
@@ -98,7 +98,7 @@ function computeFlowScore(barIdx: number, bars: { t: number; c: number }[]): num
     if (bars[i].c > bars[i - 1].c) momCount++
   }
   // Scale to 0-100 (max raw = 60)
-  return Math.round((trendCount + momCount) / 60 * 100)
+  return Math.round(((trendCount + momCount) / 60) * 100)
 }
 
 // ─── Compute composite score for a single date index ─────────────────────────
@@ -177,12 +177,14 @@ function computeCompositeAt(
   const getFlowScore = (symbol: string): number => {
     const bars = allBars[symbol]
     if (!bars) return 50
-    const idx = bars.findIndex(b => new Date(b.t).toISOString().split('T')[0] === dateStr)
+    const idx = bars.findIndex((b) => new Date(b.t).toISOString().split('T')[0] === dateStr)
     if (idx < 0) return 50
     return computeFlowScore(idx, bars)
   }
-  const defFlowAvg = DEFENSIVE_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / DEFENSIVE_SECTORS.length
-  const growthFlowAvg = GROWTH_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / GROWTH_SECTORS.length
+  const defFlowAvg =
+    DEFENSIVE_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / DEFENSIVE_SECTORS.length
+  const growthFlowAvg =
+    GROWTH_SECTORS.map(getFlowScore).reduce((a, b) => a + b, 0) / GROWTH_SECTORS.length
   // High defensive sector scores → positive. High growth sector scores → negative (risk on).
   // Fund flow (shares_outstanding) not available historically → 0, so flowScore takes full 25% here.
   const flowScoreSignal = ((defFlowAvg - growthFlowAvg) / 100) * 4.0
@@ -197,12 +199,12 @@ function computeCompositeAt(
       const vixPrice = vixBars[vixBarIdx].c
       const { weight: vixWeight, signal: vixSig } = getVixAdjustment(vixPrice)
       // Budget: price=0.65, VIX≤0.05, flowScore=0.30 (absorbs fund flow share since no historical fund flow)
-      compositeSpread = compositeSpread * 0.65 + vixSig * vixWeight + flowScoreSignal * 0.30
+      compositeSpread = compositeSpread * 0.65 + vixSig * vixWeight + flowScoreSignal * 0.3
     } else {
-      compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.30
+      compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.3
     }
   } else {
-    compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.30
+    compositeSpread = compositeSpread * 0.65 + flowScoreSignal * 0.3
   }
 
   // ── Derive regime label ───────────────────────────────────────────

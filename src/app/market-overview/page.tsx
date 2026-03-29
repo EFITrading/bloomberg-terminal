@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic'
 import '../mobile-trading.css'
 
 // Dynamically import EFICharting to avoid SSR issues
-const TradingViewChart = dynamic(() => import('../../components/trading/EFICharting'), {
+const EFIChart = dynamic(() => import('../../components/trading/EFICharting'), {
   ssr: false,
 })
 
@@ -74,7 +74,7 @@ export default function MarketPage() {
       style={{ paddingTop: '120px', overscrollBehavior: 'none' }}
     >
       <div className="w-full h-full">
-        <TradingViewChart
+        <EFIChart
           symbol={selectedSymbol}
           initialTimeframe={selectedTimeframe}
           height={chartHeight}

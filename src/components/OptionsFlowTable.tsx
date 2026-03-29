@@ -722,7 +722,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           while (parsed.length < 10) parsed.push('')
           return parsed
         }
-      } catch { }
+      } catch {}
     }
     return empty10
   })
@@ -1850,6 +1850,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       priceAction: number
 
+      volumeOI: number
+
       stockReaction: number
     }
   } => {
@@ -1882,6 +1884,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       priceAction: 0,
 
+      volumeOI: 0,
+
       stockReaction: 0,
     }
 
@@ -1909,7 +1913,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
         color: '#9ca3af',
 
-        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/10\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/15`,
+        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/10\nCombo Trade: 0/10\nPrice Action: 0/10\nVolume vs OI: 0/15\nStock Reaction: 0/15`,
 
         stdDevError: stdDevFailed.has(trade.underlying_ticker),
 
@@ -1976,7 +1980,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const currentTime = new Date()
     const isCall = trade.type === 'call'
 
-    // 5. Price Action Score (25 points max) - Consolidation OR Reversal Bet
+    // 5. Price Action Score (10 points max) - Consolidation OR Reversal Bet
     const stdDev = historicalStdDevs.get(trade.underlying_ticker)
 
     if (currentStockPrice && entryStockPrice && stdDev) {
@@ -1989,10 +1993,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       // SCENARIO A: Stock stayed calm (consolidation)
       if (withinStdDev) {
-        if (tradingDaysElapsed >= 3) scores.priceAction = 25
-        else if (tradingDaysElapsed >= 2) scores.priceAction = 20
-        else if (tradingDaysElapsed >= 1) scores.priceAction = 15
-        else scores.priceAction = 10
+        if (tradingDaysElapsed >= 3) scores.priceAction = 10
+        else if (tradingDaysElapsed >= 2) scores.priceAction = 8
+        else if (tradingDaysElapsed >= 1) scores.priceAction = 6
+        else scores.priceAction = 4
+        console.debug(
+          `[EFI Grade] ${trade.underlying_ticker} Price Action (consolidation): +${scores.priceAction}/10 | daysElapsed=${tradingDaysElapsed}, withinStdDev=${withinStdDev}`
+        )
       }
       // SCENARIO B: Stock moved big - check if flow is contrarian reversal bet
       else {
@@ -2007,21 +2014,57 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           (stockPercentChange > stdDev && isBearishFlow)
 
         if (isReversalBet) {
-          if (tradingDaysElapsed >= 3) scores.priceAction = 25
-          else if (tradingDaysElapsed >= 2) scores.priceAction = 20
-          else if (tradingDaysElapsed >= 1) scores.priceAction = 15
-          else scores.priceAction = 12
+          if (tradingDaysElapsed >= 3) scores.priceAction = 10
+          else if (tradingDaysElapsed >= 2) scores.priceAction = 8
+          else if (tradingDaysElapsed >= 1) scores.priceAction = 6
+          else scores.priceAction = 5
         } else {
-          scores.priceAction = 10
+          scores.priceAction = 4
         }
+        console.debug(
+          `[EFI Grade] ${trade.underlying_ticker} Price Action (big move): +${scores.priceAction}/10 | isReversalBet=${isReversalBet}, daysElapsed=${tradingDaysElapsed}, stockPct=${stockPercentChange.toFixed(2)}%, stdDev=${stdDev.toFixed(2)}%`
+        )
       }
     } else {
       scores.priceAction = 0
+      console.debug(
+        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data — currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
+      )
     }
 
     confidenceScore += scores.priceAction
 
-    // 6. Stock Reaction Score (15 points max)
+    // 7. Volume vs Open Interest Score (15 points max)
+    // Rewards high relative volume vs open interest on the traded strike
+    const tradeVolume = trade.volume ?? null
+    const tradeOI = trade.open_interest ?? null
+
+    if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
+      const volOIRatio = tradeVolume / tradeOI
+
+      if (volOIRatio >= 1.5) {
+        scores.volumeOI = 15 // Volume > OI by 50%+
+      } else if (volOIRatio >= 1.0) {
+        scores.volumeOI = 10 // Volume >= OI but < 150% of OI
+      } else if (volOIRatio >= 0.5) {
+        scores.volumeOI = 5 // Volume >= half of OI but < OI
+      } else {
+        scores.volumeOI = 0 // Volume < half of OI
+      }
+
+      console.debug(
+        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: +${scores.volumeOI}/15 | volume=${tradeVolume}, OI=${tradeOI}, ratio=${volOIRatio.toFixed(3)} (${(volOIRatio * 100).toFixed(1)}% of OI)`
+      )
+    } else {
+      scores.volumeOI = 0
+      console.debug(
+        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data — volume=${tradeVolume}, OI=${tradeOI})`
+      )
+    }
+
+    confidenceScore += scores.volumeOI
+
+    // 8. Stock Reaction Score (15 points max)
     // Measure stock movement 1 hour and 3 hours after trade placement
     if (currentStockPrice && entryStockPrice) {
       const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100
@@ -2099,7 +2142,9 @@ Relative Strength: ${scores.relativeStrength}/10
 
 Combo Trade: ${scores.combo}/10
 
-Price Action: ${scores.priceAction}/25
+Price Action: ${scores.priceAction}/10
+
+Volume vs OI: ${scores.volumeOI}/15
 
 Stock Reaction: ${scores.stockReaction}/15`
 
@@ -3137,7 +3182,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             [key]: { golden, purple, atmIV, goldenExpiry, purpleExpiry },
           }))
         })
-        .catch(() => { })
+        .catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paginatedData, notableFilterActive, efiHighlightsActive])
@@ -3378,17 +3423,19 @@ Stock Reaction: ${scores.stockReaction}/15`
             className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
               top: typeof window !== 'undefined' && window.innerWidth < 768 ? '180px' : '224px',
-              background: typeof window !== 'undefined' && window.innerWidth < 768
-                ? '#000000'
-                : '#000',
-              border: typeof window !== 'undefined' && window.innerWidth < 768
-                ? '1px solid rgba(255,255,255,0.1)'
-                : '1px solid #4b5563',
-              borderRadius: typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '8px',
+              background:
+                typeof window !== 'undefined' && window.innerWidth < 768 ? '#000000' : '#000',
+              border:
+                typeof window !== 'undefined' && window.innerWidth < 768
+                  ? '1px solid rgba(255,255,255,0.1)'
+                  : '1px solid #4b5563',
+              borderRadius:
+                typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '8px',
               padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '16px',
-              boxShadow: typeof window !== 'undefined' && window.innerWidth < 768
-                ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
-                : '0 4px 16px rgba(0,0,0,0.5)',
+              boxShadow:
+                typeof window !== 'undefined' && window.innerWidth < 768
+                  ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
+                  : '0 4px 16px rgba(0,0,0,0.5)',
             }}
           >
             <div className="filter-dialog-content">
@@ -3427,7 +3474,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={() => setIsFilterDialogOpen(false)}
                   className="absolute right-0 font-bold"
-                  style={{ color: '#ffffff', fontSize: '22px', lineHeight: 1, padding: '2px 6px', background: '#111', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)' }}
+                  style={{
+                    color: '#ffffff',
+                    fontSize: '22px',
+                    lineHeight: 1,
+                    padding: '2px 6px',
+                    background: '#111',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                  }}
                 >
                   ×
                 </button>
@@ -3437,35 +3492,184 @@ Stock Reaction: ${scores.stockReaction}/15`
 
               {isMobileView && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-
                   {/* ── OPTIONS + TYPE ── */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-
                     {/* OPTIONS */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #ef4444)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #10b981, #ef4444)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Options
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {[{ label: 'CALLS', value: 'call', color: '#10b981', glow: 'rgba(16,185,129,0.25)' }, { label: 'PUTS', value: 'put', color: '#ef4444', glow: 'rgba(239,68,68,0.25)' }].map(({ label, value, color, glow }) => {
+                        {[
+                          {
+                            label: 'CALLS',
+                            value: 'call',
+                            color: '#10b981',
+                            glow: 'rgba(16,185,129,0.25)',
+                          },
+                          {
+                            label: 'PUTS',
+                            value: 'put',
+                            color: '#ef4444',
+                            glow: 'rgba(239,68,68,0.25)',
+                          },
+                        ].map(({ label, value, color, glow }) => {
                           const active = selectedOptionTypes.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedOptionTypes(prev => active ? prev.filter(t => t !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '9px 8px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
-                              <span style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedOptionTypes((prev) =>
+                                  active ? prev.filter((t) => t !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '7px',
+                                padding: '9px 8px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
+                                background: active
+                                  ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active
+                                  ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                                  : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '7px',
+                                  height: '7px',
+                                  borderRadius: '50%',
+                                  background: active ? color : '#374151',
+                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '16px',
+                                  fontWeight: 800,
+                                  letterSpacing: '1.5px',
+                                  color: active ? color : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
-                        <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                          {[{ label: 'BUY', value: 'buy', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' }, { label: 'SELL', value: 'sell', color: '#f97316', glow: 'rgba(249,115,22,0.25)' }].map(({ label, value, color, glow }) => {
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            paddingTop: '8px',
+                            borderTop: '1px solid rgba(255,255,255,0.07)',
+                          }}
+                        >
+                          {[
+                            {
+                              label: 'BUY',
+                              value: 'buy',
+                              color: '#22d3ee',
+                              glow: 'rgba(34,211,238,0.25)',
+                            },
+                            {
+                              label: 'SELL',
+                              value: 'sell',
+                              color: '#f97316',
+                              glow: 'rgba(249,115,22,0.25)',
+                            },
+                          ].map(({ label, value, color, glow }) => {
                             const active = selectedOrderSides.includes(value)
                             return (
-                              <button key={value} onClick={() => setSelectedOrderSides(prev => active ? prev.filter(s => s !== value) : [...prev, value])}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '8px 8px', marginBottom: '6px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                                <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
-                                <span style={{ fontSize: '14px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedOrderSides((prev) =>
+                                    active ? prev.filter((s) => s !== value) : [...prev, value]
+                                  )
+                                }
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '7px',
+                                  padding: '8px 8px',
+                                  marginBottom: '6px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
+                                  background: active
+                                    ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
+                                    : 'rgba(255,255,255,0.02)',
+                                  boxShadow: active ? `0 0 12px ${glow}` : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  width: '100%',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: '7px',
+                                    height: '7px',
+                                    borderRadius: '50%',
+                                    background: active ? color : '#374151',
+                                    boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                    transition: 'all 0.15s ease',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: '14px',
+                                    fontWeight: 800,
+                                    letterSpacing: '1.5px',
+                                    color: active ? color : '#ffffff',
+                                  }}
+                                >
+                                  {label}
+                                </span>
                               </button>
                             )
                           })}
@@ -3474,19 +3678,109 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
 
                     {/* TYPE */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #6366f1, #f59e0b)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Type</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #6366f1, #f59e0b)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Type
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {[{ label: 'BLOCK', value: 'block', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' }, { label: 'SWEEP', value: 'sweep', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' }].map(({ label, value, color, glow }) => {
+                        {[
+                          {
+                            label: 'BLOCK',
+                            value: 'block',
+                            color: '#6366f1',
+                            glow: 'rgba(99,102,241,0.25)',
+                          },
+                          {
+                            label: 'SWEEP',
+                            value: 'sweep',
+                            color: '#f59e0b',
+                            glow: 'rgba(245,158,11,0.25)',
+                          },
+                        ].map(({ label, value, color, glow }) => {
                           const active = selectedUniqueFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', padding: '9px 8px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`, background: active ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
-                              <span style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedUniqueFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '7px',
+                                padding: '9px 8px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
+                                background: active
+                                  ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active
+                                  ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                                  : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '7px',
+                                  height: '7px',
+                                  borderRadius: '50%',
+                                  background: active ? color : '#374151',
+                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '16px',
+                                  fontWeight: 800,
+                                  letterSpacing: '1.5px',
+                                  color: active ? color : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
@@ -3495,51 +3789,271 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
 
                   {/* ── PREMIUM ── */}
-                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #059669)' }} />
-                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Premium</span>
+                  <div
+                    style={{
+                      background: '#000',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '3px',
+                          height: '14px',
+                          borderRadius: '2px',
+                          background: 'linear-gradient(180deg, #10b981, #059669)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          letterSpacing: '2px',
+                          textTransform: 'uppercase',
+                          color: '#ffffff',
+                        }}
+                      >
+                        Premium
+                      </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '10px' }}>
-                      {[{ label: '≥ $50K', value: '50000' }, { label: '≥ $99K', value: '99000' }, { label: '≥ $200K', value: '200000' }, { label: '≥ $1M', value: '1000000' }].map(({ label, value }) => {
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '6px',
+                        marginBottom: '10px',
+                      }}
+                    >
+                      {[
+                        { label: '≥ $50K', value: '50000' },
+                        { label: '≥ $99K', value: '99000' },
+                        { label: '≥ $200K', value: '200000' },
+                        { label: '≥ $1M', value: '1000000' },
+                      ].map(({ label, value }) => {
                         const active = selectedPremiumFilters.includes(value)
                         return (
-                          <button key={value} onClick={() => setSelectedPremiumFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                            style={{ padding: '9px 6px', borderRadius: '8px', border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.06)'}`, background: active ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '16px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#10b981' : '#ffffff' }}>
+                          <button
+                            key={value}
+                            onClick={() =>
+                              setSelectedPremiumFilters((prev) =>
+                                active ? prev.filter((f) => f !== value) : [...prev, value]
+                              )
+                            }
+                            style={{
+                              padding: '9px 6px',
+                              borderRadius: '8px',
+                              border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.06)'}`,
+                              background: active
+                                ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)'
+                                : 'rgba(255,255,255,0.02)',
+                              boxShadow: active
+                                ? '0 0 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
+                                : 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              fontSize: '16px',
+                              fontWeight: 800,
+                              letterSpacing: '0.5px',
+                              color: active ? '#10b981' : '#ffffff',
+                            }}
+                          >
                             {label}
                           </button>
                         )
                       })}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '8px',
+                        paddingTop: '10px',
+                        borderTop: '1px solid rgba(255,255,255,0.05)',
+                      }}
+                    >
                       <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MIN</span>
-                        <input type="number" value={customMinPremium} onChange={(e) => setCustomMinPremium(e.target.value)} placeholder="$0" style={{ width: '100%', paddingLeft: '38px', paddingRight: '8px', paddingTop: '9px', paddingBottom: '9px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '16px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: '10px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: '14px',
+                            color: '#94a3b8',
+                            pointerEvents: 'none',
+                            fontWeight: 700,
+                          }}
+                        >
+                          MIN
+                        </span>
+                        <input
+                          type="number"
+                          value={customMinPremium}
+                          onChange={(e) => setCustomMinPremium(e.target.value)}
+                          placeholder="$0"
+                          style={{
+                            width: '100%',
+                            paddingLeft: '38px',
+                            paddingRight: '8px',
+                            paddingTop: '9px',
+                            paddingBottom: '9px',
+                            background: '#000',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: '8px',
+                            color: '#ffffff',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
                       </div>
                       <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MAX</span>
-                        <input type="number" value={customMaxPremium} onChange={(e) => setCustomMaxPremium(e.target.value)} placeholder="$∞" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '9px', paddingBottom: '9px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '16px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: '10px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: '14px',
+                            color: '#94a3b8',
+                            pointerEvents: 'none',
+                            fontWeight: 700,
+                          }}
+                        >
+                          MAX
+                        </span>
+                        <input
+                          type="number"
+                          value={customMaxPremium}
+                          onChange={(e) => setCustomMaxPremium(e.target.value)}
+                          placeholder="$∞"
+                          style={{
+                            width: '100%',
+                            paddingLeft: '40px',
+                            paddingRight: '8px',
+                            paddingTop: '9px',
+                            paddingBottom: '9px',
+                            background: '#000',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: '8px',
+                            color: '#ffffff',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
 
                   {/* ── TICKER + SPECIAL ── */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-
                     {/* TICKER */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Ticker</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Ticker
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[{ label: 'ETF', value: 'ETF_ONLY' }, { label: 'STOCK', value: 'STOCK_ONLY' }, { label: 'MAG 7', value: 'MAG7_ONLY' }, { label: 'NO MAG7', value: 'EXCLUDE_MAG7' }].map(({ label, value }) => {
+                        {[
+                          { label: 'ETF', value: 'ETF_ONLY' },
+                          { label: 'STOCK', value: 'STOCK_ONLY' },
+                          { label: 'MAG 7', value: 'MAG7_ONLY' },
+                          { label: 'NO MAG7', value: 'EXCLUDE_MAG7' },
+                        ].map(({ label, value }) => {
                           const active = selectedTickerFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedTickerFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 8px', borderRadius: '7px', border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.05)'}`, background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? '#3b82f6' : '#374151', boxShadow: active ? '0 0 5px #3b82f6' : 'none', flexShrink: 0 }} />
-                              <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? '#93c5fd' : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedTickerFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '7px',
+                                padding: '7px 8px',
+                                borderRadius: '7px',
+                                border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.05)'}`,
+                                background: active
+                                  ? 'rgba(59,130,246,0.12)'
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  background: active ? '#3b82f6' : '#374151',
+                                  boxShadow: active ? '0 0 5px #3b82f6' : 'none',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '13px',
+                                  fontWeight: 800,
+                                  letterSpacing: '1px',
+                                  color: active ? '#93c5fd' : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
@@ -3547,19 +4061,97 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
 
                     {/* SPECIAL */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #06b6d4, #0891b2)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Special</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '10px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #06b6d4, #0891b2)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Special
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[{ label: 'ITM', value: 'ITM' }, { label: 'OTM', value: 'OTM' }, { label: 'WEEKLY', value: 'WEEKLY_ONLY' }, { label: 'MINI', value: 'MINI_ONLY' }].map(({ label, value }) => {
+                        {[
+                          { label: 'ITM', value: 'ITM' },
+                          { label: 'OTM', value: 'OTM' },
+                          { label: 'WEEKLY', value: 'WEEKLY_ONLY' },
+                          { label: 'MINI', value: 'MINI_ONLY' },
+                        ].map(({ label, value }) => {
                           const active = selectedUniqueFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 8px', borderRadius: '7px', border: `1px solid ${active ? '#06b6d4' : 'rgba(255,255,255,0.05)'}`, background: active ? 'rgba(6,182,212,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(6,182,212,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? '#06b6d4' : '#374151', boxShadow: active ? '0 0 5px #06b6d4' : 'none', flexShrink: 0 }} />
-                              <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? '#67e8f9' : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedUniqueFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '7px',
+                                padding: '7px 8px',
+                                borderRadius: '7px',
+                                border: `1px solid ${active ? '#06b6d4' : 'rgba(255,255,255,0.05)'}`,
+                                background: active
+                                  ? 'rgba(6,182,212,0.12)'
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active ? '0 0 10px rgba(6,182,212,0.2)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  background: active ? '#06b6d4' : '#374151',
+                                  boxShadow: active ? '0 0 5px #06b6d4' : 'none',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '13px',
+                                  fontWeight: 800,
+                                  letterSpacing: '1px',
+                                  color: active ? '#67e8f9' : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
@@ -3568,80 +4160,392 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
 
                   {/* ── BLACKLIST ── */}
-                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #ef4444, #b91c1c)' }} />
-                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Blacklist</span>
+                  <div
+                    style={{
+                      background: '#000',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '3px',
+                          height: '14px',
+                          borderRadius: '2px',
+                          background: 'linear-gradient(180deg, #ef4444, #b91c1c)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          letterSpacing: '2px',
+                          textTransform: 'uppercase',
+                          color: '#ffffff',
+                        }}
+                      >
+                        Blacklist
+                      </span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                       {blacklistedTickers.slice(0, 10).map((ticker, index) => (
-                        <input key={index} type="text" value={ticker}
-                          onChange={(e) => { const t = [...blacklistedTickers]; t[index] = e.target.value.toUpperCase(); setBlacklistedTickers(t) }}
-                          placeholder={`#${index + 1}`} maxLength={6}
-                          style={{ padding: '9px 6px', textAlign: 'center', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '16px', fontWeight: 800, letterSpacing: '1px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                        <input
+                          key={index}
+                          type="text"
+                          value={ticker}
+                          onChange={(e) => {
+                            const t = [...blacklistedTickers]
+                            t[index] = e.target.value.toUpperCase()
+                            setBlacklistedTickers(t)
+                          }}
+                          placeholder={`#${index + 1}`}
+                          maxLength={6}
+                          style={{
+                            padding: '9px 6px',
+                            textAlign: 'center',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                            borderRadius: '8px',
+                            color: '#fca5a5',
+                            fontSize: '16px',
+                            fontWeight: 800,
+                            letterSpacing: '1px',
+                            outline: 'none',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                          }}
+                        />
                       ))}
                     </div>
                   </div>
 
                   {/* ── EXPIRATION ── */}
-                  <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '12px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #a855f7, #7c3aed)' }} />
-                      <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Expiration</span>
+                  <div
+                    style={{
+                      background: '#000',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '3px',
+                          height: '14px',
+                          borderRadius: '2px',
+                          background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          letterSpacing: '2px',
+                          textTransform: 'uppercase',
+                          color: '#ffffff',
+                        }}
+                      >
+                        Expiration
+                      </span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       <div>
-                        <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>Start</span>
-                        <input type="date" value={expirationStartDate} onChange={(e) => setExpirationStartDate(e.target.value)}
-                          style={{ width: '100%', padding: '9px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            letterSpacing: '1.5px',
+                            color: '#94a3b8',
+                            marginBottom: '5px',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          Start
+                        </span>
+                        <input
+                          type="date"
+                          value={expirationStartDate}
+                          onChange={(e) => setExpirationStartDate(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '9px 8px',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(168,85,247,0.3)',
+                            borderRadius: '8px',
+                            color: '#e9d5ff',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
                       </div>
                       <div>
-                        <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>End</span>
-                        <input type="date" value={expirationEndDate} onChange={(e) => setExpirationEndDate(e.target.value)}
-                          style={{ width: '100%', padding: '9px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            letterSpacing: '1.5px',
+                            color: '#94a3b8',
+                            marginBottom: '5px',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          End
+                        </span>
+                        <input
+                          type="date"
+                          value={expirationEndDate}
+                          onChange={(e) => setExpirationEndDate(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '9px 8px',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(168,85,247,0.3)',
+                            borderRadius: '8px',
+                            color: '#e9d5ff',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
-
                 </div>
               )}
 
               {/* Desktop: Redesigned Layout */}
 
               {!isMobileView && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '0 4px' }}>
-
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '0 4px',
+                  }}
+                >
                   {/* Row 1: Options Type | Premium | Ticker Filter */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-
+                  <div
+                    style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
+                  >
                     {/* OPTIONS TYPE */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #ef4444)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options Type</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #10b981, #ef4444)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Options Type
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {[{ label: 'CALLS', value: 'call', color: '#10b981', glow: 'rgba(16,185,129,0.25)' }, { label: 'PUTS', value: 'put', color: '#ef4444', glow: 'rgba(239,68,68,0.25)' }].map(({ label, value, color, glow }) => {
+                        {[
+                          {
+                            label: 'CALLS',
+                            value: 'call',
+                            color: '#10b981',
+                            glow: 'rgba(16,185,129,0.25)',
+                          },
+                          {
+                            label: 'PUTS',
+                            value: 'put',
+                            color: '#ef4444',
+                            glow: 'rgba(239,68,68,0.25)',
+                          },
+                        ].map(({ label, value, color, glow }) => {
                           const active = selectedOptionTypes.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedOptionTypes(prev => active ? prev.filter(t => t !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`, background: active ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 14px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
-                              <span style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '1.5px', color: active ? color : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedOptionTypes((prev) =>
+                                  active ? prev.filter((t) => t !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
+                                background: active
+                                  ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)`
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active
+                                  ? `0 0 14px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                                  : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '8px',
+                                  height: '8px',
+                                  borderRadius: '50%',
+                                  background: active ? color : '#374151',
+                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '15px',
+                                  fontWeight: 800,
+                                  letterSpacing: '1.5px',
+                                  color: active ? color : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
                       </div>
-                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                        <span style={{ display: 'block', fontSize: '11px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>Order Side</span>
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          paddingTop: '8px',
+                          borderTop: '1px solid rgba(255,255,255,0.07)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            letterSpacing: '1.5px',
+                            color: '#94a3b8',
+                            marginBottom: '6px',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          Order Side
+                        </span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {[{ label: 'BUY (A/AA)', value: 'buy', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' }, { label: 'SELL (B/BB)', value: 'sell', color: '#f97316', glow: 'rgba(249,115,22,0.25)' }].map(({ label, value, color, glow }) => {
+                          {[
+                            {
+                              label: 'BUY (A/AA)',
+                              value: 'buy',
+                              color: '#22d3ee',
+                              glow: 'rgba(34,211,238,0.25)',
+                            },
+                            {
+                              label: 'SELL (B/BB)',
+                              value: 'sell',
+                              color: '#f97316',
+                              glow: 'rgba(249,115,22,0.25)',
+                            },
+                          ].map(({ label, value, color, glow }) => {
                             const active = selectedOrderSides.includes(value)
                             return (
-                              <button key={value} onClick={() => setSelectedOrderSides(prev => active ? prev.filter(s => s !== value) : [...prev, value])}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`, background: active ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 14px ${glow}` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: active ? color : '#374151', boxShadow: active ? `0 0 6px ${color}` : 'none', transition: 'all 0.15s ease', flexShrink: 0 }} />
-                                <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '1px', color: active ? color : '#ffffff' }}>{label}</span>
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedOrderSides((prev) =>
+                                    active ? prev.filter((s) => s !== value) : [...prev, value]
+                                  )
+                                }
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '8px',
+                                  padding: '9px 12px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
+                                  background: active
+                                    ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)`
+                                    : 'rgba(255,255,255,0.02)',
+                                  boxShadow: active ? `0 0 14px ${glow}` : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  width: '100%',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    background: active ? color : '#374151',
+                                    boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                    transition: 'all 0.15s ease',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: '13px',
+                                    fontWeight: 800,
+                                    letterSpacing: '1px',
+                                    color: active ? color : '#ffffff',
+                                  }}
+                                >
+                                  {label}
+                                </span>
                               </button>
                             )
                           })}
@@ -3650,48 +4554,267 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
 
                     {/* PREMIUM */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #10b981, #059669)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Premium</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #10b981, #059669)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Premium
+                        </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', marginBottom: '10px' }}>
-                        {[{ label: '≥ $50K', value: '50000' }, { label: '≥ $99K', value: '99000' }, { label: '≥ $200K', value: '200000' }, { label: '≥ $1M', value: '1000000' }].map(({ label, value }) => {
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '7px',
+                          marginBottom: '10px',
+                        }}
+                      >
+                        {[
+                          { label: '≥ $50K', value: '50000' },
+                          { label: '≥ $99K', value: '99000' },
+                          { label: '≥ $200K', value: '200000' },
+                          { label: '≥ $1M', value: '1000000' },
+                        ].map(({ label, value }) => {
                           const active = selectedPremiumFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedPremiumFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ padding: '10px 8px', borderRadius: '8px', border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.08)'}`, background: active ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 12px rgba(16,185,129,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '14px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#10b981' : '#ffffff' }}>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedPremiumFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                padding: '10px 8px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.08)'}`,
+                                background: active
+                                  ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)'
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active ? '0 0 12px rgba(16,185,129,0.2)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                fontSize: '14px',
+                                fontWeight: 800,
+                                letterSpacing: '0.5px',
+                                color: active ? '#10b981' : '#ffffff',
+                              }}
+                            >
                               {label}
                             </button>
                           )
                         })}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '8px',
+                          paddingTop: '10px',
+                          borderTop: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
                         <div style={{ position: 'relative' }}>
-                          <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MIN</span>
-                          <input type="number" value={customMinPremium} onChange={(e) => setCustomMinPremium(e.target.value)} placeholder="$0" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '10px', paddingBottom: '10px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                          <span
+                            style={{
+                              position: 'absolute',
+                              left: '10px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              fontSize: '12px',
+                              color: '#94a3b8',
+                              pointerEvents: 'none',
+                              fontWeight: 700,
+                            }}
+                          >
+                            MIN
+                          </span>
+                          <input
+                            type="number"
+                            value={customMinPremium}
+                            onChange={(e) => setCustomMinPremium(e.target.value)}
+                            placeholder="$0"
+                            style={{
+                              width: '100%',
+                              paddingLeft: '40px',
+                              paddingRight: '8px',
+                              paddingTop: '10px',
+                              paddingBottom: '10px',
+                              background: '#000',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: '8px',
+                              color: '#ffffff',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         </div>
                         <div style={{ position: 'relative' }}>
-                          <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8', pointerEvents: 'none', fontWeight: 700 }}>MAX</span>
-                          <input type="number" value={customMaxPremium} onChange={(e) => setCustomMaxPremium(e.target.value)} placeholder="$∞" style={{ width: '100%', paddingLeft: '40px', paddingRight: '8px', paddingTop: '10px', paddingBottom: '10px', background: '#000', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#ffffff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                          <span
+                            style={{
+                              position: 'absolute',
+                              left: '10px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              fontSize: '12px',
+                              color: '#94a3b8',
+                              pointerEvents: 'none',
+                              fontWeight: 700,
+                            }}
+                          >
+                            MAX
+                          </span>
+                          <input
+                            type="number"
+                            value={customMaxPremium}
+                            onChange={(e) => setCustomMaxPremium(e.target.value)}
+                            placeholder="$∞"
+                            style={{
+                              width: '100%',
+                              paddingLeft: '40px',
+                              paddingRight: '8px',
+                              paddingTop: '10px',
+                              paddingBottom: '10px',
+                              background: '#000',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: '8px',
+                              color: '#ffffff',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
 
                     {/* TICKER FILTER */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Ticker Filter</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Ticker Filter
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                        {[{ label: 'ETF Only', value: 'ETF_ONLY' }, { label: 'Stock Only', value: 'STOCK_ONLY' }, { label: 'Mag 7 Only', value: 'MAG7_ONLY' }, { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' }].map(({ label, value }) => {
+                        {[
+                          { label: 'ETF Only', value: 'ETF_ONLY' },
+                          { label: 'Stock Only', value: 'STOCK_ONLY' },
+                          { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
+                          { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
+                        ].map(({ label, value }) => {
                           const active = selectedTickerFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedTickerFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 10px', borderRadius: '8px', border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`, background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)', boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none', cursor: 'pointer', transition: 'all 0.15s ease', width: '100%' }}>
-                              <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: active ? '#3b82f6' : '#374151', boxShadow: active ? '0 0 5px #3b82f6' : 'none', flexShrink: 0 }} />
-                              <span style={{ fontSize: '14px', fontWeight: 800, letterSpacing: '0.5px', color: active ? '#93c5fd' : '#ffffff' }}>{label}</span>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedTickerFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '9px 10px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`,
+                                background: active
+                                  ? 'rgba(59,130,246,0.12)'
+                                  : 'rgba(255,255,255,0.02)',
+                                boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                width: '100%',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '7px',
+                                  height: '7px',
+                                  borderRadius: '50%',
+                                  background: active ? '#3b82f6' : '#374151',
+                                  boxShadow: active ? '0 0 5px #3b82f6' : 'none',
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <span
+                                style={{
+                                  fontSize: '14px',
+                                  fontWeight: 800,
+                                  letterSpacing: '0.5px',
+                                  color: active ? '#93c5fd' : '#ffffff',
+                                }}
+                              >
+                                {label}
+                              </span>
                             </button>
                           )
                         })}
@@ -3700,13 +4823,48 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
 
                   {/* Row 2: Unique Filters | Black List | Options Expiration */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-
+                  <div
+                    style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
+                  >
                     {/* UNIQUE FILTERS */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #f59e0b, #fbbf24)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Unique Filters</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #f59e0b, #fbbf24)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Unique Filters
+                        </span>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                         {[
@@ -3720,8 +4878,27 @@ Stock Reaction: ${scores.stockReaction}/15`
                         ].map(({ label, value, color }) => {
                           const active = selectedUniqueFilters.includes(value)
                           return (
-                            <button key={value} onClick={() => setSelectedUniqueFilters(prev => active ? prev.filter(f => f !== value) : [...prev, value])}
-                              style={{ padding: '9px 6px', borderRadius: '8px', border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`, background: active ? `${color}18` : 'rgba(255,255,255,0.02)', boxShadow: active ? `0 0 10px ${color}33` : 'none', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '13px', fontWeight: 800, letterSpacing: '0.5px', color: active ? color : '#ffffff' }}>
+                            <button
+                              key={value}
+                              onClick={() =>
+                                setSelectedUniqueFilters((prev) =>
+                                  active ? prev.filter((f) => f !== value) : [...prev, value]
+                                )
+                              }
+                              style={{
+                                padding: '9px 6px',
+                                borderRadius: '8px',
+                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
+                                background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
+                                boxShadow: active ? `0 0 10px ${color}33` : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                fontSize: '13px',
+                                fontWeight: 800,
+                                letterSpacing: '0.5px',
+                                color: active ? color : '#ffffff',
+                              }}
+                            >
                               {label}
                             </button>
                           )
@@ -3730,46 +4907,192 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
 
                     {/* BLACK LIST */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #ef4444, #b91c1c)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Black List</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #ef4444, #b91c1c)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Black List
+                        </span>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                         {blacklistedTickers.map((ticker, index) => (
-                          <input key={index} type="text" value={ticker}
-                            onChange={(e) => { const t = [...blacklistedTickers]; t[index] = e.target.value.toUpperCase(); setBlacklistedTickers(t) }}
-                            placeholder={`#${index + 1}`} maxLength={6}
-                            style={{ padding: '9px 8px', textAlign: 'center', background: '#000', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#fca5a5', fontSize: '14px', fontWeight: 800, letterSpacing: '1px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                          <input
+                            key={index}
+                            type="text"
+                            value={ticker}
+                            onChange={(e) => {
+                              const t = [...blacklistedTickers]
+                              t[index] = e.target.value.toUpperCase()
+                              setBlacklistedTickers(t)
+                            }}
+                            placeholder={`#${index + 1}`}
+                            maxLength={6}
+                            style={{
+                              padding: '9px 8px',
+                              textAlign: 'center',
+                              background: '#000',
+                              border: '1px solid rgba(239,68,68,0.3)',
+                              borderRadius: '8px',
+                              color: '#fca5a5',
+                              fontSize: '14px',
+                              fontWeight: 800,
+                              letterSpacing: '1px',
+                              outline: 'none',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         ))}
                       </div>
                     </div>
 
                     {/* OPTIONS EXPIRATION */}
-                    <div style={{ background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #a855f7, #7c3aed)' }} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffffff' }}>Options Expiration</span>
+                    <div
+                      style={{
+                        background: '#000',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginBottom: '12px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
+                          }}
+                        >
+                          Options Expiration
+                        </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div>
-                          <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>Start Date</span>
-                          <input type="date" value={expirationStartDate} onChange={(e) => setExpirationStartDate(e.target.value)}
-                            style={{ width: '100%', padding: '10px 10px', background: '#000', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                          <span
+                            style={{
+                              display: 'block',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              letterSpacing: '1.5px',
+                              color: '#94a3b8',
+                              marginBottom: '6px',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Start Date
+                          </span>
+                          <input
+                            type="date"
+                            value={expirationStartDate}
+                            onChange={(e) => setExpirationStartDate(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 10px',
+                              background: '#000',
+                              border: '1px solid rgba(168,85,247,0.3)',
+                              borderRadius: '8px',
+                              color: '#e9d5ff',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         </div>
                         <div>
-                          <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, letterSpacing: '1.5px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' }}>End Date</span>
-                          <input type="date" value={expirationEndDate} onChange={(e) => setExpirationEndDate(e.target.value)}
-                            style={{ width: '100%', padding: '10px 10px', background: '#000', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '8px', color: '#e9d5ff', fontSize: '14px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                          <span
+                            style={{
+                              display: 'block',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              letterSpacing: '1.5px',
+                              color: '#94a3b8',
+                              marginBottom: '6px',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            End Date
+                          </span>
+                          <input
+                            type="date"
+                            value={expirationEndDate}
+                            onChange={(e) => setExpirationEndDate(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 10px',
+                              background: '#000',
+                              border: '1px solid rgba(168,85,247,0.3)',
+                              borderRadius: '8px',
+                              color: '#e9d5ff',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
                   </div>
-
                 </div>
               )}
 
-              <div className="flex justify-between items-center mt-6 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', gap: '10px' }}>
+              <div
+                className="flex justify-between items-center mt-6 pt-4"
+                style={{ borderTop: '1px solid rgba(255,255,255,0.06)', gap: '10px' }}
+              >
                 <button
                   onClick={() => {
                     setSelectedOptionTypes([])
@@ -3783,18 +5106,49 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setBlacklistedTickers(['', '', '', '', '', '', '', '', '', ''])
                     setSelectedOrderSides([])
                   }}
-                  style={{ flex: 1, padding: '12px', background: '#111', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', color: '#ffffff', fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.15s ease' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: '#111',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '10px',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)')
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')
+                  }
                 >
                   Clear All
                 </button>
 
                 <Button
                   onClick={() => setIsFilterDialogOpen(false)}
-                  style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '16px', fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer', boxShadow: '0 4px 14px rgba(249,115,22,0.35)', transition: 'all 0.15s ease' }}
-                  onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.1)')}
-                  onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
+                  style={{
+                    flex: 2,
+                    padding: '12px',
+                    background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                    border: 'none',
+                    borderRadius: '10px',
+                    color: '#fff',
+                    fontSize: '16px',
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(249,115,22,0.35)',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.1)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
                 >
                   Apply Filters
                 </Button>
@@ -4032,12 +5386,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                               cursor: 'pointer',
                             }}
                             onMouseEnter={(e) => {
-                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
-                                ; (e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
+                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
                             }}
                             onMouseLeave={(e) => {
-                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
-                                ; (e.currentTarget as HTMLButtonElement).style.color = '#555'
+                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#555'
                             }}
                           >
                             DEL
@@ -4331,10 +5685,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                     disabled={loading}
-                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${
+                      loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                     style={{
                       height: '40px',
 
@@ -4363,39 +5718,111 @@ Stock Reaction: ${scores.stockReaction}/15`
                         onClick={() => setMobileMenuOpen(false)}
                       />
 
-                      <div className="fixed z-[99999]" style={{ top: '190px', right: '8px', width: '134px', background: '#000', border: '2px solid #f97316', borderRadius: '6px', boxShadow: '0 8px 32px rgba(0,0,0,0.9)' }}>
+                      <div
+                        className="fixed z-[99999]"
+                        style={{
+                          top: '190px',
+                          right: '8px',
+                          width: '134px',
+                          background: '#000',
+                          border: '2px solid #f97316',
+                          borderRadius: '6px',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                        }}
+                      >
                         {/* SAVE */}
                         <button
-                          onClick={() => { handleSaveFlow(); setMobileMenuOpen(false); }}
+                          onClick={() => {
+                            handleSaveFlow()
+                            setMobileMenuOpen(false)
+                          }}
                           disabled={savingFlow || !data || data.length === 0}
                           className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                          style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)', color: '#fff', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderBottom: '1px solid #1e3a8a', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
-                          onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                          onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
-                          onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.9)')}
-                          onMouseUp={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
+                          style={{
+                            background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)',
+                            color: '#fff',
+                            fontWeight: 900,
+                            fontSize: '16px',
+                            padding: '13px 10px',
+                            borderBottom: '1px solid #1e3a8a',
+                            letterSpacing: '1px',
+                            transition: 'filter 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
+                          onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.9)')}
+                          onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
                         >
-                          <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} className="group-hover:-translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-                            <polyline strokeLinecap="round" strokeLinejoin="round" points="17 21 17 13 7 13 7 21" />
-                            <polyline strokeLinecap="round" strokeLinejoin="round" points="7 3 7 8 15 8" />
+                          <svg
+                            style={{
+                              width: '20px',
+                              height: '20px',
+                              transition: 'transform 0.2s ease',
+                            }}
+                            className="group-hover:-translate-y-0.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2.2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"
+                            />
+                            <polyline
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              points="17 21 17 13 7 13 7 21"
+                            />
+                            <polyline
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              points="7 3 7 8 15 8"
+                            />
                           </svg>
                           <span>SAVE</span>
                         </button>
 
                         {/* HISTORY */}
                         <button
-                          onClick={() => { loadFlowHistory(); setMobileMenuOpen(false); }}
+                          onClick={() => {
+                            loadFlowHistory()
+                            setMobileMenuOpen(false)
+                          }}
                           disabled={loadingHistory}
                           className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                          style={{ background: 'linear-gradient(135deg, #f0f0f0 0%, #e5e7eb 100%)', color: '#111', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderBottom: '1px solid #9ca3af', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
-                          onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(0.93)')}
-                          onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
-                          onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.85)')}
-                          onMouseUp={e => (e.currentTarget.style.filter = 'brightness(0.93)')}
+                          style={{
+                            background: 'linear-gradient(135deg, #f0f0f0 0%, #e5e7eb 100%)',
+                            color: '#111',
+                            fontWeight: 900,
+                            fontSize: '16px',
+                            padding: '13px 10px',
+                            borderBottom: '1px solid #9ca3af',
+                            letterSpacing: '1px',
+                            transition: 'filter 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(0.93)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
+                          onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.85)')}
+                          onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(0.93)')}
                         >
-                          <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <svg
+                            style={{
+                              width: '20px',
+                              height: '20px',
+                              transition: 'transform 0.2s ease',
+                            }}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2.2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                           </svg>
                           <span>HISTORY</span>
                         </button>
@@ -4403,17 +5830,45 @@ Stock Reaction: ${scores.stockReaction}/15`
                         {/* CLEAR */}
                         {onClearData && (
                           <button
-                            onClick={() => { onClearData(); setMobileMenuOpen(false); }}
+                            onClick={() => {
+                              onClearData()
+                              setMobileMenuOpen(false)
+                            }}
                             disabled={loading}
                             className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                            style={{ background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)', color: '#fff', fontWeight: 900, fontSize: '16px', padding: '13px 10px', borderRadius: '0 0 6px 6px', letterSpacing: '1px', transition: 'filter 0.15s ease' }}
-                            onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                            onMouseLeave={e => (e.currentTarget.style.filter = 'brightness(1)')}
-                            onMouseDown={e => (e.currentTarget.style.filter = 'brightness(0.9)')}
-                            onMouseUp={e => (e.currentTarget.style.filter = 'brightness(1.15)')}
+                            style={{
+                              background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                              color: '#fff',
+                              fontWeight: 900,
+                              fontSize: '16px',
+                              padding: '13px 10px',
+                              borderRadius: '0 0 6px 6px',
+                              letterSpacing: '1px',
+                              transition: 'filter 0.15s ease',
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.filter = 'brightness(1.15)')
+                            }
+                            onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
+                            onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.9)')}
+                            onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
                           >
-                            <svg style={{ width: '20px', height: '20px', transition: 'transform 0.2s ease' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            <svg
+                              style={{
+                                width: '20px',
+                                height: '20px',
+                                transition: 'transform 0.2s ease',
+                              }}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                              strokeWidth={2.2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
                             </svg>
                             <span>CLEAR</span>
                           </button>
@@ -4428,10 +5883,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={handleSaveFlow}
                   disabled={savingFlow || !data || data.length === 0}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${savingFlow || !data || data.length === 0
-                    ? 'cursor-not-allowed opacity-40'
-                    : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
+                    savingFlow || !data || data.length === 0
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                  }`}
                   style={{
                     height: '40px',
 
@@ -4524,10 +5980,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={loadFlowHistory}
                   disabled={loadingHistory}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${loadingHistory
-                    ? 'cursor-not-allowed opacity-40'
-                    : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
+                    loadingHistory
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                  }`}
                   style={{
                     height: '40px',
 
@@ -5293,10 +6750,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                       }
                     }}
                     disabled={!inputTicker.trim() || loading}
-                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${!inputTicker.trim() || loading
-                      ? 'opacity-40 cursor-not-allowed'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${
+                      !inputTicker.trim() || loading
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                     style={{
                       height: '48px',
 
@@ -5508,10 +6966,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => onRefresh?.()}
                       disabled={loading}
-                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                        }`}
+                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${
+                        loading
+                          ? 'cursor-not-allowed opacity-40'
+                          : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                       style={{
                         height: '48px',
 
@@ -5599,10 +7058,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={onClearData}
                       disabled={loading}
-                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                        }`}
+                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${
+                        loading
+                          ? 'cursor-not-allowed opacity-40'
+                          : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                       style={{
                         height: '48px',
 
@@ -5660,10 +7120,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                       disabled={loading}
-                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                        }`}
+                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${
+                        loading
+                          ? 'cursor-not-allowed opacity-40'
+                          : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                       style={{
                         height: '48px',
 
@@ -5787,10 +7248,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
+                      savingFlow || !data || data.length === 0
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                     style={{
                       height: '48px',
 
@@ -5883,10 +7345,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={loadFlowHistory}
                     disabled={loadingHistory}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${loadingHistory
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
+                      loadingHistory
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                     style={{
                       height: '48px',
 
@@ -6127,10 +7590,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <button
                               key={pageNum}
                               onClick={() => setCurrentPage(pageNum)}
-                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${currentPage === pageNum
-                                ? 'bg-orange-500 text-black border-orange-500 font-bold'
-                                : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
-                                }`}
+                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
+                                currentPage === pageNum
+                                  ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                                  : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
+                              }`}
                             >
                               {pageNum}
                             </button>
@@ -6359,16 +7823,16 @@ Stock Reaction: ${scores.stockReaction}/15`
                             cursor: isNotablePick ? 'pointer' : 'default',
                             ...(isNotablePick
                               ? {
-                                outline: '3px solid #FFD700',
+                                  outline: '3px solid #FFD700',
 
-                                outlineOffset: '-3px',
-                              }
+                                  outlineOffset: '-3px',
+                                }
                               : {}),
 
                             ...(isEfiHighlight
                               ? isBullishEfi
                                 ? {
-                                  background: `
+                                    background: `
 
                               radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
 
@@ -6412,15 +7876,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  borderLeft: '5px solid #00ff00',
+                                    borderLeft: '5px solid #00ff00',
 
-                                  borderRight: '5px solid #00ff00',
+                                    borderRight: '5px solid #00ff00',
 
-                                  borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                                    borderTop: '2px solid rgba(0, 255, 0, 0.2)',
 
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                  boxShadow: `
+                                    boxShadow: `
 
                               inset 0 4px 16px rgba(0, 255, 0, 0.2),
 
@@ -6442,18 +7906,18 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  position: 'relative' as const,
+                                    position: 'relative' as const,
 
-                                  transform: 'translateZ(0)',
+                                    transform: 'translateZ(0)',
 
-                                  backdropFilter: 'blur(0.5px)',
+                                    backdropFilter: 'blur(0.5px)',
 
-                                  WebkitBackdropFilter: 'blur(0.5px)',
+                                    WebkitBackdropFilter: 'blur(0.5px)',
 
-                                  isolation: 'isolate' as const,
-                                }
+                                    isolation: 'isolate' as const,
+                                  }
                                 : {
-                                  background: `
+                                    background: `
 
                               radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
 
@@ -6497,15 +7961,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  borderLeft: '5px solid #ff0000',
+                                    borderLeft: '5px solid #ff0000',
 
-                                  borderRight: '5px solid #ff0000',
+                                    borderRight: '5px solid #ff0000',
 
-                                  borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                                    borderTop: '2px solid rgba(255, 0, 0, 0.2)',
 
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                  boxShadow: `
+                                    boxShadow: `
 
                               inset 0 4px 16px rgba(255, 0, 0, 0.2),
 
@@ -6527,19 +7991,19 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                  position: 'relative' as const,
+                                    position: 'relative' as const,
 
-                                  transform: 'translateZ(0)',
+                                    transform: 'translateZ(0)',
 
-                                  backdropFilter: 'blur(0.5px)',
+                                    backdropFilter: 'blur(0.5px)',
 
-                                  WebkitBackdropFilter: 'blur(0.5px)',
+                                    WebkitBackdropFilter: 'blur(0.5px)',
 
-                                  isolation: 'isolate' as const,
-                                }
+                                    isolation: 'isolate' as const,
+                                  }
                               : {
-                                backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
-                              }),
+                                  backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
+                                }),
 
                             position: 'relative' as const,
 
@@ -6553,10 +8017,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
-                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                    : ''
-                                    }`}
+                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${
+                                    selectedTickerFilter === trade.underlying_ticker
+                                      ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                      : ''
+                                  }`}
                                 >
                                   {trade.underlying_ticker}
                                 </button>
@@ -6608,10 +8073,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker
-                                  ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                  : ''
-                                  }`}
+                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
+                                  selectedTickerFilter === trade.underlying_ticker
+                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                    : ''
+                                }`}
                                 style={
                                   isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}
                                 }
@@ -6694,16 +8160,17 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                 {(trade as any).fill_style && (
                                   <span
-                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${(trade as any).fill_style === 'A'
-                                      ? 'text-green-400 bg-green-400/20 border border-green-400/40'
-                                      : (trade as any).fill_style === 'AA'
-                                        ? 'text-green-300 bg-green-300/20 border border-green-300/40'
-                                        : (trade as any).fill_style === 'B'
-                                          ? 'text-red-400 bg-red-400/20 border border-red-400/40'
-                                          : (trade as any).fill_style === 'BB'
-                                            ? 'text-red-300 bg-red-300/20 border border-red-300/40'
-                                            : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
-                                      }`}
+                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${
+                                      (trade as any).fill_style === 'A'
+                                        ? 'text-green-400 bg-green-400/20 border border-green-400/40'
+                                        : (trade as any).fill_style === 'AA'
+                                          ? 'text-green-300 bg-green-300/20 border border-green-300/40'
+                                          : (trade as any).fill_style === 'B'
+                                            ? 'text-red-400 bg-red-400/20 border border-red-400/40'
+                                            : (trade as any).fill_style === 'BB'
+                                              ? 'text-red-300 bg-red-300/20 border border-red-300/40'
+                                              : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
+                                    }`}
                                   >
                                     {(trade as any).fill_style}
                                   </span>
@@ -6750,16 +8217,17 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                   {(trade as any).fill_style && (
                                     <span
-                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A'
-                                        ? 'text-green-400 bg-green-400/10 border border-green-400/30'
-                                        : (trade as any).fill_style === 'AA'
-                                          ? 'text-green-300 bg-green-300/10 border border-green-300/30'
-                                          : (trade as any).fill_style === 'B'
-                                            ? 'text-red-400 bg-red-400/10 border border-red-400/30'
-                                            : (trade as any).fill_style === 'BB'
-                                              ? 'text-red-300 bg-red-300/10 border border-red-300/30'
-                                              : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
-                                        }`}
+                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
+                                        (trade as any).fill_style === 'A'
+                                          ? 'text-green-400 bg-green-400/10 border border-green-400/30'
+                                          : (trade as any).fill_style === 'AA'
+                                            ? 'text-green-300 bg-green-300/10 border border-green-300/30'
+                                            : (trade as any).fill_style === 'B'
+                                              ? 'text-red-400 bg-red-400/10 border border-red-400/30'
+                                              : (trade as any).fill_style === 'BB'
+                                                ? 'text-red-300 bg-red-300/10 border border-red-300/30'
+                                                : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                      }`}
                                       style={{ fontSize: '12px' }}
                                     >
                                       <span
@@ -6855,7 +8323,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                           <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
                             {typeof trade.volume === 'number' &&
-                              typeof trade.open_interest === 'number' ? (
+                            typeof trade.open_interest === 'number' ? (
                               <div className="flex items-center justify-center gap-1">
                                 <span
                                   className="text-cyan-400 font-bold"
@@ -6913,22 +8381,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const t1 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma,
-                                    trade.days_to_expiry,
-                                    80,
-                                    targetIsUpside
-                                  )
+                                      trade.spot_price,
+                                      sigma,
+                                      trade.days_to_expiry,
+                                      80,
+                                      targetIsUpside
+                                    )
                                   : null
                               const t2 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma,
-                                    trade.days_to_expiry,
-                                    90,
-                                    targetIsUpside
-                                  )
+                                      trade.spot_price,
+                                      sigma,
+                                      trade.days_to_expiry,
+                                      90,
+                                      targetIsUpside
+                                    )
                                   : null
                               return (
                                 <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
@@ -7449,6 +8917,28 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                     justifyContent: 'space-between',
                                                   }}
                                                 >
+                                                  <span>Rel. Strength:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.relativeStrength === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.relativeStrength === 10
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.relativeStrength}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
                                                   <span>Contract P&L:</span>
 
                                                   <span
@@ -7456,12 +8946,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                       color:
                                                         gradeData.scores.contractPrice === 0
                                                           ? '#ff0000'
-                                                          : gradeData.scores.contractPrice === 25
+                                                          : gradeData.scores.contractPrice === 15
                                                             ? '#00ff00'
                                                             : '#ffffff',
                                                     }}
                                                   >
-                                                    {gradeData.scores.contractPrice}/25
+                                                    {gradeData.scores.contractPrice}/15
                                                   </span>
                                                 </div>
 
@@ -7500,12 +8990,34 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                       color:
                                                         gradeData.scores.priceAction === 0
                                                           ? '#ff0000'
-                                                          : gradeData.scores.priceAction === 25
+                                                          : gradeData.scores.priceAction === 10
                                                             ? '#00ff00'
                                                             : '#ffffff',
                                                     }}
                                                   >
-                                                    {gradeData.scores.priceAction}/25
+                                                    {gradeData.scores.priceAction}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Volume vs OI:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.volumeOI === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.volumeOI === 15
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.volumeOI}/15
                                                   </span>
                                                 </div>
 
@@ -7532,7 +9044,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                 </div>
 
                                                 {gradeData.stdDevError && (
-                                                  <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
+                                                  <div
+                                                    style={{
+                                                      color: '#ef4444',
+                                                      fontSize: '12px',
+                                                      marginTop: '4px',
+                                                      fontStyle: 'italic',
+                                                    }}
+                                                  >
                                                     ⚠ StdDev fetch failed — Price Action unscored
                                                   </div>
                                                 )}
@@ -7654,6 +9173,28 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                     justifyContent: 'space-between',
                                                   }}
                                                 >
+                                                  <span>Rel. Strength:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.relativeStrength === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.relativeStrength === 10
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.relativeStrength}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
                                                   <span>Contract P&L:</span>
 
                                                   <span
@@ -7661,12 +9202,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                       color:
                                                         gradeData.scores.contractPrice === 0
                                                           ? '#ff0000'
-                                                          : gradeData.scores.contractPrice === 25
+                                                          : gradeData.scores.contractPrice === 15
                                                             ? '#00ff00'
                                                             : '#ffffff',
                                                     }}
                                                   >
-                                                    {gradeData.scores.contractPrice}/25
+                                                    {gradeData.scores.contractPrice}/15
                                                   </span>
                                                 </div>
 
@@ -7705,12 +9246,34 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                       color:
                                                         gradeData.scores.priceAction === 0
                                                           ? '#ff0000'
-                                                          : gradeData.scores.priceAction === 25
+                                                          : gradeData.scores.priceAction === 10
                                                             ? '#00ff00'
                                                             : '#ffffff',
                                                     }}
                                                   >
-                                                    {gradeData.scores.priceAction}/25
+                                                    {gradeData.scores.priceAction}/10
+                                                  </span>
+                                                </div>
+
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                  }}
+                                                >
+                                                  <span>Volume vs OI:</span>
+
+                                                  <span
+                                                    style={{
+                                                      color:
+                                                        gradeData.scores.volumeOI === 0
+                                                          ? '#ff0000'
+                                                          : gradeData.scores.volumeOI === 15
+                                                            ? '#00ff00'
+                                                            : '#ffffff',
+                                                    }}
+                                                  >
+                                                    {gradeData.scores.volumeOI}/15
                                                   </span>
                                                 </div>
 
@@ -7737,7 +9300,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                 </div>
 
                                                 {gradeData.stdDevError && (
-                                                  <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>
+                                                  <div
+                                                    style={{
+                                                      color: '#ef4444',
+                                                      fontSize: '12px',
+                                                      marginTop: '4px',
+                                                      fontStyle: 'italic',
+                                                    }}
+                                                  >
                                                     ⚠ StdDev fetch failed — Price Action unscored
                                                   </div>
                                                 )}
@@ -7831,22 +9401,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                             const t1m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                  trade.spot_price,
-                                  sigma2,
-                                  trade.days_to_expiry,
-                                  80,
-                                  targetUp2
-                                )
+                                    trade.spot_price,
+                                    sigma2,
+                                    trade.days_to_expiry,
+                                    80,
+                                    targetUp2
+                                  )
                                 : null
                             const t2m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                  trade.spot_price,
-                                  sigma2,
-                                  trade.days_to_expiry,
-                                  90,
-                                  targetUp2
-                                )
+                                    trade.spot_price,
+                                    sigma2,
+                                    trade.days_to_expiry,
+                                    90,
+                                    targetUp2
+                                  )
                                 : null
                             const zones2 = dealerZoneCache[trade.underlying_ticker]
                             const dirBg = targetUp2 ? 'rgba(0,180,60,0.22)' : 'rgba(200,30,30,0.22)'
@@ -8780,7 +10350,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                chartWidth
+                                  chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -8807,35 +10377,35 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const shadingRects =
                                 stockTimeframe === '1D'
                                   ? chartData.map((point, i) => {
-                                    const x =
-                                      padding.left + (i / (chartData.length - 1)) * chartWidth
+                                      const x =
+                                        padding.left + (i / (chartData.length - 1)) * chartWidth
 
-                                    const nextX =
-                                      i < chartData.length - 1
-                                        ? padding.left +
-                                        ((i + 1) / (chartData.length - 1)) * chartWidth
-                                        : padding.left + chartWidth
+                                      const nextX =
+                                        i < chartData.length - 1
+                                          ? padding.left +
+                                            ((i + 1) / (chartData.length - 1)) * chartWidth
+                                          : padding.left + chartWidth
 
-                                    const rectWidth = nextX - x
+                                      const rectWidth = nextX - x
 
-                                    const isMarket = isMarketHours(point.timestamp)
+                                      const isMarket = isMarketHours(point.timestamp)
 
-                                    if (!isMarket) {
-                                      return (
-                                        <rect
-                                          key={`shade-${i}`}
-                                          x={x}
-                                          y={padding.top}
-                                          width={rectWidth}
-                                          height={chartHeight}
-                                          fill="#555555"
-                                          opacity="0.15"
-                                        />
-                                      )
-                                    }
+                                      if (!isMarket) {
+                                        return (
+                                          <rect
+                                            key={`shade-${i}`}
+                                            x={x}
+                                            y={padding.top}
+                                            width={rectWidth}
+                                            height={chartHeight}
+                                            fill="#555555"
+                                            opacity="0.15"
+                                          />
+                                        )
+                                      }
 
-                                    return null
-                                  })
+                                      return null
+                                    })
                                   : []
 
                               // Y-axis labels
@@ -8927,10 +10497,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1D'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1D'
-                                          ? 'bg-orange-500 text-black'
-                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          stockTimeframe === '1D'
+                                            ? 'bg-orange-500 text-black'
+                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1D
                                       </button>
@@ -8949,10 +10520,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1W'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1W'
-                                          ? 'bg-orange-500 text-black'
-                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          stockTimeframe === '1W'
+                                            ? 'bg-orange-500 text-black'
+                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1W
                                       </button>
@@ -8971,10 +10543,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1M'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1M'
-                                          ? 'bg-orange-500 text-black'
-                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          stockTimeframe === '1M'
+                                            ? 'bg-orange-500 text-black'
+                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1M
                                       </button>
@@ -9186,7 +10759,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                chartWidth
+                                  chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -9281,10 +10854,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1D')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1D'
-                                          ? 'bg-cyan-500 text-black'
-                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          optionTimeframe === '1D'
+                                            ? 'bg-cyan-500 text-black'
+                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1D
                                       </button>
@@ -9299,10 +10873,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1W')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1W'
-                                          ? 'bg-cyan-500 text-black'
-                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          optionTimeframe === '1W'
+                                            ? 'bg-cyan-500 text-black'
+                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1W
                                       </button>
@@ -9317,10 +10892,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1M')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1M'
-                                          ? 'bg-cyan-500 text-black'
-                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                          }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                          optionTimeframe === '1M'
+                                            ? 'bg-cyan-500 text-black'
+                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                        }`}
                                       >
                                         1M
                                       </button>

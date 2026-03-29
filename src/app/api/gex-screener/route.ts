@@ -1194,7 +1194,7 @@ function calculateGEXImpactScore(gexValue: number, marketCap: number): number {
   return Math.round(impactScore)
 }
 
-const POLYGON_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_KEY = process.env.POLYGON_API_KEY!
 
 // Fetch options data directly from Polygon — no internal HTTP hop.
 // Uses date-range filter on the snapshot endpoint: 2 parallel calls instead of 10+.

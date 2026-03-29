@@ -1,11 +1,11 @@
-'use client';
+'use client'
 
-import DealerAttraction from '@/components/analytics/DealerAttraction';
+import LiquidPanel from '@/components/analytics/LiquidPanel'
 
 export default function DealersWorkbenchPage() {
   return (
     <div className="min-h-screen bg-black">
-      <DealerAttraction />
+      <LiquidPanel />
     </div>
-  );
+  )
 }

@@ -6,7 +6,7 @@ import DealerGEXChart from '../../components/analytics/DealerGEXChart'
 import DealerOpenInterestChart from '../../components/analytics/DealerOpenInterestChart'
 import HistoricalEventsResearch from '../../components/analytics/HistoricalEventsResearch'
 import MarketCycleIndicator from '../../components/analytics/MarketCycleIndicator'
-import UnifiedScreenerPanel from '../../components/analytics/UnifiedScreenerPanel'
+import ScreenersPanel from '../../components/analytics/ScreenersPanel'
 
 export default function AnalysisSuite() {
   const [tickerInput, setTickerInput] = useState('')
@@ -502,11 +502,18 @@ export default function AnalysisSuite() {
             marginTop: '20px',
           }}
         >
-          <UnifiedScreenerPanel />
+          <ScreenersPanel />
         </div>
 
         {/* Market Cycle Indicator */}
-        <div style={{ marginTop: '20px', border: '1px solid #1a1a1a', borderRadius: '12px', overflow: 'hidden' }}>
+        <div
+          style={{
+            marginTop: '20px',
+            border: '1px solid #1a1a1a',
+            borderRadius: '12px',
+            overflow: 'hidden',
+          }}
+        >
           <MarketCycleIndicator />
         </div>
 

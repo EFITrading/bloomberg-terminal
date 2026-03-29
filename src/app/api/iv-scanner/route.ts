@@ -3,7 +3,7 @@ import path from 'path'
 
 import { NextRequest, NextResponse } from 'next/server'
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 const TOP_1000_SYMBOLS = [
   'SPY',

@@ -34,7 +34,7 @@ import {
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import OptionsChain from './OptionsChain'
+import ChainPanel from './ChainPanel'
 
 interface Trade {
   id: string
@@ -136,12 +136,12 @@ interface PerformanceMetrics {
   riskAdjustedReturn: number
 }
 
-interface TradingPlanProps {
+interface PlanPanelProps {
   optionsContent?: React.ReactNode
   flowContent?: React.ReactNode
 }
 
-const TradingPlan: React.FC<TradingPlanProps> = ({ optionsContent, flowContent }) => {
+const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) => {
   const [activeTab, setActiveTab] = useState<
     'journal' | 'analytics' | 'options' | 'flow' | 'settings'
   >('journal')
@@ -2043,7 +2043,7 @@ const TradingPlan: React.FC<TradingPlanProps> = ({ optionsContent, flowContent }
             className="flex-1 overflow-hidden"
             style={{ background: '#030303', height: '100vh' }}
           >
-            <OptionsChain
+            <ChainPanel
               symbol={formData.symbol || 'SPY'}
               currentPrice={formData.entryPrice || 0}
               onContractSelect={handleContractSelect}
@@ -4672,4 +4672,4 @@ const TradingPlan: React.FC<TradingPlanProps> = ({ optionsContent, flowContent }
   )
 }
 
-export default TradingPlan
+export default PlanPanel

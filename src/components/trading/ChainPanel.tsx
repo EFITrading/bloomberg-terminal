@@ -51,7 +51,7 @@ interface OptionContract {
   previous_close?: number
 }
 
-interface OptionsChainProps {
+interface ChainPanelProps {
   symbol: string
 
   currentPrice?: number
@@ -95,12 +95,12 @@ interface WatchlistOption {
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf'
 
-function OptionsChain({
+function ChainPanel({
   symbol: initialSymbol,
   currentPrice = 0,
   onClose,
   onContractSelect,
-}: OptionsChainProps) {
+}: ChainPanelProps) {
   const [symbol, setSymbol] = useState(initialSymbol)
 
   const [searchInput, setSearchInput] = useState(initialSymbol)
@@ -3954,7 +3954,7 @@ function OptionsChain({
   )
 }
 
-export default React.memo(OptionsChain)
+export default React.memo(ChainPanel)
 
 // Simple Canvas-based Option Price Chart Component
 
