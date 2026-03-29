@@ -1688,7 +1688,9 @@ const MarketHeatmap: React.FC = () => {
         })
 
         const batchResults = await Promise.all(snapshotPromises)
-        const validStocks = batchResults.filter((stock): stock is HeatmapStock => stock !== null)
+        const validStocks = batchResults.filter(
+          (stock): stock is NonNullable<typeof stock> => stock !== null
+        ) as HeatmapStock[]
         stocks.push(...validStocks)
 
         if (i + BATCH_SIZE < symbolsWithMarketCap.length) {

@@ -992,7 +992,19 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const fetchCurrentPrices = async (tickers: string[]) => {
     const uniqueTickers = [...new Set(tickers)]
 
-    if (uniqueTickers.length === 0) return
+    console.log('[fetchCurrentPrices] called with tickers:', tickers)
+    console.log('[fetchCurrentPrices] unique tickers:', uniqueTickers)
+    console.log(
+      '[fetchCurrentPrices] POLYGON_API_KEY present:',
+      !!POLYGON_API_KEY,
+      '| key length:',
+      POLYGON_API_KEY?.length
+    )
+
+    if (uniqueTickers.length === 0) {
+      console.warn('[fetchCurrentPrices] uniqueTickers is empty — returning early')
+      return
+    }
 
     // Set all tickers to loading state initially
 
@@ -1052,6 +1064,19 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           if (response.ok) {
             const data = await response.json()
 
+            console.log(
+              `[fetchCurrentPrices] ${ticker} raw response:`,
+              JSON.stringify(data?.ticker?.lastTrade),
+              '| prevDay:',
+              JSON.stringify(data?.ticker?.prevDay)
+            )
+            console.log(
+              `[fetchCurrentPrices] ${ticker} status:`,
+              data?.status,
+              '| ticker key present:',
+              !!data?.ticker
+            )
+
             if (data.status === 'OK' && data.ticker) {
               const lastTradePrice = data.ticker.lastTrade?.p
 
@@ -1059,15 +1084,35 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
               const price = lastTradePrice || prevDayClose
 
+              console.log(
+                `[fetchCurrentPrices] ${ticker} lastTrade.p:`,
+                lastTradePrice,
+                '| prevDay.c:',
+                prevDayClose,
+                '| resolved price:',
+                price
+              )
+
               if (price && price > 0) {
                 batchPricesUpdate[ticker] = price
 
                 allPricesUpdate[ticker] = price
+              } else {
+                console.warn(
+                  `[fetchCurrentPrices] ${ticker} price is zero/falsy — lastTrade.p=${lastTradePrice}, prevDay.c=${prevDayClose}`
+                )
               }
+            } else {
+              console.warn(
+                `[fetchCurrentPrices] ${ticker} bad response — status=${data?.status}, ticker=${JSON.stringify(data?.ticker)}`
+              )
             }
+          } else {
+            const text = await response.text()
+            console.error(`[fetchCurrentPrices] ${ticker} HTTP ${response.status} — body:`, text)
           }
         } catch (error) {
-          // Silent fail
+          console.error(`[fetchCurrentPrices] ${ticker} threw exception:`, error)
         }
 
         batchLoadingUpdate[ticker] = false
@@ -1102,13 +1147,20 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch current prices when data changes (debounced)
 
   useEffect(() => {
-    if (!data || data.length === 0) return
+    console.log('[priceEffect] fired — data length:', data?.length)
+    if (!data || data.length === 0) {
+      console.warn('[priceEffect] returning early — data is empty or null')
+      return
+    }
 
     // Debounce API calls to prevent excessive requests
 
     const debounceTimer = setTimeout(() => {
       const tickers = [...new Set(data.map((trade) => trade.underlying_ticker))] // Unique tickers only
-
+      console.log(
+        '[priceEffect] debounce fired — calling fetchCurrentPrices with tickers:',
+        tickers
+      )
       fetchCurrentPrices(tickers)
     }, 500) // 500ms debounce
 
