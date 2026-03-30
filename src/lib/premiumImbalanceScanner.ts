@@ -26,7 +26,7 @@ interface PremiumImbalance {
 }
 
 class PremiumImbalanceScanner {
-  private readonly API_KEY = process.env.POLYGON_API_KEY || ''
+  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
   private readonly CONCURRENT_REQUESTS = 10 // Process 10 symbols at once for faster scanning
   private readonly REQUEST_DELAY = 25 // Reduced delay between batches for 1000+ stocks
 

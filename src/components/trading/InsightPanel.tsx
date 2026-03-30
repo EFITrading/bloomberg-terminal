@@ -4158,6 +4158,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<InsightData>(emptyData)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<SavedReport[]>([])
+  const [savedToast, setSavedToast] = useState(false)
 
   useEffect(() => {
     try {
@@ -4187,6 +4188,8 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
       } catch {}
       return next
     })
+    setSavedToast(true)
+    setTimeout(() => setSavedToast(false), 2500)
   }
 
   const loadReport = (report: SavedReport) => {
@@ -4336,8 +4339,8 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
           <button
             onClick={saveReport}
             style={{
-              background: 'rgba(52,211,153,0.07)',
-              border: '1px solid rgba(52,211,153,0.4)',
+              background: savedToast ? 'rgba(52,211,153,0.25)' : 'rgba(52,211,153,0.07)',
+              border: `1px solid ${savedToast ? '#34D399' : 'rgba(52,211,153,0.4)'}`,
               color: '#34D399',
               padding: '8px 16px',
               fontSize: '15px',
@@ -4346,9 +4349,10 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
               cursor: 'pointer',
               fontFamily: 'monospace',
               borderRadius: '4px',
+              transition: 'all 0.2s',
             }}
           >
-            ✦ SAVE REPORT
+            {savedToast ? '✅ SAVED!' : '✦ SAVE REPORT'}
           </button>
           <button
             onClick={() => setEditMode((e) => !e)}

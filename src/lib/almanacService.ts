@@ -5,7 +5,7 @@ import { EconomicRelease, getMonthlyEconomicReleases } from './fredService'
 import PolygonService from './polygonService'
 
 const polygonService = new PolygonService()
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || ''
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 export interface DailySeasonalPoint {
   tradingDay: number

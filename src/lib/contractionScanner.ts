@@ -36,7 +36,7 @@ interface HistoricalBar {
 }
 
 class ContractionScanner {
-  private readonly API_KEY = process.env.POLYGON_API_KEY || ''
+  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
   private readonly CONCURRENT_REQUESTS = 8
   private readonly REQUEST_DELAY = 30
 

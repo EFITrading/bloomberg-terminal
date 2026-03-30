@@ -35,7 +35,7 @@ export interface GEXAnalysis {
 class GEXService {
   private cache = new Map<string, { data: GEXAnalysis; expires: number }>()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-  private readonly API_KEY = process.env.POLYGON_API_KEY || ''
+  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   /**
    * Calculate gamma exposure for a given symbol

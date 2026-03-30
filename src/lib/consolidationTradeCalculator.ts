@@ -42,7 +42,7 @@ interface TradeSetup {
 }
 
 export class ConsolidationTradeCalculator {
-  private readonly API_KEY = process.env.POLYGON_API_KEY || ''
+  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
   private readonly RISK_FREE_RATE = 0.0387 // 3.87% risk-free rate
 
   /**

@@ -34,7 +34,7 @@ interface IVData {
   timestamp: number
 }
 
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || ''
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 class IVRRGService {
   private apiKey: string

@@ -116,7 +116,7 @@ interface WeeklyPattern {
   description: string
 }
 
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || ''
+const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 const BASE_URL = 'https://api.polygon.io'
 
 // Helper function to add aliases to seasonal patterns
@@ -367,7 +367,7 @@ class PolygonService {
           )
 
           // Call Polygon API directly to avoid server-side relative URL issue
-          const POLYGON_API_KEY = process.env.POLYGON_API_KEY || ''
+          const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
           const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`
 
           console.log(

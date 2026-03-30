@@ -3678,13 +3678,23 @@ export function TradePopupChart({
     ctx.font = 'bold 17px "Courier New", monospace'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
+    const yAxisTicks: { i: number; val: number; y: number; label: string }[] = []
     for (let i = 0; i <= 4; i++) {
       const val = lo + (range / 4) * (4 - i)
       const y = PAD_T + (CANDLE_H / 4) * i
       const label = fmtPrice(val)
+      yAxisTicks.push({ i, val, y, label })
       ctx.fillStyle = '#ffffff'
       ctx.fillText(label, W - PAD_R + 5, y)
     }
+    console.log('[EFI Y-Axis] scale:', {
+      hi: hi.toFixed(4),
+      lo: lo.toFixed(4),
+      range: range.toFixed(4),
+      CANDLE_H: CANDLE_H.toFixed(1),
+      PAD_T,
+      ticks: yAxisTicks.map((t) => `y=${t.y.toFixed(1)} → $${t.val.toFixed(4)} (${t.label})`),
+    })
 
     // Last price — crispy solid orange label on Y-axis
     const lastClose = visible[visible.length - 1]?.close
@@ -3770,6 +3780,31 @@ export function TradePopupChart({
       const chBarIdx = Math.floor((ch.x - PAD_L) / barW)
       if (chBarIdx >= 0 && chBarIdx < visible.length) {
         const chC = visible[chBarIdx]
+        const chOpen = chC.open ?? chC.close
+        const chHigh = chC.high ?? chC.close
+        const chLow = chC.low ?? chC.close
+        const chClose = chC.close
+        // toY inverse check: where should this candle's close appear on screen?
+        const closeExpectedY = PAD_T + CANDLE_H - ((chClose - lo) / range) * CANDLE_H
+        console.log('[EFI Crosshair] price mismatch check:', {
+          crosshairY: ch.y.toFixed(1),
+          crosshairPrice: chPrice.toFixed(4),
+          crosshairLabel: chPriceLabel,
+          candle: {
+            O: chOpen.toFixed(4),
+            H: chHigh.toFixed(4),
+            L: chLow.toFixed(4),
+            C: chClose.toFixed(4),
+          },
+          closeExpectedY: closeExpectedY.toFixed(1),
+          scale: {
+            hi: hi.toFixed(4),
+            lo: lo.toFixed(4),
+            range: range.toFixed(4),
+            CANDLE_H: CANDLE_H.toFixed(1),
+            PAD_T,
+          },
+        })
         const chTs = chC.timestamp ?? chC.t
         const chD = chTs ? new Date(chTs) : new Date((chC.date || '') + 'T00:00:00')
         const chDateStr =
@@ -5297,6 +5332,14 @@ export default function TradingViewChart({
   const [trackingLoading, setTrackingLoading] = useState(false)
   const trackingFetchedRef = useRef(false)
   const trackingScrollRef = useRef<HTMLDivElement>(null)
+
+  // Flow tab state – historical monthly ETF fund flows
+  const [flowTabData, setFlowTabData] = useState<
+    Record<string, Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>>
+  >({})
+  const [flowTabLoading, setFlowTabLoading] = useState(false)
+  const flowTabFetchedRef = useRef(false)
+  const [flowTabRange, setFlowTabRange] = useState<'1M' | '4M' | '1Y' | '3Y' | '5Y'>('1Y')
   const [trackingTimeframe, setTrackingTimeframe] = useState<
     '1D' | '5D' | '1M' | '3M' | '6M' | '1Y'
   >('1D')
@@ -10899,8 +10942,8 @@ export default function TradingViewChart({
 
       // Step 2: All 33 tickers run in parallel. Each does sequential date probing
       // with early exit so we only fetch as many dates as needed.
-      // Date offsets: today (0), then 5, 12, 19, 26 days back covering weekly cadence.
-      const DATE_OFFSETS = [0, 5, 12, 19, 26]
+      // Date offsets: today (0), then 3, 7, 14, 28 days back — matches the Tab's 3-day most-recent interval.
+      const DATE_OFFSETS = [0, 3, 7, 14, 28]
       const updates: Record<string, number> = {}
 
       await Promise.all(
@@ -10940,6 +10983,122 @@ export default function TradingViewChart({
       cancelled = true
     }
   }, [watchlistLoading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch historical weekly ETF flow data for the Flow tab
+  const fetchETFFlowHistory = useCallback(async () => {
+    if (flowTabFetchedRef.current) return
+    flowTabFetchedRef.current = true
+    setFlowTabLoading(true)
+
+    const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const ETF_TICKERS = [
+      'SPY',
+      'QQQ',
+      'IWM',
+      'XLK',
+      'XLF',
+      'XLY',
+      'XLV',
+      'XLE',
+      'XLU',
+      'XLP',
+      'XLI',
+      'XLB',
+      'XLC',
+      'XLRE',
+    ]
+
+    // Variable-density intervals: dense recent, sparse historical
+    const getDateStr = (daysBack: number) => {
+      const d = new Date()
+      d.setDate(d.getDate() - daysBack)
+      while (d.getDay() === 0) d.setDate(d.getDate() - 2)
+      while (d.getDay() === 6) d.setDate(d.getDate() - 1)
+      return d.toISOString().split('T')[0]
+    }
+
+    const daysOffsets: number[] = []
+    for (let i = 0; i <= 120; i += 3) daysOffsets.push(i) // last 4M: every 3 days (~40 pts)
+    for (let i = 127; i <= 365; i += 7) daysOffsets.push(i) // 4M-1Y: every 7 days (~34 pts)
+    for (let i = 379; i <= 365 * 3; i += 14) daysOffsets.push(i) // 1Y-3Y: every 14 days (~52 pts)
+    for (let i = 365 * 3 + 30; i <= 365 * 5; i += 30) daysOffsets.push(i) // 3Y-5Y: monthly (~24 pts)
+    const dateStrings = daysOffsets.map(getDateStr)
+
+    const fetchShares = async (ticker: string, date: string): Promise<number | null> => {
+      try {
+        const res = await fetch(
+          `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLY_KEY}`,
+          { headers: { Accept: 'application/json' } }
+        )
+        if (!res.ok) return null
+        const json = await res.json()
+        return json.results?.share_class_shares_outstanding ?? null
+      } catch {
+        return null
+      }
+    }
+
+    // Fetch current prices once
+    const priceMap: Record<string, number> = {}
+    try {
+      const snapRes = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${ETF_TICKERS.join(',')}&apiKey=${POLY_KEY}`,
+        { headers: { Accept: 'application/json' } }
+      )
+      if (snapRes.ok) {
+        const snapJson = await snapRes.json()
+        ;((snapJson.tickers as any[]) || []).forEach((t: any) => {
+          const p = t.day?.c || t.prevDay?.c
+          if (p) priceMap[t.ticker] = p
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const results: Record<
+      string,
+      Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>
+    > = {}
+
+    // Process tickers in batches of 3 to avoid rate limits
+    const BATCH_SIZE = 3
+    for (let b = 0; b < ETF_TICKERS.length; b += BATCH_SIZE) {
+      const batch = ETF_TICKERS.slice(b, b + BATCH_SIZE)
+      await Promise.all(
+        batch.map(async (ticker) => {
+          const price = priceMap[ticker] || 100
+          // Fetch dates in batches of 8 sequentially to avoid connection resets
+          const sharesArr: (number | null)[] = []
+          for (let i = 0; i < dateStrings.length; i += 8) {
+            const chunk = dateStrings.slice(i, i + 8)
+            const chunkResults = await Promise.all(chunk.map((d) => fetchShares(ticker, d)))
+            sharesArr.push(...chunkResults)
+            if (i + 8 < dateStrings.length) await new Promise((r) => setTimeout(r, 120))
+          }
+
+          const points: Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }> =
+            []
+          let cumFlow = 0
+          for (let i = sharesArr.length - 1; i >= 1; i--) {
+            const olderShares = sharesArr[i]
+            const newerShares = sharesArr[i - 1]
+            if (olderShares == null || newerShares == null) continue
+            const monthlyFlow = (newerShares - olderShares) * price
+            cumFlow += monthlyFlow
+            const [y, m, d] = dateStrings[i - 1].split('-')
+            const time = Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d))
+            points.push({ time, date: dateStrings[i - 1], weeklyFlow: monthlyFlow, cumFlow })
+          }
+          results[ticker] = points
+        })
+      )
+      if (b + BATCH_SIZE < ETF_TICKERS.length) await new Promise((r) => setTimeout(r, 200))
+    }
+
+    setFlowTabData(results)
+    setFlowTabLoading(false)
+  }, [])
 
   // Fetch data for Tracking tab - auto-fetch on mount
   useEffect(() => {
@@ -19183,17 +19342,21 @@ export default function TradingViewChart({
               </svg>
             </button>
             {/* Tab Navigation */}
-            <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
-              {['Watchlist', 'Tracking'].map((tab) => (
+            <div
+              className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg"
+              style={{ marginRight: '36px' }}
+            >
+              {['Watchlist', 'Tracking', 'Flow'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => {
                     setActiveTab(tab)
+                    if (tab === 'Flow') fetchETFFlowHistory()
                   }}
-                  className="md:text-[20px] text-[12px]"
+                  className="md:text-[16px] text-[11px]"
                   style={{
                     flex: 1,
-                    padding: '12px 24px',
+                    padding: '10px 8px',
                     fontWeight: '900',
                     fontFamily: 'monospace',
                     letterSpacing: '1px',
@@ -20053,6 +20216,355 @@ export default function TradingViewChart({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Options Trades Tab Content - only renders inside TradingPlan (hideNav=true) */}
+        {activeTab === 'Flow' && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-black">
+            {/* Header */}
+            <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-between">
+              <div>
+                <div className="text-white font-black uppercase tracking-widest text-sm">
+                  INSTITUTIONAL ETF FLOW
+                </div>
+                <div className="text-gray-400 text-xs mt-0.5">Monthly net fund flows</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(['1M', '4M', '1Y', '3Y', '5Y'] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setFlowTabRange(r)}
+                    className="font-mono font-bold text-xs px-3 py-1 rounded"
+                    style={{
+                      background: flowTabRange === r ? '#FF6600' : '#1a1a1a',
+                      color: flowTabRange === r ? '#000' : '#888',
+                      border: `1px solid ${flowTabRange === r ? '#FF6600' : '#333'}`,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+                {flowTabLoading && (
+                  <div className="flex items-center gap-1 text-yellow-400 text-xs ml-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400" />
+                    Loading…
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-6"
+              style={{ scrollbarWidth: 'thin', scrollbarColor: '#FF6600 #1a1a1a' }}
+            >
+              {flowTabLoading && Object.keys(flowTabData).length === 0 ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-400 mx-auto mb-3" />
+                    <div className="text-gray-400 text-sm">Loading institutional flow data…</div>
+                  </div>
+                </div>
+              ) : (
+                (() => {
+                  const formatFlow = (v: number) => {
+                    const abs = Math.abs(v)
+                    const sign = v >= 0 ? '+' : '-'
+                    if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`
+                    if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(0)}M`
+                    return `${sign}$${(abs / 1e3).toFixed(0)}K`
+                  }
+
+                  const renderFlowChart = (
+                    ticker: string,
+                    points: Array<{
+                      time: number
+                      date: string
+                      weeklyFlow: number
+                      cumFlow: number
+                    }>,
+                    isLarge: boolean
+                  ) => {
+                    if (!points || points.length < 2)
+                      return (
+                        <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                          No data
+                        </div>
+                      )
+
+                    const chartH = isLarge ? 240 : 160
+                    const chartW = 1000
+                    const padL = 70
+                    const padR = 20
+                    const padT = 10
+                    const padB = 32
+                    const innerW = chartW - padL - padR
+                    const innerH = chartH - padT - padB
+
+                    const flows = points.map((p) => p.cumFlow)
+                    const minF = Math.min(...flows)
+                    const maxF = Math.max(...flows)
+                    const rangeF = maxF - minF || 1
+                    const zeroY = padT + ((maxF - 0) / rangeF) * innerH
+                    const clampedZeroY = Math.max(padT, Math.min(padT + innerH, zeroY))
+
+                    const toSvgX = (i: number) => padL + (i / (points.length - 1)) * innerW
+                    const toSvgY = (v: number) => padT + ((maxF - v) / rangeF) * innerH
+
+                    const polyPoints = points
+                      .map((p, i) => `${toSvgX(i).toFixed(1)},${toSvgY(p.cumFlow).toFixed(1)}`)
+                      .join(' ')
+
+                    // Build fill polygon: follow the line then close via zero line
+                    const fillAbove =
+                      `${padL},${clampedZeroY} ` +
+                      points
+                        .map((p, i) => {
+                          const y = toSvgY(p.cumFlow)
+                          return y <= clampedZeroY
+                            ? `${toSvgX(i).toFixed(1)},${y.toFixed(1)}`
+                            : null
+                        })
+                        .filter(Boolean)
+                        .join(' ') +
+                      ` ${padL + innerW},${clampedZeroY}`
+
+                    // Color line based on last value vs start
+                    const lastFlow = flows[flows.length - 1]
+                    const lineColor = lastFlow >= 0 ? '#10b981' : '#ef4444'
+
+                    // Y-axis labels
+                    const yLabels = [maxF, (maxF + minF) / 2, minF]
+
+                    // X-axis: show ~4 evenly-spaced dates
+                    const xTicks = [
+                      0,
+                      Math.floor(points.length / 3),
+                      Math.floor((2 * points.length) / 3),
+                      points.length - 1,
+                    ]
+                    const formatDate = (d: string) => {
+                      const dt = new Date(d + 'T00:00:00Z')
+                      return dt.toLocaleDateString('en-US', {
+                        month: 'short',
+                        year: '2-digit',
+                        timeZone: 'UTC',
+                      })
+                    }
+
+                    return (
+                      <div
+                        style={{
+                          width: '100%',
+                          background: '#050505',
+                          borderRadius: '4px',
+                          border: '1px solid #1a1a1a',
+                          padding: '8px',
+                        }}
+                      >
+                        {/* Ticker + current flow badge */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-mono font-black text-orange-400 text-sm tracking-widest">
+                            {ticker}
+                          </span>
+                          <span
+                            className="font-mono font-bold text-xs px-2 py-0.5 rounded"
+                            style={{
+                              color: lastFlow >= 0 ? '#10b981' : '#ef4444',
+                              background:
+                                lastFlow >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                              border: `1px solid ${lastFlow >= 0 ? '#10b98144' : '#ef444444'}`,
+                            }}
+                          >
+                            {lastFlow >= 0 ? '▲ INFLOWS' : '▼ OUTFLOWS'} {formatFlow(lastFlow)}
+                          </span>
+                        </div>
+
+                        <svg
+                          viewBox={`0 0 ${chartW} ${chartH}`}
+                          width="100%"
+                          height={chartH}
+                          preserveAspectRatio="none"
+                          style={{ display: 'block' }}
+                        >
+                          <defs>
+                            <linearGradient
+                              id={`flowGradAbove-${ticker}`}
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop offset="0%" stopColor="#10b981" stopOpacity="0.18" />
+                              <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+                            </linearGradient>
+                            <linearGradient
+                              id={`flowGradBelow-${ticker}`}
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.02" />
+                              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.18" />
+                            </linearGradient>
+                          </defs>
+
+                          {/* Y-axis grid lines + labels */}
+                          {yLabels.map((v, i) => {
+                            const y = toSvgY(v)
+                            return (
+                              <g key={`y-${i}`}>
+                                <line
+                                  x1={padL}
+                                  y1={y}
+                                  x2={padL + innerW}
+                                  y2={y}
+                                  stroke={v === 0 ? '#555' : '#1a1a1a'}
+                                  strokeWidth={v === 0 ? 1.5 : 1}
+                                  strokeDasharray={v === 0 ? '4,3' : '2,4'}
+                                />
+                                <text
+                                  x={padL - 3}
+                                  y={y + 5}
+                                  textAnchor="end"
+                                  fill="#ffffff"
+                                  fontSize="14"
+                                  fontFamily="monospace"
+                                  fontWeight="800"
+                                  style={{ userSelect: 'none' }}
+                                >
+                                  {formatFlow(v)}
+                                </text>
+                              </g>
+                            )
+                          })}
+
+                          {/* Zero baseline — only needed if yLabels doesn't include 0 */}
+
+                          {/* Green fill above zero */}
+                          <polygon
+                            points={
+                              points
+                                .map(
+                                  (p, i) =>
+                                    `${toSvgX(i).toFixed(1)},${Math.min(toSvgY(p.cumFlow), clampedZeroY).toFixed(1)}`
+                                )
+                                .join(' ') +
+                              ` ${(padL + innerW).toFixed(1)},${clampedZeroY.toFixed(1)} ${padL},${clampedZeroY.toFixed(1)}`
+                            }
+                            fill={`url(#flowGradAbove-${ticker})`}
+                          />
+
+                          {/* Red fill below zero */}
+                          <polygon
+                            points={
+                              points
+                                .map(
+                                  (p, i) =>
+                                    `${toSvgX(i).toFixed(1)},${Math.max(toSvgY(p.cumFlow), clampedZeroY).toFixed(1)}`
+                                )
+                                .join(' ') +
+                              ` ${(padL + innerW).toFixed(1)},${clampedZeroY.toFixed(1)} ${padL},${clampedZeroY.toFixed(1)}`
+                            }
+                            fill={`url(#flowGradBelow-${ticker})`}
+                          />
+
+                          {/* Main flow line */}
+                          <polyline
+                            fill="none"
+                            stroke={lineColor}
+                            strokeWidth="2.5"
+                            points={polyPoints}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* X-axis date labels */}
+                          {xTicks
+                            .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
+                            .map((idx, pos) => {
+                              const p = points[idx]
+                              if (!p) return null
+                              return (
+                                <text
+                                  key={`x-tick-${pos}`}
+                                  x={toSvgX(idx)}
+                                  y={chartH - 4}
+                                  textAnchor="middle"
+                                  fill="#ffffff"
+                                  fontSize="13"
+                                  fontFamily="monospace"
+                                  fontWeight="700"
+                                >
+                                  {formatDate(p.date)}
+                                </text>
+                              )
+                            })}
+                        </svg>
+                      </div>
+                    )
+                  }
+
+                  // Filter points by selected timeframe
+                  const rangeDays: Record<string, number> = {
+                    '1M': 30,
+                    '4M': 120,
+                    '1Y': 365,
+                    '3Y': 365 * 3,
+                    '5Y': 365 * 5,
+                  }
+                  const cutoffMs = Date.now() - rangeDays[flowTabRange] * 24 * 60 * 60 * 1000
+                  const filterPoints = (
+                    pts: Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>
+                  ) => {
+                    const filtered = pts.filter((p) => p.time >= cutoffMs)
+                    // Recompute cumFlow from zero for the filtered window
+                    let cum = 0
+                    return filtered.map((p) => {
+                      cum += p.weeklyFlow
+                      return { ...p, cumFlow: cum }
+                    })
+                  }
+
+                  const spyPoints = filterPoints(flowTabData['SPY'] || [])
+                  const sectorTickers = [
+                    'QQQ',
+                    'IWM',
+                    'XLK',
+                    'XLF',
+                    'XLY',
+                    'XLV',
+                    'XLE',
+                    'XLU',
+                    'XLP',
+                    'XLI',
+                    'XLB',
+                    'XLC',
+                    'XLRE',
+                  ]
+
+                  return (
+                    <>
+                      {/* SPY – large prominent chart */}
+                      {renderFlowChart('SPY', spyPoints, true)}
+
+                      {/* Sector ETFs – 2-column grid */}
+                      <div className="grid grid-cols-2 gap-3">
+                        {sectorTickers.map((t) =>
+                          flowTabData[t] ? (
+                            <div key={t}>
+                              {renderFlowChart(t, filterPoints(flowTabData[t]), false)}
+                            </div>
+                          ) : null
+                        )}
+                      </div>
+                    </>
+                  )
+                })()
+              )}
+            </div>
           </div>
         )}
 

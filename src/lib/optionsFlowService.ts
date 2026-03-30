@@ -1,12 +1,12 @@
 ﻿import { TOP_1800_SYMBOLS } from './Top1000Symbols'
 import { withCircuitBreaker } from './circuitBreaker'
 import {
-  isLiveDataAvailable,
-  getMarketSession,
   getLastTradingDayStr,
-  marketOpenTimestampForDate,
-  marketCloseTimestampForDate,
+  getMarketSession,
   isHoliday,
+  isLiveDataAvailable,
+  marketCloseTimestampForDate,
+  marketOpenTimestampForDate,
 } from './marketSessionUtils'
 
 /**
@@ -283,7 +283,7 @@ export class OptionsFlowService {
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js')
     const parallelProcessor = new ParallelOptionsFlowProcessor()
 
-    const apiKey = process.env.POLYGON_API_KEY
+    const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY
     if (!apiKey) {
       console.error('[ERROR] No API key found')
       return []
@@ -378,7 +378,7 @@ export class OptionsFlowService {
         const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange)
         // Tag every trade with the trading date for chart grouping
         trades.forEach((t) => {
-          ; (t as any).trading_date = date
+          ;(t as any).trading_date = date
         })
         onProgress?.([], `[Day ${date}] ${trades.length} trades found`)
         return trades
@@ -1265,8 +1265,8 @@ export class OptionsFlowService {
     if (isMultiLeg) {
       console.log(
         `   [OK] Multi-leg PASSED: ${trades.length} legs (<=4), ` +
-        `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
-        `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
+          `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
+          `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
       )
     }
 
@@ -1731,7 +1731,7 @@ export class OptionsFlowService {
           ),
           days_to_expiry: Math.ceil(
             (new Date(contract.details.expiration_date).getTime() - Date.now()) /
-            (1000 * 60 * 60 * 24)
+              (1000 * 60 * 60 * 24)
           ),
         }
 
@@ -1829,7 +1829,7 @@ export class OptionsFlowService {
                   moneyness: 'OTM' as const,
                   days_to_expiry: Math.ceil(
                     (new Date(contract.expiration_date).getTime() - now.getTime()) /
-                    (1000 * 60 * 60 * 24)
+                      (1000 * 60 * 60 * 24)
                   ),
                 }
 
