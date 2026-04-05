@@ -49,6 +49,10 @@ interface OptionContract {
   change_percent?: number
 
   previous_close?: number
+
+  high?: number
+
+  low?: number
 }
 
 interface ChainPanelProps {
@@ -106,6 +110,13 @@ function ChainPanel({
   const [searchInput, setSearchInput] = useState(initialSymbol)
 
   const [showCalculator, setShowCalculator] = useState(false)
+  const [brokerMode, setBrokerMode] = useState<'tos' | 'robinhood'>('tos')
+  const [rbAction, setRbAction] = useState<'buy' | 'sell'>('buy')
+  const [rbSide, setRbSide] = useState<'call' | 'put'>('call')
+  const [rbExpandedStrike, setRbExpandedStrike] = useState<number | null>(null)
+  const [rbLegs, setRbLegs] = useState<
+    Array<{ strike: number; side: 'call' | 'put'; action: 'buy' | 'sell'; mark: number }>
+  >([])
 
   const [expirationDates, setExpirationDates] = useState<string[]>([])
 
@@ -122,6 +133,7 @@ function ChainPanel({
   const [loading, setLoading] = useState(true)
 
   const [stockPrice, setStockPrice] = useState(currentPrice)
+  const [stockDayChange, setStockDayChange] = useState<number>(0)
 
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
@@ -169,9 +181,9 @@ function ChainPanel({
 
     volume: true,
 
-    delta: true,
+    delta: false,
 
-    theta: true,
+    theta: false,
 
     iv: true,
 
@@ -247,6 +259,19 @@ function ChainPanel({
 
       if (data.results?.[0]?.c) {
         setStockPrice(data.results[0].c)
+
+        // Also fetch snapshot for today's change %
+        try {
+          const snap = await polygonRateLimiter.fetch(
+            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${POLYGON_API_KEY}`
+          )
+          const tc = snap?.ticker?.todaysChangePerc
+          if (typeof tc === 'number') setStockDayChange(tc)
+          const livePrice = snap?.ticker?.day?.c || snap?.ticker?.lastTrade?.p
+          if (livePrice) setStockPrice(livePrice)
+        } catch (_) {
+          /* use prev close fallback */
+        }
 
         return data.results[0].c
       }
@@ -621,14 +646,44 @@ function ChainPanel({
           result.volume = snap.day.volume
         }
 
-        // Get change data from day info
+        // Get high/low from day info
 
-        if (snap.day?.change_percent !== undefined) {
-          result.change_percent = snap.day.change_percent
+        if (snap.day?.high !== undefined) {
+          result.high = snap.day.high
         }
 
-        if (snap.day?.previous_close !== undefined) {
-          result.previous_close = snap.day.previous_close
+        if (snap.day?.low !== undefined) {
+          result.low = snap.day.low
+        }
+
+        // Fetch daily bars to get the true previous close (bars[-2].close)
+        // Polygon's snap.day.previous_close is unreliable — it often equals today's close
+        try {
+          const today = new Date()
+          const from = new Date(today)
+          from.setDate(from.getDate() - 10)
+          const fromStr = from.toISOString().split('T')[0]
+          const toStr = today.toISOString().split('T')[0]
+          const barsUrl = `https://api.polygon.io/v2/aggs/ticker/${optionSymbol}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=10&apikey=${POLYGON_API_KEY}`
+          const barsResponse = await fetch(barsUrl)
+          const barsData = await barsResponse.json()
+          if (barsData.results && barsData.results.length >= 2) {
+            const bars = barsData.results
+            const lastClose = bars[bars.length - 1].c // most recent trading day close
+            const prevClose = bars[bars.length - 2].c // the day before = true previous close
+            result.previous_close = prevClose
+            result.change_percent = prevClose > 0 ? ((lastClose - prevClose) / prevClose) * 100 : 0
+          } else if (snap.day?.previous_close !== undefined) {
+            // Fallback to snapshot if not enough bars
+            result.previous_close = snap.day.previous_close
+            result.change_percent = snap.day.change_percent || 0
+          }
+        } catch {
+          // Fallback to snapshot data
+          if (snap.day?.previous_close !== undefined) {
+            result.previous_close = snap.day.previous_close
+          }
+          result.change_percent = snap.day?.change_percent || 0
         }
       } else {
         console.warn(`No snapshot results for ${optionSymbol}:`, snapshotData)
@@ -836,6 +891,8 @@ function ChainPanel({
         .map((o) => o.strike_price)
     ),
   ].sort((a, b) => a - b)
+
+  const rbStrikes = [...allStrikes].sort((a, b) => b - a)
 
   // Find the closest strike to current stock price
 
@@ -1272,7 +1329,7 @@ function ChainPanel({
   }, [])
 
   return (
-    <div className="h-full flex flex-col bg-black text-white">
+    <div className="h-full flex flex-col text-white" style={{ background: '#0a0a0a' }}>
       {showCalculator ? (
         <ChainCalculator initialSymbol={symbol} onClose={() => setShowCalculator(false)} />
       ) : (
@@ -1280,30 +1337,41 @@ function ChainPanel({
           {/* Header */}
 
           <div
-            className="px-5 py-4 bg-black relative"
+            className="relative px-4 py-3 overflow-hidden"
             style={{
-              borderBottom: '1px solid rgba(6,182,212,0.2)',
-              boxShadow: '0 1px 0 rgba(6,182,212,0.06)',
+              background: 'linear-gradient(180deg, #111111 0%, #0d0d0d 100%)',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 2px 16px rgba(0,0,0,0.8)',
             }}
           >
+            {/* Top accent line */}
+            <div
+              className="absolute top-0 left-0 right-0 h-px pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(90deg, transparent 0%, #f59e0b 30%, #ffffff 55%, #f59e0b 80%, transparent 100%)',
+                opacity: 0.35,
+              }}
+            />
+
             {onClose && (
               <button
                 onClick={onClose}
-                className="absolute top-3 right-4 flex items-center justify-center w-7 h-7 rounded-md border border-red-700 text-red-400 hover:text-white transition-all duration-150 z-50 active:scale-95"
+                className="absolute top-3 right-3 flex items-center justify-center w-6 h-6 rounded transition-all duration-150 z-50 active:scale-95 hover:opacity-90"
                 style={{
-                  background: 'linear-gradient(145deg, #7f1d1d 0%, #991b1b 40%, #450a0a 100%)',
-
-                  boxShadow:
-                    '0 2px 0 #450a0a, 0 4px 8px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+                  background:
+                    'linear-gradient(145deg, rgba(127,29,29,0.85) 0%, rgba(69,10,10,0.95) 100%)',
+                  border: '1px solid rgba(239,68,68,0.25)',
+                  boxShadow: '0 2px 8px rgba(239,68,68,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
                 }}
                 aria-label="Close panel"
               >
                 <svg
-                  width="14"
-                  height="14"
+                  width="11"
+                  height="11"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="currentColor"
+                  stroke="rgba(248,113,113,0.9)"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1315,86 +1383,92 @@ function ChainPanel({
               </button>
             )}
 
-            <div className="flex items-center gap-3">
-              {/* Bracket decoration */}
-
+            <div className="flex items-center gap-3 pr-8">
+              {/* Icon badge */}
               <div
-                className="flex items-center shrink-0 select-none"
+                className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
                 style={{
-                  color: 'rgba(6,182,212,0.5)',
-                  fontSize: '28px',
-                  fontWeight: 100,
-                  lineHeight: 1,
-                  letterSpacing: '-4px',
+                  background: 'linear-gradient(145deg, #1a1a1a 0%, #111 100%)',
+                  border: '1px solid rgba(245,158,11,0.4)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.6)',
                 }}
               >
-                [
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="1.5"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                  <line x1="9" y1="21" x2="9" y2="9" />
+                </svg>
               </div>
 
               <div className="flex flex-col leading-none">
                 <span
-                  className="text-[10px] font-semibold tracking-[0.3em] uppercase mb-0.5"
-                  style={{ color: 'rgba(6,182,212,0.6)' }}
+                  className="text-[9px] font-bold tracking-[0.4em] uppercase mb-0.5"
+                  style={{ color: 'rgba(245,158,11,0.7)' }}
                 >
                   Derivatives
                 </span>
 
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+                <h1 className="text-xl font-black" style={{ letterSpacing: '-0.01em' }}>
                   <span className="text-white">Options </span>
 
-                  <span
-                    style={{
-                      background: 'linear-gradient(90deg, #06b6d4 0%, #22d3ee 55%, #67e8f9 100%)',
-
-                      WebkitBackgroundClip: 'text',
-
-                      WebkitTextFillColor: 'transparent',
-                    }}
-                  >
-                    Chain
-                  </span>
+                  <span style={{ color: '#f59e0b' }}>Chain</span>
                 </h1>
               </div>
 
-              <div className="flex items-center gap-1.5 ml-1">
+              {/* Ticker badge */}
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded ml-1"
+                style={{
+                  background: 'rgba(245,158,11,0.12)',
+                  border: '1px solid rgba(245,158,11,0.5)',
+                }}
+              >
+                <span className="text-sm font-black tracking-widest" style={{ color: '#f59e0b' }}>
+                  {symbol}
+                </span>
+              </div>
+
+              {/* Live indicator */}
+              <div className="flex items-center gap-1.5 ml-auto">
                 <span className="relative flex h-2 w-2">
                   <span
-                    className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
-                    style={{ backgroundColor: '#06b6d4' }}
+                    className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                    style={{ backgroundColor: '#22c55e' }}
                   />
 
                   <span
                     className="relative inline-flex rounded-full h-2 w-2"
-                    style={{ backgroundColor: '#06b6d4' }}
+                    style={{ backgroundColor: '#22c55e' }}
                   />
                 </span>
 
                 <span
-                  className="text-[10px] font-medium tracking-widest uppercase hidden md:inline"
-                  style={{ color: 'rgba(6,182,212,0.6)' }}
+                  className="text-[10px] font-bold tracking-[0.35em] uppercase hidden md:inline"
+                  style={{ color: '#22c55e' }}
                 >
-                  Live
+                  LIVE
                 </span>
-              </div>
-
-              <div
-                className="ml-1 shrink-0 select-none"
-                style={{
-                  color: 'rgba(6,182,212,0.5)',
-                  fontSize: '28px',
-                  fontWeight: 100,
-                  lineHeight: 1,
-                  letterSpacing: '-4px',
-                }}
-              >
-                ]
               </div>
             </div>
           </div>
 
           {/* Enhanced Header */}
 
-          <div className="flex-shrink-0 border-b border-orange-900/30 bg-black shadow-lg">
+          <div
+            className="flex-shrink-0"
+            style={{
+              background: '#0d0d0d',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
+            }}
+          >
             {/* Top Bar */}
 
             <div className="px-4 pt-4 pb-3">
@@ -1406,7 +1480,7 @@ function ChainPanel({
                 <div className="flex items-center gap-4">
                   {/* Liquid-style Search Bar */}
 
-                  <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
+                  <div className="search-bar-premium flex items-center space-x-2 px-4 py-2.5 rounded-md">
                     <svg
                       width="16"
                       height="16"
@@ -1463,18 +1537,21 @@ function ChainPanel({
 
                   {/* Spot Price */}
 
-                  <div className="flex items-center gap-2">
+                  <div
+                    className="flex items-center gap-2 px-4 py-3 rounded"
+                    style={{
+                      background: 'rgba(245,158,11,0.08)',
+                      border: '1px solid rgba(245,158,11,0.35)',
+                    }}
+                  >
                     <span
-                      className="text-xs font-bold uppercase tracking-wider"
-                      style={{
-                        color: 'rgb(249, 115, 22)',
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-                      }}
+                      className="text-base font-black uppercase tracking-widest"
+                      style={{ color: '#f59e0b' }}
                     >
                       SPOT
                     </span>
 
-                    <span className="text-white font-bold text-xl tabular-nums">
+                    <span className="text-base font-black tabular-nums" style={{ color: '#fff' }}>
                       ${stockPrice.toFixed(2)}
                     </span>
                   </div>
@@ -1485,16 +1562,11 @@ function ChainPanel({
                     <select
                       value={selectedExpiration}
                       onChange={(e) => setSelectedExpiration(e.target.value)}
-                      className="w-full rounded-lg px-5 py-3 text-base font-bold text-white focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 transition-all appearance-none cursor-pointer"
+                      className="w-full rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
                       style={{
-                        background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-
-                        border: '1px solid rgba(249, 115, 22, 0.3)',
-
-                        boxShadow:
-                          'inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
-
-                        backdropFilter: 'blur(10px)',
+                        background: '#161616',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                       }}
                       disabled={expirationDates.length === 0}
                     >
@@ -1538,16 +1610,11 @@ function ChainPanel({
                     <select
                       value={otmRange}
                       onChange={(e) => setOtmRange(Number(e.target.value))}
-                      className="w-32 rounded-lg px-3 py-3 text-base font-bold text-white focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 transition-all appearance-none cursor-pointer"
+                      className="w-32 rounded px-3 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
                       style={{
-                        background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-
-                        border: '1px solid rgba(249, 115, 22, 0.3)',
-
-                        boxShadow:
-                          'inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
-
-                        backdropFilter: 'blur(10px)',
+                        background: '#161616',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                       }}
                     >
                       <option value={2} className="bg-gray-900">
@@ -1617,20 +1684,17 @@ function ChainPanel({
                   <div className="relative">
                     <button
                       onClick={() => setShowColumnFilter(!showColumnFilter)}
-                      className="rounded-lg px-5 py-3 text-base font-bold text-white focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 transition-all cursor-pointer flex items-center gap-2"
+                      className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
                       style={{
-                        background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-
-                        border: '1px solid rgba(249, 115, 22, 0.3)',
-
-                        boxShadow:
-                          'inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
-
-                        backdropFilter: 'blur(10px)',
+                        background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616',
+                        border: showColumnFilter
+                          ? '1px solid rgba(245,158,11,0.6)'
+                          : '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                       }}
                     >
                       <svg
-                        className="w-[18px] h-[18px]"
+                        className="w-5 h-5"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -1642,7 +1706,7 @@ function ChainPanel({
                           d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
                         />
                       </svg>
-                      Chain Filter
+                      Filter
                     </button>
 
                     {/* Filter Dropdown Menu */}
@@ -1715,9 +1779,9 @@ function ChainPanel({
 
                                   volume: true,
 
-                                  delta: true,
+                                  delta: false,
 
-                                  theta: true,
+                                  theta: false,
 
                                   iv: true,
 
@@ -1753,20 +1817,36 @@ function ChainPanel({
 
                   <button
                     onClick={() => setShowCalculator(!showCalculator)}
-                    className="rounded-lg px-5 py-3 text-base font-bold text-white focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 transition-all cursor-pointer flex items-center gap-2"
+                    className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
                     style={{
-                      background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-
-                      border: '1px solid rgba(249, 115, 22, 0.3)',
-
-                      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
-
-                      backdropFilter: 'blur(10px)',
+                      background: '#161616',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                     }}
                   >
-                    <TbCalculator className="w-[18px] h-[18px]" />
+                    <TbCalculator className="w-5 h-5" />
                     Calculator
                   </button>
+
+                  {/* View Mode Dropdown */}
+                  <select
+                    value={brokerMode}
+                    onChange={(e) => setBrokerMode(e.target.value as 'tos' | 'robinhood')}
+                    className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none cursor-pointer appearance-none"
+                    style={{
+                      background: '#161616',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                      color: '#22c55e',
+                    }}
+                  >
+                    <option value="tos" style={{ background: '#161616', color: '#fff' }}>
+                      TOS
+                    </option>
+                    <option value="robinhood" style={{ background: '#161616', color: '#fff' }}>
+                      Robinhood
+                    </option>
+                  </select>
                 </div>
 
                 {/* Right: Action Buttons */}
@@ -1774,60 +1854,38 @@ function ChainPanel({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowWatchlist(!showWatchlist)}
-                    className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center gap-2 relative overflow-hidden group ${
+                    className={`px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 ${
                       showWatchlist ? 'scale-105' : 'hover:scale-105'
                     }`}
                     style={{
-                      background: 'linear-gradient(145deg, #0c1e3a, #081526)',
-
-                      boxShadow: showWatchlist
-                        ? 'inset 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 -2px 4px rgba(30, 58, 95, 0.5), 0 6px 12px rgba(0, 0, 0, 0.4), 0 0 20px rgba(249, 115, 22, 0.3)'
-                        : 'inset 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 -2px 4px rgba(30, 58, 95, 0.5), 0 4px 8px rgba(0, 0, 0, 0.4)',
-
+                      background: showWatchlist ? 'rgba(245,158,11,0.12)' : '#161616',
                       border: showWatchlist
-                        ? '2px solid rgba(249, 115, 22, 0.6)'
-                        : '1px solid rgba(30, 58, 95, 0.5)',
-
-                      backdropFilter: 'blur(10px)',
+                        ? '1px solid #f59e0b'
+                        : '1px solid rgba(255,255,255,0.15)',
+                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                     }}
                     title="Toggle Watchlist"
                   >
-                    {/* Glossy overlay */}
-
-                    <div
-                      className="absolute inset-0 pointer-events-none"
-                      style={{
-                        background:
-                          'linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0.2) 100%)',
-                      }}
+                    <TbEye
+                      className="w-5 h-5"
+                      style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
                     />
 
-                    <div className="relative z-10 flex items-center gap-2">
-                      <TbEye
-                        className="w-[25px] h-[25px] text-orange-500 animate-pulse"
-                        style={{ filter: 'drop-shadow(0 0 4px rgba(249, 115, 22, 0.6))' }}
-                      />
+                    <span
+                      className="text-base font-black tracking-wider"
+                      style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
+                    >
+                      WATCHLIST
+                    </span>
 
+                    {watchlist.length > 0 && (
                       <span
-                        className="text-base font-bold"
-                        style={{
-                          color: 'rgb(255, 255, 255)',
-                          opacity: 1,
-                          textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-                        }}
+                        className="text-black text-xs rounded-full px-1.5 py-0.5 font-black min-w-[20px] text-center"
+                        style={{ background: '#f59e0b' }}
                       >
-                        WATCHLIST
+                        {watchlist.length}
                       </span>
-
-                      {watchlist.length > 0 && (
-                        <span
-                          className="bg-orange-500 text-black text-sm rounded-full px-2 py-1 font-bold min-w-[24px] text-center"
-                          style={{ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)' }}
-                        >
-                          {watchlist.length}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </button>
 
                   <button
@@ -1837,129 +1895,125 @@ function ChainPanel({
                       fetchOptionsChain()
                     }}
                     disabled={loading}
-                    className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 hover:border-cyan-500/50 hover:bg-gray-800 transition-all duration-200 flex items-center gap-2 disabled:opacity-50"
+                    className="px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 disabled:opacity-40"
+                    style={{
+                      background: '#161616',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                    }}
                     title="Refresh Data"
                   >
-                    <TbRefresh
-                      className={`w-[25px] h-[25px] text-cyan-400 ${loading ? 'animate-spin' : ''}`}
-                    />
-
-                    <span className="text-base font-bold text-white">REFRESH</span>
+                    <TbRefresh className={`w-5 h-5 text-white ${loading ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
               </div>
 
               {/* Row 2: Removed - Now Empty */}
 
-              <div className="mb-3 pb-3 border-b border-gray-800/30"></div>
+              <div
+                className="mb-2 pb-2"
+                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+              ></div>
             </div>
 
             {/* Column Headers */}
 
-            {!showWatchlist && (
-              <div className="grid grid-cols-[1fr_auto_1fr] gap-0 text-base font-bold border-t border-gray-800/50 bg-gray-950/50 backdrop-blur-sm">
+            {!showWatchlist && brokerMode === 'tos' && (
+              <div
+                className="grid grid-cols-[1fr_auto_1fr] gap-0 text-sm font-black tracking-[0.1em] uppercase"
+                style={{
+                  background: '#111111',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
                 {/* Calls Header */}
 
                 <div
-                  className={`grid gap-2 px-3 py-3 border-r border-gray-800/50 bg-gradient-to-r from-green-900/30 via-green-900/10 to-transparent`}
+                  className="grid gap-2 px-3 py-2.5"
                   style={{
                     gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
+                    borderRight: '1px solid rgba(255,255,255,0.07)',
+                    borderLeft: '3px solid #22c55e',
                   }}
                 >
-                  {visibleColumns.watchlist && (
-                    <div className="text-center text-green-400/80 text-[10px] uppercase tracking-wider"></div>
-                  )}
+                  {visibleColumns.watchlist && <div className="text-center text-gray-500">★</div>}
 
                   {visibleColumns.openInterest && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">OI</div>
+                    <div className="text-right text-green-400">OI</div>
                   )}
 
-                  {visibleColumns.volume && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">VOL</div>
-                  )}
+                  {visibleColumns.volume && <div className="text-right text-green-400">VOL</div>}
 
-                  {visibleColumns.delta && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">DELTA</div>
-                  )}
+                  {visibleColumns.delta && <div className="text-right text-green-400">DELTA</div>}
 
-                  {visibleColumns.theta && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">THETA</div>
-                  )}
+                  {visibleColumns.theta && <div className="text-right text-green-400">THETA</div>}
 
                   {visibleColumns.iv && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">IV</div>
+                    <div className="text-right" style={{ color: '#a855f7' }}>
+                      IV%
+                    </div>
                   )}
 
-                  {visibleColumns.change && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">CHG%</div>
-                  )}
+                  {visibleColumns.change && <div className="text-right text-green-400">CHG%</div>}
 
                   {visibleColumns.breakeven && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">BRK%</div>
+                    <div className="text-right text-green-400">B/E%</div>
                   )}
 
-                  {visibleColumns.bid && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">BID</div>
-                  )}
+                  {visibleColumns.bid && <div className="text-right text-green-400">BID</div>}
 
-                  {visibleColumns.ask && (
-                    <div className="text-right text-green-400 uppercase tracking-wide">ASK</div>
-                  )}
+                  {visibleColumns.ask && <div className="text-right text-green-400">ASK</div>}
                 </div>
 
                 {/* Strike Header */}
 
-                <div className="px-4 py-3 text-center text-orange-400 border-r border-gray-800/50 bg-gray-900/80 min-w-[90px] uppercase tracking-wider">
-                  STRIKE
+                <div
+                  className="px-4 py-2.5 text-center min-w-[90px] flex items-center justify-center"
+                  style={{
+                    borderRight: '1px solid rgba(255,255,255,0.07)',
+                    background: 'rgba(245,158,11,0.06)',
+                  }}
+                >
+                  <span
+                    className="text-sm font-black tracking-[0.2em] uppercase"
+                    style={{ color: '#f59e0b' }}
+                  >
+                    STRIKE
+                  </span>
                 </div>
 
                 {/* Puts Header */}
 
                 <div
-                  className={`grid gap-2 px-3 py-3 bg-gradient-to-l from-red-900/30 via-red-900/10 to-transparent`}
+                  className="grid gap-2 px-3 py-2.5"
                   style={{
                     gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
+                    borderRight: '3px solid #ef4444',
                   }}
                 >
-                  {visibleColumns.ask && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">ASK</div>
-                  )}
+                  {visibleColumns.ask && <div className="text-left text-red-400">ASK</div>}
 
-                  {visibleColumns.bid && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">BID</div>
-                  )}
+                  {visibleColumns.bid && <div className="text-left text-red-400">BID</div>}
 
-                  {visibleColumns.breakeven && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">BRK%</div>
-                  )}
+                  {visibleColumns.breakeven && <div className="text-left text-red-400">B/E%</div>}
 
-                  {visibleColumns.change && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">CHG%</div>
-                  )}
+                  {visibleColumns.change && <div className="text-left text-red-400">CHG%</div>}
 
                   {visibleColumns.iv && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">IV</div>
+                    <div className="text-left" style={{ color: '#a855f7' }}>
+                      IV%
+                    </div>
                   )}
 
-                  {visibleColumns.theta && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">THETA</div>
-                  )}
+                  {visibleColumns.theta && <div className="text-left text-red-400">THETA</div>}
 
-                  {visibleColumns.delta && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">DELTA</div>
-                  )}
+                  {visibleColumns.delta && <div className="text-left text-red-400">DELTA</div>}
 
-                  {visibleColumns.volume && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">VOL</div>
-                  )}
+                  {visibleColumns.volume && <div className="text-left text-red-400">VOL</div>}
 
-                  {visibleColumns.openInterest && (
-                    <div className="text-left text-red-400 uppercase tracking-wide">OI</div>
-                  )}
+                  {visibleColumns.openInterest && <div className="text-left text-red-400">OI</div>}
 
-                  {visibleColumns.watchlist && (
-                    <div className="text-center text-red-400/80 text-[10px] uppercase tracking-wider"></div>
-                  )}
+                  {visibleColumns.watchlist && <div className="text-center text-gray-500">★</div>}
                 </div>
               </div>
             )}
@@ -1967,7 +2021,10 @@ function ChainPanel({
 
           {/* Options Chain Body */}
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div
+            className="flex-1 overflow-y-auto custom-scrollbar"
+            style={{ background: '#0a0a0a' }}
+          >
             {error ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center p-4">
@@ -2416,6 +2473,1026 @@ function ChainPanel({
                   </div>
                 )}
               </div>
+            ) : brokerMode === 'robinhood' ? (
+              /* ===== ROBINHOOD VIEW ===== */
+              <div
+                style={{
+                  background: '#000000',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  height: '100%',
+                }}
+              >
+                <div
+                  style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                >
+                  {/* RH Sticky Header */}
+                  <div style={{ flexShrink: 0, background: '#000000', zIndex: 10 }}>
+                    {/* RH Sub-header */}
+                    <div
+                      style={{
+                        padding: '14px 24px',
+                        borderBottom: '1px solid #1c1c1c',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        flexWrap: 'nowrap',
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: '1.3rem',
+                          fontWeight: 700,
+                          margin: 0,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {symbol} {rbAction} {rbSide === 'call' ? 'Call' : 'Put'}
+                      </p>
+                      <div
+                        style={{
+                          display: 'flex',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '1px solid #333',
+                        }}
+                      >
+                        <button
+                          onClick={() => setRbAction('buy')}
+                          style={{
+                            padding: '8px 20px',
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            background: rbAction === 'buy' ? '#00c805' : '#111',
+                            color: rbAction === 'buy' ? '#000' : '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Buy
+                        </button>
+                        <button
+                          onClick={() => setRbAction('sell')}
+                          style={{
+                            padding: '8px 20px',
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            background: rbAction === 'sell' ? '#00c805' : '#111',
+                            color: rbAction === 'sell' ? '#000' : '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Sell
+                        </button>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '1px solid #333',
+                        }}
+                      >
+                        <button
+                          onClick={() => setRbSide('call')}
+                          style={{
+                            padding: '8px 20px',
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            background: rbSide === 'call' ? '#00c805' : '#111',
+                            color: rbSide === 'call' ? '#000' : '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Call
+                        </button>
+                        <button
+                          onClick={() => setRbSide('put')}
+                          style={{
+                            padding: '8px 20px',
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            background: rbSide === 'put' ? '#ff3b3b' : '#111',
+                            color: rbSide === 'put' ? '#fff' : '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Put
+                        </button>
+                      </div>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={selectedExpiration}
+                          onChange={(e) => setSelectedExpiration(e.target.value)}
+                          style={{
+                            WebkitAppearance: 'none',
+                            padding: '8px 40px 8px 14px',
+                            background: '#111',
+                            border: '1px solid #333',
+                            borderRadius: '8px',
+                            color: '#fff',
+                            fontSize: '18px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            outline: 'none',
+                          }}
+                        >
+                          {expirationDates.map((date) => {
+                            const parts = date.split('-')
+                            const months = [
+                              'January',
+                              'February',
+                              'March',
+                              'April',
+                              'May',
+                              'June',
+                              'July',
+                              'August',
+                              'September',
+                              'October',
+                              'November',
+                              'December',
+                            ]
+                            const monthName = months[parseInt(parts[1] || '1') - 1] || ''
+                            const day = parseInt(parts[2] || '1')
+                            const dte = Math.ceil(
+                              (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                            )
+                            return (
+                              <option key={date} value={date} style={{ background: '#111' }}>
+                                Expiring {monthName} {day} ({dte}d)
+                              </option>
+                            )
+                          })}
+                        </select>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            right: '12px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#999"
+                            strokeWidth="2"
+                          >
+                            <path d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Column Headers */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '130px 1fr 1fr 1fr 1fr 180px',
+                        padding: '10px 24px',
+                        borderBottom: '1px solid #1c1c1c',
+                        color: '#ffffff',
+                        fontSize: '20px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      <span>Strike price</span>
+                      <span>Breakeven</span>
+                      <span>{rbAction === 'sell' ? 'Chance of profit' : 'To breakeven'}</span>
+                      <span>% Change</span>
+                      <span>Change</span>
+                      <span style={{ textAlign: 'right' }}>Price</span>
+                    </div>
+                  </div>
+                  {/* end sticky header */}
+                  {/* Scrollable Rows */}
+                  <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {/* Rows */}
+                    {rbStrikes.map((strike, idx) => {
+                      const rbOption =
+                        rbSide === 'call'
+                          ? callOptions.find((c) => c.strike_price === strike)
+                          : putOptions.find((p) => p.strike_price === strike)
+                      const rbMark = ((rbOption?.bid || 0) + (rbOption?.ask || 0)) / 2
+                      const rbBreakeven = rbSide === 'call' ? strike + rbMark : strike - rbMark
+                      const rbToBreakeven =
+                        stockPrice > 0 && rbMark > 0
+                          ? ((rbBreakeven - stockPrice) / stockPrice) * 100
+                          : null
+                      const rbChangeDollar =
+                        rbMark > 0 && rbOption?.previous_close && rbOption.previous_close > 0
+                          ? rbMark - rbOption.previous_close
+                          : null
+                      const rbIV = rbOption?.implied_volatility || 0
+                      const rbDTE = selectedExpiration
+                        ? Math.max(
+                            1,
+                            Math.ceil(
+                              (new Date(selectedExpiration).getTime() - Date.now()) /
+                                (1000 * 60 * 60 * 24)
+                            )
+                          )
+                        : 30
+                      const rbT = rbDTE / 365
+                      const rbCOP =
+                        rbAction === 'sell' && rbIV > 0 && stockPrice > 0
+                          ? rbSide === 'call'
+                            ? chanceOfProfitSellCall(stockPrice, strike, 0.0387, rbIV, rbT)
+                            : chanceOfProfitSellPut(stockPrice, strike, 0.0387, rbIV, rbT)
+                          : null
+                      const rbIsExpanded = rbExpandedStrike === strike
+                      const rbPrevStrike = idx > 0 ? rbStrikes[idx - 1] : undefined
+                      const rbShowShareLine =
+                        rbPrevStrike !== undefined &&
+                        rbPrevStrike > stockPrice &&
+                        strike <= stockPrice
+                      const expiryShort = selectedExpiration
+                        ? `${parseInt(selectedExpiration.split('-')[1] || '0')}/${parseInt(selectedExpiration.split('-')[2] || '0')}`
+                        : ''
+                      return (
+                        <React.Fragment key={strike}>
+                          {rbShowShareLine && (
+                            <div
+                              style={{
+                                position: 'relative',
+                                height: '44px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  right: 0,
+                                  top: '50%',
+                                  height: '1.5px',
+                                  background: stockDayChange < 0 ? '#ff3b3b' : '#00c805',
+                                }}
+                              />
+                              <span
+                                style={{
+                                  position: 'relative',
+                                  zIndex: 1,
+                                  background: stockDayChange < 0 ? '#ff3b3b' : '#00c805',
+                                  color: '#000',
+                                  fontSize: '20px',
+                                  fontWeight: 800,
+                                  borderRadius: '20px',
+                                  padding: '5px 18px',
+                                }}
+                              >
+                                Share price: ${stockPrice.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                          <div
+                            onClick={() => setRbExpandedStrike(rbIsExpanded ? null : strike)}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '130px 1fr 1fr 1fr 1fr 180px',
+                              padding: '14px 24px',
+                              borderBottom: '1px solid #1c1c1c',
+                              cursor: 'pointer',
+                              alignItems: 'center',
+                              background: rbIsExpanded ? '#0a0a0a' : 'transparent',
+                            }}
+                          >
+                            <span style={{ fontSize: '21px', fontWeight: 600 }}>
+                              ${strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(2)}
+                            </span>
+                            <span style={{ fontSize: '21px' }}>
+                              {rbMark > 0 ? `$${rbBreakeven.toFixed(2)}` : '—'}
+                            </span>
+                            <span style={{ fontSize: '21px' }}>
+                              {rbAction === 'sell'
+                                ? rbCOP !== null
+                                  ? `${rbCOP.toFixed(2)}%`
+                                  : '—'
+                                : rbToBreakeven !== null
+                                  ? `${rbToBreakeven >= 0 ? '+' : ''}${rbToBreakeven.toFixed(2)}%`
+                                  : '—'}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '21px',
+                                color:
+                                  rbOption?.change_percent !== undefined &&
+                                  rbOption.change_percent !== 0
+                                    ? rbOption.change_percent < 0
+                                      ? '#ff3b3b'
+                                      : '#00c805'
+                                    : '#888',
+                              }}
+                            >
+                              {rbOption?.change_percent !== undefined &&
+                              rbOption.change_percent !== 0
+                                ? `${rbOption.change_percent >= 0 ? '+' : ''}${rbOption.change_percent.toFixed(2)}%`
+                                : '—'}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '21px',
+                                color:
+                                  rbChangeDollar !== null
+                                    ? rbChangeDollar < 0
+                                      ? '#ff3b3b'
+                                      : '#00c805'
+                                    : '#888',
+                              }}
+                            >
+                              {rbChangeDollar !== null
+                                ? `${rbChangeDollar >= 0 ? '+' : '-'}$${Math.abs(rbChangeDollar).toFixed(2)}`
+                                : '—'}
+                            </span>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'flex-end',
+                                gap: '6px',
+                                alignItems: 'center',
+                              }}
+                            >
+                              {(() => {
+                                const isLegAdded = rbLegs.some(
+                                  (l) =>
+                                    l.strike === strike &&
+                                    l.side === rbSide &&
+                                    l.action === rbAction
+                                )
+                                const boxColor =
+                                  rbOption?.change_percent != null && rbOption.change_percent < 0
+                                    ? '#ff3b3b'
+                                    : rbOption?.change_percent != null &&
+                                        rbOption.change_percent > 0
+                                      ? '#00c805'
+                                      : '#f97316'
+                                return (
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      border: `1.5px solid ${boxColor}`,
+                                      borderRadius: '6px',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        padding: '6px 12px',
+                                        color: boxColor,
+                                        fontSize: '20px',
+                                        fontWeight: 700,
+                                        borderRight: `1.5px solid ${boxColor}`,
+                                      }}
+                                    >
+                                      {rbMark > 0 ? `$${rbMark.toFixed(2)}` : '—'}
+                                    </span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (rbMark > 0) {
+                                          setRbLegs((prev) => {
+                                            const exists = prev.some(
+                                              (l) =>
+                                                l.strike === strike &&
+                                                l.side === rbSide &&
+                                                l.action === rbAction
+                                            )
+                                            if (exists)
+                                              return prev.filter(
+                                                (l) =>
+                                                  !(
+                                                    l.strike === strike &&
+                                                    l.side === rbSide &&
+                                                    l.action === rbAction
+                                                  )
+                                              )
+                                            return [
+                                              ...prev,
+                                              {
+                                                strike,
+                                                side: rbSide,
+                                                action: rbAction,
+                                                mark: rbMark,
+                                              },
+                                            ]
+                                          })
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px 10px',
+                                        color: isLegAdded ? '#000' : boxColor,
+                                        fontSize: '23px',
+                                        fontWeight: 700,
+                                        background: isLegAdded ? boxColor : 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      {isLegAdded ? '✓' : '+'}
+                                    </button>
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          </div>
+                          {rbIsExpanded && rbOption && (
+                            <div
+                              style={{
+                                padding: '20px 24px 16px',
+                                background: '#060606',
+                                borderBottom: '1px solid #1c1c1c',
+                              }}
+                            >
+                              <p
+                                style={{ fontSize: '21px', fontWeight: 700, marginBottom: '18px' }}
+                              >
+                                {symbol} ${strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(2)}{' '}
+                                {rbSide === 'call' ? 'Call' : 'Put'} {expiryShort}
+                              </p>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(5, 1fr)',
+                                  gap: '12px 16px',
+                                  marginBottom: '6px',
+                                }}
+                              >
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Bid
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.bid != null ? `$${rbOption.bid.toFixed(2)}` : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Mark
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbMark > 0 ? `$${rbMark.toFixed(2)}` : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    High
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.high != null && rbOption.high > 0
+                                      ? `$${rbOption.high.toFixed(2)}`
+                                      : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Last trade
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.last_price != null && rbOption.last_price > 0
+                                      ? `$${rbOption.last_price.toFixed(2)}`
+                                      : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Volume
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.volume != null
+                                      ? rbOption.volume.toLocaleString()
+                                      : '—'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(5, 1fr)',
+                                  gap: '12px 16px',
+                                  marginBottom: '20px',
+                                }}
+                              >
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Ask
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.ask != null ? `$${rbOption.ask.toFixed(2)}` : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Previous close
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.previous_close != null && rbOption.previous_close > 0
+                                      ? `$${rbOption.previous_close.toFixed(2)}`
+                                      : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Low
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.low != null && rbOption.low > 0
+                                      ? `$${rbOption.low.toFixed(2)}`
+                                      : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Implied volatility
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.implied_volatility && rbOption.implied_volatility > 0
+                                      ? `${(rbOption.implied_volatility * 100).toFixed(2)}%`
+                                      : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Open interest
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.open_interest != null
+                                      ? rbOption.open_interest.toLocaleString()
+                                      : '—'}
+                                  </p>
+                                </div>
+                              </div>
+                              <p
+                                style={{ fontSize: '19px', fontWeight: 700, marginBottom: '12px' }}
+                              >
+                                The Greeks
+                              </p>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(5, 1fr)',
+                                  gap: '12px 16px',
+                                  marginBottom: '18px',
+                                }}
+                              >
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Delta
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.delta != null ? rbOption.delta.toFixed(4) : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Gamma
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.gamma != null ? rbOption.gamma.toFixed(4) : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Theta
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.theta != null ? rbOption.theta.toFixed(4) : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Vega
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
+                                    {rbOption.vega != null ? rbOption.vega.toFixed(4) : '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p
+                                    style={{
+                                      fontSize: '17px',
+                                      fontWeight: 700,
+                                      marginBottom: '4px',
+                                    }}
+                                  >
+                                    Rho
+                                  </p>
+                                  <p style={{ fontSize: '18px', color: '#ccc' }}>—</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => addToWatchlist(rbOption)}
+                                style={{
+                                  color: '#f97316',
+                                  fontSize: '18px',
+                                  fontWeight: 700,
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                Add to Watchlist
+                              </button>
+                            </div>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                  </div>
+                  {/* end scrollable rows */}
+                </div>
+                {/* end chain column */}
+                {/* RH Legs Side Panel */}
+                {rbLegs.length > 0 &&
+                  (() => {
+                    const computePnL = (S: number) =>
+                      rbLegs.reduce((total, leg) => {
+                        const intrinsic =
+                          leg.side === 'call'
+                            ? Math.max(S - leg.strike, 0)
+                            : Math.max(leg.strike - S, 0)
+                        const pnl =
+                          leg.action === 'buy'
+                            ? (intrinsic - leg.mark) * 100
+                            : (leg.mark - intrinsic) * 100
+                        return total + pnl
+                      }, 0)
+                    const netPremium =
+                      rbLegs.reduce(
+                        (t, leg) => t + (leg.action === 'buy' ? leg.mark : -leg.mark),
+                        0
+                      ) * 100
+                    const allStrk = rbLegs.map((l) => l.strike)
+                    const maxStrk = Math.max(...allStrk)
+                    const testPrices = [
+                      0,
+                      ...allStrk.flatMap((s) => [s - 0.01, s, s + 0.01]),
+                      maxStrk * 2,
+                    ]
+                    const pnlVals = testPrices.map(computePnL)
+                    const maxProfit = Math.max(...pnlVals)
+                    const maxLoss = Math.min(...pnlVals)
+                    const netCallExp = rbLegs.reduce(
+                      (t, l) => t + (l.side === 'call' ? (l.action === 'buy' ? 1 : -1) : 0),
+                      0
+                    )
+                    const unlimitedProfit = netCallExp > 0
+                    const unlimitedLoss = netCallExp < 0
+                    const bePoints: number[] = []
+                    const sMin = Math.max(0, Math.min(...allStrk) * 0.5)
+                    const sMax = maxStrk * 2
+                    for (let i = 0; i < 999; i++) {
+                      const s1 = sMin + ((sMax - sMin) * i) / 999
+                      const s2 = sMin + ((sMax - sMin) * (i + 1)) / 999
+                      const p1 = computePnL(s1)
+                      const p2 = computePnL(s2)
+                      if (p1 * p2 < 0) {
+                        const be = s1 + ((s2 - s1) * Math.abs(p1)) / (Math.abs(p1) + Math.abs(p2))
+                        if (bePoints.every((b) => Math.abs(b - be) > 1))
+                          bePoints.push(parseFloat(be.toFixed(2)))
+                      }
+                    }
+                    return (
+                      <div
+                        style={{
+                          width: '320px',
+                          borderLeft: '1px solid #1c1c1c',
+                          background: '#060606',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: '16px 20px',
+                            borderBottom: '1px solid #1c1c1c',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <p
+                            style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#fff' }}
+                          >
+                            Order Review
+                          </p>
+                          <button
+                            onClick={() => setRbLegs([])}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#fff',
+                              fontSize: '28px',
+                              cursor: 'pointer',
+                              lineHeight: 1,
+                              padding: '0 4px',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            padding: '16px 20px',
+                            borderBottom: '1px solid #1c1c1c',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '14px',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {rbLegs.map((leg, i) => {
+                            const expiryParts = selectedExpiration
+                              ? selectedExpiration.split('-')
+                              : []
+                            const expiryShortP =
+                              expiryParts.length === 3
+                                ? `${parseInt(expiryParts[1] || '0')}/${parseInt(expiryParts[2] || '0')}`
+                                : ''
+                            return (
+                              <div
+                                key={i}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span
+                                    style={{
+                                      fontSize: '15px',
+                                      fontWeight: 800,
+                                      color: leg.action === 'buy' ? '#00c805' : '#ff3b3b',
+                                      background:
+                                        leg.action === 'buy'
+                                          ? 'rgba(0,200,5,0.15)'
+                                          : 'rgba(255,59,59,0.15)',
+                                      padding: '3px 8px',
+                                      borderRadius: '6px',
+                                      minWidth: '44px',
+                                      textAlign: 'center',
+                                    }}
+                                  >
+                                    {leg.action.toUpperCase()}
+                                  </span>
+                                  <div>
+                                    <p
+                                      style={{
+                                        margin: 0,
+                                        fontSize: '18px',
+                                        fontWeight: 700,
+                                        color: '#fff',
+                                      }}
+                                    >
+                                      $
+                                      {leg.strike % 1 === 0
+                                        ? leg.strike.toFixed(0)
+                                        : leg.strike.toFixed(2)}{' '}
+                                      {leg.side === 'call' ? 'Call' : 'Put'}
+                                    </p>
+                                    <p style={{ margin: 0, fontSize: '14px', color: '#fff' }}>
+                                      {symbol} · Exp {expiryShortP} · Mark ${leg.mark.toFixed(2)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() =>
+                                    setRbLegs((prev) => prev.filter((_, j) => j !== i))
+                                  }
+                                  style={{
+                                    background: 'none',
+                                    border: '1px solid #333',
+                                    borderRadius: '6px',
+                                    color: '#fff',
+                                    fontSize: '20px',
+                                    cursor: 'pointer',
+                                    padding: '1px 9px',
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  −
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                          <p
+                            style={{
+                              fontSize: '19px',
+                              fontWeight: 700,
+                              marginBottom: '18px',
+                              color: '#fff',
+                            }}
+                          >
+                            Risk / Reward
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                borderBottom: '1px solid #1c1c1c',
+                                paddingBottom: '16px',
+                              }}
+                            >
+                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
+                                {netPremium >= 0 ? 'Net Debit' : 'Net Credit'}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '19px',
+                                  fontWeight: 800,
+                                  color: netPremium >= 0 ? '#ff3b3b' : '#00c805',
+                                }}
+                              >
+                                {netPremium >= 0 ? '-' : '+'}${Math.abs(netPremium).toFixed(2)}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
+                                Max Profit
+                              </span>
+                              <span style={{ fontSize: '19px', fontWeight: 800, color: '#00c805' }}>
+                                {unlimitedProfit ? 'Unlimited' : `+$${maxProfit.toFixed(2)}`}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
+                                Max Loss
+                              </span>
+                              <span style={{ fontSize: '19px', fontWeight: 800, color: '#ff3b3b' }}>
+                                {unlimitedLoss ? 'Unlimited' : `-$${Math.abs(maxLoss).toFixed(2)}`}
+                              </span>
+                            </div>
+                            {bePoints.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'flex-start',
+                                }}
+                              >
+                                <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
+                                  Breakeven{bePoints.length > 1 ? 's' : ''}
+                                </span>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'flex-end',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  {bePoints.map((be, i) => (
+                                    <span
+                                      key={i}
+                                      style={{ fontSize: '19px', fontWeight: 700, color: '#fff' }}
+                                    >
+                                      ${be.toFixed(2)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            padding: '16px 20px',
+                            borderTop: '1px solid #1c1c1c',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <button
+                            style={{
+                              width: '100%',
+                              padding: '16px',
+                              background: '#00c805',
+                              color: '#000',
+                              fontSize: '19px',
+                              fontWeight: 800,
+                              border: 'none',
+                              borderRadius: '10px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Review Order ({rbLegs.length} leg{rbLegs.length > 1 ? 's' : ''})
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+              </div>
             ) : (
               <div className="divide-y divide-gray-900/50">
                 {allStrikes.map((strike) => {
@@ -2432,24 +3509,32 @@ function ChainPanel({
                   return (
                     <div
                       key={strike}
-                      className={`grid grid-cols-[1fr_auto_1fr] gap-0 hover:bg-gray-900/30 transition-all ${
-                        atm ? 'bg-orange-900/10 border-y border-orange-900/20' : ''
-                      }`}
+                      className="grid grid-cols-[1fr_auto_1fr] gap-0 hover:bg-white/[0.02] transition-colors"
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      }}
                     >
                       {/* Call Option */}
 
                       <div
-                        className={`grid gap-2 px-3 py-3 text-base border-r border-gray-800/50 ${
-                          getProbabilityType(strike).type === '80call'
-                            ? 'bg-green-900/30'
-                            : getProbabilityType(strike).type === '90call'
-                              ? 'bg-lime-900/30'
-                              : callITM
-                                ? 'bg-green-950/20'
-                                : 'bg-transparent'
-                        }`}
+                        className="grid gap-2 px-3 py-2 text-lg"
                         style={{
                           gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
+                          borderRight: '1px solid rgba(255,255,255,0.06)',
+                          borderLeft: callITM
+                            ? '3px solid #22c55e'
+                            : getProbabilityType(strike).type === '80call'
+                              ? '3px solid #16a34a'
+                              : getProbabilityType(strike).type === '90call'
+                                ? '3px solid #15803d'
+                                : '3px solid transparent',
+                          background: callITM
+                            ? 'rgba(34,197,94,0.05)'
+                            : getProbabilityType(strike).type === '80call'
+                              ? 'rgba(22,163,74,0.08)'
+                              : getProbabilityType(strike).type === '90call'
+                                ? 'rgba(21,128,61,0.06)'
+                                : 'transparent',
                         }}
                       >
                         {visibleColumns.watchlist && (
@@ -2491,31 +3576,34 @@ function ChainPanel({
                         )}
 
                         {visibleColumns.openInterest && (
-                          <div className="text-right text-white font-mono">
+                          <div className="text-right font-mono text-lg text-white">
                             {call?.open_interest ? call.open_interest.toLocaleString() : '—'}
                           </div>
                         )}
 
                         {visibleColumns.volume && (
-                          <div className="text-right text-white font-mono">
+                          <div className="text-right font-mono text-lg text-white">
                             {call?.volume ? call.volume.toLocaleString() : '—'}
                           </div>
                         )}
 
                         {visibleColumns.delta && (
-                          <div className="text-right text-white font-mono">
+                          <div className="text-right font-mono text-lg text-cyan-300">
                             {call?.delta ? call.delta.toFixed(3) : '—'}
                           </div>
                         )}
 
                         {visibleColumns.theta && (
-                          <div className="text-right text-white font-mono">
+                          <div className="text-right font-mono text-lg text-orange-400">
                             {call?.theta ? call.theta.toFixed(3) : '—'}
                           </div>
                         )}
 
                         {visibleColumns.iv && (
-                          <div className="text-right text-purple-400 font-mono font-bold">
+                          <div
+                            className="text-right font-mono font-bold text-lg"
+                            style={{ color: '#a855f7' }}
+                          >
                             {call?.implied_volatility
                               ? (call.implied_volatility * 100).toFixed(0) + '%'
                               : '—'}
@@ -2523,46 +3611,44 @@ function ChainPanel({
                         )}
 
                         {visibleColumns.change && (
-                          <div className="text-right font-mono">
-                            {call?.change_percent !== undefined ? (
+                          <div className="text-right font-mono text-lg">
+                            {call?.change_percent !== undefined && call.change_percent !== 0 ? (
                               <span
-                                className={
-                                  call.change_percent >= 0
-                                    ? 'text-green-500 font-bold'
-                                    : 'text-red-500 font-bold'
-                                }
+                                className={`font-bold ${
+                                  call.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
+                                }`}
                               >
                                 {call.change_percent >= 0 ? '+' : ''}
-                                {call.change_percent.toFixed(0)}%
+                                {call.change_percent.toFixed(1)}%
                               </span>
                             ) : (
-                              '—'
+                              <span className="text-gray-600">—</span>
                             )}
                           </div>
                         )}
 
                         {visibleColumns.breakeven && (
-                          <div className="text-right text-white font-mono">
+                          <div className="text-right font-mono text-lg">
                             {call?.ask && stockPrice > 0 ? (
                               <span
-                                className={
+                                className={`${
                                   ((strike + call.ask - stockPrice) / stockPrice) * 100 > 0
-                                    ? 'text-red-400'
-                                    : 'text-green-400'
-                                }
+                                    ? 'text-red-500'
+                                    : 'text-green-500'
+                                }`}
                               >
                                 {(((strike + call.ask - stockPrice) / stockPrice) * 100).toFixed(1)}
                                 %
                               </span>
                             ) : (
-                              '—'
+                              <span className="text-gray-600">—</span>
                             )}
                           </div>
                         )}
 
                         {visibleColumns.bid && (
                           <div
-                            className={`text-right font-mono cursor-pointer hover:bg-green-900/20 transition-colors ${call?.bid ? 'text-green-400 font-bold' : 'text-white'}`}
+                            className="text-right font-mono font-bold text-lg text-green-500 cursor-pointer"
                             onDoubleClick={() => call && handlePriceDoubleClick(call)}
                             title="Double-click to view price chart"
                           >
@@ -2572,7 +3658,7 @@ function ChainPanel({
 
                         {visibleColumns.ask && (
                           <div
-                            className={`text-right font-mono cursor-pointer hover:bg-green-900/20 transition-colors ${call?.ask ? 'text-green-400 font-bold' : 'text-white'}`}
+                            className="text-right font-mono font-bold text-lg text-green-500 cursor-pointer"
                             onDoubleClick={() => call && handlePriceDoubleClick(call)}
                             title="Double-click to view price chart"
                           >
@@ -2584,19 +3670,30 @@ function ChainPanel({
                       {/* Strike Price */}
 
                       <div
-                        className={`px-4 py-3 text-center text-lg font-bold border-r border-gray-800/50 min-w-[90px] ${
-                          atm
-                            ? 'bg-orange-900/30 text-orange-400'
-                            : getProbabilityType(strike).type === '80call'
-                              ? 'bg-green-900/30 text-green-500'
-                              : getProbabilityType(strike).type === '80put'
-                                ? 'bg-red-900/30 text-red-500'
-                                : getProbabilityType(strike).type === '90call'
-                                  ? 'bg-lime-900/30 text-lime-400'
-                                  : getProbabilityType(strike).type === '90put'
-                                    ? 'bg-red-950/30 text-red-700'
-                                    : 'bg-gray-900/50 text-white'
-                        }`}
+                        className="px-3 py-2 text-center text-xl font-bold tabular-nums min-w-[90px]"
+                        style={{
+                          borderRight: '1px solid rgba(255,255,255,0.06)',
+                          background: atm
+                            ? 'rgba(245,158,11,0.15)'
+                            : getProbabilityType(strike).type === '80call' ||
+                                getProbabilityType(strike).type === '80put'
+                              ? 'rgba(34,197,94,0.06)'
+                              : getProbabilityType(strike).type === '90call' ||
+                                  getProbabilityType(strike).type === '90put'
+                                ? 'rgba(34,197,94,0.04)'
+                                : 'transparent',
+                          color: atm
+                            ? '#f59e0b'
+                            : getProbabilityType(strike).type === '80call' ||
+                                getProbabilityType(strike).type === '80put'
+                              ? '#22c55e'
+                              : getProbabilityType(strike).type === '90call' ||
+                                  getProbabilityType(strike).type === '90put'
+                                ? '#86efac'
+                                : '#ffffff',
+                          outline: atm ? '1px solid rgba(245,158,11,0.4)' : 'none',
+                          outlineOffset: '-1px',
+                        }}
                       >
                         ${strike.toFixed(2)}
                       </div>
@@ -2604,22 +3701,28 @@ function ChainPanel({
                       {/* Put Option */}
 
                       <div
-                        className={`grid gap-2 px-3 py-3 text-base ${
-                          getProbabilityType(strike).type === '80put'
-                            ? 'bg-red-900/30'
-                            : getProbabilityType(strike).type === '90put'
-                              ? 'bg-red-950/30'
-                              : putITM
-                                ? 'bg-red-950/20'
-                                : 'bg-transparent'
-                        }`}
+                        className="grid gap-2 px-3 py-2 text-lg"
                         style={{
                           gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
+                          borderRight: putITM
+                            ? '3px solid #ef4444'
+                            : getProbabilityType(strike).type === '80put'
+                              ? '3px solid #dc2626'
+                              : getProbabilityType(strike).type === '90put'
+                                ? '3px solid #b91c1c'
+                                : '3px solid transparent',
+                          background: putITM
+                            ? 'rgba(239,68,68,0.05)'
+                            : getProbabilityType(strike).type === '80put'
+                              ? 'rgba(220,38,38,0.08)'
+                              : getProbabilityType(strike).type === '90put'
+                                ? 'rgba(185,28,28,0.06)'
+                                : 'transparent',
                         }}
                       >
                         {visibleColumns.ask && (
                           <div
-                            className={`text-left font-mono cursor-pointer hover:bg-red-900/20 transition-colors ${put?.ask ? 'text-red-400 font-bold' : 'text-white'}`}
+                            className="text-left font-mono font-bold text-lg text-red-500 cursor-pointer"
                             onDoubleClick={() => put && handlePriceDoubleClick(put)}
                             title="Double-click to view price chart"
                           >
@@ -2629,7 +3732,7 @@ function ChainPanel({
 
                         {visibleColumns.bid && (
                           <div
-                            className={`text-left font-mono cursor-pointer hover:bg-red-900/20 transition-colors ${put?.bid ? 'text-red-400 font-bold' : 'text-white'}`}
+                            className="text-left font-mono font-bold text-lg text-red-500 cursor-pointer"
                             onDoubleClick={() => put && handlePriceDoubleClick(put)}
                             title="Double-click to view price chart"
                           >
@@ -2638,14 +3741,14 @@ function ChainPanel({
                         )}
 
                         {visibleColumns.breakeven && (
-                          <div className="text-left text-white font-mono">
+                          <div className="text-left font-mono text-lg">
                             {put?.ask && stockPrice > 0 ? (
                               <span
-                                className={
+                                className={`${
                                   ((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0
-                                    ? 'text-red-400'
-                                    : 'text-green-400'
-                                }
+                                    ? 'text-red-500'
+                                    : 'text-green-500'
+                                }`}
                               >
                                 {(((stockPrice - (strike - put.ask)) / stockPrice) * 100).toFixed(
                                   1
@@ -2653,32 +3756,33 @@ function ChainPanel({
                                 %
                               </span>
                             ) : (
-                              '—'
+                              <span className="text-gray-600">—</span>
                             )}
                           </div>
                         )}
 
                         {visibleColumns.change && (
-                          <div className="text-left font-mono">
-                            {put?.change_percent !== undefined ? (
+                          <div className="text-left font-mono text-lg">
+                            {put?.change_percent !== undefined && put.change_percent !== 0 ? (
                               <span
-                                className={
-                                  put.change_percent >= 0
-                                    ? 'text-green-500 font-bold'
-                                    : 'text-red-500 font-bold'
-                                }
+                                className={`font-bold ${
+                                  put.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
+                                }`}
                               >
                                 {put.change_percent >= 0 ? '+' : ''}
-                                {put.change_percent.toFixed(0)}%
+                                {put.change_percent.toFixed(1)}%
                               </span>
                             ) : (
-                              '—'
+                              <span className="text-gray-600">—</span>
                             )}
                           </div>
                         )}
 
                         {visibleColumns.iv && (
-                          <div className="text-left text-purple-400 font-mono font-bold">
+                          <div
+                            className="text-left font-mono font-bold text-lg"
+                            style={{ color: '#a855f7' }}
+                          >
                             {put?.implied_volatility
                               ? (put.implied_volatility * 100).toFixed(0) + '%'
                               : '—'}
@@ -2686,25 +3790,25 @@ function ChainPanel({
                         )}
 
                         {visibleColumns.theta && (
-                          <div className="text-left text-white font-mono">
+                          <div className="text-left font-mono text-lg text-orange-400">
                             {put?.theta ? put.theta.toFixed(3) : '—'}
                           </div>
                         )}
 
                         {visibleColumns.delta && (
-                          <div className="text-left text-white font-mono">
+                          <div className="text-left font-mono text-lg text-cyan-300">
                             {put?.delta ? put.delta.toFixed(3) : '—'}
                           </div>
                         )}
 
                         {visibleColumns.volume && (
-                          <div className="text-left text-white font-mono">
+                          <div className="text-left font-mono text-lg text-white">
                             {put?.volume ? put.volume.toLocaleString() : '—'}
                           </div>
                         )}
 
                         {visibleColumns.openInterest && (
-                          <div className="text-left text-white font-mono">
+                          <div className="text-left font-mono text-lg text-white">
                             {put?.open_interest ? put.open_interest.toLocaleString() : '—'}
                           </div>
                         )}

@@ -83,11 +83,12 @@ import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
 import LiquidPanel from '../analytics/LiquidPanel'
+import PutCallRatioChart from '../analytics/PutCallRatioChart'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
 import GuideChatbot from '../chatbot/GuideChatbot'
-import NewsPanel from '../news/NewsPanel'
+import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import BuySellButton from './BuySellButton'
@@ -96,6 +97,8 @@ import InsightPanel from './InsightPanel'
 import LWChartDrawingTools from './LWChartDrawingTools'
 import MultiChartView from './MultiChartView'
 import PlanPanel from './PlanPanel'
+import RegimesPanelComponent from './RegimesPanel'
+import { MarketScannerPanel } from './RegimesPanel'
 
 // Enhanced Market Regime Types
 interface SectorAnalysis {
@@ -29743,13 +29746,13 @@ export default function TradingViewChart({
           </div>
 
           {/* Sidebar Panels — portalled to document.body so no ancestor stacking context traps it below the canvas */}
-          {activeSidebarPanel &&
-            typeof window !== 'undefined' &&
+          {typeof window !== 'undefined' &&
             createPortal(
               <div
                 className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
                 style={{
                   zIndex: 9999,
+                  display: activeSidebarPanel ? 'block' : 'none',
                   maxWidth:
                     activeSidebarPanel === 'liquid'
                       ? 'fit-content'
@@ -29775,9 +29778,30 @@ export default function TradingViewChart({
                       savedScrollRef={watchlistSavedScrollRef}
                     />
                   )}
-                  {activeSidebarPanel === 'markets' && (
-                    <RegimesPanel activeTab={regimesTab} setActiveTab={setRegimesTab} />
-                  )}
+                  {/* Always mounted so MarketScannerPanel auto-scans in background */}
+                  <div
+                    style={{
+                      display: activeSidebarPanel === 'markets' ? 'block' : 'none',
+                      height: '100%',
+                    }}
+                  >
+                    <RegimesPanelComponent
+                      activeTab={regimesTab}
+                      setActiveTab={setRegimesTab}
+                      marketRegimeData={marketRegimeData}
+                      isLoadingRegimes={isLoadingRegimes}
+                      regimeUpdateProgress={regimeUpdateProgress}
+                      regimeLoadingStage={regimeLoadingStage}
+                      scanGroupMode={scanGroupMode}
+                      setScanGroupMode={setScanGroupMode}
+                      highlightedTradesCache={highlightedTradesCache}
+                      tradeDetailPopup={tradeDetailPopup}
+                      setTradeDetailPopup={setTradeDetailPopup}
+                      setActiveSidebarPanel={setActiveSidebarPanel}
+                      scanPricesCacheRef={scanPricesCacheRef}
+                      scanAllScoredRef={scanAllScoredRef}
+                    />
+                  </div>
                   {activeSidebarPanel === 'flow' && (
                     <FlowPanel
                       flowData={flowData}

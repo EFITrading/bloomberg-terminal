@@ -1,8 +1,32 @@
-'use client'
+﻿'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+interface BearMatch {
+  event: string
+  drawdown: string
+  recovery: string
+  similarity: number
+  playbook: string[]
+}
+
+interface RecessionMatch {
+  event: string
+  type: string
+  duration: string
+  similarity: number
+  playbook: string[]
+}
+
+interface HistoryResponse {
+  timeframe: string
+  bear: Array<{ date: string; score: number }>
+  recession: Array<{ date: string; prob: number }>
+  spy: Array<{ date: string; price: number }>
+  events: Array<{ date: string; label: string; type: string }>
+}
+
 interface CycleResponse {
   phase: number
   phaseIdx: number
@@ -10,26 +34,11 @@ interface CycleResponse {
   confidence: number
   signals: {
     spyPrice: number
-    spyVs200MA: number
-    spyMa200: number
-    spyMa50: number
-    goldenCross: boolean
     spy1M: number
     spy3M: number
     spy12M: number
     vix: number
     tlt3M: number
-  }
-  macro: {
-    yieldCurve: number
-    yieldCurveTrend: number
-    daysInverted: number
-    fedFunds: number
-    fedCutting: boolean
-    hySpread: number
-    hySpreadTrend: number
-    sentiment: number
-    sentimentTrend: number
   }
   sectorRanking: Array<{
     ticker: string
@@ -40,862 +49,641 @@ interface CycleResponse {
   phaseSectors: string[]
   fetchErrors: string[]
   timestamp: string
-}
-
-interface TradePick {
-  ticker: string
-  name: string
-  direction: 'LONG' | 'SHORT' | 'AVOID' | 'HEDGE' | 'WATCH'
-  conviction: 'HIGH' | 'MED' | 'LOW'
-  rationale: string
-  category: 'EQUITY' | 'BONDS' | 'COMMODITY' | 'VOLATILITY' | 'CASH'
-}
-
-interface PhaseAllocation {
-  equities: number
-  bonds: number
-  alternatives: number
-  cash: number
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-const PHASE_NAMES = [
-  'Market Bottom',
-  'Early Recovery',
-  'Early Bull',
-  'Middle Bull',
-  'Late Bull / Peak',
-  'Early Bear',
-  'Bear Market',
-  'Late Bear',
-]
-
-const PHASE_COLORS = [
-  '#ef4444', // 0 Bottom        — red
-  '#f97316', // 1 Early Recovery — orange
-  '#f59e0b', // 2 Early Bull    — amber
-  '#84cc16', // 3 Middle Bull   — lime
-  '#00ff41', // 4 Late Bull     — bright green
-  '#facc15', // 5 Early Bear    — yellow
-  '#f97316', // 6 Bear Market   — orange
-  '#ef4444', // 7 Late Bear     — red
-]
-
-const SECTOR_LABELS: Record<string, string> = {
-  XLE: 'Energy',
-  XLF: 'Financials',
-  XLK: 'Technology',
-  XLV: 'Health Care',
-  XLP: 'Cons. Staples',
-  XLY: 'Cons. Discret',
-  XLI: 'Industrials',
-  XLU: 'Utilities',
-  XLB: 'Materials',
-  XLRE: 'Real Estate',
-  XLC: 'Comm. Svcs',
-}
-
-// ── Phase-specific trade picks ────────────────────────────────────────────────
-const PHASE_TRADE_PICKS: Record<number, TradePick[]> = {
-  0: [
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Peak fear → flight to quality; 20Y bond rally typical at cycle trough',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'GLD',
-      name: 'Gold ETF',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Safe-haven premium at extremes; dollar weakens into Fed pivot',
-      category: 'COMMODITY',
-    },
-    {
-      ticker: 'XLU',
-      name: 'Utilities Select SPDR',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Defensive yield in recession; dividend premium sought by risk-off capital',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'BIL',
-      name: 'T-Bill / Cash',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Capital preservation; elevated rates = attractive risk-free return',
-      category: 'CASH',
-    },
-    {
-      ticker: 'XLY',
-      name: 'Consumer Discretionary',
-      direction: 'AVOID',
-      conviction: 'HIGH',
-      rationale: 'Cyclical names crater in trough; consumer confidence at lows',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'VXX',
-      name: 'VIX Futures ETN',
-      direction: 'HEDGE',
-      conviction: 'MED',
-      rationale: 'VIX can spike higher even from elevated levels; tail risk protection',
-      category: 'VOLATILITY',
-    },
-  ],
-  1: [
-    {
-      ticker: 'XLF',
-      name: 'Financials Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Financials historically lead the first leg of recovery; credit cycle turns',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLY',
-      name: 'Consumer Discretionary',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Consumer spending rebounds early in recovery; pent-up demand',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'IWM',
-      name: 'Russell 2000 Small Caps',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Small caps outperform at cycle turns; domestic revenue, rate-sensitive benefit',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'SPY',
-      name: 'S&P 500 ETF',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Broad market re-entry as breadth expands; 200MA reclaim is key',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'AVOID',
-      conviction: 'MED',
-      rationale: 'Rate normalization underway; bond prices under pressure as risk appetite returns',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'XLK',
-      name: 'Technology SPDR',
-      direction: 'WATCH',
-      conviction: 'LOW',
-      rationale:
-        'Tech lags early recovery; wait for golden cross + breadth expansion before adding',
-      category: 'EQUITY',
-    },
-  ],
-  2: [
-    {
-      ticker: 'XLI',
-      name: 'Industrials Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Classic early bull leader; capex cycle picks up, manufacturing PMI expanding',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLF',
-      name: 'Financials Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Loan growth accelerates; net interest margin expanding in normalization phase',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'QQQ',
-      name: 'Nasdaq 100 ETF',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Tech beginning participation; growth multiples re-rate as rates peak',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'IWM',
-      name: 'Russell 2000 Small Caps',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Small cap momentum sustaining; economic surprise uplift favors domestic names',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLU',
-      name: 'Utilities Select SPDR',
-      direction: 'AVOID',
-      conviction: 'HIGH',
-      rationale: 'Defensives rotate out as risk appetite builds; opportunity cost rising',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'GLD',
-      name: 'Gold ETF',
-      direction: 'AVOID',
-      conviction: 'MED',
-      rationale: 'Risk-on rotation pulls capital from safe-havens; real rates rising',
-      category: 'COMMODITY',
-    },
-  ],
-  3: [
-    {
-      ticker: 'QQQ',
-      name: 'Nasdaq 100 ETF',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale:
-        'Tech/growth drives mid-cycle; earnings revisions positive, multiple expansion intact',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLK',
-      name: 'Technology SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Sector leadership in mid-bull; AI/capex spending cycle adds structural tailwind',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLC',
-      name: 'Comm. Services SPDR',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Digital ad + mega-cap growth plays outperform mid-cycle; high ROE names',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'MTUM',
-      name: 'iShares Momentum ETF',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Momentum factor peaks in mid-bull; trend-following strategies excel',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'AVOID',
-      conviction: 'HIGH',
-      rationale: 'Rising nominal rates pressure duration; equity > bonds in mid-cycle',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'XLP',
-      name: 'Consumer Staples SPDR',
-      direction: 'AVOID',
-      conviction: 'MED',
-      rationale: 'Low beta defensives lag in strong bull; opportunity cost significant',
-      category: 'EQUITY',
-    },
-  ],
-  4: [
-    {
-      ticker: 'XLE',
-      name: 'Energy Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Energy leads late-cycle; inflation, tight supply, commodity supercycle demand',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLB',
-      name: 'Materials Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Materials cycle peaks with commodities; infrastructure spending at highs',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'GLD',
-      name: 'Gold ETF',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Inflation hedge as cycle peaks; real rate pressure if Fed lags behind curve',
-      category: 'COMMODITY',
-    },
-    {
-      ticker: 'DBA',
-      name: 'Agricultural Commodities',
-      direction: 'LONG',
-      conviction: 'LOW',
-      rationale: 'Commodity breadth broadening; agri inflation hedge in late-cycle environment',
-      category: 'COMMODITY',
-    },
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Bonds',
-      direction: 'HEDGE',
-      conviction: 'MED',
-      rationale: 'Start accumulating small duration position; rate peak approaching',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'XLK',
-      name: 'Technology SPDR',
-      direction: 'AVOID',
-      conviction: 'MED',
-      rationale: 'High P/E growth multiples compress as rates rise into late cycle; valuation risk',
-      category: 'EQUITY',
-    },
-  ],
-  5: [
-    {
-      ticker: 'XLV',
-      name: 'Health Care Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Healthcare defensive rotation; non-discretionary spending, earnings resilience',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLP',
-      name: 'Consumer Staples SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Staples lead distribution phase; pricing power + dividend yield attractive',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Rate cuts incoming; bond duration begins to benefit as growth slows',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'SH',
-      name: 'ProShares Short S&P 500',
-      direction: 'HEDGE',
-      conviction: 'MED',
-      rationale: 'Portfolio hedge as distribution confirms; limit equity beta exposure',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLK',
-      name: 'Technology SPDR',
-      direction: 'AVOID',
-      conviction: 'HIGH',
-      rationale: 'Growth multiples compress in early bear; earnings estimates seeing first cuts',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLF',
-      name: 'Financials SPDR',
-      direction: 'AVOID',
-      conviction: 'MED',
-      rationale: 'Credit cycle turning; loan losses rising, net interest margin peaking',
-      category: 'EQUITY',
-    },
-  ],
-  6: [
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Full flight to safety; Fed cutting, deflation risk → 20Y bond prime beneficiary',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'GLD',
-      name: 'Gold ETF',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Macro hedge + dollar debasement as fiscal/monetary stimulus deployed',
-      category: 'COMMODITY',
-    },
-    {
-      ticker: 'SH',
-      name: 'ProShares Short S&P 500',
-      direction: 'SHORT',
-      conviction: 'HIGH',
-      rationale: 'Confirmed bear market; systematic equity short provides asymmetric return',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'SQQQ',
-      name: 'ProShares Ultra Short QQQ',
-      direction: 'SHORT',
-      conviction: 'MED',
-      rationale: 'Nasdaq leads drawdown; high-beta growth names de-rate faster than value',
-      category: 'VOLATILITY',
-    },
-    {
-      ticker: 'BIL',
-      name: 'T-Bill / Cash',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Capital preservation priority; high real return waiting for opportunity',
-      category: 'CASH',
-    },
-    {
-      ticker: 'XLY',
-      name: 'Consumer Discretionary',
-      direction: 'AVOID',
-      conviction: 'HIGH',
-      rationale: 'Cyclicals suffer most in broad bear; earnings and revenue both compress',
-      category: 'EQUITY',
-    },
-  ],
-  7: [
-    {
-      ticker: 'XLU',
-      name: 'Utilities Select SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale:
-        'Utilities at relative valuation extreme; dividend premium + rate decline incoming',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'XLP',
-      name: 'Consumer Staples SPDR',
-      direction: 'LONG',
-      conviction: 'HIGH',
-      rationale: 'Late bear defensive; recession-proof earnings, stable dividends',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'TLT',
-      name: 'Long-Duration Treasuries',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Rates falling + Fed easing cycle; duration outperforms into policy pivot',
-      category: 'BONDS',
-    },
-    {
-      ticker: 'GLD',
-      name: 'Gold ETF',
-      direction: 'LONG',
-      conviction: 'MED',
-      rationale: 'Policy pivot + QE risk = gold structural bid; real rate decline boosts price',
-      category: 'COMMODITY',
-    },
-    {
-      ticker: 'XLF',
-      name: 'Financials SPDR',
-      direction: 'WATCH',
-      conviction: 'LOW',
-      rationale:
-        'Watch XLF for early recovery signal; financials bottom before market in past cycles',
-      category: 'EQUITY',
-    },
-    {
-      ticker: 'IWM',
-      name: 'Russell 2000 Small Caps',
-      direction: 'WATCH',
-      conviction: 'LOW',
-      rationale: 'Small caps react sharply to first Fed cut; monitor for capitulation signal',
-      category: 'EQUITY',
-    },
-  ],
-}
-
-const PHASE_ALLOCATION: Record<number, PhaseAllocation> = {
-  0: { equities: 15, bonds: 45, alternatives: 20, cash: 20 },
-  1: { equities: 50, bonds: 25, alternatives: 10, cash: 15 },
-  2: { equities: 65, bonds: 20, alternatives: 10, cash: 5 },
-  3: { equities: 75, bonds: 15, alternatives: 8, cash: 2 },
-  4: { equities: 60, bonds: 15, alternatives: 22, cash: 3 },
-  5: { equities: 40, bonds: 35, alternatives: 12, cash: 13 },
-  6: { equities: 20, bonds: 40, alternatives: 20, cash: 20 },
-  7: { equities: 25, bonds: 40, alternatives: 18, cash: 17 },
-}
-
-const PHASE_MACRO_CONTEXT: Record<
-  number,
-  { title: string; thesis: string; risks: string; keyWatch: string }
-> = {
-  0: {
-    title: 'Deep Bear / Capitulation',
-    thesis:
-      'Market pricing maximum pessimism. Valuation support emerging but catalysts absent. Hold maximum defensive exposure and cash. Wait for VIX reversal below 30 + XLF stabilization as first signal of recovery.',
-    risks:
-      'Bear market rally traps premature buyers. Macro deterioration can extend trough duration beyond consensus expectations.',
-    keyWatch:
-      'VIX < 30 reversal · XLF vs SPY ratio bottom · Yield curve steepening · Credit spreads peaking',
-  },
-  1: {
-    title: 'Recovery Inflection',
-    thesis:
-      'Credit markets lead equity recovery. Financials and Consumer Discretionary begin relative outperformance. Add risk gradually. 200MA remains overhead resistance — a decisive reclaim is the primary confirmation signal.',
-    risks:
-      'False dawn — macro data still deteriorating. Recovery can stall if credit spreads re-widen or unemployment spikes.',
-    keyWatch:
-      'SPY reclaim 200MA · ISM Manufacturing > 50 · HY spread < 4% · NFIB survey improvement',
-  },
-  2: {
-    title: 'Early Bull — Expansion Phase',
-    thesis:
-      'Trend firmly re-established above 200MA. Golden cross confirmed. Industrials and cyclicals lead. Risk appetite expanding — add equity beta. Breadth broadening is primary health indicator to track.',
-    risks:
-      'Overheating rhetoric from Fed if CPI re-accelerates. Geopolitical shock can reset the trend.',
-    keyWatch:
-      'SPY breadth (% above 50MA) · Yield curve slope · ISM Services · Small cap / large cap ratio',
-  },
-  3: {
-    title: 'Mid-Cycle Expansion',
-    thesis:
-      'Peak risk appetite phase. Technology and growth lead. Earnings revisions positive. Maximum equity allocation warranted. Momentum factor strongest here. This phase typically lasts longest in the cycle.',
-    risks:
-      'Concentration risk in mega-cap tech. Any Fed pivot to hawkishness re-prices multiples aggressively.',
-    keyWatch:
-      'Fed language shift · 10Y Treasury > 5% threshold · PCE inflation acceleration · Tech earnings revisions',
-  },
-  4: {
-    title: 'Late Bull — Inflationary Peak',
-    thesis:
-      'Inflation assets lead as economy runs hot. Energy and Materials cycle. Equity markets still elevated but sector rotation narrows. Begin layering in hedges. Hard landing risk building — monitor credit spreads.',
-    risks:
-      'Fed overtightening causes abrupt reversal. Geopolitical commodity supply shock can accelerate the phase transition.',
-    keyWatch:
-      'Yield curve inversion depth · HY spreads > 4% · ISM Manufacturing < 50 · Earnings guidance cuts',
-  },
-  5: {
-    title: 'Early Bear / Distribution',
-    thesis:
-      'Institutional distribution underway. Smart money rotating to defensives. Healthcare and Staples begin relative outperformance. Trim equity beta, add duration, initiate portfolio hedges.',
-    risks:
-      'Soft landing narrative delays defensive rotation. Fed pausing creates bear market rallies that trap latecomers.',
-    keyWatch:
-      'Credit spread widening pace · Consumer confidence decline · Leading indicators · Employment claims',
-  },
-  6: {
-    title: 'Confirmed Bear Market',
-    thesis:
-      'Systematic drawdown in progress. Capital preservation is the primary objective. Treasury duration and gold are the primary asset classes. Equity short strategies viable. Await capitulation signals before re-entry.',
-    risks:
-      'Policy reversal (unexpected Fed cut or fiscal stimulus) can trigger violent bear market rally. Size short positions accordingly.',
-    keyWatch:
-      'VIX > 40 spike (capitulation signal) · Credit spread peak · Fed emergency action · Recession confirmed',
-  },
-  7: {
-    title: 'Late Bear / Pre-Capitulation',
-    thesis:
-      'Cycle approaching max pessimism. Defensives at relative extremes. Begin accumulating high-quality positions at significant discounts. Monitor XLF and IWM for early recovery breadcrumbs. Cash is a call option on the recovery.',
-    risks:
-      'Trough uncertain — secular/structural bear can extend. Japan 1990s or GFC 2008 scenarios possible if policy error continues.',
-    keyWatch:
-      'XLF relative bottom · Buffett indicator (market cap/GDP) · Corporate insider buying · AAII bull/bear < 25%',
-  },
-}
-
-type TabId = 'overview' | 'macro' | 'picks' | 'sectors'
-
-// ── Sine wave SVG helpers ─────────────────────────────────────────────────────
-function phaseToWaveCoords(phase: number, svgW: number, svgH: number) {
-  const margin = { l: 60, r: 60, t: 40, b: 40 }
-  const W = svgW - margin.l - margin.r
-  const H = svgH - margin.t - margin.b
-  const cx = svgH / 2 + margin.t
-  const xFrac = phase / 7
-  const x = margin.l + xFrac * W
-  const angleStep = Math.PI / 4
-  const angle = Math.PI / 2 + (phase - 4) * angleStep
-  const sinVal = Math.sin(angle)
-  const amplitude = H * 0.38
-  const y = cx - sinVal * amplitude
-  return { x, y }
-}
-
-function buildWavePath(svgW: number, svgH: number): string {
-  const margin = { l: 60, r: 60, t: 40, b: 40 }
-  const W = svgW - margin.l - margin.r
-  const H = svgH - margin.t - margin.b
-  const cx = H / 2 + margin.t
-  const amplitude = H * 0.38
-  const points: string[] = []
-  for (let i = 0; i <= 200; i++) {
-    const frac = i / 200
-    const phase = frac * 7
-    const angle = Math.PI / 2 + (phase - 4) * (Math.PI / 4)
-    const sinVal = Math.sin(angle)
-    const x = margin.l + frac * W
-    const y = cx - sinVal * amplitude
-    points.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+  // new regime fields
+  bearStage?: number
+  bearStageName?: string
+  recessionType?: string
+  recessionProbability?: number
+  bearMatches?: BearMatch[]
+  recessionMatches?: RecessionMatch[]
+  rotation?: {
+    spread3M: number
+    spread1M: number
+    rotMomentum: number
+    iwmDivergence3M: number
+    gld3M: number
+    xleAbs3M: number
+    xlk3M: number
+    xlc3M: number
+    xlf3M: number
+    xly3M: number
+    hygSpread: number
+    vixTermStructure: number
+    rspDivergence: number
+    uup3M: number
+    bkln3M: number
   }
-  return points.join(' ')
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-function SignalTile({
-  label,
-  value,
-  signal,
-  sub,
+const MONO = '"Roboto Mono", "SF Mono", monospace'
+
+// Cycle color based on pressure / risk value
+const cycleColor = (v: number) =>
+  v >= 70
+    ? '#ef4444' // bear — red
+    : v >= 55
+      ? '#f97316' // selling — orange
+      : v >= 40
+        ? '#facc15' // distribution — yellow
+        : v >= 22
+          ? '#84cc16' // caution — yellow-green
+          : '#00ff41' // bull / pre-peak — green
+
+// ── History line chart (pure SVG, no deps) ──────────────────────────────────
+function HistoryChart({
+  points,
+  events,
+  color,
+  yMax = 100,
+  chartId,
+  loading,
+  spyPrices,
 }: {
-  label: string
-  value: string
-  signal: 'bull' | 'bear' | 'neutral'
-  sub?: string
+  points: Array<{ date: string; value: number }>
+  events: Array<{ date: string; label: string; type: string }>
+  color: string
+  yMax?: number
+  chartId: string
+  loading?: boolean
+  spyPrices?: Array<{ date: string; price: number }>
 }) {
-  const color = signal === 'bull' ? '#00ff41' : signal === 'bear' ? '#ff3333' : '#f59e0b'
-  const bg = signal === 'bull' ? '#00ff4110' : signal === 'bear' ? '#ff333310' : '#f59e0b10'
+  const W = 1000,
+    H = 260
+  const PL = 38,
+    PR = 48,
+    PT = 20,
+    PB = 30
+  const cW = W - PL - PR
+  const cH = H - PT - PB
+
+  if (loading)
+    return (
+      <div
+        style={{
+          height: H,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#333333',
+          fontSize: 13,
+          fontFamily: MONO,
+          letterSpacing: '0.12em',
+        }}
+      >
+        LOADING HISTORY...
+      </div>
+    )
+  if (!points.length)
+    return (
+      <div
+        style={{
+          height: H,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#2a2a2a',
+          fontSize: 13,
+          fontFamily: MONO,
+        }}
+      >
+        NO DATA
+      </div>
+    )
+
+  const timestamps = points.map((p) => new Date(p.date).getTime())
+  const minT = timestamps[0]
+  const maxT = timestamps[timestamps.length - 1]
+  const tRange = maxT - minT || 1
+  const xOf = (t: number) => PL + ((t - minT) / tRange) * cW
+  const yOf = (v: number) => PT + cH - (Math.max(0, Math.min(yMax, v)) / yMax) * cH
+
+  const pts = points.map((p, i) => ({ x: xOf(timestamps[i]), y: yOf(p.value) }))
+
+  // Area fill path (single subtle glow under line)
+  const areaD =
+    pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') +
+    ` L${pts[pts.length - 1].x.toFixed(1)},${(PT + cH).toFixed(1)} L${pts[0].x.toFixed(1)},${(PT + cH).toFixed(1)} Z`
+
+  // SPY overlay — normalize price to chart height
+  let spyLinePath = ''
+  let spyCurY = PT + cH / 2
+  let spyCurLabel = ''
+  if (spyPrices && spyPrices.length === points.length) {
+    const prices = spyPrices.map((p) => p.price)
+    const spyMin = Math.min(...prices),
+      spyMax = Math.max(...prices)
+    const spyRange = spyMax - spyMin || 1
+    const spyY = (price: number) => PT + cH * 0.96 - ((price - spyMin) / spyRange) * cH * 0.86
+    const spyPts2 = prices.map((p, i) => ({ x: pts[i].x, y: spyY(p) }))
+    spyLinePath = spyPts2
+      .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+      .join(' ')
+    spyCurY = spyPts2[spyPts2.length - 1].y
+    spyCurLabel = `$${Math.round(prices[prices.length - 1])}`
+  }
+
+  const gridVals = [25, 50, 75, yMax].filter((v) => v <= yMax)
+
+  const xLabels = [0, 1, 2, 3, 4].map((n) => {
+    const idx = Math.round((n * (points.length - 1)) / 4)
+    const d = new Date(points[idx].date)
+    const label =
+      d.getFullYear() % 5 === 0 || points.length < 80
+        ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+        : `${d.getFullYear()}`
+    return { x: xOf(timestamps[idx]), label }
+  })
+
+  const evtLines = events
+    .map((e) => {
+      const et = new Date(e.date).getTime()
+      if (et < minT || et > maxT) return null
+      return { x: xOf(et), label: e.label, type: e.type }
+    })
+    .filter(Boolean) as Array<{ x: number; label: string; type: string }>
+
+  const gradId = `hg-${chartId}`
+  const curPt = pts[pts.length - 1]
+  const curVal = points[points.length - 1]?.value ?? 0
+  const curColor = cycleColor(curVal)
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height: H, display: 'block' }}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.18} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.01} />
+        </linearGradient>
+      </defs>
+
+      {/* Horizontal grid lines + left Y-axis labels */}
+      {gridVals.map((g) => (
+        <g key={g}>
+          <line
+            x1={PL}
+            y1={yOf(g)}
+            x2={W - PR}
+            y2={yOf(g)}
+            stroke="#151515"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
+          <text
+            x={PL - 5}
+            y={yOf(g) + 4.5}
+            fill="#ffffff"
+            fontSize="13"
+            textAnchor="end"
+            fontFamily="monospace"
+            fontWeight="700"
+            style={{ letterSpacing: '0.04em' }}
+          >
+            {g}
+          </text>
+        </g>
+      ))}
+
+      {/* Baseline */}
+      <line
+        x1={PL}
+        y1={PT + cH}
+        x2={W - PR}
+        y2={PT + cH}
+        stroke="#222"
+        strokeWidth="1"
+        vectorEffect="non-scaling-stroke"
+      />
+
+      {/* Event markers */}
+      {evtLines.map((e, i) => (
+        <g key={i}>
+          <line
+            x1={e.x}
+            y1={PT}
+            x2={e.x}
+            y2={PT + cH}
+            stroke={e.type === 'recovery' ? '#00ff41' : '#ef4444'}
+            strokeWidth="1.5"
+            strokeDasharray="3,2"
+            vectorEffect="non-scaling-stroke"
+          />
+          <text
+            x={e.x + 3}
+            y={PT + 11}
+            fill={e.type === 'recovery' ? '#00ff41' : '#ef4444'}
+            fontSize="11"
+            fontFamily="monospace"
+            fontWeight="700"
+          >
+            {e.label}
+          </text>
+        </g>
+      ))}
+
+      {/* Area fill */}
+      <path d={areaD} fill={`url(#${gradId})`} />
+
+      {/* SPY overlay line */}
+      {spyLinePath && (
+        <>
+          <path
+            d={spyLinePath}
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="1.2"
+            strokeOpacity="0.28"
+            strokeDasharray="5,3"
+            vectorEffect="non-scaling-stroke"
+          />
+          {/* Right Y-axis SPY label */}
+          <text
+            x={W - PR + 5}
+            y={spyCurY + 4}
+            fill="#ffffff"
+            fontSize="12"
+            fontFamily="monospace"
+            fontWeight="700"
+          >
+            {spyCurLabel}
+          </text>
+          <text
+            x={W - PR + 5}
+            y={PT + 11}
+            fill="#ffffffcc"
+            fontSize="11"
+            fontFamily="monospace"
+            fontWeight="700"
+          >
+            SPY
+          </text>
+        </>
+      )}
+
+      {/* Colored line segments — one per adjacent pair, color = cycle regime */}
+      {pts.map((p, i) => {
+        if (i === 0) return null
+        return (
+          <line
+            key={i}
+            x1={pts[i - 1].x.toFixed(1)}
+            y1={pts[i - 1].y.toFixed(1)}
+            x2={p.x.toFixed(1)}
+            y2={p.y.toFixed(1)}
+            stroke={cycleColor(points[i - 1].value)}
+            strokeWidth="2"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )
+      })}
+
+      {/* Current value dot + label */}
+      <circle
+        cx={curPt.x}
+        cy={curPt.y}
+        r="4"
+        fill={curColor}
+        stroke="#000"
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+      />
+      <text
+        x={curPt.x + 7}
+        y={curPt.y + 5}
+        fill={curColor}
+        fontSize="16"
+        fontFamily="monospace"
+        fontWeight="800"
+      >
+        {curVal}
+      </text>
+
+      {/* X-axis date labels */}
+      {xLabels.map((l, i) => (
+        <text
+          key={i}
+          x={l.x}
+          y={H - 4}
+          fill="#ffffff"
+          fontSize="13"
+          textAnchor="middle"
+          fontFamily="monospace"
+          fontWeight="700"
+        >
+          {l.label}
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+// â”€â”€ Stage progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function StageBar({
+  stages,
+  current,
+  colors,
+}: {
+  stages: string[]
+  current: number
+  colors: string[]
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 3, alignItems: 'center', margin: '10px 0 14px' }}>
+      {stages.map((s, i) => {
+        const isActive = i === current
+        const isPast = i < current
+        const c = colors[i] ?? '#444'
+        return (
+          <React.Fragment key={i}>
+            <div
+              style={{
+                flex: 1,
+                padding: '5px 3px',
+                borderRadius: 4,
+                textAlign: 'center',
+                background: isActive ? `${c}20` : isPast ? `${c}0d` : '#0a0a0a',
+                border: isActive
+                  ? `1px solid ${c}`
+                  : isPast
+                    ? `1px solid ${c}44`
+                    : '1px solid #1e1e1e',
+                fontSize: 16,
+                fontWeight: isActive ? 900 : 600,
+                color: isActive ? c : isPast ? `${c}99` : '#666666',
+                letterSpacing: '0.05em',
+                fontFamily: MONO,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+              }}
+            >
+              {isActive && <span style={{ marginRight: 3 }}>●</span>}
+              {s}
+            </div>
+            {i < stages.length - 1 && (
+              <div style={{ color: '#2a2a2a', fontSize: 16, flexShrink: 0 }}>›</div>
+            )}
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
+// â”€â”€ Match card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function MatchCard({
+  match,
+  isBest,
+  color,
+}: {
+  match: BearMatch | RecessionMatch
+  isBest: boolean
+  color: string
+}) {
+  const asBear = match as BearMatch
+  const asRec = match as RecessionMatch
+  const sub = asBear.drawdown
+    ? `${asBear.drawdown}  ·  Recovery: ${asBear.recovery}`
+    : `${asRec.type?.toUpperCase()}  ·  ${asRec.duration}`
   return (
     <div
       style={{
-        background: bg,
-        border: `1px solid ${color}33`,
-        borderRadius: 8,
-        padding: '10px 14px',
-        flex: '1 1 120px',
-        minWidth: 110,
+        padding: '7px 12px',
+        borderRadius: 5,
+        background: isBest ? `${color}12` : '#070707',
+        border: isBest ? `1px solid ${color}44` : '1px solid #161616',
+        marginBottom: 4,
       }}
     >
-      <div
-        style={{
-          color: '#ffffff',
-          fontSize: 18,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          marginBottom: 4,
-          fontFamily: '"Roboto Mono", monospace',
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          color,
-          fontSize: 34,
-          fontWeight: 800,
-          letterSpacing: '-0.3px',
-          fontFamily: '"Roboto Mono", monospace',
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div
           style={{
-            color: '#ffffff',
-            fontSize: 20,
-            marginTop: 2,
-            fontFamily: '"Roboto Mono", monospace',
+            color: isBest ? color : '#cccccc',
+            fontSize: 22,
+            fontWeight: 700,
+            fontFamily: MONO,
           }}
         >
-          {sub}
+          {isBest ? '◉ ' : '○ '}
+          {match.event}
         </div>
+        <div
+          style={{
+            background: isBest ? `${color}22` : '#111',
+            border: `1px solid ${isBest ? color + '66' : '#2a2a2a'}`,
+            borderRadius: 3,
+            padding: '2px 8px',
+            color: isBest ? color : '#aaaaaa',
+            fontSize: 22,
+            fontWeight: 800,
+            fontFamily: MONO,
+          }}
+        >
+          {match.similarity}%
+        </div>
+      </div>
+      {isBest && (
+        <div style={{ color: '#aaaaaa', fontSize: 16, marginTop: 3, fontFamily: MONO }}>{sub}</div>
       )}
     </div>
   )
 }
 
-function TradePickCard({ pick, phaseColor }: { pick: TradePick; phaseColor: string }) {
-  const dirColors: Record<TradePick['direction'], string> = {
-    LONG: '#00ff41',
-    SHORT: '#ff3333',
-    AVOID: '#f97316',
-    HEDGE: '#f59e0b',
-    WATCH: '#8b5cf6',
-  }
-  const convDots: Record<TradePick['conviction'], number> = { HIGH: 3, MED: 2, LOW: 1 }
-  const catIcons: Record<TradePick['category'], string> = {
-    EQUITY: '◈',
-    BONDS: '◉',
-    COMMODITY: '◆',
-    VOLATILITY: '◇',
-    CASH: '○',
-  }
-  const dir = pick.direction
-  const dColor = dirColors[dir]
-  const dots = convDots[pick.conviction]
-  return (
-    <div
-      style={{
-        background: '#060606',
-        border: `1px solid ${dColor}22`,
-        borderLeft: `3px solid ${dColor}`,
-        borderRadius: 8,
-        padding: '12px 14px',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 6,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span
-            style={{
-              color: dColor,
-              fontSize: 20,
-              fontWeight: 900,
-              letterSpacing: '0.12em',
-              background: `${dColor}18`,
-              border: `1px solid ${dColor}44`,
-              borderRadius: 4,
-              padding: '2px 7px',
-            }}
-          >
-            {dir}
-          </span>
-          <span
-            style={{
-              color: '#ffffff',
-              fontSize: 26,
-              fontWeight: 800,
-              fontFamily: '"Roboto Mono", monospace',
-            }}
-          >
-            {pick.ticker}
-          </span>
-          <span style={{ color: '#ffffff', fontSize: 18 }}>{catIcons[pick.category]}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-          {[1, 2, 3].map((d) => (
-            <div
-              key={d}
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: d <= dots ? dColor : '#222',
-              }}
-            />
-          ))}
-          <span style={{ color: '#ffffff', fontSize: 18, marginLeft: 4, letterSpacing: '0.08em' }}>
-            {pick.conviction}
-          </span>
-        </div>
-      </div>
-      <div style={{ color: '#ffffff', fontSize: 18, marginBottom: 3, letterSpacing: '0.04em' }}>
-        {pick.name}
-      </div>
-      <div style={{ color: '#ffffff', fontSize: 20, lineHeight: 1.5 }}>{pick.rationale}</div>
-    </div>
+// â”€â”€ Signal row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// inline clamp helper used at call sites
+const gv = (val: number, lo: number, hi: number, invert = false) =>
+  Math.max(
+    0,
+    Math.min(100, invert ? (1 - (val - lo) / (hi - lo)) * 100 : ((val - lo) / (hi - lo)) * 100)
   )
-}
 
-function AllocationBar({
-  allocation,
-  phaseColor,
-}: {
-  allocation: PhaseAllocation
-  phaseColor: string
-}) {
-  const segments = [
-    { label: 'EQUITIES', value: allocation.equities, color: phaseColor },
-    { label: 'BONDS', value: allocation.bonds, color: '#3b82f6' },
-    { label: 'ALTS', value: allocation.alternatives, color: '#f59e0b' },
-    { label: 'CASH', value: allocation.cash, color: '#555' },
-  ]
-  return (
-    <div>
-      <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', gap: 1 }}>
-        {segments.map((s) => (
-          <div
-            key={s.label}
-            style={{ width: `${s.value}%`, background: s.color, transition: 'width 0.5s ease' }}
-          />
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
-        {segments.map((s) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: s.color,
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ color: '#ffffff', fontSize: 18, letterSpacing: '0.1em' }}>
-              {s.label}
-            </span>
-            <span style={{ color: '#ffffff', fontSize: 20, fontWeight: 800 }}>{s.value}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function MacroBar({
-  label,
+function GaugeCard({
+  title,
   value,
-  min,
-  max,
   signal,
-  format,
+  gaugeVal = 50,
 }: {
-  label: string
-  value: number
-  min: number
-  max: number
-  signal: 'bull' | 'bear' | 'neutral'
-  format?: (v: number) => string
+  title: string
+  value: string
+  signal: 'bull' | 'bear' | 'neutral' | 'warn'
+  gaugeVal?: number
 }) {
-  const color = signal === 'bull' ? '#00ff41' : signal === 'bear' ? '#ff3333' : '#f59e0b'
-  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
-  const fmt = format ?? ((v: number) => v.toFixed(2))
+  const c =
+    signal === 'bull'
+      ? '#00ff41'
+      : signal === 'bear'
+        ? '#ff3333'
+        : signal === 'warn'
+          ? '#facc15'
+          : '#888888'
+  const v = Math.max(0, Math.min(1, gaugeVal / 100))
+  const cx = 50,
+    cy = 66,
+    r = 48,
+    sw = 9
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const needleAngle = 180 + v * 180
+  const nx = (cx + r * Math.cos(toRad(needleAngle))).toFixed(1)
+  const ny = (cy + r * Math.sin(toRad(needleAngle))).toFixed(1)
+  const arcD = `M ${cx - r},${cy} A ${r} ${r} 0 0 1 ${nx},${ny}`
+  const band = (f: number, t: number) => {
+    const a0 = 180 + f * 180,
+      a1 = 180 + t * 180
+    const x0 = (cx + r * Math.cos(toRad(a0))).toFixed(1)
+    const y0 = (cy + r * Math.sin(toRad(a0))).toFixed(1)
+    const x1 = (cx + r * Math.cos(toRad(a1))).toFixed(1)
+    const y1 = (cy + r * Math.sin(toRad(a1))).toFixed(1)
+    return `M ${x0},${y0} A ${r} ${r} 0 ${t - f > 0.5 ? 1 : 0} 1 ${x1},${y1}`
+  }
   return (
     <div
       style={{
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        gap: 10,
-        padding: '6px 0',
-        borderBottom: '1px solid #0f0f0f',
+        padding: '8px 6px 6px',
+        background: '#080808',
+        borderRadius: 6,
+        border: `1px solid ${c}22`,
       }}
     >
       <div
         style={{
           color: '#ffffff',
-          fontSize: 18,
-          letterSpacing: '0.1em',
-          width: 160,
-          flexShrink: 0,
+          fontSize: 17,
+          fontFamily: MONO,
+          letterSpacing: '0.12em',
+          fontWeight: 800,
+          marginBottom: 2,
+          textTransform: 'uppercase',
+          textAlign: 'center',
         }}
       >
-        {label}
+        {title}
       </div>
-      <div style={{ flex: 1, height: 4, background: '#111', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2 }} />
-      </div>
+      <svg width="100%" viewBox="0 0 100 76" style={{ overflow: 'visible', maxHeight: 76 }}>
+        <path
+          d={band(0, 0.35)}
+          fill="none"
+          stroke="#ff333330"
+          strokeWidth={sw + 3}
+          strokeLinecap="butt"
+        />
+        <path
+          d={band(0.35, 0.65)}
+          fill="none"
+          stroke="#facc1530"
+          strokeWidth={sw + 3}
+          strokeLinecap="butt"
+        />
+        <path
+          d={band(0.65, 1)}
+          fill="none"
+          stroke="#00ff4130"
+          strokeWidth={sw + 3}
+          strokeLinecap="butt"
+        />
+        <path
+          d={`M ${cx - r},${cy} A ${r} ${r} 0 0 1 ${cx + r},${cy}`}
+          fill="none"
+          stroke="#1c1c1c"
+          strokeWidth={sw}
+          strokeLinecap="round"
+        />
+        {v > 0.01 && (
+          <path d={arcD} fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" />
+        )}
+        <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={c} strokeWidth="2.2" strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r="3.5" fill={c} />
+        <text
+          x={cx - r}
+          y={cy + 13}
+          fill="#ff333380"
+          fontSize="8"
+          textAnchor="middle"
+          fontFamily="monospace"
+        >
+          B
+        </text>
+        <text
+          x={cx + r}
+          y={cy + 13}
+          fill="#00ff4180"
+          fontSize="8"
+          textAnchor="middle"
+          fontFamily="monospace"
+        >
+          G
+        </text>
+      </svg>
       <div
         style={{
-          color,
+          color: c,
           fontSize: 22,
           fontWeight: 800,
-          fontFamily: '"Roboto Mono", monospace',
-          width: 60,
-          textAlign: 'right',
-          flexShrink: 0,
+          fontFamily: MONO,
+          marginTop: 2,
+          letterSpacing: '0.04em',
         }}
       >
-        {fmt(value)}
+        {value}
       </div>
     </div>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// â”€â”€ Playbook list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function Playbook({ items, color }: { items: string[]; color: string }) {
+  return (
+    <div>
+      {items.map((p, i) => (
+        <div
+          key={i}
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: '4px 0',
+            borderBottom: i < items.length - 1 ? '1px solid #111' : 'none',
+          }}
+        >
+          <div style={{ color, fontSize: 22, flexShrink: 0, lineHeight: '18px' }}>▶</div>
+          <div style={{ color: '#ffffff', fontSize: 22, lineHeight: 1.55 }}>{p}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function MarketCycleIndicator() {
   const [data, setData] = useState<CycleResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pulse, setPulse] = useState(true)
-  const [activeTab, setActiveTab] = useState<TabId>('overview')
-  const svgW = 860
-  const svgH = 200
+
+  // ── History charts ──────────────────────────────────────────────────────
+  const [bearTf, setBearTf] = useState<'1Y' | '5Y' | '20Y'>('1Y')
+  const [recTf, setRecTf] = useState<'1Y' | '5Y' | '20Y'>('1Y')
+  const [histCache, setHistCache] = useState<Partial<Record<string, HistoryResponse>>>({})
+  const [histLoading, setHistLoading] = useState<Partial<Record<string, boolean>>>({})
+  const histFetching = useRef<Set<string>>(new Set())
+
+  const loadHistTf = async (tf: string) => {
+    if (histFetching.current.has(tf)) return
+    histFetching.current.add(tf)
+    setHistLoading((prev) => ({ ...prev, [tf]: true }))
+    try {
+      const res = await fetch(`/api/market-cycle-history?timeframe=${tf}`)
+      const d = await res.json()
+      setHistCache((prev) => ({ ...prev, [tf]: d }))
+    } catch {
+      /* ignore */
+    }
+    setHistLoading((prev) => ({ ...prev, [tf]: false }))
+  }
 
   useEffect(() => {
     fetch('/api/market-cycle')
@@ -910,42 +698,41 @@ export default function MarketCycleIndicator() {
       })
   }, [])
 
+  // Preload 1Y history on mount
+
+  useEffect(() => {
+    loadHistTf('1Y')
+  }, [])
+
+  useEffect(() => {
+    loadHistTf(bearTf)
+  }, [bearTf])
+
+  useEffect(() => {
+    loadHistTf(recTf)
+  }, [recTf])
+
   useEffect(() => {
     const id = setInterval(() => setPulse((p) => !p), 900)
     return () => clearInterval(id)
   }, [])
-
-  const wavePath = buildWavePath(svgW, svgH)
 
   if (loading) {
     return (
       <div
         style={{
           background: '#000',
-          border: '1px solid #111',
+          border: '1px solid #1a1a1a',
           borderRadius: 12,
-          padding: '40px',
+          padding: 32,
           textAlign: 'center',
-          fontFamily: '"Roboto Mono", monospace',
+          fontFamily: MONO,
           color: '#ffffff',
+          fontSize: 16,
           letterSpacing: '0.12em',
         }}
       >
-        <div style={{ fontSize: 22, marginBottom: 8 }}>ANALYZING MARKET CYCLE</div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: '#333',
-                animation: `pulse ${0.8 + i * 0.2}s infinite`,
-              }}
-            />
-          ))}
-        </div>
+        LOADING MARKET REGIME...
       </div>
     )
   }
@@ -955,13 +742,13 @@ export default function MarketCycleIndicator() {
       <div
         style={{
           background: '#000',
-          border: '1px solid #ff333330',
+          border: '1px solid #1a1a1a',
           borderRadius: 12,
-          padding: '32px',
+          padding: 32,
           textAlign: 'center',
-          fontFamily: '"Roboto Mono", monospace',
+          fontFamily: MONO,
           color: '#ff3333',
-          fontSize: 22,
+          fontSize: 16,
         }}
       >
         {error ?? 'No data'}
@@ -969,1043 +756,776 @@ export default function MarketCycleIndicator() {
     )
   }
 
-  const phaseColor = PHASE_COLORS[data.phaseIdx] ?? '#ffffff'
-  const { x: dotX, y: dotY } = phaseToWaveCoords(data.phase, svgW, svgH)
   const sig = data.signals
-  const mac = data.macro
-  const phaseCoords = PHASE_NAMES.map((_, i) => phaseToWaveCoords(i, svgW, svgH))
-  const allocation = PHASE_ALLOCATION[data.phaseIdx] ?? PHASE_ALLOCATION[3]
-  const macroCtx = PHASE_MACRO_CONTEXT[data.phaseIdx]
-  const tradePicks = PHASE_TRADE_PICKS[data.phaseIdx] ?? []
+  const rot = data.rotation
 
-  // Active wave segment
-  const activeWavePts: string[] = []
-  for (let i = 0; i <= 100; i++) {
-    const frac = (i / 100) * (data.phase / 7)
-    const phase = frac * 7
-    const x = 60 + frac * (svgW - 120)
-    const angle = Math.PI / 2 + (phase - 4) * (Math.PI / 4)
-    const y = svgH / 2 - Math.sin(angle) * (svgH - 80) * 0.38
-    activeWavePts.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
-  }
-  const activeWavePath = activeWavePts.join(' ')
+  // bear state
+  const bearStage = data.bearStage ?? 0
+  const bearStageName = data.bearStageName ?? 'NO SIGNAL'
+  const recProb = data.recessionProbability ?? 0
+  const recType = data.recessionType ?? 'none'
+  const bearMatches = data.bearMatches ?? []
+  const recMatches = data.recessionMatches ?? []
 
-  // Signal helpers
-  const vixSignal: 'bull' | 'bear' | 'neutral' =
-    sig.vix < 18 ? 'bull' : sig.vix < 26 ? 'neutral' : 'bear'
-  const vixLabel =
-    sig.vix < 14 ? 'COMPLACENT' : sig.vix < 20 ? 'LOW' : sig.vix < 28 ? 'ELEVATED' : 'FEAR'
-  const trendSignal: 'bull' | 'bear' | 'neutral' = sig.spyVs200MA > 0 ? 'bull' : 'bear'
-  const momSignal: 'bull' | 'bear' | 'neutral' = sig.spy3M > 0 ? 'bull' : 'bear'
-  const bondSignal: 'bull' | 'bear' | 'neutral' =
-    sig.tlt3M > 5 ? 'bear' : sig.tlt3M < -3 ? 'bull' : 'neutral'
-  const bondLabel = sig.tlt3M > 5 ? 'FLIGHT SAFETY' : sig.tlt3M < -3 ? 'RATES RISING' : 'NEUTRAL'
-  const ycSignal: 'bull' | 'bear' | 'neutral' =
-    mac.yieldCurve > 0.5 ? 'bull' : mac.yieldCurve < 0 ? 'bear' : 'neutral'
-  const ycLabel =
-    mac.yieldCurve < -0.5
-      ? 'DEEPLY INVERTED'
-      : mac.yieldCurve < 0
-        ? 'INVERTED'
-        : mac.yieldCurve < 0.5
-          ? 'FLAT'
-          : mac.yieldCurve < 1.5
-            ? 'NORMAL'
-            : 'STEEP'
-  const ycTrendIcon =
-    mac.yieldCurveTrend > 0.2
-      ? '▲ STEEPENING'
-      : mac.yieldCurveTrend < -0.2
-        ? '▼ INVERTING'
-        : '→ FLAT'
-  const hySignal: 'bull' | 'bear' | 'neutral' =
-    mac.hySpread < 3.5 ? 'bull' : mac.hySpread > 5 ? 'bear' : 'neutral'
-  const hyLabel =
-    mac.hySpread < 2.5
-      ? 'TIGHT / RISK-ON'
-      : mac.hySpread < 3.5
-        ? 'LOW'
-        : mac.hySpread < 5
-          ? 'ELEVATED'
-          : 'STRESS'
-  const fedSignal: 'bull' | 'bear' | 'neutral' = mac.fedCutting
-    ? 'bull'
-    : mac.fedFunds > 4.5
-      ? 'bear'
-      : 'neutral'
-  const fedLabel = mac.fedCutting
-    ? 'CUTTING ↓'
-    : mac.fedFunds > 5
-      ? 'VERY TIGHT'
-      : mac.fedFunds > 4
-        ? 'RESTRICTIVE'
-        : 'NEUTRAL'
-  const sentSignal: 'bull' | 'bear' | 'neutral' =
-    mac.sentiment > 80
-      ? 'neutral'
-      : mac.sentiment > 65
-        ? 'bull'
-        : mac.sentiment < 55
-          ? 'bear'
-          : 'neutral'
-  const sentLabel =
-    mac.sentiment > 85
-      ? 'EUPHORIA'
-      : mac.sentiment > 70
-        ? 'STRONG'
-        : mac.sentiment > 60
-          ? 'CAUTIOUS'
-          : mac.sentiment > 50
-            ? 'WEAK'
-            : 'RECESSION'
+  // color coding
+  const bearStageColors = ['#00ff41', '#facc15', '#f97316', '#ef4444', '#00ff41']
+  const recColors = ['#00ff41', '#facc15', '#f97316', '#ef4444']
 
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'overview', label: 'OVERVIEW' },
-    { id: 'macro', label: 'MACRO' },
-    { id: 'picks', label: 'TRADE PICKS' },
-    { id: 'sectors', label: 'SECTORS' },
+  const bearColor = bearStageColors[bearStage] ?? '#00ff41'
+  const recStage = recProb < 20 ? 0 : recProb < 45 ? 1 : recProb < 70 ? 2 : 3
+  const recColor = recColors[recStage]
+
+  // regime title
+  const regimeColor =
+    bearStage === 3
+      ? '#ef4444'
+      : bearStage === 2
+        ? '#f97316'
+        : bearStage === 1
+          ? '#facc15'
+          : bearStage === 4
+            ? '#00ff41'
+            : recProb > 65
+              ? '#f97316'
+              : recProb > 40
+                ? '#facc15'
+                : '#00ff41'
+
+  const regimeName =
+    bearStage === 4
+      ? 'RECOVERY PHASE'
+      : bearStage === 3
+        ? 'CAPITULATION'
+        : bearStage === 2
+          ? 'BEAR SELLING'
+          : bearStage === 1
+            ? 'DISTRIBUTION'
+            : recProb > 60
+              ? 'RECESSION RISK'
+              : recProb > 35
+                ? 'ELEVATED RISK'
+                : 'BULL PHASE'
+
+  const recTypeLabel =
+    recType === 'inflation'
+      ? 'INFLATION REGIME'
+      : recType === 'demand'
+        ? 'DEMAND SHOCK'
+        : recType === 'earnings'
+          ? 'EARNINGS RECESSION'
+          : ''
+
+  const bestBearPlaybook = bearMatches[0]?.playbook ?? [
+    'No bear signal active — market in normal phase',
+    'Cyclicals outperforming defensives on 3M',
+    'Monitor spread divergence for early distribution signs',
   ]
+  const bestRecPlaybook = recMatches[0]?.playbook ?? [
+    'Recession probability low — sector rotation normal',
+    'TLT and XLE showing no regime stress',
+    'Continue cyclical allocation',
+  ]
+
+  const bearStages = ['PRE-PEAK', 'DIST.', 'SELLING', 'CAPIT.', 'RECOVERY']
+  const recStages = ['LOW RISK', 'ELEVATED', 'HIGH RISK', 'RECESSION']
 
   return (
     <div
       style={{
         background: '#000000',
-        border: '1px solid #111',
+        border: '1px solid #1a1a1a',
         borderRadius: 12,
-        fontFamily: '"Roboto Mono", monospace',
+        fontFamily: MONO,
         overflow: 'hidden',
       }}
     >
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div
         style={{
-          padding: '20px 28px 0',
-          background: 'linear-gradient(180deg, #0c0c0c 0%, #060606 100%)',
-          borderBottom: '1px solid #111',
+          padding: '16px 24px',
+          background: '#050505',
+          borderBottom: '1px solid #1a1a1a',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 6,
+              background: `${regimeColor}18`,
+              border: `1px solid ${regimeColor}44`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: regimeColor,
+                boxShadow: `0 0 10px ${regimeColor}`,
+                opacity: pulse ? 1 : 0.4,
+                transition: 'opacity 0.4s',
+              }}
+            />
+          </div>
+          <div>
+            <div
+              style={{
+                color: '#ffffff',
+                fontSize: 22,
+                fontWeight: 800,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Market Regime Engine
+            </div>
+            <div
+              style={{
+                color: '#aaaaaa',
+                fontSize: 16,
+                marginTop: 2,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Bear Cycle Tracker · Recession Monitor · Sector Rotation
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ color: '#ffffff', fontSize: 22, fontWeight: 800 }}>
+              SPY ${sig.spyPrice.toFixed(0)}
+            </div>
+            <div
+              style={{
+                color: sig.vix > 32 ? '#ef4444' : sig.vix > 22 ? '#facc15' : '#00ff41',
+                fontSize: 22,
+                marginTop: 2,
+                fontWeight: 700,
+              }}
+            >
+              VIX {sig.vix.toFixed(1)} · SPY {sig.spy3M > 0 ? '+' : ''}
+              {sig.spy3M}% 3M
+            </div>
+          </div>
+          <div
+            style={{
+              background: `${regimeColor}15`,
+              border: `1px solid ${regimeColor}55`,
+              borderRadius: 8,
+              padding: '10px 18px',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{ color: regimeColor, fontSize: 19, fontWeight: 900, letterSpacing: '0.1em' }}
+            >
+              {regimeName}
+            </div>
+            <div style={{ color: '#cccccc', fontSize: 16, marginTop: 3, letterSpacing: '0.06em' }}>
+              {data.confidence}% SIGNAL AGREEMENT
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* â”€â”€ Fetch warning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {data.fetchErrors?.length > 0 && (
+        <div
+          style={{
+            padding: '5px 24px',
+            background: '#ff333310',
+            borderBottom: '1px solid #ff333330',
+            fontSize: 16,
+            color: '#ff3333',
+            letterSpacing: '0.07em',
+            fontFamily: MONO,
+          }}
+        >
+          ⚠ DATA MISSING: {data.fetchErrors.join(' · ')}
+        </div>
+      )}
+
+      {/* â”€â”€ Two panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+        {/* â”€â”€ LEFT: Bear Market Tracker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <div style={{ padding: '20px 22px', borderRight: '1px solid #1a1a1a' }}>
+          {/* panel header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 4,
+            }}
+          >
+            <div
+              style={{ color: '#ffffff', fontSize: 16, fontWeight: 800, letterSpacing: '0.1em' }}
+            >
+              BEAR MARKET TRACKER
+            </div>
+            <div
+              style={{
+                background: `${bearColor}18`,
+                border: `1px solid ${bearColor}55`,
+                borderRadius: 4,
+                padding: '3px 10px',
+                color: bearColor,
+                fontSize: 22,
+                fontWeight: 800,
+                letterSpacing: '0.08em',
+              }}
+            >
+              {bearStageName}
+            </div>
+          </div>
+          <div style={{ color: '#aaaaaa', fontSize: 16, marginBottom: 4, letterSpacing: '0.05em' }}>
+            Stage progression — calibrated from 7 historical events (2007–2025)
+          </div>
+
+          {/* stage bar */}
+          <StageBar stages={bearStages} current={bearStage} colors={bearStageColors} />
+
+          {/* signal gauges — 4 cols row 1, 3 cols row 2 centered */}
+          <div style={{ marginBottom: 14 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 6,
+                marginBottom: 6,
+              }}
+            >
+              {rot ? (
+                <GaugeCard
+                  title="SPREAD"
+                  value={`${rot.spread3M > 0 ? '+' : ''}${rot.spread3M}%`}
+                  signal={rot.spread3M > 0 ? 'bull' : rot.spread3M > -3 ? 'warn' : 'bear'}
+                  gaugeVal={gv(rot.spread3M, -15, 15)}
+                />
+              ) : (
+                <div />
+              )}
+              {rot ? (
+                <GaugeCard
+                  title="BREADTH"
+                  value={`${rot.rspDivergence > 0 ? '+' : ''}${rot.rspDivergence}%`}
+                  signal={
+                    rot.rspDivergence > -1.5 ? 'bull' : rot.rspDivergence > -3 ? 'warn' : 'bear'
+                  }
+                  gaugeVal={gv(rot.rspDivergence, -8, 8)}
+                />
+              ) : (
+                <div />
+              )}
+              {rot ? (
+                <GaugeCard
+                  title="DIVERGENCE"
+                  value={`${rot.iwmDivergence3M > 0 ? '+' : ''}${rot.iwmDivergence3M}%`}
+                  signal={
+                    rot.iwmDivergence3M > -2 ? 'bull' : rot.iwmDivergence3M > -5 ? 'warn' : 'bear'
+                  }
+                  gaugeVal={gv(rot.iwmDivergence3M, -10, 10)}
+                />
+              ) : (
+                <div />
+              )}
+              {rot ? (
+                <GaugeCard
+                  title="MONEY"
+                  value={`${rot.uup3M > 0 ? '+' : ''}${rot.uup3M}%`}
+                  signal={rot.uup3M > 5 ? 'bear' : rot.uup3M > 2 ? 'warn' : 'bull'}
+                  gaugeVal={gv(rot.uup3M, -5, 10, true)}
+                />
+              ) : (
+                <div />
+              )}
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 6,
+                width: '75%',
+                margin: '0 auto',
+              }}
+            >
+              {rot ? (
+                <GaugeCard
+                  title="METALS"
+                  value={`${rot.gld3M > 0 ? '+' : ''}${rot.gld3M}%`}
+                  signal={rot.gld3M > 8 ? 'warn' : rot.gld3M > 3 ? 'neutral' : 'bull'}
+                  gaugeVal={gv(rot.gld3M, -5, 20, true)}
+                />
+              ) : (
+                <div />
+              )}
+              <GaugeCard
+                title="VOLATILITY"
+                value={sig.vix.toFixed(1)}
+                signal={sig.vix < 18 ? 'bull' : sig.vix < 28 ? 'warn' : 'bear'}
+                gaugeVal={gv(sig.vix, 10, 80, true)}
+              />
+              <GaugeCard
+                title="MOMENTUM"
+                value={`${sig.spy3M > 0 ? '+' : ''}${sig.spy3M}%`}
+                signal={sig.spy3M > 2 ? 'bull' : sig.spy3M > -5 ? 'warn' : 'bear'}
+                gaugeVal={gv(sig.spy3M, -25, 25)}
+              />
+            </div>
+          </div>
+
+          {/* historical matches */}
+          <div
+            style={{
+              color: '#cccccc',
+              fontSize: 16,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              marginBottom: 6,
+              textTransform: 'uppercase',
+            }}
+          >
+            Historical Pattern Match
+          </div>
+          {bearMatches.slice(0, 3).map((m, i) => (
+            <MatchCard key={m.event} match={m} isBest={i === 0} color={bearColor} />
+          ))}
+
+          {/* playbook */}
+          <div style={{ marginTop: 14 }}>
+            <div
+              style={{
+                color: '#cccccc',
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                marginBottom: 7,
+                textTransform: 'uppercase',
+              }}
+            >
+              {bearMatches[0] ? `${bearMatches[0].event} Playbook` : 'Current Playbook'}
+            </div>
+            <Playbook items={bestBearPlaybook} color={bearColor} />
+          </div>
+        </div>
+
+        {/* â”€â”€ RIGHT: Recession Monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <div style={{ padding: '20px 22px' }}>
+          {/* panel header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 4,
+            }}
+          >
+            <div
+              style={{ color: '#ffffff', fontSize: 16, fontWeight: 800, letterSpacing: '0.1em' }}
+            >
+              RECESSION MONITOR
+            </div>
+            <div
+              style={{
+                background: `${recColor}18`,
+                border: `1px solid ${recColor}55`,
+                borderRadius: 4,
+                padding: '3px 10px',
+                color: recColor,
+                fontSize: 22,
+                fontWeight: 800,
+                letterSpacing: '0.08em',
+              }}
+            >
+              {recProb}% PROBABILITY
+            </div>
+          </div>
+          <div style={{ color: '#aaaaaa', fontSize: 16, marginBottom: 4, letterSpacing: '0.05em' }}>
+            Types: inflation · demand shock · earnings — backed by 3 recession events
+          </div>
+
+          {/* recession stage bar */}
+          <StageBar stages={recStages} current={recStage} colors={recColors} />
+
+          {/* type tag */}
+          {recType !== 'none' && recTypeLabel && (
+            <div
+              style={{
+                display: 'inline-block',
+                marginBottom: 10,
+                background: '#f9731618',
+                border: '1px solid #f9731644',
+                borderRadius: 4,
+                padding: '3px 12px',
+                color: '#f97316',
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+              }}
+            >
+              TYPE DETECTED: {recTypeLabel}
+            </div>
+          )}
+
+          {/* signal gauges — 4 cols row 1, 3 cols row 2 centered */}
+          <div style={{ marginBottom: 14 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 6,
+                marginBottom: 6,
+              }}
+            >
+              {rot ? (
+                <GaugeCard
+                  title="CREDIT"
+                  value={`${rot.hygSpread > 0 ? '+' : ''}${rot.hygSpread}%`}
+                  signal={rot.hygSpread > -2 ? 'bull' : rot.hygSpread > -5 ? 'warn' : 'bear'}
+                  gaugeVal={gv(rot.hygSpread, -15, 5)}
+                />
+              ) : (
+                <div />
+              )}
+              {rot ? (
+                <GaugeCard
+                  title="TERM STRUC"
+                  value={`${rot.vixTermStructure > 0 ? '+' : ''}${rot.vixTermStructure}%`}
+                  signal={
+                    rot.vixTermStructure < 10 ? 'bull' : rot.vixTermStructure < 30 ? 'warn' : 'bear'
+                  }
+                  gaugeVal={gv(rot.vixTermStructure, -5, 40, true)}
+                />
+              ) : (
+                <div />
+              )}
+              <GaugeCard
+                title="BONDS"
+                value={`${sig.tlt3M > 0 ? '+' : ''}${sig.tlt3M}%`}
+                signal={sig.tlt3M > 5 ? 'warn' : sig.tlt3M < -5 ? 'bear' : 'bull'}
+                gaugeVal={sig.tlt3M < -5 ? 15 : sig.tlt3M > 5 ? 38 : 78}
+              />
+              {rot ? (
+                <GaugeCard
+                  title="ENERGY"
+                  value={`${rot.xleAbs3M > 0 ? '+' : ''}${rot.xleAbs3M}%`}
+                  signal={rot.xleAbs3M > 10 ? 'warn' : rot.xleAbs3M < -15 ? 'bear' : 'bull'}
+                  gaugeVal={
+                    rot.xleAbs3M > 10 ? 35 : rot.xleAbs3M < -15 ? 15 : gv(rot.xleAbs3M + 15, 0, 30)
+                  }
+                />
+              ) : (
+                <div />
+              )}
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 6,
+                width: '75%',
+                margin: '0 auto',
+              }}
+            >
+              {rot ? (
+                <GaugeCard
+                  title="DIVERGENCE"
+                  value={`${rot.iwmDivergence3M > 0 ? '+' : ''}${rot.iwmDivergence3M}%`}
+                  signal={
+                    rot.iwmDivergence3M > -2 ? 'bull' : rot.iwmDivergence3M > -5 ? 'warn' : 'bear'
+                  }
+                  gaugeVal={gv(rot.iwmDivergence3M, -10, 10)}
+                />
+              ) : (
+                <div />
+              )}
+              {rot ? (
+                <GaugeCard
+                  title="LOANS"
+                  value={`${rot.bkln3M > 0 ? '+' : ''}${rot.bkln3M}%`}
+                  signal={rot.bkln3M > -2 ? 'bull' : rot.bkln3M > -5 ? 'warn' : 'bear'}
+                  gaugeVal={gv(rot.bkln3M, -8, 5)}
+                />
+              ) : (
+                <div />
+              )}
+              <GaugeCard
+                title="VOLATILITY"
+                value={sig.vix.toFixed(1)}
+                signal={sig.vix < 18 ? 'bull' : sig.vix < 32 ? 'warn' : 'bear'}
+                gaugeVal={gv(sig.vix, 10, 80, true)}
+              />
+            </div>
+          </div>
+
+          {/* historical matches */}
+          <div
+            style={{
+              color: '#cccccc',
+              fontSize: 16,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              marginBottom: 6,
+              textTransform: 'uppercase',
+            }}
+          >
+            Historical Recession Match
+          </div>
+          {recMatches.slice(0, 3).map((m, i) => (
+            <MatchCard key={m.event} match={m} isBest={i === 0} color={recColor} />
+          ))}
+
+          {/* playbook */}
+          <div style={{ marginTop: 14 }}>
+            <div
+              style={{
+                color: '#cccccc',
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                marginBottom: 7,
+                textTransform: 'uppercase',
+              }}
+            >
+              {recMatches[0] ? `${recMatches[0].event} Playbook` : 'Current Playbook'}
+            </div>
+            <Playbook items={bestRecPlaybook} color={recColor} />
+          </div>
+        </div>
+      </div>
+
+      {/* â”€â”€ Sector Rotation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── History Charts ──────────────────────────────────────────────── */}
+      <div
+        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #1a1a1a' }}
+      >
+        {/* Bear History — left */}
+        <div
+          style={{
+            padding: '14px 8px 18px',
+            borderRight: '1px solid #1a1a1a',
+            background: '#020202',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                color: '#ffffff',
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                fontFamily: MONO,
+              }}
+            >
+              BEAR PRESSURE — HISTORICAL
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['1Y', '5Y', '20Y'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setBearTf(tf)}
+                  style={{
+                    background: bearTf === tf ? `${bearColor}20` : 'transparent',
+                    border: `1px solid ${bearTf === tf ? bearColor + '66' : '#2a2a2a'}`,
+                    color: bearTf === tf ? bearColor : '#444444',
+                    fontSize: 11,
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                    padding: '3px 9px',
+                    borderRadius: 3,
+                    cursor: 'pointer',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </div>
+          <HistoryChart
+            points={(histCache[bearTf]?.bear ?? []).map((p) => ({ date: p.date, value: p.score }))}
+            events={histCache[bearTf]?.events ?? []}
+            spyPrices={histCache[bearTf]?.spy}
+            color={bearColor}
+            yMax={100}
+            chartId={`bear-${bearTf}`}
+            loading={Boolean(histLoading[bearTf])}
+          />
+        </div>
+
+        {/* Recession History — right */}
+        <div style={{ padding: '14px 8px 18px', background: '#020202' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                color: '#ffffff',
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                fontFamily: MONO,
+              }}
+            >
+              RECESSION RISK — HISTORICAL
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['1Y', '5Y', '20Y'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setRecTf(tf)}
+                  style={{
+                    background: recTf === tf ? `${recColor}20` : 'transparent',
+                    border: `1px solid ${recTf === tf ? recColor + '66' : '#2a2a2a'}`,
+                    color: recTf === tf ? recColor : '#444444',
+                    fontSize: 11,
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                    padding: '3px 9px',
+                    borderRadius: 3,
+                    cursor: 'pointer',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </div>
+          <HistoryChart
+            points={(histCache[recTf]?.recession ?? []).map((p) => ({
+              date: p.date,
+              value: p.prob,
+            }))}
+            events={histCache[recTf]?.events ?? []}
+            spyPrices={histCache[recTf]?.spy}
+            color={recColor}
+            yMax={100}
+            chartId={`rec-${recTf}`}
+            loading={Boolean(histLoading[recTf])}
+          />
+        </div>
+      </div>
+
+      {/* ── Sector Rotation */}
+      <div
+        style={{ padding: '16px 24px 20px', borderTop: '1px solid #1a1a1a', background: '#040404' }}
       >
         <div
           style={{
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 16,
+            marginBottom: 10,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 2px 16px #3b82f640',
-                flexShrink: 0,
-              }}
-            >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#fff"
-                strokeWidth="2"
-                strokeLinecap="square"
-              >
-                <path d="M2 12 Q5 4 8 12 Q11 20 14 12 Q17 4 20 12 Q22 16 24 12" />
-              </svg>
-            </div>
-            <div>
-              <div
-                style={{
-                  color: '#fff',
-                  fontSize: 26,
-                  fontWeight: 800,
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Market Cycle Positioning
-              </div>
-              <div
-                style={{
-                  color: '#ffffff',
-                  fontSize: 18,
-                  letterSpacing: '0.1em',
-                  marginTop: 3,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Sector Rotation · Macro Signals · Trade Picks
-              </div>
-            </div>
+          <div style={{ color: '#ffffff', fontSize: 22, fontWeight: 800, letterSpacing: '0.1em' }}>
+            SECTOR ROTATION — 3M RELATIVE TO SPY
           </div>
-
-          {/* Phase badge + confidence */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-            <div
-              style={{
-                background: `${phaseColor}15`,
-                border: `1px solid ${phaseColor}44`,
-                borderRadius: 8,
-                padding: '8px 20px',
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  color: phaseColor,
-                  fontSize: 31,
-                  fontWeight: 900,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {data.phaseName}
-              </div>
-              <div
-                style={{
-                  color: '#ffffff',
-                  fontSize: 18,
-                  marginTop: 3,
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {data.confidence}% CONFIDENCE · SPY ${sig.spyPrice.toFixed(0)}
-              </div>
-            </div>
-            {/* Phase step indicators */}
-            <div style={{ display: 'flex', gap: 3 }}>
-              {PHASE_NAMES.map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: i === data.phaseIdx ? 18 : 6,
-                    height: 4,
-                    borderRadius: 2,
-                    background:
-                      i === data.phaseIdx
-                        ? phaseColor
-                        : i < data.phaseIdx
-                          ? `${phaseColor}55`
-                          : '#1a1a1a',
-                    transition: 'width 0.4s ease',
-                  }}
-                />
-              ))}
-            </div>
+          <div style={{ color: '#cccccc', fontSize: 16, letterSpacing: '0.06em' }}>
+            PHASE LEADERS:&nbsp;
+            <span style={{ color: regimeColor, fontWeight: 700 }}>
+              {data.phaseSectors.join(' · ')}
+            </span>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #111' }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '14px 28px',
-                fontSize: 26,
-                letterSpacing: '0.1em',
-                color: activeTab === tab.id ? phaseColor : '#ffffff',
-                borderBottom:
-                  activeTab === tab.id ? `2px solid ${phaseColor}` : '2px solid transparent',
-                fontFamily: '"Roboto Mono", monospace',
-                fontWeight: activeTab === tab.id ? 900 : 600,
-                transition: 'color 0.2s',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Fetch error banner ───────────────────────────────────────── */}
-      {data.fetchErrors?.length > 0 && (
         <div
           style={{
-            padding: '5px 28px',
-            background: '#ff333310',
-            borderBottom: '1px solid #ff333330',
-            fontSize: 18,
-            color: '#ff333388',
-            letterSpacing: '0.08em',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+            gap: 5,
           }}
         >
-          ⚠ PARTIAL DATA: {data.fetchErrors.join(' · ')}
-        </div>
-      )}
-
-      {/* ══════════════════ TAB: OVERVIEW ════════════════════════════════ */}
-      {activeTab === 'overview' && (
-        <div>
-          {/* Sine wave */}
-          <div style={{ padding: '24px 28px 8px' }}>
-            <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ overflow: 'visible' }}>
-              <defs>
-                <filter id="mci-glow">
-                  <feGaussianBlur stdDeviation="4" result="coloredBlur" />
-                  <feMerge>
-                    <feMergeNode in="coloredBlur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-                <linearGradient id="mci-waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#ef4444" stopOpacity="1" />
-                  <stop offset="30%" stopColor="#f97316" stopOpacity="1" />
-                  <stop offset="57%" stopColor="#00ff41" stopOpacity="1" />
-                  <stop offset="75%" stopColor="#f97316" stopOpacity="1" />
-                  <stop offset="100%" stopColor="#ef4444" stopOpacity="1" />
-                </linearGradient>
-              </defs>
-              <line
-                x1="60"
-                y1={svgH / 2}
-                x2={svgW - 60}
-                y2={svgH / 2}
-                stroke="#111"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-              />
-              <path d={wavePath} stroke="#161616" strokeWidth="2" fill="none" />
-              <path
-                d={wavePath}
-                stroke="url(#mci-waveGrad)"
-                strokeWidth="2.5"
-                fill="none"
-                opacity={0.6}
-              />
-              <path
-                d={activeWavePath}
-                stroke={phaseColor}
-                strokeWidth="3"
-                fill="none"
-                filter="url(#mci-glow)"
-              />
-              {phaseCoords.map((coord, i) => {
-                const isCurrent = i === data.phaseIdx
-                const c = PHASE_COLORS[i]
-                const isTop = Math.sin(Math.PI / 2 + ((i - 4) * Math.PI) / 4) > 0
-                return (
-                  <g key={i}>
-                    <circle
-                      cx={coord.x}
-                      cy={coord.y}
-                      r={isCurrent ? 0 : 4}
-                      fill={c}
-                      opacity={0.9}
-                    />
-                    <text
-                      x={coord.x}
-                      y={isTop ? coord.y - 16 : coord.y + 22}
-                      textAnchor="middle"
-                      fill={isCurrent ? phaseColor : '#ffffff'}
-                      fontSize={isCurrent ? 20 : 16}
-                      fontWeight={isCurrent ? 800 : 500}
-                      fontFamily='"Roboto Mono", monospace'
-                      letterSpacing="0.04em"
-                    >
-                      {PHASE_NAMES[i].split(' / ')[0]}
-                    </text>
-                  </g>
-                )
-              })}
-              <circle cx={dotX} cy={dotY} r="22" fill={phaseColor} opacity={pulse ? 0.08 : 0.03} />
-              <circle cx={dotX} cy={dotY} r="14" fill={phaseColor} opacity={pulse ? 0.14 : 0.06} />
-              <circle cx={dotX} cy={dotY} r="8" fill={phaseColor} filter="url(#mci-glow)" />
-              <circle cx={dotX} cy={dotY} r="5" fill="#000" />
-              <circle cx={dotX} cy={dotY} r="3" fill={phaseColor} />
-              <text
-                x={dotX}
-                y={dotY + 36}
-                textAnchor="middle"
-                fill={phaseColor}
-                fontSize={18}
-                fontWeight={700}
-                fontFamily='"Roboto Mono", monospace'
-                letterSpacing="0.1em"
-              >
-                ▲ YOU ARE HERE
-              </text>
-            </svg>
-          </div>
-
-          {/* Technical signal tiles */}
-          <div style={{ padding: '4px 28px 12px' }}>
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                marginBottom: 8,
-              }}
-            >
-              Technical Signals
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <SignalTile
-                label="SPY vs 200MA"
-                value={`${sig.spyVs200MA > 0 ? '+' : ''}${sig.spyVs200MA}%`}
-                signal={trendSignal}
-                sub={sig.goldenCross ? 'GOLDEN CROSS ✓' : 'DEATH CROSS ✗'}
-              />
-              <SignalTile
-                label="Momentum 3M"
-                value={`${sig.spy3M > 0 ? '+' : ''}${sig.spy3M}%`}
-                signal={momSignal}
-                sub={`12M: ${sig.spy12M > 0 ? '+' : ''}${sig.spy12M}%`}
-              />
-              <SignalTile
-                label="VIX"
-                value={sig.vix.toFixed(1)}
-                signal={vixSignal}
-                sub={vixLabel}
-              />
-              <SignalTile
-                label="Bonds TLT 3M"
-                value={`${sig.tlt3M > 0 ? '+' : ''}${sig.tlt3M}%`}
-                signal={bondSignal}
-                sub={bondLabel}
-              />
-              <SignalTile
-                label="Confidence"
-                value={`${data.confidence}%`}
-                signal={data.confidence > 65 ? 'bull' : data.confidence > 45 ? 'neutral' : 'bear'}
-                sub="SIGNAL AGREEMENT"
-              />
-            </div>
-          </div>
-
-          {/* Key price levels */}
-          <div style={{ padding: '0 28px 16px' }}>
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                marginBottom: 8,
-              }}
-            >
-              Key Watch Levels
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[
-                {
-                  label: 'SPY 200MA',
-                  value: `$${(sig.spyMa200 ?? 0).toFixed(0)}`,
-                  note: sig.spyPrice > (sig.spyMa200 ?? 0) ? 'ABOVE ✓' : 'BELOW ✗',
-                  bull: sig.spyPrice > (sig.spyMa200 ?? 0),
-                },
-                {
-                  label: 'SPY 50MA',
-                  value: `$${(sig.spyMa50 ?? 0).toFixed(0)}`,
-                  note: sig.spyPrice > (sig.spyMa50 ?? 0) ? 'ABOVE ✓' : 'BELOW ✗',
-                  bull: sig.spyPrice > (sig.spyMa50 ?? 0),
-                },
-                {
-                  label: 'VIX FEAR',
-                  value: '30',
-                  note:
-                    sig.vix < 30
-                      ? `BELOW (${sig.vix.toFixed(1)})`
-                      : `ABOVE (${sig.vix.toFixed(1)})`,
-                  bull: sig.vix < 30,
-                },
-                {
-                  label: 'HY STRESS',
-                  value: '5%',
-                  note:
-                    mac.hySpread < 5
-                      ? `CLEAR (${mac.hySpread.toFixed(2)}%)`
-                      : `BREACH (${mac.hySpread.toFixed(2)}%)`,
-                  bull: mac.hySpread < 5,
-                },
-              ].map((lv) => (
-                <div
-                  key={lv.label}
-                  style={{
-                    flex: '1 1 110px',
-                    background: '#060606',
-                    border: `1px solid ${lv.bull ? '#00ff4118' : '#ff333318'}`,
-                    borderRadius: 8,
-                    padding: '9px 12px',
-                  }}
-                >
-                  <div
-                    style={{
-                      color: '#ffffff',
-                      fontSize: 18,
-                      letterSpacing: '0.1em',
-                      marginBottom: 3,
-                    }}
-                  >
-                    {lv.label}
-                  </div>
-                  <div style={{ color: '#fff', fontSize: 27, fontWeight: 800 }}>{lv.value}</div>
-                  <div
-                    style={{ color: lv.bull ? '#00ff41' : '#ff3333', fontSize: 18, marginTop: 2 }}
-                  >
-                    {lv.note}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Phase thesis */}
-          <div
-            style={{
-              margin: '0 28px 24px',
-              padding: '14px 16px',
-              background: `${phaseColor}08`,
-              border: `1px solid ${phaseColor}20`,
-              borderRadius: 8,
-            }}
-          >
-            <div
-              style={{
-                color: phaseColor,
-                fontSize: 20,
-                fontWeight: 800,
-                letterSpacing: '0.1em',
-                marginBottom: 6,
-              }}
-            >
-              {macroCtx.title.toUpperCase()}
-            </div>
-            <div style={{ color: '#ffffff', fontSize: 20, lineHeight: 1.7, marginBottom: 8 }}>
-              {macroCtx.thesis}
-            </div>
-            <div
-              style={{ color: '#ffffff', fontSize: 18, letterSpacing: '0.06em', marginBottom: 4 }}
-            >
-              KEY WATCH:
-            </div>
-            <div style={{ color: '#ffffff', fontSize: 18, lineHeight: 1.6 }}>
-              {macroCtx.keyWatch}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════ TAB: MACRO ═══════════════════════════════════ */}
-      {activeTab === 'macro' && (
-        <div style={{ padding: '20px 28px 28px' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-            <SignalTile
-              label="Yield Curve T10Y-3M"
-              value={`${mac.yieldCurve > 0 ? '+' : ''}${mac.yieldCurve.toFixed(2)}%`}
-              signal={ycSignal}
-              sub={`${ycLabel} · ${ycTrendIcon}`}
-            />
-            <SignalTile
-              label="HY Credit Spread"
-              value={`${mac.hySpread.toFixed(2)}%`}
-              signal={hySignal}
-              sub={`${hyLabel}${mac.hySpreadTrend > 0.3 ? ' · WIDENING' : mac.hySpreadTrend < -0.3 ? ' · TIGHTENING' : ''}`}
-            />
-            <SignalTile
-              label="Fed Funds Rate"
-              value={`${mac.fedFunds.toFixed(2)}%`}
-              signal={fedSignal}
-              sub={fedLabel}
-            />
-            <SignalTile
-              label="Consumer Sentiment"
-              value={mac.sentiment.toFixed(1)}
-              signal={sentSignal}
-              sub={`${sentLabel}${mac.sentimentTrend > 2 ? ' · IMPROVING' : mac.sentimentTrend < -2 ? ' · DECLINING' : ''}`}
-            />
-          </div>
-
-          {/* Macro bars */}
-          <div
-            style={{
-              background: '#060606',
-              border: '1px solid #111',
-              borderRadius: 8,
-              padding: '14px 16px',
-              marginBottom: 20,
-            }}
-          >
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                marginBottom: 10,
-              }}
-            >
-              Macro Health Dashboard
-            </div>
-            <MacroBar
-              label="YIELD CURVE (T10Y-3M)"
-              value={mac.yieldCurve}
-              min={-2}
-              max={3}
-              signal={ycSignal}
-              format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`}
-            />
-            <MacroBar
-              label="HY CREDIT SPREAD"
-              value={mac.hySpread}
-              min={1.5}
-              max={8}
-              signal={hySignal}
-              format={(v) => `${v.toFixed(2)}%`}
-            />
-            <MacroBar
-              label="FED FUNDS RATE"
-              value={mac.fedFunds}
-              min={0}
-              max={6}
-              signal={fedSignal}
-              format={(v) => `${v.toFixed(2)}%`}
-            />
-            <MacroBar
-              label="VIX"
-              value={sig.vix}
-              min={10}
-              max={45}
-              signal={vixSignal}
-              format={(v) => v.toFixed(1)}
-            />
-            <MacroBar
-              label="CONSUMER SENTIMENT"
-              value={mac.sentiment}
-              min={40}
-              max={100}
-              signal={sentSignal}
-              format={(v) => v.toFixed(1)}
-            />
-          </div>
-
-          {/* Macro risks section */}
-          <div
-            style={{
-              padding: '14px 16px',
-              background: '#ff333306',
-              border: '1px solid #ff333318',
-              borderRadius: 8,
-              marginBottom: 16,
-            }}
-          >
-            <div
-              style={{
-                color: '#ff333380',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                marginBottom: 6,
-                textTransform: 'uppercase',
-              }}
-            >
-              Key Risks
-            </div>
-            <div style={{ color: '#ffffff', fontSize: 20, lineHeight: 1.7 }}>{macroCtx.risks}</div>
-          </div>
-
-          {/* Yield curve detail */}
-          <div
-            style={{
-              background: '#060606',
-              border: '1px solid #111',
-              borderRadius: 8,
-              padding: '14px 16px',
-            }}
-          >
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                marginBottom: 10,
-              }}
-            >
-              Yield Curve Detail
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              {[
-                {
-                  label: 'Curve Level',
-                  value: `${mac.yieldCurve > 0 ? '+' : ''}${mac.yieldCurve.toFixed(2)}%`,
-                  color:
-                    ycSignal === 'bull' ? '#00ff41' : ycSignal === 'bear' ? '#ff3333' : '#f59e0b',
-                },
-                {
-                  label: 'Trend (90D)',
-                  value: `${mac.yieldCurveTrend > 0 ? '+' : ''}${mac.yieldCurveTrend.toFixed(2)}%`,
-                  color: mac.yieldCurveTrend > 0 ? '#00ff41' : '#ff3333',
-                },
-                {
-                  label: 'Days Inverted',
-                  value: `${mac.daysInverted}d`,
-                  color:
-                    mac.daysInverted > 60
-                      ? '#ff3333'
-                      : mac.daysInverted > 0
-                        ? '#f59e0b'
-                        : '#00ff41',
-                },
-                {
-                  label: 'Fed Cutting',
-                  value: mac.fedCutting ? 'YES' : 'NO',
-                  color: mac.fedCutting ? '#00ff41' : '#f59e0b',
-                },
-              ].map((item) => (
-                <div key={item.label} style={{ flex: '1 1 100px' }}>
-                  <div
-                    style={{
-                      color: '#ffffff',
-                      fontSize: 18,
-                      letterSpacing: '0.1em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                  <div style={{ color: item.color, fontSize: 31, fontWeight: 800 }}>
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════ TAB: TRADE PICKS ═══════════════════════════ */}
-      {activeTab === 'picks' && (
-        <div style={{ padding: '20px 28px 28px' }}>
-          {/* Portfolio allocation */}
-          <div
-            style={{
-              background: '#060606',
-              border: '1px solid #111',
-              borderRadius: 8,
-              padding: '16px',
-              marginBottom: 20,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 10,
-              }}
-            >
+          {data.sectorRanking.map((s, rank) => {
+            const isTop3 = rank < 3
+            const isExpected = data.phaseSectors.includes(s.ticker)
+            const color = s.relReturn3M > 0 ? '#00ff41' : '#ff3333'
+            const barPct = Math.max(0, Math.min(100, ((s.relReturn3M + 12) / 24) * 100))
+            return (
               <div
+                key={s.ticker}
                 style={{
-                  color: '#ffffff',
-                  fontSize: 18,
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 10px',
+                  background: isTop3 ? '#0c0c0c' : 'transparent',
+                  border: isExpected ? `1px solid ${regimeColor}33` : '1px solid #111',
+                  borderRadius: 5,
                 }}
               >
-                Suggested Portfolio Allocation
-              </div>
-              <div
-                style={{
-                  color: phaseColor,
-                  fontSize: 18,
-                  fontWeight: 800,
-                  letterSpacing: '0.08em',
-                }}
-              >
-                {data.phaseName.toUpperCase()}
-              </div>
-            </div>
-            <AllocationBar allocation={allocation} phaseColor={phaseColor} />
-          </div>
-
-          {/* Phase thesis banner */}
-          <div
-            style={{
-              padding: '12px 14px',
-              background: `${phaseColor}08`,
-              border: `1px solid ${phaseColor}22`,
-              borderRadius: 8,
-              marginBottom: 16,
-            }}
-          >
-            <div
-              style={{
-                color: phaseColor,
-                fontSize: 18,
-                fontWeight: 800,
-                letterSpacing: '0.1em',
-                marginBottom: 4,
-              }}
-            >
-              CYCLE THESIS
-            </div>
-            <div style={{ color: '#ffffff', fontSize: 20, lineHeight: 1.7 }}>{macroCtx.thesis}</div>
-          </div>
-
-          {/* Trade pick cards */}
-          <div
-            style={{
-              color: '#ffffff',
-              fontSize: 18,
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              marginBottom: 10,
-            }}
-          >
-            Phase-Based Trade Ideas
-            <span style={{ color: '#ffffff', marginLeft: 8 }}>· Dots = Conviction (3 = HIGH)</span>
-          </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: 8,
-            }}
-          >
-            {tradePicks.map((pick) => (
-              <TradePickCard
-                key={`${pick.ticker}-${pick.direction}`}
-                pick={pick}
-                phaseColor={phaseColor}
-              />
-            ))}
-          </div>
-
-          {/* Disclaimer */}
-          <div
-            style={{
-              marginTop: 16,
-              color: '#666666',
-              fontSize: 18,
-              lineHeight: 1.5,
-              borderTop: '1px solid #0a0a0a',
-              paddingTop: 12,
-            }}
-          >
-            ⚠ INFORMATIONAL ONLY — Not financial advice. Trade ideas reflect historical sector
-            rotation models. Past cycle behavior does not guarantee future results. Always manage
-            position size and risk.
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════ TAB: SECTORS ════════════════════════════════ */}
-      {activeTab === 'sectors' && (
-        <div style={{ padding: '20px 28px 28px' }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12,
-            }}
-          >
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-              }}
-            >
-              3M Relative Return vs SPY
-            </div>
-            <div style={{ color: '#ffffff', fontSize: 18, letterSpacing: '0.08em' }}>
-              Phase Leaders:{' '}
-              <span style={{ color: phaseColor }}>{data.phaseSectors.join(' · ')}</span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-              gap: 6,
-              marginBottom: 20,
-            }}
-          >
-            {data.sectorRanking.map((s, rank) => {
-              const isLeader = rank < 3
-              const isExpected = data.phaseSectors.includes(s.ticker)
-              const barPct = Math.max(0, Math.min(100, ((s.relReturn3M + 10) / 20) * 100))
-              const color = s.relReturn3M > 0 ? '#00ff41' : '#ff3333'
-              const sectorName = SECTOR_LABELS[s.ticker] ?? s.ticker
-              return (
                 <div
-                  key={s.ticker}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '9px 12px',
-                    background: isLeader ? '#0a0a0a' : '#050505',
-                    border: isExpected ? `1px solid ${phaseColor}35` : '1px solid #111',
-                    borderRadius: 6,
+                    color: '#aaaaaa',
+                    fontSize: 16,
+                    width: 14,
+                    textAlign: 'right',
+                    flexShrink: 0,
                   }}
                 >
-                  <div
-                    style={{
-                      color: '#ffffff',
-                      fontSize: 18,
-                      width: 20,
-                      textAlign: 'right',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {rank + 1}
-                  </div>
-                  <div style={{ flexShrink: 0, width: 40 }}>
-                    <div
-                      style={{
-                        fontSize: 22,
-                        fontWeight: 800,
-                        color: isExpected ? phaseColor : '#fff',
-                      }}
-                    >
-                      {s.ticker}
-                    </div>
-                    <div style={{ fontSize: 16, color: '#ffffff', marginTop: 1 }}>{sectorName}</div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        height: 4,
-                        background: '#111',
-                        borderRadius: 2,
-                        overflow: 'hidden',
-                        marginBottom: 2,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${barPct}%`,
-                          height: '100%',
-                          background: color,
-                          borderRadius: 2,
-                        }}
-                      />
-                    </div>
-                    <div style={{ color: '#ffffff', fontSize: 16 }}>
-                      1M: {s.relReturn1M > 0 ? '+' : ''}
-                      {s.relReturn1M}%
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      color,
-                      fontSize: 22,
-                      fontWeight: 700,
-                      width: 60,
-                      textAlign: 'right',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {s.relReturn3M > 0 ? '+' : ''}
-                    {s.relReturn3M}%
-                  </div>
-                  {isExpected && (
-                    <div
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: phaseColor,
-                        flexShrink: 0,
-                      }}
-                    />
-                  )}
+                  {rank + 1}
                 </div>
-              )
-            })}
-          </div>
-
-          {/* Cycle affinity guide */}
-          <div
-            style={{
-              background: '#060606',
-              border: '1px solid #111',
-              borderRadius: 8,
-              padding: '14px 16px',
-            }}
-          >
-            <div
-              style={{
-                color: '#ffffff',
-                fontSize: 18,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                marginBottom: 10,
-              }}
-            >
-              Business Cycle Sector Rotation Map
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-              {[
-                { phase: 'BOTTOM', sectors: 'XLU · GLD · TLT', color: '#ef4444' },
-                { phase: 'RECOVERY', sectors: 'XLF · XLY · IWM', color: '#f97316' },
-                { phase: 'BULL', sectors: 'XLI · XLK · XLC', color: '#84cc16' },
-                { phase: 'PEAK', sectors: 'XLE · XLB · GLD', color: '#00ff41' },
-                { phase: 'EARLY BEAR', sectors: 'XLV · XLP', color: '#facc15' },
-                { phase: 'BEAR', sectors: 'TLT · GLD · Cash', color: '#f97316' },
-                { phase: 'LATE BEAR', sectors: 'XLU · XLP · TLT', color: '#ef4444' },
-                { phase: 'CURRENT', sectors: data.phaseSectors.join(' · '), color: phaseColor },
-              ].map((item) => (
                 <div
-                  key={item.phase}
                   style={{
-                    padding: '8px 10px',
-                    background: item.phase === 'CURRENT' ? `${item.color}12` : '#000',
-                    border: `1px solid ${item.color}22`,
-                    borderRadius: 6,
+                    fontSize: 22,
+                    fontWeight: 800,
+                    color: isExpected ? regimeColor : '#ffffff',
+                    width: 36,
+                    flexShrink: 0,
                   }}
                 >
+                  {s.ticker}
+                </div>
+                <div style={{ flex: 1, height: 3, background: '#1a1a1a', borderRadius: 2 }}>
                   <div
                     style={{
-                      color: item.color,
-                      fontSize: 16,
-                      fontWeight: 800,
-                      letterSpacing: '0.1em',
-                      marginBottom: 3,
+                      width: `${barPct}%`,
+                      height: '100%',
+                      background: color,
+                      borderRadius: 2,
                     }}
-                  >
-                    {item.phase}
-                  </div>
-                  <div style={{ color: '#ffffff', fontSize: 18 }}>{item.sectors}</div>
+                  />
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div
-        style={{
-          padding: '8px 28px',
-          borderTop: '1px solid #0a0a0a',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <div style={{ color: '#888888', fontSize: 16, letterSpacing: '0.08em' }}>
-          PHASE {data.phaseIdx}/7 · {((data.phase / 7) * 100).toFixed(0)}% THROUGH CYCLE ·{' '}
-          {new Date(data.timestamp).toLocaleTimeString()}
-        </div>
-        <div style={{ color: '#888888', fontSize: 16, letterSpacing: '0.08em' }}>
-          POLYGON.IO + FRED
+                <div
+                  style={{
+                    color,
+                    fontSize: 22,
+                    fontWeight: 700,
+                    width: 48,
+                    textAlign: 'right',
+                    flexShrink: 0,
+                  }}
+                >
+                  {s.relReturn3M > 0 ? '+' : ''}
+                  {s.relReturn3M}%
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>

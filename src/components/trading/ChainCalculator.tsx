@@ -688,7 +688,10 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
   }
 
   return (
-    <div className="h-full bg-black text-white overflow-y-auto">
+    <div
+      className="bg-black text-white overflow-y-auto"
+      style={{ height: 'calc(100vh - 180px)', minHeight: 0 }}
+    >
       <div className="px-6 py-1 border-b border-gray-800 bg-black relative">
         {onClose && (
           <button
@@ -757,7 +760,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                       onChange={(e) => handleSymbolChange(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder="SPY"
-                      className="w-full bg-black border border-gray-700 px-2 py-1 text-white text-base font-bold uppercase focus:outline-none focus:border-gray-600"
+                      className="w-full px-3 py-2 text-white text-xl font-black uppercase focus:outline-none"
+                      style={{
+                        background: '#0d0d0d',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                      }}
                     />
                   </div>
                 </div>
@@ -781,7 +789,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                           fetchIndividualOptionData(newStrike, selectedExpiration, optionType)
                         }
                       }}
-                      className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-sm font-bold focus:outline-none"
+                      className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                      style={{
+                        background: '#0d0d0d',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                      }}
                     >
                       <option value="">Select Strike</option>
                       {strikes.map((strike) => (
@@ -809,11 +822,16 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                         setSelectedStrike(null)
                         setCustomPremium(null)
                       }}
-                      className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all ${
-                        optionType === 'call'
-                          ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-green-500'
-                          : 'bg-black border-gray-700 text-gray-400'
-                      }`}
+                      className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
+                      style={{
+                        background: optionType === 'call' ? 'rgba(34,197,94,0.15)' : '#0d0d0d',
+                        border:
+                          optionType === 'call'
+                            ? '1px solid #22c55e'
+                            : '1px solid rgba(255,255,255,0.15)',
+                        color: optionType === 'call' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)',
+                      }}
                     >
                       CALL
                     </button>
@@ -824,11 +842,16 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                         setSelectedStrike(null)
                         setCustomPremium(null)
                       }}
-                      className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all ${
-                        optionType === 'put'
-                          ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-red-500'
-                          : 'bg-black border-gray-700 text-gray-400'
-                      }`}
+                      className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
+                      style={{
+                        background: optionType === 'put' ? 'rgba(239,68,68,0.15)' : '#0d0d0d',
+                        border:
+                          optionType === 'put'
+                            ? '1px solid #ef4444'
+                            : '1px solid rgba(255,255,255,0.15)',
+                        color: optionType === 'put' ? '#ef4444' : 'rgba(255,255,255,0.35)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)',
+                      }}
                     >
                       PUT
                     </button>
@@ -854,7 +877,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                             fetchIndividualOptionData(selectedStrike, newExp, optionType)
                           }
                         }}
-                        className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[14px] font-semibold focus:outline-none"
+                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                        style={{
+                          background: '#0d0d0d',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                        }}
                       >
                         <option value="">Select</option>
                         {availableExpirations.map((exp) => (
@@ -869,7 +897,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                         value={selectedExpiration}
                         onChange={(e) => setSelectedExpiration(e.target.value)}
                         min={new Date().toISOString().split('T')[0]}
-                        className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[11px] focus:outline-none"
+                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none"
+                        style={{
+                          background: '#0d0d0d',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                        }}
                       />
                     )}
                   </div>
@@ -893,7 +926,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                       placeholder="6.9"
                       step="0.01"
                       min="0"
-                      className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-base font-bold focus:outline-none"
+                      className="w-full px-3 py-2 text-white text-xl font-black focus:outline-none"
+                      style={{
+                        background: '#0d0d0d',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                      }}
                     />
                   </div>
                 </div>
@@ -910,7 +948,12 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                     <select
                       value={otmPercentage}
                       onChange={(e) => setOtmPercentage(Number(e.target.value))}
-                      className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[14px] font-semibold focus:outline-none"
+                      className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                      style={{
+                        background: '#0d0d0d',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
+                      }}
                     >
                       <option value={2}>±2%</option>
                       <option value={5}>±5%</option>
@@ -949,38 +992,50 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
               const realOption = realOptionsData[key]
 
               return (
-                <div className="mb-4 bg-black border-2 border-orange-500/30 p-0">
+                <div
+                  className="mb-4 bg-black border-2 p-0"
+                  style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                >
                   <div className="grid grid-cols-4 gap-0">
-                    <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+                    <div
+                      className="bg-black border-r-2 px-4 py-3"
+                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                    >
                       <div className="flex flex-col">
-                        <span className="text-green-500 text-xs font-bold uppercase tracking-wider mb-1">
+                        <span className="text-green-400 text-sm font-black uppercase tracking-wider mb-1">
                           DELTA
                         </span>
-                        <span className="text-white text-lg font-bold font-mono">
+                        <span className="text-white text-xl font-black font-mono">
                           {realOption?.delta !== null && realOption?.delta !== undefined
                             ? realOption.delta.toFixed(3)
                             : '--'}
                         </span>
                       </div>
                     </div>
-                    <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+                    <div
+                      className="bg-black border-r-2 px-4 py-3"
+                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                    >
                       <div className="flex flex-col">
-                        <span className="text-yellow-500 text-xs font-bold uppercase tracking-wider mb-1">
+                        <span className="text-yellow-400 text-sm font-black uppercase tracking-wider mb-1">
                           GAMMA
                         </span>
-                        <span className="text-white text-lg font-bold font-mono">
+                        <span className="text-white text-xl font-black font-mono">
                           {realOption?.gamma !== null && realOption?.gamma !== undefined
                             ? realOption.gamma.toFixed(4)
                             : '--'}
                         </span>
                       </div>
                     </div>
-                    <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+                    <div
+                      className="bg-black border-r-2 px-4 py-3"
+                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                    >
                       <div className="flex flex-col">
-                        <span className="text-red-500 text-xs font-bold uppercase tracking-wider mb-1">
+                        <span className="text-red-400 text-sm font-black uppercase tracking-wider mb-1">
                           THETA
                         </span>
-                        <span className="text-white text-lg font-bold font-mono">
+                        <span className="text-white text-xl font-black font-mono">
                           {realOption?.theta !== null && realOption?.theta !== undefined
                             ? realOption.theta.toFixed(2)
                             : '--'}
@@ -989,10 +1044,13 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                     </div>
                     <div className="bg-black px-4 py-3">
                       <div className="flex flex-col">
-                        <span className="text-blue-500 text-xs font-bold uppercase tracking-wider mb-1">
+                        <span
+                          className="text-sm font-black uppercase tracking-wider mb-1"
+                          style={{ color: '#a855f7' }}
+                        >
                           IV
                         </span>
-                        <span className="text-white text-lg font-bold font-mono">
+                        <span className="text-xl font-black font-mono" style={{ color: '#a855f7' }}>
                           {realOption?.impliedVolatility && realOption.impliedVolatility > 0
                             ? `${(realOption.impliedVolatility * 100).toFixed(1)}%`
                             : '--'}
@@ -1005,37 +1063,40 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
             })()}
 
             <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
-              <div className="overflow-x-auto rounded-xl border-2 border-gray-700">
+              <div
+                className="overflow-x-auto overflow-y-auto rounded-xl border-2 border-gray-700"
+                style={{ maxHeight: '78vh' }}
+              >
                 <div className="min-w-max bg-black">
-                  <div className="flex border-b border-gray-800 bg-black relative overflow-hidden">
-                    <div className="absolute inset-0 opacity-20">
-                      <div className="absolute top-0 left-1/4 w-32 h-32 bg-blue-500 rounded-full blur-3xl"></div>
-                      <div className="absolute bottom-0 right-1/4 w-24 h-24 bg-purple-500 rounded-full blur-3xl"></div>
-                      <div className="absolute top-1/2 left-1/2 w-20 h-20 bg-cyan-500 rounded-full blur-2xl"></div>
-                    </div>
+                  <div
+                    className="flex bg-black"
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+                  >
                     <button
                       type="button"
                       onClick={() => setViewMode('table')}
-                      className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${
-                        viewMode === 'table' ? 'text-white' : 'text-gray-500 hover:text-gray-300'
-                      }`}
+                      className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
+                      style={{
+                        background: viewMode === 'table' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
+                        borderBottom:
+                          viewMode === 'table' ? '3px solid #22c55e' : '3px solid transparent',
+                        color: viewMode === 'table' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                      }}
                     >
-                      {viewMode === 'table' && (
-                        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/10 to-cyan-600/20 backdrop-blur-sm border-b-2 border-blue-500"></div>
-                      )}
-                      <span className="relative z-10">{viewMode === 'table' && '● '}Table P/L</span>
+                      {viewMode === 'table' && '● '}Table P/L
                     </button>
                     <button
                       type="button"
                       onClick={() => setViewMode('line')}
-                      className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${
-                        viewMode === 'line' ? 'text-white' : 'text-gray-500 hover:text-gray-300'
-                      }`}
+                      className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
+                      style={{
+                        background: viewMode === 'line' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
+                        borderBottom:
+                          viewMode === 'line' ? '3px solid #22c55e' : '3px solid transparent',
+                        color: viewMode === 'line' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                      }}
                     >
-                      {viewMode === 'line' && (
-                        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/10 to-cyan-600/20 backdrop-blur-sm border-b-2 border-blue-500"></div>
-                      )}
-                      <span className="relative z-10">{viewMode === 'line' && '● '}Line P/L</span>
+                      {viewMode === 'line' && '● '}Line P/L
                     </button>
                   </div>
 
@@ -1051,15 +1112,15 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                         <table className="w-full border-collapse bg-black">
                           <thead>
                             <tr>
-                              <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-sm font-bold text-white shadow-xl">
+                              <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black text-white shadow-xl">
                                 <div className="drop-shadow-lg">Stock Price</div>
                               </th>
                               {heatMapTimeSeries.map((timePoint) => (
                                 <th
                                   key={timePoint.days}
-                                  className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-sm font-bold px-1 text-white shadow-lg"
+                                  className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black px-1 text-white shadow-lg"
                                 >
-                                  <div className="text-sm font-bold drop-shadow-md">
+                                  <div className="text-lg font-black drop-shadow-md">
                                     {timePoint.label}
                                   </div>
                                   {timePoint.days === 0 && (
@@ -1079,9 +1140,9 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                               return (
                                 <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
                                   <td
-                                    className={`h-12 border border-gray-600 text-center font-medium text-lg ${
+                                    className={`h-12 border border-gray-600 text-center font-black text-lg ${
                                       isATM
-                                        ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
+                                        ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
                                         : 'bg-black text-white'
                                     }`}
                                   >
@@ -1198,7 +1259,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                     return (
                                       <td
                                         key={`${strike}-${timePoint.days}`}
-                                        className={`h-12 border text-center text-xs font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${
+                                        className={`h-12 border text-center text-base font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${
                                           isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
                                         }`}
                                         onClick={() => {
@@ -1207,7 +1268,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                         }}
                                         title={`Stock @ $${strike} | Strike $${selectedStrike} | ${timePoint.days}d | P/L: ${displayText} | Option Price: $${pnlData.optionPrice.toFixed(2)}`}
                                       >
-                                        <div className="text-xs leading-tight">{displayText}</div>
+                                        <div className="text-sm leading-tight">{displayText}</div>
                                       </td>
                                     )
                                   })}

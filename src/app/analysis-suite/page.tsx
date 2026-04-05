@@ -70,7 +70,7 @@ export default function AnalysisSuite() {
     >
       <div
         style={{
-          maxWidth: '1400px',
+          maxWidth: '1680px',
           margin: '0 auto',
           paddingTop: '60px',
           width: '100%',
