@@ -1,330 +1,291 @@
 'use client';
 
+// --- Seasonality Visualization ------------------------------------------------
+const MONTHLY_WIN_RATES = [58, 52, 64, 68, 57, 50, 67, 52, 44, 60, 71, 73];
+const MONTH_LABELS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
 export function SeasonalityVisualization() {
- return (
- <div className="seasonality-3d">
- <div className="season-grid-3d">
- <div className="grid-line-x"></div>
- <div className="grid-line-x"></div>
- <div className="grid-line-x"></div>
- <div className="grid-line-y"></div>
- <div className="grid-line-y"></div>
- <div className="grid-line-y"></div>
- </div>
- <div className="year-labels">
- <span className="year-label">2004</span>
- <span className="year-label">2014</span>
- <span className="year-label">2024</span>
- </div>
- <div className="season-waves">
- <div className="wave wave-1" data-year="APR"></div>
- <div className="wave wave-2" data-year="MAY"></div>
- <div className="wave wave-3" data-year="JUN"></div>
- <div className="wave wave-4" data-year="JUL"></div>
- </div>
- <div className="probability-overlay">
- <div className="prob-bar prob-high">87%</div>
- <div className="prob-bar prob-med">65%</div>
- <div className="prob-bar prob-low">42%</div>
- </div>
- </div>
- );
+  const currentMonth = new Date().getMonth();
+  const curRate = MONTHLY_WIN_RATES[currentMonth];
+  const curName = MONTH_NAMES[currentMonth];
+
+  return (
+    <div className="tsv2-viz-seasonal">
+      <div className="tsv2-viz-row-top">
+        <span className="tsv2-viz-label-sm">SPY - 20YR WIN RATE</span>
+        <span className="tsv2-viz-label-live">? LIVE</span>
+      </div>
+
+      <svg viewBox="0 0 240 72" width="100%" height="72" style={{ display: 'block', overflow: 'visible' }}>
+        <line x1="2" y1={72 - 30} x2="238" y2={72 - 30}
+          stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="3,2" />
+
+        {MONTHLY_WIN_RATES.map((pct, i) => {
+          const x = i * 20 + 2;
+          const barH = Math.max(2, (pct / 100) * 60);
+          const y = 64 - barH;
+          const isCurrent = i === currentMonth;
+          const color = pct >= 65 ? '#00FF88' : pct >= 50 ? '#FFD700' : '#FF3366';
+          const fill = isCurrent ? '#FF6600' : color;
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width="14" height={barH} fill={`${fill}22`} rx="1" />
+              <rect x={x} y={y} width="14" height="2" fill={fill} rx="1" />
+              {isCurrent && (
+                <rect x={x - 1} y={y - 1} width="16" height={barH + 2}
+                  fill="none" stroke="#FF6600" strokeWidth="0.7" rx="1" opacity="0.7" />
+              )}
+              <text x={x + 7} y="72" textAnchor="middle"
+                fill={isCurrent ? '#FF6600' : '#1E4060'} fontSize="5.5" fontFamily="monospace">
+                {MONTH_LABELS[i]}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      <div className="tsv2-viz-row-bot">
+        <span className="tsv2-viz-cur-month" style={{ color: curRate >= 60 ? '#00FF88' : curRate >= 50 ? '#FFD700' : '#FF3366' }}>
+          {curName} - {curRate}% BULLISH BIAS
+        </span>
+        <span className="tsv2-viz-weak-month">SEP weakest 44%</span>
+      </div>
+    </div>
+  );
 }
 
-export function DataFlowVisualization() {
- return (
- <div className="flow-3d-container">
- {/* Falling Text Animation */}
- <div className="falling-text-container">
- <div className="falling-text" style={{ left: '8%', animationDelay: '0s' }}>News</div>
- <div className="falling-text" style={{ left: '23%', animationDelay: '2.5s' }}>Earnings</div>
- <div className="falling-text" style={{ left: '42%', animationDelay: '4.8s' }}>Analysts</div>
- <div className="falling-text" style={{ left: '67%', animationDelay: '1.2s' }}>Traders</div>
- <div className="falling-text" style={{ left: '85%', animationDelay: '3.1s' }}>Volume</div>
- <div className="falling-text" style={{ left: '15%', animationDelay: '6.7s' }}>Signals</div>
- <div className="falling-text" style={{ left: '58%', animationDelay: '8.3s' }}>Momentum</div>
- <div className="falling-text" style={{ left: '32%', animationDelay: '10.1s' }}>Trends</div>
- <div className="falling-text" style={{ left: '78%', animationDelay: '5.5s' }}>Patterns</div>
- <div className="falling-text" style={{ left: '12%', animationDelay: '9.8s' }}>Data</div>
- <div className="falling-text" style={{ left: '48%', animationDelay: '7.2s' }}>Flows</div>
- <div className="falling-text" style={{ left: '72%', animationDelay: '11.4s' }}>Alerts</div>
- </div>
+// --- Options Flow Visualization -----------------------------------------------
+const FLOW_ROWS = [
+  { ticker: 'NVDA', contract: '900C 04/18', size: '1.5K', prem: '$2.38', kind: 'SWEEP', side: 'call' },
+  { ticker: 'TSLA', contract: '210P 05/16', size: '2.1K', prem: '$0.87', kind: 'BLOCK', side: 'put' },
+  { ticker: 'SPY', contract: '500C 04/11', size: '4.0K', prem: '$1.12', kind: 'SWEEP', side: 'call' },
+  { ticker: 'META', contract: '570C 04/25', size: '860', prem: '$3.45', kind: 'UNUSUAL', side: 'call' },
+  { ticker: 'AAPL', contract: '225P 04/18', size: '1.2K', prem: '$1.09', kind: 'SWEEP', side: 'put' },
+  { ticker: 'QQQ', contract: '430C 04/18', size: '2.8K', prem: '$0.95', kind: 'BLOCK', side: 'call' },
+  { ticker: 'AMZN', contract: '215C 05/16', size: '600', prem: '$4.21', kind: 'UNUSUAL', side: 'call' },
+  { ticker: 'MSFT', contract: '455P 04/18', size: '1.8K', prem: '$1.67', kind: 'SWEEP', side: 'put' },
+];
 
- {/* PC Ratio Speedometer */}
- <div className="speedometer-container">
- <svg className="speedometer" viewBox="0 0 200 120" style={{ width: '140px', height: '85px' }}>
- {/* Gauge Background Arc */}
- <path
- d="M 30 90 A 70 70 0 0 1 170 90"
- fill="none"
- stroke="rgba(255,255,255,0.1)"
- strokeWidth="8"
- className="gauge-bg"
- />
- 
- {/* Gauge Segments */}
- {/* Green segment (0-40%) */}
- <path
- d="M 30 90 A 70 70 0 0 1 100 30"
- fill="none"
- stroke="#00FF88"
- strokeWidth="6"
- className="gauge-green"
- />
- 
- {/* Yellow segment (40-70%) */}
- <path
- d="M 100 30 A 70 70 0 0 1 140 45"
- fill="none"
- stroke="#FFD700"
- strokeWidth="6"
- className="gauge-yellow"
- />
- 
- {/* Red segment (70-100%) */}
- <path
- d="M 140 45 A 70 70 0 0 1 170 90"
- fill="none"
- stroke="#FF3366"
- strokeWidth="6"
- className="gauge-red"
- />
- 
- {/* Needle */}
- <line
- x1="100"
- y1="90"
- x2="130"
- y2="55"
- stroke="#FFFFFF"
- strokeWidth="2"
- className="gauge-needle"
- />
- <circle cx="100" cy="90" r="4" fill="#FFFFFF" />
- 
- {/* PC Label */}
- <text x="100" y="105" textAnchor="middle" fill="#FFFFFF" fontSize="12" fontWeight="bold">PC</text>
- </svg>
- 
- {/* Gauge Labels */}
- <div className="gauge-label left">Bullish</div>
- <div className="gauge-label right">Bearish</div>
- </div>
- 
- <div className="flow-metrics">
- <div className="metric-stream">
- <div className="stream-data">BUY FLOW</div>
- <div className="stream-value">$4.2M</div>
- </div>
- <div className="metric-stream">
- <div className="stream-data">SELL FLOW</div>
- <div className="stream-value">$2.8M</div>
- </div>
- </div>
- </div>
- );
+export function OptionsFlowVisualization() {
+  return (
+    <div className="tsv2-viz-flow">
+      <div className="tsv2-viz-flow-hdr">
+        <span>TICKER</span><span>CONTRACT</span><span>SIZE</span><span>PREM</span><span>TYPE</span>
+      </div>
+      <div className="tsv2-viz-flow-scroll">
+        <div className="tsv2-viz-flow-inner">
+          {[...FLOW_ROWS, ...FLOW_ROWS].map((row, i) => (
+            <div key={i} className={`tsv2-frow tsv2-frow--${row.side}`}>
+              <span className="tsv2-fr-ticker">{row.ticker}</span>
+              <span className="tsv2-fr-contract">{row.contract}</span>
+              <span className="tsv2-fr-size">{row.size}</span>
+              <span className="tsv2-fr-prem">{row.prem}</span>
+              <span className={`tsv2-fr-kind tsv2-fkind--${row.kind.toLowerCase()}`}>{row.kind}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export function ChartVisualization() {
- const toolButtons = ['5M', '1H', '1D', 'MM', 'AI'];
- const chartInfo = [
- 'O: 452.30',
- 'H: 455.80', 
- 'L: 451.20',
- 'C: 454.65'
- ];
+// --- Charting Visualization ---------------------------------------------------
+const CANDLES = [
+  { o: 5260, h: 5285, l: 5245, c: 5271 },
+  { o: 5271, h: 5292, l: 5265, c: 5288 },
+  { o: 5288, h: 5308, l: 5282, c: 5301 },
+  { o: 5301, h: 5318, l: 5293, c: 5310 },
+  { o: 5310, h: 5322, l: 5292, c: 5298 },
+  { o: 5298, h: 5305, l: 5278, c: 5283 },
+  { o: 5283, h: 5290, l: 5260, c: 5267 },
+  { o: 5267, h: 5280, l: 5252, c: 5276 },
+  { o: 5276, h: 5298, l: 5270, c: 5293 },
+  { o: 5293, h: 5312, l: 5287, c: 5308 },
+  { o: 5308, h: 5325, l: 5300, c: 5320 },
+  { o: 5320, h: 5336, l: 5314, c: 5330 },
+];
+const GEX_STRIKES = [5280, 5310, 5330];
+const TF_BTNS = ['5M', '1H', '1D', 'W'];
 
- return (
- <div className="chart-interface">
- <div className="chart-toolbar">
- {toolButtons.map((btn, index) => (
- <div 
- key={btn} 
- className={`tool-btn ${index === 0 ? 'active' : ''}`}
- >
- {btn}
- </div>
- ))}
- </div>
- <div className="chart-display">
- {/* Elliott Wave Line Chart */}
- <svg className="elliott-chart" viewBox="0 0 300 120" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '70%' }}>
- {/* Grid lines */}
- <defs>
- <pattern id="grid" width="30" height="12" patternUnits="userSpaceOnUse">
- <path d="M 30 0 L 0 0 0 12" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5"/>
- </pattern>
- </defs>
- <rect width="100%" height="100%" fill="url(#grid)" />
- 
- {/* Elliott Wave Pattern - 5 waves */}
- <polyline 
- fill="none" 
- stroke="#00FF88" 
- strokeWidth="2"
- strokeLinecap="round"
- points="20,80 60,30 100,50 140,20 180,40 220,10 260,25"
- className="elliott-line"
- />
- 
- {/* Wave Labels */}
- <text x="40" y="25" fill="#FFD700" fontSize="8" textAnchor="middle">1</text>
- <text x="80" y="55" fill="#FFD700" fontSize="8" textAnchor="middle">2</text>
- <text x="120" y="15" fill="#FFD700" fontSize="8" textAnchor="middle">3</text>
- <text x="160" y="45" fill="#FFD700" fontSize="8" textAnchor="middle">4</text>
- <text x="200" y="5" fill="#FFD700" fontSize="8" textAnchor="middle">5</text>
- 
- {/* Support/Resistance Lines */}
- <line x1="20" y1="85" x2="280" y2="85" stroke="rgba(255,102,0,0.3)" strokeWidth="1" strokeDasharray="2,2"/>
- <line x1="20" y1="15" x2="280" y2="15" stroke="rgba(255,102,0,0.3)" strokeWidth="1" strokeDasharray="2,2"/>
- </svg>
- 
- {/* Momentum Indicator */}
- <div className="momentum-indicator" style={{ position: 'absolute', bottom: '30%', left: 0, right: 0, height: '25%', padding: '5px' }}>
- <svg viewBox="0 0 300 40" style={{ width: '100%', height: '100%' }}>
- {/* Momentum oscillator */}
- <line x1="0" y1="20" x2="300" y2="20" stroke="rgba(255,255,255,0.2)" strokeWidth="1"/>
- <polyline 
- fill="none" 
- stroke="#FF6600" 
- strokeWidth="1.5"
- points="0,25 30,15 60,30 90,10 120,25 150,5 180,20 210,35 240,15 270,25 300,20"
- className="momentum-line"
- />
- <text x="5" y="8" fill="#666" fontSize="6">+100</text>
- <text x="5" y="38" fill="#666" fontSize="6">-100</text>
- </svg>
- </div>
- 
- <div className="chart-crosshair-x"></div>
- <div className="chart-crosshair-y"></div>
- </div>
- <div className="chart-info">
- {chartInfo.map((info, index) => (
- <span key={index} className="info-item">{info}</span>
- ))}
- </div>
- </div>
- );
+export function ChartingVisualization({ spxPrice }: { spxPrice: number | null }) {
+  const allPrices = CANDLES.flatMap(c => [c.h, c.l]);
+  const minP = Math.min(...allPrices);
+  const maxP = Math.max(...allPrices);
+  const range = maxP - minP || 1;
+  const svgW = 240; const svgH = 80;
+  const padX = 6; const padY = 6;
+  const chartH = svgH - padY * 2;
+  const chartW = svgW - padX * 2;
+  const cW = chartW / CANDLES.length;
+  const norm = (p: number) => padY + (1 - (p - minP) / range) * chartH;
+  const displayPrice = spxPrice ?? CANDLES[CANDLES.length - 1].c;
+
+  return (
+    <div className="tsv2-viz-chart">
+      <div className="tsv2-viz-chart-hdr">
+        <span className="tsv2-vc-sym">I:SPX</span>
+        <span className="tsv2-vc-tfs">
+          {TF_BTNS.map((t, i) => (
+            <span key={t} className={`tsv2-vc-tf${i === 1 ? ' tsv2-vc-tf--active' : ''}`}>{t}</span>
+          ))}
+        </span>
+        <span className="tsv2-vc-price">{displayPrice.toLocaleString()}</span>
+      </div>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block' }}>
+        {[0.25, 0.5, 0.75].map(f => (
+          <line key={f} x1={padX} y1={padY + f * chartH} x2={svgW - padX} y2={padY + f * chartH}
+            stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
+        ))}
+        {GEX_STRIKES.map((lvl, i) => {
+          const y = norm(lvl);
+          return (
+            <g key={i}>
+              <line x1={padX} y1={y} x2={svgW - padX} y2={y}
+                stroke="rgba(255,102,0,0.25)" strokeWidth="0.6" strokeDasharray="3,2" />
+              <text x={svgW - padX - 2} y={y - 1.5} fill="rgba(255,102,0,0.45)"
+                fontSize="4.5" textAnchor="end" fontFamily="monospace">
+                GEX {lvl.toLocaleString()}
+              </text>
+            </g>
+          );
+        })}
+        {CANDLES.map((c, i) => {
+          const x = padX + i * cW + cW * 0.1;
+          const bW = cW * 0.72;
+          const oY = norm(c.o); const cY = norm(c.c);
+          const hY = norm(c.h); const lY = norm(c.l);
+          const bull = c.c >= c.o;
+          const color = bull ? '#00FF88' : '#FF3366';
+          const bodyTop = Math.min(oY, cY);
+          const bodyH = Math.max(Math.abs(oY - cY), 1);
+          const cx = x + bW / 2;
+          return (
+            <g key={i}>
+              <line x1={cx} y1={hY} x2={cx} y2={lY} stroke={color} strokeWidth="0.7" />
+              <rect x={x} y={bodyTop} width={bW} height={bodyH}
+                fill={bull ? `${color}30` : color} stroke={color} strokeWidth="0.5" rx="0.5" />
+            </g>
+          );
+        })}
+        {spxPrice && (
+          <line x1={padX} y1={norm(spxPrice)} x2={svgW - padX} y2={norm(spxPrice)}
+            stroke="rgba(0,212,255,0.5)" strokeWidth="0.8" strokeDasharray="2,2" />
+        )}
+      </svg>
+    </div>
+  );
 }
 
-export function MarketRegimeVisualization() {
- const sectors = [
- { name: 'TECH', class: 'tech' },
- { name: 'ENERGY', class: 'energy' },
- { name: 'FIN', class: 'finance' },
- { name: 'HEALTH', class: 'health' }
- ];
+// --- Regime Visualization -----------------------------------------------------
+const SECTORS = [
+  { lbl: 'XLK', score: 0.82 },
+  { lbl: 'XLF', score: 0.67 },
+  { lbl: 'XLI', score: 0.54 },
+  { lbl: 'XLE', score: 0.41 },
+  { lbl: 'XLV', score: 0.38 },
+  { lbl: 'XLU', score: 0.25 },
+  { lbl: 'XLP', score: 0.30 },
+  { lbl: 'XLRE', score: 0.20 },
+];
 
- return (
- <div className="regime-container">
- <div className="regime-cube">
- <div className="cube-face-regime face-front">
- <div className="sector-grid">
- {sectors.map((sector, index) => (
- <div key={index} className={`sector ${sector.class}`}>
- {sector.name}
- </div>
- ))}
- </div>
- </div>
- <div className="cube-face-regime face-back"></div>
- <div className="cube-face-regime face-left"></div>
- <div className="cube-face-regime face-right"></div>
- <div className="cube-face-regime face-top"></div>
- <div className="cube-face-regime face-bottom"></div>
- </div>
- <div className="regime-status">
- <div className="status-bar risk-on">RISK ON</div>
- <div className="confidence-meter">
- <div className="confidence-fill"></div>
- </div>
- </div>
- </div>
- );
+export function RegimeVisualization({ regimeLabel, regimeScore }: { regimeLabel: string | null; regimeScore: number | null }) {
+  const label = regimeLabel ? regimeLabel.split('\u2022')[0].trim() : 'RISK ON';
+  const isDefensive = label.toLowerCase().includes('defensive');
+  const isNeutral = label.toLowerCase().includes('neutral');
+  const regimeColor = isDefensive ? '#FF3366' : isNeutral ? '#FFD700' : '#00FF88';
+  const gaugePos = regimeScore !== null
+    ? Math.min(100, Math.max(0, ((-regimeScore) + 3) / 6 * 100))
+    : 65;
+
+  return (
+    <div className="tsv2-viz-regime">
+      <div className="tsv2-viz-regime-top">
+        <span className="tsv2-viz-regime-lbl" style={{ color: regimeColor }}>{label}</span>
+        <div className="tsv2-viz-regime-gauge-wrap">
+          <span className="tsv2-rg-pole tsv2-rg-bear">BEAR</span>
+          <div className="tsv2-viz-regime-gauge">
+            <div className="tsv2-viz-regime-fill" style={{ left: `${Math.max(0, Math.min(97, gaugePos - 3))}%`, background: regimeColor }} />
+          </div>
+          <span className="tsv2-rg-pole tsv2-rg-bull">BULL</span>
+        </div>
+      </div>
+      <div className="tsv2-viz-sectors">
+        {SECTORS.map(s => {
+          const barColor = s.score > 0.6 ? '#00FF88' : s.score > 0.4 ? '#FFD700' : '#FF3366';
+          return (
+            <div key={s.lbl} className="tsv2-viz-sector">
+              <span className="tsv2-vs-name">{s.lbl}</span>
+              <div className="tsv2-vs-bar-bg">
+                <div className="tsv2-vs-bar-fill" style={{ width: `${s.score * 100}%`, background: barColor }} />
+              </div>
+              <span className="tsv2-vs-pct" style={{ color: barColor }}>{(s.score * 100).toFixed(0)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
+
+// --- Screener Visualization ---------------------------------------------------
+const SCAN_RESULTS = [
+  { ticker: 'NVDA', rs: 98, hv: 68, sig: 'LEADER', sigClass: 'leader' },
+  { ticker: 'MU', rs: 94, hv: 44, sig: 'BUY', sigClass: 'buy' },
+  { ticker: 'AMD', rs: 89, hv: 55, sig: 'BREAKOUT', sigClass: 'buy' },
+  { ticker: 'AAPL', rs: 87, hv: 22, sig: 'HOLD', sigClass: 'hold' },
+  { ticker: 'TSLA', rs: 71, hv: 81, sig: 'HIGH IV', sigClass: 'watch' },
+];
 
 export function ScreenerVisualization() {
- const blips = [
- { ticker: 'NVDA', style: { top: '20%', left: '30%', animationDelay: '0s' } },
- { ticker: 'AAPL', style: { top: '40%', right: '20%', animationDelay: '0.4s' } },
- { ticker: 'TSLA', style: { bottom: '30%', left: '40%', animationDelay: '0.8s' } },
- { ticker: 'META', style: { top: '30%', left: '60%', animationDelay: '1.2s' } },
- { ticker: 'AMD', style: { bottom: '20%', right: '30%', animationDelay: '1.6s' } }
- ];
-
- return (
- <div className="screener-interface">
- <div className="screener-radar">
- <div className="radar-sweep"></div>
- <div className="radar-ring ring-inner"></div>
- <div className="radar-ring ring-mid"></div>
- <div className="radar-ring ring-outer"></div>
- {blips.map((blip, index) => (
- <div 
- key={index}
- className={`blip blip-${index + 1}`}
- data-ticker={blip.ticker}
- style={blip.style}
- ></div>
- ))}
- </div>
- <div className="screener-stats">
- <div className="stat-line">
- <span className="stat-label">SCANNED</span>
- <span className="stat-value">10,847</span>
- </div>
- <div className="stat-line">
- <span className="stat-label">MATCHED</span>
- <span className="stat-value">23</span>
- </div>
- </div>
- </div>
- );
+  return (
+    <div className="tsv2-viz-screener">
+      <div className="tsv2-viz-scr-hdr">
+        <span>TICKER</span><span>RS</span><span>HV%</span><span>SIGNAL</span>
+      </div>
+      <div className="tsv2-viz-scr-body">
+        {SCAN_RESULTS.map((row, i) => (
+          <div key={row.ticker} className="tsv2-viz-scr-row" style={{ animationDelay: `${i * 0.12}s` }}>
+            <span className="tsv2-scr-ticker">{row.ticker}</span>
+            <span className="tsv2-scr-rs" style={{ color: row.rs >= 90 ? '#00FF88' : row.rs >= 75 ? '#FFD700' : '#FF6600' }}>
+              {row.rs}
+            </span>
+            <span className="tsv2-scr-hv" style={{ color: row.hv >= 70 ? '#FF3366' : '#FFD700' }}>
+              {row.hv}th
+            </span>
+            <span className={`tsv2-scr-sig tsv2-sig--${row.sigClass}`}>{row.sig}</span>
+          </div>
+        ))}
+      </div>
+      <div className="tsv2-viz-scr-foot">
+        <span className="tsv2-scr-dot" />
+        <span>Scanning 10,847 securities...</span>
+      </div>
+    </div>
+  );
 }
 
-export function NeuralAlertVisualization() {
- const alerts = ['VOLUME SURGE', 'BREAKOUT DETECTED', 'REGIME SHIFT'];
+// --- Alerts Visualization -----------------------------------------------------
+const ALERT_FEED = [
+  { type: 'FLOW', color: '#FF6600', msg: 'NVDA 900C SWEEP | $2.38 | 1.5K cnts', ago: '0:12' },
+  { type: 'SEASONAL', color: '#00FF88', msg: 'APR 68% win rate | SPY bullish bias active', ago: '1:05' },
+  { type: 'REGIME', color: '#8B5CF6', msg: 'RISK ON signal | Composite +1.8 sigma', ago: '2:34' },
+  { type: 'FLOW', color: '#FF6600', msg: 'SPY 500C BLOCK | $1.12 | 4.0K cnts', ago: '4:17' },
+  { type: 'AI', color: '#D4AF37', msg: 'NVDA A+ setup | Flow + Season + Regime', ago: '5:58' },
+];
 
- return (
- <div className="neural-alert">
- <svg className="neural-svg" viewBox="0 0 200 100">
- <g className="neural-group">
- {/* Input Layer */}
- <circle cx="20" cy="25" r="4" className="node input-node" />
- <circle cx="20" cy="50" r="4" className="node input-node" />
- <circle cx="20" cy="75" r="4" className="node input-node" />
- 
- {/* Hidden Layer 1 */}
- <circle cx="70" cy="20" r="4" className="node hidden-node" />
- <circle cx="70" cy="40" r="4" className="node hidden-node" />
- <circle cx="70" cy="60" r="4" className="node hidden-node" />
- <circle cx="70" cy="80" r="4" className="node hidden-node" />
- 
- {/* Hidden Layer 2 */}
- <circle cx="120" cy="30" r="4" className="node hidden-node" />
- <circle cx="120" cy="50" r="4" className="node hidden-node" />
- <circle cx="120" cy="70" r="4" className="node hidden-node" />
- 
- {/* Output Layer */}
- <circle cx="170" cy="50" r="6" className="node output-node" />
- 
- {/* Connections */}
- <path className="synapse" d="M24,25 L66,20 M24,25 L66,40 M24,25 L66,60 M24,25 L66,80" />
- <path className="synapse" d="M24,50 L66,20 M24,50 L66,40 M24,50 L66,60 M24,50 L66,80" />
- <path className="synapse" d="M24,75 L66,20 M24,75 L66,40 M24,75 L66,60 M24,75 L66,80" />
- <path className="synapse" d="M74,20 L116,30 M74,20 L116,50 M74,20 L116,70" />
- <path className="synapse" d="M74,40 L116,30 M74,40 L116,50 M74,40 L116,70" />
- <path className="synapse" d="M74,60 L116,30 M74,60 L116,50 M74,60 L116,70" />
- <path className="synapse" d="M74,80 L116,30 M74,80 L116,50 M74,80 L116,70" />
- <path className="synapse" d="M124,30 L164,50 M124,50 L164,50 M124,70 L164,50" />
- </g>
- </svg>
- <div className="alert-output">
- {alerts.map((alert, index) => (
- <div key={index} className="alert-item">{alert}</div>
- ))}
- </div>
- </div>
- );
+export function AlertsVisualization() {
+  return (
+    <div className="tsv2-viz-alerts">
+      {ALERT_FEED.map((alert, i) => (
+        <div key={i} className="tsv2-viz-alert-row" style={{ animationDelay: `${i * 0.1}s` }}>
+          <span className="tsv2-al-type" style={{ color: alert.color, borderColor: `${alert.color}40` }}>
+            {alert.type}
+          </span>
+          <span className="tsv2-al-msg">{alert.msg}</span>
+          <span className="tsv2-al-ago">{alert.ago}m</span>
+        </div>
+      ))}
+    </div>
+  );
 }
