@@ -93,6 +93,7 @@ import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import BuySellButton from './BuySellButton'
 import ChainPanel from './ChainPanel'
+import DarkPoolButton from './DarkPoolButton'
 import InsightPanel from './InsightPanel'
 import LWChartDrawingTools from './LWChartDrawingTools'
 import MultiChartView from './MultiChartView'
@@ -3690,14 +3691,6 @@ export function TradePopupChart({
       ctx.fillStyle = '#ffffff'
       ctx.fillText(label, W - PAD_R + 5, y)
     }
-    console.log('[EFI Y-Axis] scale:', {
-      hi: hi.toFixed(4),
-      lo: lo.toFixed(4),
-      range: range.toFixed(4),
-      CANDLE_H: CANDLE_H.toFixed(1),
-      PAD_T,
-      ticks: yAxisTicks.map((t) => `y=${t.y.toFixed(1)} → $${t.val.toFixed(4)} (${t.label})`),
-    })
 
     // Last price — crispy solid orange label on Y-axis
     const lastClose = visible[visible.length - 1]?.close
@@ -3789,25 +3782,6 @@ export function TradePopupChart({
         const chClose = chC.close
         // toY inverse check: where should this candle's close appear on screen?
         const closeExpectedY = PAD_T + CANDLE_H - ((chClose - lo) / range) * CANDLE_H
-        console.log('[EFI Crosshair] price mismatch check:', {
-          crosshairY: ch.y.toFixed(1),
-          crosshairPrice: chPrice.toFixed(4),
-          crosshairLabel: chPriceLabel,
-          candle: {
-            O: chOpen.toFixed(4),
-            H: chHigh.toFixed(4),
-            L: chLow.toFixed(4),
-            C: chClose.toFixed(4),
-          },
-          closeExpectedY: closeExpectedY.toFixed(1),
-          scale: {
-            hi: hi.toFixed(4),
-            lo: lo.toFixed(4),
-            range: range.toFixed(4),
-            CANDLE_H: CANDLE_H.toFixed(1),
-            PAD_T,
-          },
-        })
         const chTs = chC.timestamp ?? chC.t
         const chD = chTs ? new Date(chTs) : new Date((chC.date || '') + 'T00:00:00')
         const chDateStr =
@@ -9408,6 +9382,23 @@ export default function TradingViewChart({
   const BUYSELL_HEIGHT_MIN = 60
   const BUYSELL_HEIGHT_MAX = 400
 
+  // DARK POOL Indicator state
+  const [showDarkPoolIndicator, setShowDarkPoolIndicator] = useState(false)
+  const [darkPoolLoading, setDarkPoolLoading] = useState(false)
+  const [darkPoolProgress, setDarkPoolProgress] = useState(0) // 0-100 fetch progress
+  // Persistent cache: keyed by "symbol:YYYY-MM-DD" — survives timeframe switches
+  const darkPoolCacheRef = useRef<Record<string, any>>({})
+  const darkPoolCacheSymbolRef = useRef<string>('')
+  // keyed by ISO date e.g. "2026-04-04" → aggregated dark pool stats for that day
+  const [darkPoolData, setDarkPoolData] = useState<
+    Record<
+      string,
+      {
+        top10: Array<{ price: number; size: number; ts: number }>
+      }
+    >
+  >({})
+
   // Timeframe dropdown state
   const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false)
   const timeframeButtonRef = useRef<HTMLButtonElement>(null)
@@ -12697,6 +12688,218 @@ export default function TradingViewChart({
   // TradingView-style navigation state
   const [scrollOffset, setScrollOffset] = useState(9999999) // Start at end - will be corrected when data loads
   const [visibleCandleCount, setVisibleCandleCount] = useState(150) // Number of visible candles
+  const scrollOffsetRef = useRef(9999999)
+  const visibleCandleCountRef = useRef(150)
+  useEffect(() => {
+    scrollOffsetRef.current = scrollOffset
+  }, [scrollOffset])
+  useEffect(() => {
+    visibleCandleCountRef.current = visibleCandleCount
+  }, [visibleCandleCount])
+
+  // ============================================================================
+  // DARK POOL DATA FETCH
+  // Fetches FINRA TRF off-exchange prints from Polygon /v3/trades, filters to
+  // dark pool exchanges (4=FINRA ADF, 201=FINRA NYSE TRF, 202/203=FINRA Nasdaq TRF)
+  // and groups by ISO date for overlay rendering on candles.
+  // ============================================================================
+  useEffect(() => {
+    if (!showDarkPoolIndicator || data.length === 0) {
+      // Also wipe the cache so stale data never gets re-served after a fix or toggle
+      darkPoolCacheRef.current = {}
+      darkPoolCacheSymbolRef.current = ''
+      setDarkPoolData({})
+      return
+    }
+
+    const DARK_POOL_EXCHANGES = new Set([4, 6, 16, 201, 202, 203])
+    // Minimum notional ($) for a LIT-exchange print to qualify as a notable block trade.
+    // Captures large block activity on NYSE, Nasdaq, Arca, CBOE, etc. that VL also tracks.
+    const LIT_BLOCK_MIN_NOTIONAL = 250_000 // $250k notional
+    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    if (!API_KEY) return
+
+    // Clear cache when symbol changes
+    if (darkPoolCacheSymbolRef.current !== config.symbol) {
+      darkPoolCacheRef.current = {}
+      darkPoolCacheSymbolRef.current = config.symbol
+    }
+
+    // Always scan the last 90 calendar days from today — fixed window, never changes with zoom/scroll/timeframe.
+    // Build the list by walking backwards from today, skipping weekends.
+    const todayUtc = new Date()
+    todayUtc.setUTCHours(0, 0, 0, 0)
+    const daysToShow: string[] = []
+    const cursor = new Date(todayUtc)
+    while (daysToShow.length < 90) {
+      cursor.setUTCDate(cursor.getUTCDate() - 1)
+      const dow = cursor.getUTCDay()
+      if (dow === 0 || dow === 6) continue // skip weekends
+      daysToShow.unshift(cursor.toISOString().split('T')[0])
+    }
+    if (daysToShow.length === 0) return
+
+    // Days not yet in cache need to be fetched; days already cached can be served immediately.
+    const daysToFetch = daysToShow.filter((dk) => !(dk in darkPoolCacheRef.current))
+
+    // If everything is already cached, just set state from cache — no network call.
+    if (daysToFetch.length === 0) {
+      const fromCache: typeof darkPoolData = {}
+      for (const dk of daysToShow) fromCache[dk] = darkPoolCacheRef.current[dk]
+      setDarkPoolData(fromCache)
+      return
+    }
+
+    // Need a representative candle per calendar day to drive the RTH window build.
+    // Pick any candle whose date matches the day — just used for dateKey extraction.
+    const dayCandles: Array<(typeof data)[0]> = []
+    for (const dk of daysToFetch) {
+      // If we have a candle for that day use it; otherwise synthesise a stub with the right timestamp
+      const c = data.find((c) => new Date(c.timestamp).toISOString().split('T')[0] === dk)
+      if (c) {
+        dayCandles.push(c)
+      } else {
+        // Stub — only timestamp matters for RTH window calculation
+        dayCandles.push({ timestamp: new Date(dk + 'T12:00:00Z').getTime() } as any)
+      }
+    }
+    if (dayCandles.length === 0) return
+
+    setDarkPoolLoading(true)
+    setDarkPoolProgress(0)
+    let aborted = false
+
+    type RawTrade = { sip_timestamp: number; price: number; size: number; exchange: number }
+
+    // Fetch ALL pages for one day, following next_url cursor.
+    // Always uses midnight→midnight UTC so the window is a full calendar day regardless of timeframe.
+    // Fetch one time-window slice of a day (start..end in ns), returning all trades in that slice
+    const fetchWindow = async (urlStart: string): Promise<RawTrade[]> => {
+      const trades: RawTrade[] = []
+      let url: string | null = urlStart
+      while (url && !aborted) {
+        const res = await fetch(url)
+        if (!res.ok) break
+        const json = await res.json()
+        const page: RawTrade[] = json.results || []
+        for (const t of page) trades.push(t)
+        url = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
+      }
+      return trades
+    }
+
+    const fetchDayAll = async (candle: (typeof data)[0]) => {
+      const dateKey = new Date(candle.timestamp).toISOString().split('T')[0]
+      const dayStartMs = new Date(dateKey).getTime() // midnight UTC
+
+      // ── RTH-only fetch: only request trades during 9:30 AM – 4:00 PM ET ──
+      // This avoids afterhours/overnight prints dominating the top-5 bubbles.
+      // DST: EDT (UTC-4) runs Mar 2nd-Sun → Nov 1st-Sun; EST (UTC-5) otherwise.
+      const d = new Date(dateKey + 'T12:00:00Z')
+      const yr = d.getUTCFullYear()
+      const marchSecondSun = new Date(Date.UTC(yr, 2, 8))
+      while (marchSecondSun.getUTCDay() !== 0)
+        marchSecondSun.setUTCDate(marchSecondSun.getUTCDate() + 1)
+      const novFirstSun = new Date(Date.UTC(yr, 10, 1))
+      while (novFirstSun.getUTCDay() !== 0) novFirstSun.setUTCDate(novFirstSun.getUTCDate() + 1)
+      const isEDT = d >= marchSecondSun && d < novFirstSun
+      const etOffsetMs = isEDT ? 4 * 3600_000 : 5 * 3600_000 // EDT=UTC-4, EST=UTC-5
+      // 9:30 AM ET and 4:00 PM ET expressed as UTC milliseconds from day midnight
+      const rthOpenUtcMs = 9 * 3600_000 + 30 * 60_000 + etOffsetMs // e.g. 13:30 UTC in EDT
+      const rthCloseUtcMs = 16 * 3600_000 + etOffsetMs // e.g. 20:00 UTC in EDT
+      const rthStartNs = (dayStartMs + rthOpenUtcMs) * 1_000_000
+      const rthEndNs = (dayStartMs + rthCloseUtcMs) * 1_000_000
+
+      // ── Split RTH into 4 parallel windows ~1.6h each ─────────────────────
+      const WIN = 4
+      const rthDurationNs = rthEndNs - rthStartNs
+      const winNs = rthDurationNs / WIN
+      const windowUrls = Array.from({ length: WIN }, (_, i) => {
+        const wStartNs = rthStartNs + i * winNs
+        const wEndNs = rthStartNs + (i + 1) * winNs
+        return `https://api.polygon.io/v3/trades/${config.symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=50000&order=asc&apiKey=${API_KEY}`
+      })
+
+      try {
+        // All 4 windows fire simultaneously
+        const windowResults = await Promise.all(windowUrls.map(fetchWindow))
+        const allTrades: RawTrade[] = ([] as RawTrade[]).concat(...windowResults)
+
+        if (allTrades.length === 0) return null
+
+        const dpTrades: RawTrade[] = []
+        for (const t of allTrades) {
+          const isDp = DARK_POOL_EXCHANGES.has(t.exchange)
+          // Also capture large lit-exchange blocks (NYSE/Nasdaq/Arca/CBOE etc.) by notional threshold
+          const isLitBlock = !isDp && t.size * t.price >= LIT_BLOCK_MIN_NOTIONAL
+          if (isDp || isLitBlock) dpTrades.push(t)
+        }
+        if (dpTrades.length === 0) return null
+
+        // Top 10 by notional (price × size) — global pool across days gives us a stable top-5
+        const top10 = dpTrades
+          .slice()
+          .sort((a, b) => b.size * b.price - a.size * a.price)
+          .slice(0, 10)
+          .map((t) => ({
+            price: t.price,
+            size: t.size,
+            ts: Math.floor(t.sip_timestamp / 1_000_000),
+          }))
+
+        return { dateKey, result: { top10 } }
+      } catch {
+        return null
+      }
+    }
+
+    const run = async () => {
+      // ── Worker-pool pattern ──────────────────────────────────────────────
+      // Keep CONCURRENCY fetches in-flight at all times. A slow day (25 pages)
+      // never blocks fast days (1 page) — workers just pull the next item from the queue.
+      // Results stream into state progressively so bubbles appear as days finish.
+      const CONCURRENCY = 10
+      const queue = [...dayCandles]
+      const total = dayCandles.length
+      let done = 0
+
+      const worker = async () => {
+        while (queue.length > 0 && !aborted) {
+          const candle = queue.shift()!
+          const r = await fetchDayAll(candle)
+          if (r && !aborted) {
+            darkPoolCacheRef.current[r.dateKey] = r.result
+            done++
+            setDarkPoolProgress(Math.round((done / total) * 100))
+            // Progressive render — push partial results to chart immediately
+            const partial: typeof darkPoolData = {}
+            for (const dk of daysToShow) {
+              if (dk in darkPoolCacheRef.current) partial[dk] = darkPoolCacheRef.current[dk]
+            }
+            setDarkPoolData(partial)
+          }
+        }
+      }
+
+      // Spin up min(CONCURRENCY, total) workers all running concurrently
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker))
+
+      if (!aborted) {
+        const result: typeof darkPoolData = {}
+        for (const dk of daysToShow) {
+          if (dk in darkPoolCacheRef.current) result[dk] = darkPoolCacheRef.current[dk]
+        }
+        setDarkPoolData(result)
+        setDarkPoolProgress(100)
+        setDarkPoolLoading(false)
+      }
+    }
+
+    run()
+    return () => {
+      aborted = true
+    }
+  }, [showDarkPoolIndicator, config.symbol])
 
   // ============================================================================
   // CHART DRAG & PAN — TRADINGVIEW-STYLE (NO TELEPORTS)
@@ -13928,15 +14131,6 @@ export default function TradingViewChart({
       const chartCanvas = chartCanvasRef.current
 
       if (!overlayCanvas || !chartCanvas || data.length === 0) {
-        console.log(
-          '[WHEEL] early return — target:',
-          (e.target as Element)?.tagName,
-          (e.target as Element)?.className,
-          'data.length:',
-          data.length,
-          'deltaY:',
-          e.deltaY
-        )
         return
       }
 
@@ -13947,7 +14141,6 @@ export default function TradingViewChart({
         target !== overlayCanvas &&
         target !== chartCanvas
       ) {
-        console.log('[WHEEL] target not in canvas — target:', target?.tagName, target?.className)
         return
       }
 
@@ -14724,7 +14917,149 @@ export default function TradingViewChart({
         visibleData,
         visibleCandleCount
       )
-    } // Draw Expansion/Liquidation zones (standalone button)
+    }
+
+    // ── DARK POOL PRINT OVERLAY ──────────────────────────────────────────────
+    if (showDarkPoolIndicator && Object.keys(darkPoolData).length > 0) {
+      ctx.save()
+
+      // ── VolumeLeaders-style bubbles ──────────────────────────────────────
+      // Step 1: rank ALL prints from ALL fetched days globally (not just visible ones).
+      //         This means orange = #1 of the full fetched window, always, regardless of zoom.
+      // Step 2: draw only the top 5 that happen to be visible on screen right now.
+      //         If #1 is off-screen, it simply doesn't render — but #2 doesn't become orange.
+      const candleDurationMs =
+        visibleData.length >= 2 ? visibleData[1].timestamp - visibleData[0].timestamp : 86_400_000
+
+      // Collect + rank from the entire fetched dataset — by NOTIONAL (price × size) like VolumeLeaders
+      type PrintEntry = { price: number; size: number; ts: number; globalRank: number }
+      const globalPrints: Omit<PrintEntry, 'globalRank'>[] = []
+      for (const dp of Object.values(darkPoolData)) {
+        if (!dp?.top10?.length) continue
+        for (const p of dp.top10) globalPrints.push({ price: p.price, size: p.size, ts: p.ts })
+      }
+      globalPrints.sort((a, b) => b.size * b.price - a.size * a.price)
+      const globalTop3: PrintEntry[] = globalPrints
+        .slice(0, 3)
+        .map((p, i) => ({ ...p, globalRank: i }))
+      const globalMaxNotional = globalTop3.length > 0 ? globalTop3[0].size * globalTop3[0].price : 1
+
+      // Draw whichever of the top-3 fall within the current visible window
+      for (const print of globalTop3) {
+        const idx = visibleData.findIndex(
+          (c) => print.ts >= c.timestamp && print.ts < c.timestamp + candleDurationMs
+        )
+        if (idx === -1) continue // not visible right now — skip, but rank is preserved
+
+        const cx = 40 + idx * candleSpacing + candleSpacing / 2
+        const printY =
+          priceChartHeight -
+          ((print.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
+        if (printY < 0 || printY > priceChartHeight) continue
+
+        // Radius scales by notional value (not raw share count)
+        const notional = print.size * print.price
+        const r = Math.max(3, Math.min(18, Math.sqrt(notional / globalMaxNotional) * 18))
+
+        if (print.globalRank === 0) {
+          // #1 globally: glossy orange bubble
+          // Base fill
+          const baseGradO = ctx.createRadialGradient(cx, printY, r * 0.1, cx, printY, r)
+          baseGradO.addColorStop(0, 'rgba(255, 160, 40, 0.75)')
+          baseGradO.addColorStop(0.5, 'rgba(220, 100, 10, 0.60)')
+          baseGradO.addColorStop(1, 'rgba(140, 50, 0, 0.40)')
+          ctx.beginPath()
+          ctx.arc(cx, printY, r, 0, Math.PI * 2)
+          ctx.fillStyle = baseGradO
+          ctx.fill()
+          // Rim
+          ctx.strokeStyle = 'rgba(255, 180, 60, 0.80)'
+          ctx.lineWidth = 1.2
+          ctx.stroke()
+          // Gloss highlight — upper-left white sheen
+          const glossO = ctx.createRadialGradient(
+            cx - r * 0.3,
+            printY - r * 0.35,
+            r * 0.05,
+            cx - r * 0.1,
+            printY - r * 0.2,
+            r * 0.55
+          )
+          glossO.addColorStop(0, 'rgba(255, 255, 255, 0.72)')
+          glossO.addColorStop(0.5, 'rgba(255, 255, 255, 0.18)')
+          glossO.addColorStop(1, 'rgba(255, 255, 255, 0)')
+          ctx.beginPath()
+          ctx.arc(cx, printY, r, 0, Math.PI * 2)
+          ctx.fillStyle = glossO
+          ctx.fill()
+          // Center solid dot
+          ctx.beginPath()
+          ctx.arc(cx, printY, Math.max(2, r * 0.18), 0, Math.PI * 2)
+          ctx.fillStyle = 'rgba(255, 120, 0, 0.95)'
+          ctx.fill()
+        } else {
+          // #2–5 globally: glossy blue bubble
+          const baseGradB = ctx.createRadialGradient(cx, printY, r * 0.1, cx, printY, r)
+          baseGradB.addColorStop(0, 'rgba(80, 180, 255, 0.70)')
+          baseGradB.addColorStop(0.5, 'rgba(20, 120, 210, 0.55)')
+          baseGradB.addColorStop(1, 'rgba(0, 60, 140, 0.35)')
+          ctx.beginPath()
+          ctx.arc(cx, printY, r, 0, Math.PI * 2)
+          ctx.fillStyle = baseGradB
+          ctx.fill()
+          // Rim
+          ctx.strokeStyle = 'rgba(100, 200, 255, 0.75)'
+          ctx.lineWidth = 1
+          ctx.stroke()
+          // Gloss highlight
+          const glossB = ctx.createRadialGradient(
+            cx - r * 0.3,
+            printY - r * 0.35,
+            r * 0.05,
+            cx - r * 0.1,
+            printY - r * 0.2,
+            r * 0.55
+          )
+          glossB.addColorStop(0, 'rgba(255, 255, 255, 0.65)')
+          glossB.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)')
+          glossB.addColorStop(1, 'rgba(255, 255, 255, 0)')
+          ctx.beginPath()
+          ctx.arc(cx, printY, r, 0, Math.PI * 2)
+          ctx.fillStyle = glossB
+          ctx.fill()
+          // Center solid dot
+          ctx.beginPath()
+          ctx.arc(cx, printY, Math.max(2, r * 0.15), 0, Math.PI * 2)
+          ctx.fillStyle = 'rgba(41, 182, 246, 0.95)'
+          ctx.fill()
+        }
+
+        // Dollar-value label below (or above) the bubble — shown when there's enough space
+        if (r >= 5) {
+          const label =
+            notional >= 1_000_000
+              ? `$${(notional / 1_000_000).toFixed(1)}M`
+              : `$${Math.round(notional / 1_000)}K`
+          const fontSize = Math.max(8, Math.min(11, r * 0.85))
+          ctx.font = `bold ${fontSize}px sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'top'
+          ctx.fillStyle =
+            print.globalRank === 0 ? 'rgba(255, 180, 60, 0.95)' : 'rgba(100, 200, 255, 0.95)'
+          const labelY = printY + r + 3
+          if (labelY + fontSize + 2 <= priceChartHeight) {
+            ctx.fillText(label, cx, labelY)
+          } else {
+            ctx.textBaseline = 'bottom'
+            ctx.fillText(label, cx, printY - r - 2)
+          }
+        }
+      }
+
+      ctx.restore()
+    }
+
+    // Draw Expansion/Liquidation zones (standalone button)
     if (isExpansionLiquidationActive) {
       // Get all data for zone detection (not just visible data)
       const allZones = detectExpansionLiquidation(data)
@@ -16836,6 +17171,14 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buySellData, showBuySellIndicator, buySellPanelHeight, chartLayout])
+
+  // Re-render when Dark Pool data arrives or is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [darkPoolData, showDarkPoolIndicator, chartLayout])
 
   // Re-render when drawings change
   useEffect(() => {
@@ -27446,6 +27789,14 @@ export default function TradingViewChart({
               <BuySellButton
                 isActive={showBuySellIndicator}
                 onClick={() => setShowBuySellIndicator((v) => !v)}
+              />
+
+              {/* DARK POOL Button */}
+              <DarkPoolButton
+                isActive={showDarkPoolIndicator}
+                isLoading={darkPoolLoading}
+                progress={darkPoolProgress}
+                onClick={() => setShowDarkPoolIndicator((v) => !v)}
               />
 
               {/* Drawing Tools - Individual Buttons */}
