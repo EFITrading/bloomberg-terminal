@@ -206,9 +206,9 @@ function getSmartTimeRange(now) {
   const minute = easternTime.getMinutes()
   const currentMinute = hour * 60 + minute
 
-  const marketOpenMinute = 9 * 60 + 30 // 9:30 AM
-  const marketCloseMinute = 16 * 60 // 4:00 PM
-  const extendedEndMinute = 20 * 60 // 8:00 PM
+  const marketOpenMinute = 6 * 60 + 30 // 6:30 AM PST = 9:30 AM ET
+  const marketCloseMinute = 13 * 60 // 1:00 PM PST = 4:00 PM ET
+  const extendedEndMinute = 17 * 60 // 5:00 PM PST = 8:00 PM ET
 
   let mode, from, to
 

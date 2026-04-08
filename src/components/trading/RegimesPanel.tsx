@@ -1305,267 +1305,415 @@ interface ScannerRow {
   changePct: number
   volume: number
   avgVolume?: number
-  weekHigh?: number
-  weekLow?: number
+  volRatio?: number
   high52w?: number
   low52w?: number
-  ma21?: number
+  position52w?: number
+  pctFrom52H?: number
+  weekHigh?: number
+  weekLow?: number
   ma50?: number
-  prevTrend?: 'up' | 'down' | null
+  ema21?: number
+  ema8?: number
+  rsi14?: number
+  atr14?: number
+  atrPct?: number
+  breakoutType?: 'week-high' | 'week-low' | '52w-high' | '52w-low'
+  reversalType?: 'bullish' | 'bearish'
   sparkData?: Array<{ price: number; etMinutes: number; time: number }>
 }
 
-// Module-level cache shared across all MarketScannerPanel instances
-const SHARED_SCANNER_CACHE: { [key: string]: { rows: ScannerRow[]; ts: number } } = {}
+type ScanFetchGroup = 'snapshot' | 'short' | 'full'
 
-// ─── MarketScannerPanel (Movers / Breakouts / Reversals) ─────────────────────
+interface ScanPreset {
+  id: string
+  label: string
+  icon: string
+  color: string
+  group: 'Movers' | 'Breakouts'
+  fetchGroup: ScanFetchGroup
+  description: string
+  filter: (rows: ScannerRow[]) => ScannerRow[]
+  sort: (a: ScannerRow, b: ScannerRow) => number
+  limit: number
+}
+
+// Module-level cache per fetch group
+const SCAN_CACHE: Record<ScanFetchGroup, { rows: ScannerRow[]; ts: number } | null> = {
+  snapshot: null,
+  short: null,
+  full: null,
+}
+
+const SCAN_TTL: Record<ScanFetchGroup, number> = {
+  snapshot: 5 * 60_000,
+  short: 15 * 60_000,
+  full: 30 * 60_000,
+}
+
+const SCAN_PRESETS: ScanPreset[] = [
+  // ── Movers ──────────────────────────────────────────────────────────────────
+  {
+    id: 'gainers',
+    label: 'Top Gainers',
+    icon: '▲',
+    color: '#00ff88',
+    group: 'Movers',
+    fetchGroup: 'snapshot',
+    description: 'Largest % gains today · Price > $5 · Vol > 500K',
+    filter: (rows) => rows.filter((r) => r.changePct > 0 && r.price >= 5 && r.volume >= 500_000),
+    sort: (a, b) => b.changePct - a.changePct,
+    limit: 30,
+  },
+  {
+    id: 'losers',
+    label: 'Top Losers',
+    icon: '▼',
+    color: '#ff3344',
+    group: 'Movers',
+    fetchGroup: 'snapshot',
+    description: 'Largest % drops today · Price > $5 · Vol > 500K',
+    filter: (rows) => rows.filter((r) => r.changePct < 0 && r.price >= 5 && r.volume >= 500_000),
+    sort: (a, b) => a.changePct - b.changePct,
+    limit: 30,
+  },
+  {
+    id: 'volume-surge',
+    label: 'Vol Surge',
+    icon: '⚡',
+    color: '#facc15',
+    group: 'Movers',
+    fetchGroup: 'snapshot',
+    description: 'Highest raw volume today · Vol > 5M',
+    filter: (rows) => rows.filter((r) => r.volume >= 5_000_000),
+    sort: (a, b) => b.volume - a.volume,
+    limit: 30,
+  },
+  // ── Breakouts ────────────────────────────────────────────────────────────────
+  {
+    id: '52w-highs',
+    label: '52W Highs',
+    icon: '🏔',
+    color: '#f59e0b',
+    group: 'Breakouts',
+    fetchGroup: 'full',
+    description: 'Trading within 2% of 52-week high',
+    filter: (rows) => rows.filter((r) => r.pctFrom52H !== undefined && r.pctFrom52H <= 2),
+    sort: (a, b) => (a.pctFrom52H ?? 99) - (b.pctFrom52H ?? 99),
+    limit: 40,
+  },
+  {
+    id: '52w-lows',
+    label: '52W Lows',
+    icon: '🕳',
+    color: '#a855f7',
+    group: 'Breakouts',
+    fetchGroup: 'full',
+    description: 'Trading within 2% of 52-week low',
+    filter: (rows) => rows.filter((r) => r.position52w !== undefined && r.position52w <= 0.02),
+    sort: (a, b) => (a.position52w ?? 1) - (b.position52w ?? 1),
+    limit: 40,
+  },
+  {
+    id: 'breakouts',
+    label: 'Breakouts',
+    icon: '💥',
+    color: '#00d4ff',
+    group: 'Breakouts',
+    fetchGroup: 'full',
+    description: 'Near 52W/week high · Vol confirmed · Above MA50',
+    filter: (rows) =>
+      rows.filter((r) => r.breakoutType === 'week-high' || r.breakoutType === '52w-high'),
+    sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
+    limit: 30,
+  },
+  {
+    id: 'breakdowns',
+    label: 'Breakdowns',
+    icon: '🔻',
+    color: '#ff6b6b',
+    group: 'Breakouts',
+    fetchGroup: 'full',
+    description: 'Near 52W/week low · Vol confirmed · Below MA50',
+    filter: (rows) =>
+      rows.filter((r) => r.breakoutType === 'week-low' || r.breakoutType === '52w-low'),
+    sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
+    limit: 30,
+  },
+]
+
+// ─── Indicator helpers ────────────────────────────────────────────────────────
+function calcEMAArr(closes: number[], period: number): number[] {
+  const k = 2 / (period + 1)
+  return closes.reduce((acc: number[], c, i) => {
+    acc.push(i === 0 ? c : c * k + acc[i - 1] * (1 - k))
+    return acc
+  }, [])
+}
+
+function calcLastRSI(closes: number[], period = 14): number {
+  if (closes.length < period + 1) return 50
+  let avgGain = 0,
+    avgLoss = 0
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1]
+    if (diff > 0) avgGain += diff
+    else avgLoss += Math.abs(diff)
+  }
+  avgGain /= period
+  avgLoss /= period
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1]
+    avgGain = (avgGain * (period - 1) + Math.max(0, diff)) / period
+    avgLoss = (avgLoss * (period - 1) + Math.max(0, -diff)) / period
+  }
+  return avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
+}
+
+// ─── MarketScannerPanel ───────────────────────────────────────────────────────
 export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
-  const [scanTab, setScanTab] = useState<'movers' | 'breakouts' | 'reversals'>('movers')
-  const [rows, setRows] = useState<ScannerRow[]>(() => SHARED_SCANNER_CACHE['movers']?.rows ?? [])
+  const [activePreset, setActivePreset] = useState<string>('gainers')
+  const [rows, setRows] = useState<ScannerRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState(0)
   const [lastFetch, setLastFetch] = useState<Date | null>(null)
   const [sparklines, setSparklines] = useState<
     Record<string, Array<{ price: number; etMinutes: number; time: number }>>
   >({})
   const sparkFetchedRef = useRef<string>('')
-  const fetchScanner = useCallback(async (tab: typeof scanTab, source = 'unknown') => {
-    const cached = SHARED_SCANNER_CACHE[tab]
-    const ttl = tab === 'movers' ? 5 * 60_000 : 15 * 60_000
-    // Stale-while-revalidate: always show whatever was last cached immediately
-    if (cached?.rows?.length) {
-      setRows(cached.rows)
-      if (Date.now() - cached.ts < ttl) return // still fresh — done
-      // Stale — fall through to silent background refresh
-    }
-    // Only show loading spinner on very first scan (no data at all yet)
-    if (!cached?.rows?.length) setLoading(true)
-    try {
-      // Batch fetch snapshot for universe
-      const tickers = SCANNER_UNIVERSE.join(',')
-      const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
-      const resp = await fetch(url)
-      const data = await resp.json()
-      const snaps: any[] = data.tickers || []
 
-      let result: ScannerRow[] = []
+  const preset = SCAN_PRESETS.find((p) => p.id === activePreset) ?? SCAN_PRESETS[0]
 
-      if (tab === 'movers') {
-        // Use snapshot data directly — snapshot already has day + prevDay for each symbol
-        result = snaps
-          .filter((s: any) => {
-            const price = s.day?.c || s.lastTrade?.p || 0
-            const prevClose = s.prevDay?.c || 0
-            const vol = s.day?.v || 0
-            return price > 5 && vol > 500_000 && prevClose > 0
-          })
-          .map((s: any) => {
-            const price = s.day?.c || s.lastTrade?.p || 0
-            const prevClose = s.prevDay?.c
-            const change = price - prevClose
-            const changePct = (change / prevClose) * 100
-            return {
-              symbol: s.ticker,
-              price,
-              change,
-              changePct,
-              volume: s.day?.v || 0,
-            } as ScannerRow
-          })
-          .sort((a: ScannerRow, b: ScannerRow) => Math.abs(b.changePct) - Math.abs(a.changePct))
-          .slice(0, 40)
-      }
+  // ── Fetch helpers ───────────────────────────────────────────────────────────
+  const fetchSnapshotRows = async (): Promise<ScannerRow[]> => {
+    const tickers = SCANNER_UNIVERSE.join(',')
+    const resp = await fetch(
+      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
+    )
+    const data = await resp.json()
+    const snaps: any[] = data.tickers || []
+    return snaps
+      .filter((s: any) => {
+        const price = s.day?.c || s.lastTrade?.p || 0
+        return price >= 1 && s.prevDay?.c > 0
+      })
+      .map((s: any) => {
+        const price = s.day?.c || s.lastTrade?.p || 0
+        const prevClose = s.prevDay?.c
+        const change = price - prevClose
+        const changePct = (change / prevClose) * 100
+        return { symbol: s.ticker, price, change, changePct, volume: s.day?.v || 0 } as ScannerRow
+      })
+  }
 
-      if (tab === 'breakouts') {
-        // Need weekly high/low and 52w hi/lo — fetch aggs for each symbol
-        // Use Polygon's grouped daily endpoint for today + previous 52 weeks
-        const today = new Date().toISOString().split('T')[0]
-        const yr = new Date(Date.now() - 252 * 86400_000).toISOString().split('T')[0]
-        const week = new Date(Date.now() - 5 * 86400_000).toISOString().split('T')[0]
+  const fetchBarsRows = async (
+    days: number,
+    onProgress: (pct: number) => void
+  ): Promise<ScannerRow[]> => {
+    const snapRows = await fetchSnapshotRows()
+    const snapMap: Record<string, ScannerRow> = {}
+    snapRows.forEach((r) => {
+      snapMap[r.symbol] = r
+    })
 
-        // Fetch in parallel batches of 10
-        const batchSize = 10
-        const symbols = SCANNER_UNIVERSE
-        const snapMap: Record<string, any> = {}
-        snaps.forEach((s: any) => {
-          snapMap[s.ticker] = s
-        })
+    const today = new Date().toISOString().split('T')[0]
+    const from = new Date(Date.now() - days * 86400_000).toISOString().split('T')[0]
+    const batchSize = 10
+    const result: ScannerRow[] = []
 
-        const fetchAggs = async (sym: string) => {
+    for (let i = 0; i < SCANNER_UNIVERSE.length; i += batchSize) {
+      const batch = SCANNER_UNIVERSE.slice(i, i + batchSize)
+      const batchRes = await Promise.all(
+        batch.map(async (sym) => {
           try {
             const r = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${yr}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
+              `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
             )
             const d = await r.json()
-            return { sym, bars: d.results || [] }
-          } catch {
-            return { sym, bars: [] }
-          }
-        }
+            const bars: any[] = d.results || []
+            if (bars.length < 15) return null
 
-        const batches: Array<typeof symbols> = []
-        for (let i = 0; i < symbols.length; i += batchSize)
-          batches.push(symbols.slice(i, i + batchSize))
+            const n = bars.length
+            const closes = bars.map((b: any) => b.c)
+            const highs = bars.map((b: any) => b.h)
+            const lows = bars.map((b: any) => b.l)
+            const vols = bars.map((b: any) => b.v)
+            const opens = bars.map((b: any) => b.o)
 
-        const allAggs: { sym: string; bars: any[] }[] = []
-        for (const batch of batches) {
-          const res = await Promise.all(batch.map(fetchAggs))
-          allAggs.push(...res)
-        }
-
-        result = allAggs
-          .filter(({ bars }) => bars.length >= 5)
-          .map(({ sym, bars }) => {
-            const price = bars[bars.length - 1].c
-            const prevClose = bars.length >= 2 ? bars[bars.length - 2].c : price
+            const snap = snapMap[sym]
+            const price = snap?.price || closes[n - 1]
+            const prevClose = closes[n - 2] || closes[n - 1]
             const change = price - prevClose
             const changePct = (change / prevClose) * 100
-            const weekBars = bars.slice(-5)
-            const weekHigh = Math.max(...weekBars.map((b: any) => b.h))
-            const weekLow = Math.min(...weekBars.map((b: any) => b.l))
-            const high52w = Math.max(...bars.map((b: any) => b.h))
-            const low52w = Math.min(...bars.map((b: any) => b.l))
-            const isBreakoutUp = price >= weekHigh * 0.999 || price >= high52w * 0.99
-            const isBreakdownDown = price <= weekLow * 1.001 || price <= low52w * 1.01
-            if (!isBreakoutUp && !isBreakdownDown) return null
+            const volume = snap?.volume || vols[n - 1]
+
+            // 20-day avg volume
+            const volBars = vols.slice(Math.max(0, n - 21), n - 1)
+            const avgVolume =
+              volBars.length > 0
+                ? volBars.reduce((s: number, v: number) => s + v, 0) / volBars.length
+                : 0
+            const volRatio = avgVolume > 0 ? volume / avgVolume : 1
+
+            // EMAs
+            const ema8arr = calcEMAArr(closes, 8)
+            const ema21arr = calcEMAArr(closes, 21)
+            const ema8 = ema8arr[n - 1]
+            const ema21 = ema21arr[n - 1]
+
+            // RSI-14
+            const rsi14 = calcLastRSI(closes, 14)
+
+            // ATR-14
+            const atrLen = Math.min(14, n - 1)
+            let atrSum = 0
+            for (let j = n - atrLen; j < n; j++) {
+              const tr = Math.max(
+                highs[j] - lows[j],
+                Math.abs(highs[j] - closes[j - 1]),
+                Math.abs(lows[j] - closes[j - 1])
+              )
+              atrSum += tr
+            }
+            const atr14 = atrSum / atrLen
+            const atrPct = (atr14 / price) * 100
+
+            // 52W high/low (only when fetching full 260-day range)
+            let high52w: number | undefined,
+              low52w: number | undefined,
+              position52w: number | undefined,
+              pctFrom52H: number | undefined
+            if (days >= 250) {
+              high52w = Math.max(...highs)
+              low52w = Math.min(...lows)
+              const r52 = high52w - low52w
+              position52w = r52 > 0 ? (price - low52w) / r52 : 0.5
+              pctFrom52H = ((high52w - price) / high52w) * 100
+            }
+
+            // 5-day high/low
+            const wk = bars.slice(Math.max(0, n - 5))
+            const weekHigh = Math.max(...wk.map((b: any) => b.h))
+            const weekLow = Math.min(...wk.map((b: any) => b.l))
+
+            // MA50
+            let ma50: number | undefined
+            if (n >= 50) {
+              const m = closes.slice(Math.max(0, n - 50))
+              ma50 = m.reduce((s: number, c: number) => s + c, 0) / m.length
+            }
+
+            // Breakout detection (requires full scan with 52w levels)
+            let breakoutType: ScannerRow['breakoutType']
+            if (high52w && low52w && ma50 && atr14 > 0) {
+              const d52H = (high52w - price) / atr14
+              const d52L = (price - low52w) / atr14
+              const dWkH = (weekHigh - price) / atr14
+              const dWkL = (price - weekLow) / atr14
+              if (price > ma50 && d52H <= 0.6 && volRatio >= 1.3) breakoutType = '52w-high'
+              else if (price > ma50 && dWkH <= 0.35 && volRatio >= 1.2) breakoutType = 'week-high'
+              else if (price < ma50 && d52L <= 0.6 && volRatio >= 1.3) breakoutType = '52w-low'
+              else if (price < ma50 && dWkL <= 0.35 && volRatio >= 1.2) breakoutType = 'week-low'
+            }
+
+            // Reversal detection
+            let reversalType: ScannerRow['reversalType']
+            if (n >= 3) {
+              const prevRSI = calcLastRSI(closes.slice(0, n - 1), 14)
+              const prevE21 = ema21arr[n - 2]
+              const prevE8 = ema8arr[n - 2]
+              const bullBody = closes[n - 1] > opens[n - 1]
+              const bearBody = closes[n - 1] < opens[n - 1]
+              const rsiRec = prevRSI < 40 && rsi14 >= 40
+              const e21Rec = closes[n - 2] < prevE21 && price >= ema21
+              const e8Rec = closes[n - 2] < prevE8 && price >= ema8
+              const rsiRoll = prevRSI > 60 && rsi14 <= 60
+              const e21Br = closes[n - 2] > prevE21 && price <= ema21
+              const e8Br = closes[n - 2] > prevE8 && price <= ema8
+              const bSigs = (rsiRec ? 1 : 0) + (e21Rec ? 1 : 0) + (e8Rec ? 1 : 0)
+              const rSigs = (rsiRoll ? 1 : 0) + (e21Br ? 1 : 0) + (e8Br ? 1 : 0)
+              if (bSigs >= 2 && volRatio >= 1.1 && bullBody && rsi14 < 65) reversalType = 'bullish'
+              else if (rSigs >= 2 && volRatio >= 1.1 && bearBody && rsi14 > 35)
+                reversalType = 'bearish'
+            }
+
             return {
               symbol: sym,
               price,
               change,
               changePct,
-              volume: snapMap[sym]?.day?.v || 0,
-              weekHigh,
-              weekLow,
+              volume,
+              avgVolume: avgVolume || undefined,
+              volRatio,
               high52w,
               low52w,
-              sparkData: bars.slice(-20).map((b: any) => b.c),
+              position52w,
+              pctFrom52H,
+              weekHigh,
+              weekLow,
+              ma50,
+              ema8,
+              ema21,
+              rsi14,
+              atr14,
+              atrPct,
+              breakoutType,
+              reversalType,
             } as ScannerRow
-          })
-          .filter(Boolean) as ScannerRow[]
-      }
-
-      if (tab === 'reversals') {
-        // Stocks crossing above/below 8, 13, and 21 EMA simultaneously
-        const today = new Date().toISOString().split('T')[0]
-        const from = new Date(Date.now() - 90 * 86400_000).toISOString().split('T')[0]
-        const snapMap: Record<string, any> = {}
-        snaps.forEach((s: any) => {
-          snapMap[s.ticker] = s
-        })
-
-        const batchSize = 10
-        const symbols = SCANNER_UNIVERSE
-        const fetchAggs = async (sym: string) => {
-          try {
-            const r = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=120&apikey=${POLYGON_API_KEY}`
-            )
-            const d = await r.json()
-            return { sym, bars: d.results || [] }
           } catch {
-            return { sym, bars: [] }
+            return null
           }
-        }
-        const batches: Array<typeof symbols> = []
-        for (let i = 0; i < symbols.length; i += batchSize)
-          batches.push(symbols.slice(i, i + batchSize))
-        const allAggs: { sym: string; bars: any[] }[] = []
-        for (const batch of batches) {
-          const res = await Promise.all(batch.map(fetchAggs))
-          allAggs.push(...res)
-        }
+        })
+      )
+      batchRes.forEach((r) => {
+        if (r) result.push(r)
+      })
+      onProgress(Math.min(99, Math.round(((i + batchSize) / SCANNER_UNIVERSE.length) * 100)))
+    }
+    return result
+  }
 
-        // EMA helper
-        const calcEMA = (closes: number[], period: number): number[] => {
-          const k = 2 / (period + 1)
-          const emas: number[] = []
-          closes.forEach((c, i) => {
-            if (i === 0) {
-              emas.push(c)
-              return
-            }
-            emas.push(c * k + emas[i - 1] * (1 - k))
-          })
-          return emas
-        }
-
-        result = allAggs
-          .filter(({ bars }) => bars.length >= 30)
-          .map(({ sym, bars }) => {
-            const closes = bars.map((b: any) => b.c)
-
-            const ema8 = calcEMA(closes, 8)
-            const ema13 = calcEMA(closes, 13)
-            const ema21 = calcEMA(closes, 21)
-
-            const n = closes.length
-            const price = closes[n - 1]
-            const prevPrice = closes[n - 2]
-
-            const curE8 = ema8[n - 1],
-              prevE8 = ema8[n - 2]
-            const curE13 = ema13[n - 1],
-              prevE13 = ema13[n - 2]
-            const curE21 = ema21[n - 1],
-              prevE21 = ema21[n - 2]
-
-            // Crossed above ALL three EMAs
-            const crossedAbove =
-              prevPrice < prevE8 &&
-              prevPrice < prevE13 &&
-              prevPrice < prevE21 &&
-              price >= curE8 &&
-              price >= curE13 &&
-              price >= curE21
-            // Crossed below ALL three EMAs
-            const crossedBelow =
-              prevPrice > prevE8 &&
-              prevPrice > prevE13 &&
-              prevPrice > prevE21 &&
-              price <= curE8 &&
-              price <= curE13 &&
-              price <= curE21
-
-            if (!crossedAbove && !crossedBelow) return null
-
-            const change = price - prevPrice
-            const changePct = (change / prevPrice) * 100
-
-            return {
-              symbol: sym,
-              price,
-              change,
-              changePct,
-              volume: snapMap[sym]?.day?.v || 0,
-              prevTrend: crossedAbove ? 'up' : 'down',
-              sparkData: closes.slice(-20),
-            } as ScannerRow
-          })
-          .filter(Boolean) as ScannerRow[]
+  const runScan = useCallback(async (p: ScanPreset, forceRefresh = false) => {
+    const cached = SCAN_CACHE[p.fetchGroup]
+    const ttl = SCAN_TTL[p.fetchGroup]
+    if (!forceRefresh && cached && Date.now() - cached.ts < ttl) {
+      setRows(p.filter(cached.rows).sort(p.sort).slice(0, p.limit))
+      return
+    }
+    if (!cached?.rows?.length) setLoading(true)
+    setProgress(0)
+    try {
+      let allRows: ScannerRow[] = []
+      if (p.fetchGroup === 'snapshot') {
+        allRows = await fetchSnapshotRows()
+      } else if (p.fetchGroup === 'short') {
+        allRows = await fetchBarsRows(60, (pct) => setProgress(pct))
+      } else {
+        allRows = await fetchBarsRows(260, (pct) => setProgress(pct))
       }
-
-      // Deduplicate by symbol BEFORE caching
       const seen = new Set<string>()
-      result = result.filter((r) => {
+      allRows = allRows.filter((r) => {
         if (seen.has(r.symbol)) return false
         seen.add(r.symbol)
         return true
       })
-      SHARED_SCANNER_CACHE[tab] = { rows: result, ts: Date.now() }
-      setRows(result)
+      SCAN_CACHE[p.fetchGroup] = { rows: allRows, ts: Date.now() }
       setLastFetch(new Date())
+      setRows(p.filter(allRows).sort(p.sort).slice(0, p.limit))
     } catch (e) {
-      console.error('Scanner fetch error:', e)
+      console.error('[Scanner] Fetch failed:', e)
     } finally {
       setLoading(false)
+      setProgress(0)
     }
   }, [])
 
-  // When user switches tab, show cached data immediately
   useEffect(() => {
-    fetchScanner(scanTab, 'tab-switch')
-  }, [scanTab, fetchScanner])
+    const p = SCAN_PRESETS.find((x) => x.id === activePreset) ?? SCAN_PRESETS[0]
+    runScan(p)
+  }, [activePreset, runScan])
 
-  // Fetch intraday sparklines after rows load — same pattern as tracking tab
+  // Sparkline fetching (same batched logic as tracking tab)
   useEffect(() => {
     if (rows.length === 0) return
     const key = rows.map((r) => r.symbol).join(',')
@@ -1573,13 +1721,11 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     sparkFetchedRef.current = key
     setSparklines({})
 
-    // Find last trading day first (same as tracking tab — handles weekends/holidays)
     const todayStr = new Date().toISOString().split('T')[0]
     const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
     const BATCH = 5
 
     const fetchBatches = async () => {
-      // Step 1: get last trading day using first row (all same market, so one call is enough)
       let lastTradingDayStr = todayStr
       try {
         const r = await fetch(
@@ -1593,7 +1739,6 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
         }
       } catch {}
 
-      // Step 2: fetch intraday 1-min bars for each row on that last trading day
       for (let i = 0; i < rows.length; i += BATCH) {
         const batch = rows.slice(i, i + BATCH)
         const results = await Promise.all(
@@ -1637,547 +1782,541 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     fetchBatches()
   }, [rows])
 
-  const gainers =
-    scanTab === 'movers'
-      ? rows.filter((r) => r.changePct > 0).sort((a, b) => b.changePct - a.changePct)
-      : []
-  const losers =
-    scanTab === 'movers'
-      ? rows.filter((r) => r.changePct < 0).sort((a, b) => a.changePct - b.changePct)
-      : []
-  const weekBreakouts =
-    scanTab === 'breakouts' ? rows.filter((r) => r.weekHigh && r.price >= r.weekHigh * 0.999) : []
-  const weekBreakdowns =
-    scanTab === 'breakouts' ? rows.filter((r) => r.weekLow && r.price <= r.weekLow * 1.001) : []
-  const highs52 =
-    scanTab === 'breakouts' ? rows.filter((r) => r.high52w && r.price >= r.high52w * 0.99) : []
-  const lows52 =
-    scanTab === 'breakouts' ? rows.filter((r) => r.low52w && r.price <= r.low52w * 1.01) : []
-  const reversalUp = scanTab === 'reversals' ? rows.filter((r) => r.prevTrend === 'up') : []
-  const reversalDown = scanTab === 'reversals' ? rows.filter((r) => r.prevTrend === 'down') : []
+  // ── Formatters ──────────────────────────────────────────────────────────────
+  const fmtVol = (v: number) =>
+    v >= 1_000_000_000
+      ? `${(v / 1_000_000_000).toFixed(1)}B`
+      : v >= 1_000_000
+        ? `${(v / 1_000_000).toFixed(1)}M`
+        : v >= 1_000
+          ? `${(v / 1_000).toFixed(0)}K`
+          : String(v)
 
-  // ── Glossy scanner row ──────────────────────────────────────────────────────
-  const ScanRow = ({
-    row,
-    accent,
-    rank,
-    intradaySpark,
-  }: {
-    row: ScannerRow
-    accent: string
-    rank: number
-    intradaySpark?: Array<{ price: number; etMinutes: number; time: number }>
-  }) => {
-    const isUp = row.changePct >= 0
-    const changeBg = isUp ? 'rgba(0,255,136,0.12)' : 'rgba(255,51,68,0.12)'
-    const changeBorder = isUp ? 'rgba(0,255,136,0.3)' : 'rgba(255,51,68,0.3)'
-    const changeClr = isUp ? '#00ff88' : '#ff3344'
+  const fmtPrice = (p: number) =>
+    p >= 1000 ? p.toFixed(0) : p >= 100 ? p.toFixed(1) : p.toFixed(2)
 
-    // Sparkline — exact tracking tab logic from EFICharting.tsx
-    const sparkData = intradaySpark && intradaySpark.length > 1 ? intradaySpark : null
-    const spark = sparkData ? (
-      (() => {
-        const prices = sparkData.map((p) => p.price)
-        const minPrice = Math.min(...prices),
-          maxPrice = Math.max(...prices)
-        const priceRange = maxPrice - minPrice || 1
-        const padding = 8
-        const chartHeight = 50 - padding * 2
+  const rsiColor = (v: number) =>
+    v < 30 ? '#ff3344' : v < 45 ? '#fb923c' : v > 70 ? '#f472b6' : v > 60 ? '#facc15' : '#9ca3af'
 
-        const points = sparkData
-          .map((p, i) => {
-            const x = (i / (sparkData.length - 1)) * 200
-            const y = padding + ((maxPrice - p.price) / priceRange) * chartHeight
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-          })
-          .join(' ')
+  const presetGroups: Array<ScanPreset['group']> = ['Movers', 'Breakouts']
 
-        const prevDayY = padding + ((maxPrice - prices[0]) / priceRange) * chartHeight
-        const lineUp = prices[prices.length - 1] >= prices[0]
-
-        // Market hours shading zones — identical to tracking tab
-        const shadingZones: Array<{ x: number; width: number; color: string }> = []
-        let currentZone: { start: number; color: string } | null = null
-        sparkData.forEach((point, i) => {
-          const m = point.etMinutes
-          const preStart = 60,
-            marketStart = 390,
-            marketEnd = 780,
-            ahEnd = 1020
-          let fill: string | null = null
-          if (m >= preStart && m < marketStart) fill = 'rgba(255,165,0,0.12)'
-          else if (m >= marketEnd && m < ahEnd) fill = 'rgba(0,174,239,0.12)'
-          if (fill) {
-            if (!currentZone || currentZone.color !== fill) {
-              if (currentZone) {
-                const x = (currentZone.start / (sparkData.length - 1)) * 200
-                shadingZones.push({
-                  x,
-                  width: (i / (sparkData.length - 1)) * 200 - x,
-                  color: currentZone.color,
-                })
-              }
-              currentZone = { start: i, color: fill }
-            }
-          } else if (currentZone) {
-            const x = (currentZone.start / (sparkData.length - 1)) * 200
-            shadingZones.push({
-              x,
-              width: (i / (sparkData.length - 1)) * 200 - x,
-              color: currentZone.color,
-            })
-            currentZone = null
-          }
-        })
-        if (currentZone) {
-          const z = currentZone as { start: number; color: string }
-          shadingZones.push({
-            x: (z.start / (sparkData.length - 1)) * 200,
-            width: 200 - (z.start / (sparkData.length - 1)) * 200,
-            color: z.color,
-          })
-        }
-
-        // Time label positions (6:30 AM = 390min, 1:00 PM = 780min)
-        let openIdx = -1,
-          closeIdx = -1
-        sparkData.forEach((p, i) => {
-          if (openIdx === -1 && p.etMinutes >= 390) openIdx = i
-          if (closeIdx === -1 && p.etMinutes >= 780) closeIdx = i
-        })
-        const openPct = openIdx >= 0 ? (openIdx / (sparkData.length - 1)) * 100 : -1
-        const closePct = closeIdx >= 0 ? (closeIdx / (sparkData.length - 1)) * 100 : -1
-
-        return (
-          <div style={{ flex: 1, minWidth: 80, display: 'flex', flexDirection: 'column' }}>
-            <svg
-              viewBox="0 0 200 50"
-              preserveAspectRatio="none"
-              style={{ width: '100%', height: 64, display: 'block' }}
+  return (
+    <div
+      style={{ background: '#030303', minHeight: '100%', display: 'flex', flexDirection: 'column' }}
+    >
+      {/* ── Preset selector ─────────────────────────────────────────────────── */}
+      <div
+        style={{
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          padding: '10px 12px 8px',
+          flexShrink: 0,
+        }}
+      >
+        {presetGroups.map((group) => (
+          <div key={group} style={{ marginBottom: '8px' }}>
+            <div
+              style={{
+                fontFamily: '"Courier New",monospace',
+                fontSize: '9px',
+                fontWeight: 700,
+                color: 'rgba(255,255,255,0.28)',
+                letterSpacing: '0.15em',
+                textTransform: 'uppercase',
+                marginBottom: '5px',
+                paddingLeft: '2px',
+              }}
             >
-              {shadingZones.map((z, idx) => (
-                <rect key={idx} x={z.x} y="0" width={z.width} height="50" fill={z.color} />
-              ))}
-              <line
-                x1="0"
-                y1={prevDayY.toFixed(1)}
-                x2="200"
-                y2={prevDayY.toFixed(1)}
-                stroke="#444444"
-                strokeWidth="1"
-                strokeDasharray="3,2"
-                opacity="0.4"
-                vectorEffect="non-scaling-stroke"
-              />
-              <polyline
-                fill="none"
-                stroke={lineUp ? '#00ff00' : '#ff0000'}
-                strokeWidth="1.5"
-                points={points}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
-            <div style={{ position: 'relative', height: 14, marginTop: 2 }}>
-              {openPct >= 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: `${openPct}%`,
-                    transform: 'translateX(-50%)',
-                    fontSize: 10,
-                    color: '#facc15',
-                    fontFamily: 'monospace',
-                    fontWeight: 600,
-                  }}
-                >
-                  6:30 AM
-                </span>
-              )}
-              {closePct >= 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: `${closePct}%`,
-                    transform: 'translateX(-50%)',
-                    fontSize: 10,
-                    color: '#facc15',
-                    fontFamily: 'monospace',
-                    fontWeight: 600,
-                  }}
-                >
-                  1:00 PM
-                </span>
-              )}
+              {group}
+            </div>
+            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+              {SCAN_PRESETS.filter((p) => p.group === group).map((p) => {
+                const isActive = activePreset === p.id
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setActivePreset(p.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '5px 10px',
+                      borderRadius: '3px',
+                      cursor: 'pointer',
+                      fontFamily: '"Courier New",monospace',
+                      fontSize: '11px',
+                      fontWeight: isActive ? 800 : 500,
+                      letterSpacing: '0.04em',
+                      whiteSpace: 'nowrap',
+                      background: isActive ? `${p.color}22` : 'rgba(255,255,255,0.04)',
+                      border: isActive
+                        ? `1px solid ${p.color}66`
+                        : '1px solid rgba(255,255,255,0.08)',
+                      color: isActive ? p.color : 'rgba(255,255,255,0.55)',
+                      transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                        e.currentTarget.style.color = '#fff'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                        e.currentTarget.style.color = 'rgba(255,255,255,0.55)'
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: '10px' }}>{p.icon}</span>
+                    {p.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
-        )
-      })()
-    ) : (
-      <div style={{ flex: 1, minWidth: 80, height: 78 }} />
-    )
+        ))}
+      </div>
 
-    return (
+      {/* ── Active scan header ───────────────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
-          padding: '12px 14px',
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.05)',
-          borderLeft: `3px solid ${accent}`,
-          borderRadius: '5px',
-          marginBottom: '4px',
-          transition: 'background 0.15s',
-          cursor: 'default',
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.045)')}
-        onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
-      >
-        <span
-          style={{
-            fontFamily: '"Courier New",monospace',
-            fontSize: '16px',
-            color: 'rgba(255,255,255,0.5)',
-            minWidth: '22px',
-            textAlign: 'right',
-          }}
-        >
-          {rank}
-        </span>
-        <span
-          style={{
-            fontFamily: '"Courier New",monospace',
-            fontWeight: 900,
-            fontSize: '20px',
-            color: accent,
-            minWidth: '64px',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          {row.symbol}
-        </span>
-        <span
-          style={{
-            fontFamily: '"Courier New",monospace',
-            fontSize: '20px',
-            color: '#fff',
-            minWidth: '80px',
-            textAlign: 'right',
-          }}
-        >
-          $
-          {row.price >= 1000
-            ? row.price.toFixed(0)
-            : row.price >= 100
-              ? row.price.toFixed(1)
-              : row.price.toFixed(2)}
-        </span>
-        <span
-          style={{
-            fontFamily: '"Courier New",monospace',
-            fontSize: '18px',
-            fontWeight: 800,
-            padding: '3px 10px',
-            borderRadius: '4px',
-            background: changeBg,
-            color: changeClr,
-            border: `1px solid ${changeBorder}`,
-            minWidth: '90px',
-            textAlign: 'center',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {isUp ? '+' : ''}
-          {row.changePct.toFixed(2)}%
-        </span>
-        {spark}
-        {row.high52w && row.price >= row.high52w * 0.99 && (
-          <span
-            style={{
-              fontSize: '14px',
-              fontWeight: 700,
-              color: '#f59e0b',
-              background: 'rgba(245,158,11,0.12)',
-              border: '1px solid rgba(245,158,11,0.3)',
-              padding: '2px 8px',
-              borderRadius: '3px',
-              letterSpacing: '0.06em',
-            }}
-          >
-            52W↑
-          </span>
-        )}
-        {row.low52w && row.price <= row.low52w * 1.01 && (
-          <span
-            style={{
-              fontSize: '14px',
-              fontWeight: 700,
-              color: '#a855f7',
-              background: 'rgba(168,85,247,0.12)',
-              border: '1px solid rgba(168,85,247,0.3)',
-              padding: '2px 8px',
-              borderRadius: '3px',
-              letterSpacing: '0.06em',
-            }}
-          >
-            52W↓
-          </span>
-        )}
-      </div>
-    )
-  }
-
-  const ScanSection = ({
-    title,
-    items,
-    accent,
-    extra,
-  }: {
-    title: string
-    items: ScannerRow[]
-    accent: string
-    extra?: string
-  }) => (
-    <div style={{ marginBottom: '0' }}>
-      <div
-        style={{
-          marginBottom: '14px',
-          padding: '12px 14px',
-          background: `${accent}0f`,
-          borderLeft: `3px solid ${accent}`,
-          borderRadius: '0 4px 4px 0',
+          justifyContent: 'space-between',
+          padding: '7px 14px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: `${preset.color}09`,
+          flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            fontFamily: '"Courier New",monospace',
-            fontSize: '20px',
-            fontWeight: 900,
-            color: accent,
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-          }}
-        >
-          {title}
-        </div>
-        {extra && (
-          <div
+        <div>
+          <span
+            style={{
+              fontFamily: '"Courier New",monospace',
+              fontSize: '12px',
+              fontWeight: 800,
+              color: preset.color,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              marginRight: '10px',
+            }}
+          >
+            {preset.icon} {preset.label}
+          </span>
+          <span
             style={{
               fontFamily: 'system-ui,sans-serif',
-              fontSize: '15px',
-              color: 'rgba(255,255,255,0.85)',
-              marginTop: '2px',
+              fontSize: '11px',
+              color: 'rgba(255,255,255,0.4)',
             }}
           >
-            {extra}
-          </div>
-        )}
+            {preset.description}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rows.length > 0 && (
+            <span
+              style={{
+                fontFamily: '"Courier New",monospace',
+                fontSize: '11px',
+                color: 'rgba(255,255,255,0.35)',
+              }}
+            >
+              {rows.length} results
+            </span>
+          )}
+          <button
+            onClick={() => {
+              const p = SCAN_PRESETS.find((x) => x.id === activePreset) ?? SCAN_PRESETS[0]
+              runScan(p, true)
+            }}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              fontFamily: '"Courier New",monospace',
+              fontSize: '11px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'rgba(255,255,255,0.55)',
+              transition: 'all 0.12s',
+            }}
+          >
+            ↺{' '}
+            {lastFetch
+              ? lastFetch.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : 'REFRESH'}
+          </button>
+        </div>
       </div>
+
+      {/* ── Progress bar ─────────────────────────────────────────────────────── */}
       {loading && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '16px 14px',
-            color: 'rgba(255,255,255,0.85)',
-            fontFamily: '"Courier New",monospace',
-            fontSize: '13px',
-            letterSpacing: '0.1em',
-          }}
-        >
+        <div style={{ height: '2px', background: 'rgba(255,255,255,0.05)', flexShrink: 0 }}>
           <div
             style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: accent,
-              animation: 'pulse 1s infinite',
+              height: '100%',
+              background: preset.color,
+              width: progress > 0 ? `${progress}%` : '25%',
+              transition: progress > 0 ? 'width 0.3s' : 'none',
+              animation: progress === 0 ? 'shimmer 1.5s infinite' : 'none',
             }}
           />
-          SCANNING MARKET\u2026
         </div>
       )}
-      {!loading && items.length === 0 && (
+
+      {/* ── Table ────────────────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {/* Column headers */}
         <div
           style={{
-            padding: '20px 14px',
-            textAlign: 'center',
-            fontFamily: '"Courier New",monospace',
-            fontSize: '16px',
-            color: 'rgba(255,255,255,0.7)',
-            letterSpacing: '0.1em',
+            display: 'grid',
+            gridTemplateColumns: '28px 68px 72px 76px 66px 46px 42px 72px 84px 42px',
+            gap: '0 4px',
+            padding: '6px 12px',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            position: 'sticky',
+            top: 0,
+            background: '#030303',
+            zIndex: 2,
           }}
         >
-          NO SIGNALS DETECTED
+          {['#', 'SYMBOL', 'PRICE', 'CHG%', 'VOLUME', 'VOL/A', 'ATR%', '52W', 'SPARK', 'SIG'].map(
+            (h) => (
+              <div
+                key={h}
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  color: 'rgba(255,255,255,0.22)',
+                  letterSpacing: '0.12em',
+                }}
+              >
+                {h}
+              </div>
+            )
+          )}
         </div>
-      )}
-      {items.map((row, i) => (
-        <ScanRow
-          key={row.symbol}
-          row={row}
-          accent={accent}
-          rank={i + 1}
-          intradaySpark={sparklines[row.symbol]}
-        />
-      ))}
-    </div>
-  )
 
-  return (
-    <div style={{ background: '#030303', minHeight: '100%' }}>
-      {/* Scanner sub-tab bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'stretch',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
-        }}
-      >
-        {(
-          [
-            { key: 'movers', label: 'Movers', color: '#FFD700' },
-            { key: 'breakouts', label: 'Breakouts', color: '#CD7F32' },
-            { key: 'reversals', label: 'Reversals', color: '#C0C0C0' },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setScanTab(t.key)}
+        {/* Loading state */}
+        {loading && rows.length === 0 && (
+          <div
             style={{
-              flex: 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '18px 0',
-              fontSize: '20px',
-              fontWeight: scanTab === t.key ? 900 : 600,
+              gap: '10px',
+              padding: '60px 20px',
+              color: 'rgba(255,255,255,0.35)',
               fontFamily: '"Courier New",monospace',
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
-              background: scanTab === t.key ? '#000' : 'transparent',
-              border: 'none',
-              borderBottom: scanTab === t.key ? `3px solid ${t.color}` : '3px solid transparent',
-              color: scanTab === t.key ? t.color : '#ffffff',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
+              fontSize: '11px',
+              letterSpacing: '0.1em',
             }}
           >
-            {t.label}
-          </button>
-        ))}
-        <button
-          onClick={() => fetchScanner(scanTab)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '0 18px',
-            fontSize: '14px',
-            background: 'rgba(255,255,255,0.04)',
-            borderLeft: '1px solid rgba(255,255,255,0.1)',
-            color: '#fff',
-            cursor: 'pointer',
-            fontFamily: '"Courier New",monospace',
-            letterSpacing: '0.06em',
-            flexShrink: 0,
-          }}
-        >
-          ↺{' '}
-          {lastFetch
-            ? lastFetch.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : 'REFRESH'}
-        </button>
-      </div>
-
-      {/* Loading shimmer */}
-      {loading && (
-        <div
-          style={{
-            height: '2px',
-            background: 'linear-gradient(90deg,transparent,#f59e0b,transparent)',
-            backgroundSize: '200% 100%',
-            animation: 'shimmer 1.5s infinite',
-          }}
-        />
-      )}
-
-      <div style={{ padding: '16px 16px 40px' }}>
-        {scanTab === 'movers' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <ScanSection
-              title="Top Gainers"
-              items={gainers.slice(0, 20)}
-              accent="#00ff88"
-              extra="By today's % change"
-            />
-            <ScanSection
-              title="Top Losers"
-              items={losers.slice(0, 20)}
-              accent="#ff3344"
-              extra="By today's % change"
-            />
-          </div>
-        )}
-        {scanTab === 'breakouts' && (
-          <>
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '20px',
-                marginBottom: '24px',
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: preset.color,
+                animation: 'pulse 1s infinite',
               }}
-            >
-              <ScanSection
-                title="Weekly Breakout"
-                items={weekBreakouts.slice(0, 15)}
-                accent="#00ff88"
-                extra="Price above 5-day high"
-              />
-              <ScanSection
-                title="Weekly Breakdown"
-                items={weekBreakdowns.slice(0, 15)}
-                accent="#ff3344"
-                extra="Price below 5-day low"
-              />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              <ScanSection
-                title="52-Week Highs"
-                items={highs52.slice(0, 15)}
-                accent="#f59e0b"
-                extra="Within 1% of 52-week high"
-              />
-              <ScanSection
-                title="52-Week Lows"
-                items={lows52.slice(0, 15)}
-                accent="#a855f7"
-                extra="Within 1% of 52-week low"
-              />
-            </div>
-          </>
-        )}
-        {scanTab === 'reversals' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <ScanSection
-              title="Reversing Up"
-              items={reversalUp.slice(0, 20)}
-              accent="#00ff88"
-              extra="Price crossed above 21-day MA"
             />
-            <ScanSection
-              title="Reversing Down"
-              items={reversalDown.slice(0, 20)}
-              accent="#ff3344"
-              extra="Price crossed below 21-day MA"
-            />
+            SCANNING {progress > 0 ? `${progress}%` : '...'}
           </div>
         )}
-        \n{' '}
+
+        {/* Empty */}
+        {!loading && rows.length === 0 && (
+          <div
+            style={{
+              padding: '60px 20px',
+              textAlign: 'center',
+              fontFamily: '"Courier New",monospace',
+              fontSize: '12px',
+              color: 'rgba(255,255,255,0.2)',
+              letterSpacing: '0.1em',
+            }}
+          >
+            NO SIGNALS DETECTED
+          </div>
+        )}
+
+        {/* Data rows */}
+        {rows.map((row, i) => {
+          const isUp = row.changePct >= 0
+          const changeClr = isUp ? '#00ff88' : '#ff3344'
+          const spark = sparklines[row.symbol]
+
+          // 52W position bar
+          const pos52 = row.position52w
+          const pos52El =
+            pos52 !== undefined ? (
+              <div>
+                <div
+                  style={{
+                    fontFamily: '"Courier New",monospace',
+                    fontSize: '9px',
+                    color: 'rgba(255,255,255,0.35)',
+                    textAlign: 'center',
+                    marginBottom: '2px',
+                  }}
+                >
+                  {Math.round(pos52 * 100)}%
+                </div>
+                <div
+                  style={{
+                    height: '5px',
+                    borderRadius: '3px',
+                    background: 'rgba(255,255,255,0.07)',
+                    position: 'relative',
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      height: '100%',
+                      borderRadius: '3px',
+                      width: `${Math.max(3, pos52 * 100)}%`,
+                      background: pos52 > 0.8 ? '#f59e0b' : pos52 < 0.2 ? '#a855f7' : '#4ade80',
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.15)' }}>—</span>
+            )
+
+          // Signal tag
+          const btColors: Record<string, string> = {
+            '52w-high': '#f59e0b',
+            'week-high': '#00d4ff',
+            '52w-low': '#a855f7',
+            'week-low': '#ff6b6b',
+          }
+          const btLabels: Record<string, string> = {
+            '52w-high': '52W↑',
+            'week-high': 'WK↑',
+            '52w-low': '52W↓',
+            'week-low': 'WK↓',
+          }
+          let sigEl: React.ReactNode = null
+          if (row.breakoutType) {
+            const c = btColors[row.breakoutType]
+            sigEl = (
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  fontFamily: '"Courier New",monospace',
+                  color: c,
+                  background: `${c}18`,
+                  border: `1px solid ${c}44`,
+                  padding: '1px 4px',
+                  borderRadius: '2px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {btLabels[row.breakoutType]}
+              </span>
+            )
+          } else if (row.reversalType) {
+            const c = row.reversalType === 'bullish' ? '#4ade80' : '#f87171'
+            sigEl = (
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  fontFamily: '"Courier New",monospace',
+                  color: c,
+                  background: `${c}18`,
+                  border: `1px solid ${c}44`,
+                  padding: '1px 4px',
+                  borderRadius: '2px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {row.reversalType === 'bullish' ? 'REV↑' : 'REV↓'}
+              </span>
+            )
+          }
+
+          return (
+            <div
+              key={row.symbol}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '28px 68px 72px 76px 66px 46px 42px 72px 84px 42px',
+                gap: '0 4px',
+                padding: '7px 12px',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                alignItems: 'center',
+                cursor: 'default',
+                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.045)')}
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background =
+                  i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)')
+              }
+            >
+              {/* Rank */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '11px',
+                  color: 'rgba(255,255,255,0.22)',
+                  textAlign: 'right',
+                }}
+              >
+                {i + 1}
+              </span>
+
+              {/* Symbol */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  color: preset.color,
+                  letterSpacing: '-0.01em',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {row.symbol}
+              </span>
+
+              {/* Price */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '13px',
+                  color: '#fff',
+                  textAlign: 'right',
+                }}
+              >
+                ${fmtPrice(row.price)}
+              </span>
+
+              {/* Chg% */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                  textAlign: 'center',
+                  background: isUp ? 'rgba(0,255,136,0.1)' : 'rgba(255,51,68,0.1)',
+                  color: changeClr,
+                  border: `1px solid ${isUp ? 'rgba(0,255,136,0.2)' : 'rgba(255,51,68,0.2)'}`,
+                }}
+              >
+                {isUp ? '+' : ''}
+                {row.changePct.toFixed(2)}%
+              </span>
+
+              {/* Volume */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '11px',
+                  color: 'rgba(255,255,255,0.65)',
+                  textAlign: 'right',
+                }}
+              >
+                {fmtVol(row.volume)}
+              </span>
+
+              {/* Vol/Avg */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '11px',
+                  textAlign: 'center',
+                  color:
+                    (row.volRatio ?? 0) >= 2
+                      ? '#facc15'
+                      : (row.volRatio ?? 0) >= 1.3
+                        ? '#00d4ff'
+                        : 'rgba(255,255,255,0.3)',
+                }}
+              >
+                {row.volRatio ? `${row.volRatio.toFixed(1)}x` : '—'}
+              </span>
+
+              {/* ATR% */}
+              <span
+                style={{
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '11px',
+                  color: 'rgba(255,255,255,0.4)',
+                  textAlign: 'center',
+                }}
+              >
+                {row.atrPct !== undefined ? `${row.atrPct.toFixed(1)}%` : '—'}
+              </span>
+
+              {/* 52W position bar */}
+              <div>{pos52El}</div>
+
+              {/* Sparkline */}
+              <div>
+                {spark && spark.length > 1 ? (
+                  (() => {
+                    const prices = spark.map((p) => p.price)
+                    const sMin = Math.min(...prices),
+                      sMax = Math.max(...prices)
+                    const sRange = sMax - sMin || 1
+                    const pts = spark
+                      .map((p, idx) => {
+                        const x = (idx / (spark.length - 1)) * 82
+                        const y = 4 + ((sMax - p.price) / sRange) * 28
+                        return `${x.toFixed(1)},${y.toFixed(1)}`
+                      })
+                      .join(' ')
+                    const sUp = prices[prices.length - 1] >= prices[0]
+                    const prevY = 4 + ((sMax - prices[0]) / sRange) * 28
+                    return (
+                      <svg viewBox="0 0 82 36" style={{ width: 82, height: 36, display: 'block' }}>
+                        <line
+                          x1="0"
+                          y1={prevY.toFixed(1)}
+                          x2="82"
+                          y2={prevY.toFixed(1)}
+                          stroke="#333"
+                          strokeWidth="1"
+                          strokeDasharray="2,2"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                        <polyline
+                          fill="none"
+                          stroke={sUp ? '#00ff88' : '#ff3344'}
+                          strokeWidth="1.5"
+                          points={pts}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      </svg>
+                    )
+                  })()
+                ) : (
+                  <div style={{ width: 82, height: 36 }} />
+                )}
+              </div>
+
+              {/* Signal tag */}
+              <div style={{ display: 'flex', alignItems: 'center' }}>{sigEl}</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

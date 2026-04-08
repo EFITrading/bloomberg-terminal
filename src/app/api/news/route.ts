@@ -2,6 +2,115 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
+// ─── RSS Sources (same as social/route.ts) ────────────────────────────────────
+const RSS_SOURCES = [
+  { name: 'Benzinga', url: 'https://www.benzinga.com/feed' },
+  { name: 'Benzinga Markets', url: 'https://www.benzinga.com/markets/feed' },
+  { name: 'Benzinga Trading Ideas', url: 'https://www.benzinga.com/trading-ideas/feed' },
+  { name: 'Benzinga Movers', url: 'https://www.benzinga.com/movers/feed' },
+]
+
+function calcRSSUrgency(title: string, desc: string, published: Date): number {
+  const c = `${title} ${desc}`.toLowerCase()
+  const hoursAgo = (Date.now() - published.getTime()) / 3600000
+  let u =
+    hoursAgo < 0.5
+      ? 0.55
+      : hoursAgo < 1
+        ? 0.45
+        : hoursAgo < 2
+          ? 0.35
+          : hoursAgo < 6
+            ? 0.25
+            : hoursAgo < 12
+              ? 0.15
+              : 0.05
+  if (/ceasefire|cease.fire|truce|bombing|missile|nuclear|war|invasion/.test(c)) u += 0.4
+  if (/breaking|flash|alert|urgent/.test(c)) u += 0.35
+  if (/trump|tariff|tariffs|sanctions|executive order|white house/.test(c)) u += 0.3
+  if (/iran|israel|ukraine|russia|china|nato|gaza|middle east/.test(c)) u += 0.25
+  if (/fed|federal reserve|rate cut|rate hike|interest rates|cpi|gdp|inflation|jobs report/.test(c))
+    u += 0.25
+  if (/halt|suspend|crash|plunge|collapse|selloff|sell.off|rout/.test(c)) u += 0.25
+  if (/surge|soar|spike|rally|shoot|futures up|futures down/.test(c)) u += 0.2
+  if (/oil|crude|hormuz|opec|energy/.test(c)) u += 0.15
+  if (/earnings|revenue|merger|acquisition|ipo/.test(c)) u += 0.1
+  if (/sec|investigation|fraud|lawsuit|indictment/.test(c)) u += 0.1
+  return Math.min(1, u)
+}
+
+function decodeHtml(str: string): string {
+  return str
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#\d+;/g, '')
+    .replace(/&[a-z]+;/g, '')
+}
+
+function cleanText(raw: string, limit?: number): string {
+  // Decode entities first, then strip any remaining HTML tags
+  const decoded = decodeHtml(raw)
+  const stripped = decoded.replace(/<[^>]*>/g, '').trim()
+  return limit ? stripped.substring(0, limit).trim() : stripped
+}
+
+function parseRSSXML(xml: string, sourceName: string): any[] {
+  const items = xml.match(/<item>[\s\S]*?<\/item>/g) || []
+  return items
+    .map((item, i) => {
+      const title = cleanText(
+        item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ??
+          item.match(/<title>([\s\S]*?)<\/title>/)?.[1] ??
+          ''
+      )
+      const desc = cleanText(
+        item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/)?.[1] ??
+          item.match(/<description>([\s\S]*?)<\/description>/)?.[1] ??
+          '',
+        300
+      )
+      const link = item.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() ?? '#'
+      const pubDate = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] ?? ''
+      const published = pubDate ? new Date(pubDate) : new Date()
+      if (!title) return null
+      const urgency = calcRSSUrgency(title, desc, published)
+      return {
+        id: `rss_${sourceName}_${i}`,
+        title,
+        description: desc,
+        article_url: link,
+        published_utc: published.toISOString(),
+        publisher: { name: sourceName },
+        tickers: [],
+        urgency,
+        sentiment: 'neutral',
+        sentiment_score: 0.5,
+        relevance_score: urgency,
+        time_ago: getTimeAgo(published.toISOString()),
+        category: urgency >= 0.65 ? 'breaking' : 'market',
+      }
+    })
+    .filter(Boolean)
+}
+
+async function fetchAllRSS(): Promise<any[]> {
+  const results = await Promise.allSettled(
+    RSS_SOURCES.map(async (src) => {
+      const res = await fetch(src.url, {
+        headers: { 'User-Agent': 'EFI-Bloomberg-Terminal/1.0' },
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) return []
+      return parseRSSXML(await res.text(), src.name)
+    })
+  )
+  return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+}
+
 interface NewsArticle {
   id: string
   title: string
@@ -40,6 +149,7 @@ export async function GET(request: NextRequest) {
     const offset = searchParams.get('offset') || '0'
     const category = searchParams.get('category') // earnings, mergers, etc.
     const sort = searchParams.get('sort') || 'published_utc'
+    const historical = searchParams.get('historical') === 'true'
 
     // Build the Polygon News API URL
     let url = `https://api.polygon.io/v2/reference/news?`
@@ -65,10 +175,22 @@ export async function GET(request: NextRequest) {
     })
 
     // Add date filtering - expand timeframe to capture more breaking news
-    const timeframeHours = category === 'breaking' ? 72 : category === 'all' ? 48 : 168 // Last 72h for breaking, 48h for all news, 7 days for categories
+    // historical=true → 72h window; breaking → 72h; all → 48h; specific categories → 7 days
+    const timeframeHours = historical
+      ? 72
+      : category === 'breaking'
+        ? 72
+        : category === 'all'
+          ? 48
+          : 168
     const timeAgo = new Date(Date.now() - timeframeHours * 60 * 60 * 1000)
     const dateFilter = timeAgo.toISOString()
     params.append('published_utc.gte', dateFilter)
+
+    // For historical requests, override limit to get max coverage
+    if (historical) {
+      params.set('limit', '1000')
+    }
 
     url += params.toString()
 
@@ -103,7 +225,26 @@ export async function GET(request: NextRequest) {
       const publisher = article.publisher?.name?.toLowerCase() || ''
 
       // COMPLETE BLACKLIST - Zero tolerance for these publishers
-      const blacklistedPublishers = ['motley fool', 'fool', 'the motley fool']
+      const blacklistedPublishers = [
+        'motley fool',
+        'fool',
+        'the motley fool',
+        'globenewswire',
+        'globe newswire',
+        'pr newswire',
+        'prnewswire',
+        'business wire',
+        'businesswire',
+        'accesswire',
+        'news direct',
+        'newsdirect',
+        'einpresswire',
+        'ein presswire',
+        'globe wire',
+        'marketwired',
+        'investing.com',
+        'investing com',
+      ]
 
       // Block ALL articles from blacklisted publishers
       const isBlacklisted = blacklistedPublishers.some((pub) => publisher.includes(pub))
@@ -181,33 +322,15 @@ export async function GET(request: NextRequest) {
 
     // Fetch additional social/RSS news for market-moving events
     let socialArticles: any[] = []
-    // Always include RSS feeds for macro economic news that affects all stocks
-    // Only skip for very specific categories like earnings or analyst reports
     const skipRSSCategories = ['earnings', 'analyst', 'ma', 'ipo']
     if (!category || !skipRSSCategories.includes(category)) {
       try {
-        console.log(' Fetching social news for category:', category)
-        const socialResponse = await fetch(
-          `${process.env.NODE_ENV === 'production' ? 'https://your-domain.com' : 'http://localhost:3000'}/api/news/social?category=${category}&limit=${Math.ceil(parseInt(limit) / 2)}`
-        )
-        if (socialResponse.ok) {
-          const socialData = await socialResponse.json()
-          console.log(' Social data received:', socialData.count, 'articles')
-          if (socialData.success) {
-            socialArticles = socialData.articles.map((article: any) => ({
-              ...article,
-              sentiment: 'neutral',
-              sentiment_score: 0.5,
-              relevance_score: article.urgency,
-              category: article.category,
-            }))
-            console.log(' Social articles processed:', socialArticles.length)
-          }
-        } else {
-          console.log(' Social response not OK:', socialResponse.status)
-        }
+        console.log(' Fetching RSS feeds directly...')
+        const rssArticles = await fetchAllRSS()
+        console.log(' RSS articles fetched:', rssArticles.length)
+        socialArticles = rssArticles
       } catch (error) {
-        console.log('Social news fetch error:', error)
+        console.log('RSS fetch error:', error)
       }
     }
 
@@ -222,6 +345,10 @@ export async function GET(request: NextRequest) {
     console.log(' Combined total:', combinedArticles.length)
 
     const finalSorted = combinedArticles.sort((a, b) => {
+      // For historical requests, sort purely by date so older days show up
+      if (historical) {
+        return new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime()
+      }
       if (a.urgency !== b.urgency) return b.urgency - a.urgency
       return new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime()
     })
@@ -272,7 +399,9 @@ function analyzeSentiment(
   title: string,
   description?: string
 ): 'positive' | 'negative' | 'neutral' {
-  const text = `${title} ${description || ''}`.toLowerCase()
+  // Weight title 3x more than description — headlines drive sentiment
+  const titleText = title.toLowerCase()
+  const descText = (description || '').toLowerCase()
 
   const positiveWords = [
     'surge',
@@ -290,53 +419,97 @@ function analyzeSentiment(
     'bull',
     'bullish',
     'upgrade',
-    'buy',
     'growth',
     'profit',
-    'revenue',
     'earnings beat',
     'positive',
     'optimistic',
     'breakthrough',
     'success',
+    'record high',
+    'record revenue',
+    'record profit',
+    'raises guidance',
+    'raised guidance',
+    'above expectations',
+    'tops estimates',
+    'rebounds',
+    'recovers',
+    'trending higher',
+    'up overnight',
+    'after-hours gain',
+    'ipo priced above',
+    'raised price target',
+    'new high',
   ]
 
   const negativeWords = [
     'plunge',
     'crash',
-    'fall',
-    'drop',
-    'decline',
-    'sink',
     'tumble',
-    'weak',
+    'collapse',
+    'sink',
+    'slump',
+    'plummet',
     'miss',
     'underperform',
     'bear',
     'bearish',
     'downgrade',
-    'sell',
     'loss',
-    'deficit',
     'earnings miss',
-    'negative',
-    'concern',
-    'risk',
-    'warning',
-    'cut',
-    'reduce',
+    'below expectations',
+    'misses estimates',
+    'cuts guidance',
+    'cut guidance',
+    'lowers guidance',
+    'lowered guidance',
+    'job cut',
+    'layoff',
+    'layoffs',
+    'bankruptcy',
+    'defaults',
+    'default',
+    'halted',
+    'suspended trading',
+    'sec charges',
+    'fraud',
+    'investigation',
+    'recall',
+    'class action',
+    'downside',
+    'price target cut',
+    'lowered target',
   ]
 
   let positiveScore = 0
   let negativeScore = 0
 
+  // Title words count 3x
   positiveWords.forEach((word) => {
-    if (text.includes(word)) positiveScore++
+    if (titleText.includes(word)) positiveScore += 3
+    else if (descText.includes(word)) positiveScore += 1
   })
 
   negativeWords.forEach((word) => {
-    if (text.includes(word)) negativeScore++
+    if (titleText.includes(word)) negativeScore += 3
+    else if (descText.includes(word)) negativeScore += 1
   })
+
+  // Explicit numeric signals in title: "up X%" → positive, "down X%" → negative
+  if (
+    /\bup\s+\d+\.?\d*%/.test(titleText) ||
+    /rose\s+\d+\.?\d*%/.test(titleText) ||
+    /gained?\s+\d+\.?\d*%/.test(titleText)
+  )
+    positiveScore += 4
+  if (
+    /\bdown\s+\d+\.?\d*%/.test(titleText) ||
+    /fell?\s+\d+\.?\d*%/.test(titleText) ||
+    /dropped?\s+\d+\.?\d*%/.test(titleText) ||
+    /lost\s+\d+\.?\d*%/.test(titleText)
+  )
+    negativeScore += 4
 
   if (positiveScore > negativeScore) return 'positive'
   if (negativeScore > positiveScore) return 'negative'

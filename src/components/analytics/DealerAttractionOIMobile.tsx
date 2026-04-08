@@ -54,232 +54,178 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* MOBILE Control Bar - Redesigned for 430px */}
+      {/* MOBILE Control Bar - matches row 1 style */}
       <div
         style={{
           display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          padding: '10px',
-          background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
-          borderRadius: '16px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.6)',
-          maxWidth: '430px',
+          alignItems: 'center',
+          gap: 6,
+          height: 34,
           flexShrink: 0,
         }}
       >
-        {/* Row 1: Date, Mode, Premium, AI */}
-        <div
+        {/* Expiration Selector */}
+        <select
+          value={sharedExpiration}
+          onChange={(e) => setSharedExpiration(e.target.value)}
           style={{
-            display: 'grid',
-            gridTemplateColumns: '90px 90px 1fr 1fr',
-            gap: '6px',
+            height: 34,
+            flex: '1 1 0',
+            minWidth: 0,
+            maxWidth: 80,
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            outline: 'none',
+            cursor: 'pointer',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            colorScheme: 'dark',
+            padding: '0 6px',
           }}
         >
-          {/* Expiration Selector */}
-          <select
-            value={sharedExpiration}
-            onChange={(e) => setSharedExpiration(e.target.value)}
-            style={{
-              background: 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: '10px',
-              color: '#ffffff',
-              padding: '10px 8px',
-              fontSize: '12px',
-              fontWeight: '600',
-              outline: 'none',
-              cursor: 'pointer',
-              fontFamily: '"SF Pro Display", -apple-system, sans-serif',
-              width: '100%',
-              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)',
-            }}
-          >
-            <option value="all-expirations" style={{ background: '#000', color: '#fff' }}>
-              All Exp
+          <option value="45-days" style={{ background: '#000', color: '#fff' }}>
+            45D
+          </option>
+          {expirationDates.map((date) => (
+            <option key={date} value={date} style={{ background: '#000', color: '#fff' }}>
+              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                timeZone: 'America/Los_Angeles',
+              })}
             </option>
-            <option value="45-days" style={{ background: '#000', color: '#fff' }}>
-              45D
-            </option>
-            {expirationDates.map((date) => (
-              <option key={date} value={date} style={{ background: '#000', color: '#fff' }}>
-                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  timeZone: 'America/Los_Angeles',
-                })}
-              </option>
-            ))}
-          </select>
+          ))}
+        </select>
 
-          {/* OI & GEX Mode Selector */}
-          <select
-            value={
-              showNetOI
-                ? 'net-oi'
-                : showNetGamma
-                  ? 'net-gex'
-                  : showCalls && showPuts && showPositiveGamma && showNegativeGamma
-                    ? 'both'
-                    : showCalls && showPuts
-                      ? 'oi-both'
-                      : showCalls
-                        ? 'calls'
-                        : showPuts
-                          ? 'puts'
-                          : showPositiveGamma
-                            ? 'pos-gex'
-                            : showNegativeGamma
-                              ? 'neg-gex'
-                              : 'both'
-            }
-            onChange={(e) => {
-              const value = e.target.value
-              if (value === 'both') {
-                setShowCalls(true)
-                setShowPuts(true)
-                setShowPositiveGamma(true)
-                setShowNegativeGamma(true)
-                setShowNetOI(false)
-                setShowNetGamma(false)
-              } else if (value === 'oi-both') {
-                setShowCalls(true)
-                setShowPuts(true)
-                setShowNetOI(false)
-              } else if (value === 'calls') {
-                setShowCalls(true)
-                setShowPuts(false)
-                setShowNetOI(false)
-              } else if (value === 'puts') {
-                setShowCalls(false)
-                setShowPuts(true)
-                setShowNetOI(false)
-              } else if (value === 'net-oi') {
-                setShowNetOI(true)
-                setShowCalls(false)
-                setShowPuts(false)
-              } else if (value === 'pos-gex') {
-                setShowPositiveGamma(true)
-                setShowNegativeGamma(false)
-                setShowNetGamma(false)
-              } else if (value === 'neg-gex') {
-                setShowPositiveGamma(false)
-                setShowNegativeGamma(true)
-                setShowNetGamma(false)
-              } else if (value === 'net-gex') {
-                setShowNetGamma(true)
-                setShowPositiveGamma(false)
-                setShowNegativeGamma(false)
-              }
-            }}
+        {/* $ Prem */}
+        <button
+          onClick={() => setShowPremium(!showPremium)}
+          style={{
+            height: 34,
+            padding: '0 8px',
+            flexShrink: 0,
+            background: showPremium ? '#00c853' : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showPremium ? '1px solid #00c853' : '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: showPremium ? '#fff' : '#888',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: showPremium
+              ? '0 0 10px rgba(0,200,83,0.35)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          $ Prem
+        </button>
+
+        {/* AI */}
+        <button
+          onClick={() => setShowAITowers(!showAITowers)}
+          style={{
+            height: 34,
+            padding: '0 8px',
+            flexShrink: 0,
+            background: showAITowers
+              ? 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'
+              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showAITowers ? '1px solid #667eea' : '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: showAITowers
+              ? '0 4px 12px rgba(102,126,234,0.4)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          👑 AI
+        </button>
+
+        {/* P/C Ratio chips — inline in same row */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            width: 110,
+            height: 34,
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+          }}
+        >
+          <span
             style={{
-              background: 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: '10px',
-              color: '#ffffff',
-              padding: '10px 8px',
-              fontSize: '11px',
-              fontWeight: '600',
-              outline: 'none',
-              cursor: 'pointer',
-              fontFamily: '"SF Pro Display", -apple-system, sans-serif',
-              width: '100%',
-              boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 8px rgba(0, 0, 0, 0.5)',
+              fontSize: 8,
+              color: '#ff6600',
+              fontWeight: 600,
+              letterSpacing: '0.3px',
+              textTransform: 'uppercase',
+              lineHeight: 1,
             }}
           >
-            <option value="both" style={{ background: '#000', color: '#fff' }}>
-              All
-            </option>
-            <optgroup label="OI" style={{ background: '#000', color: '#888', fontSize: '10px' }}>
-              <option value="oi-both" style={{ background: '#000', color: '#fff' }}>
-                C+P
-              </option>
-              <option value="calls" style={{ background: '#000', color: '#0f0' }}>
-                C
-              </option>
-              <option value="puts" style={{ background: '#000', color: '#f00' }}>
-                P
-              </option>
-              <option value="net-oi" style={{ background: '#000', color: '#fff' }}>
-                Net
-              </option>
-            </optgroup>
-            <optgroup label="GEX" style={{ background: '#000', color: '#888', fontSize: '10px' }}>
-              <option value="pos-gex" style={{ background: '#000', color: '#0f0' }}>
-                +γ
-              </option>
-              <option value="neg-gex" style={{ background: '#000', color: '#f00' }}>
-                -γ
-              </option>
-              <option value="net-gex" style={{ background: '#000', color: '#fff' }}>
-                Net
-              </option>
-            </optgroup>
-          </select>
-
-          {/* Premium Button */}
-          <button
-            onClick={() => setShowPremium(!showPremium)}
+            90% P/C
+          </span>
+          <span
             style={{
-              padding: '6px 4px',
-              background: showPremium
-                ? 'linear-gradient(135deg, #ff9500 0%, #ff5f00 100%)'
-                : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
-              border: `1px solid ${showPremium ? '#ff9500' : 'rgba(255, 255, 255, 0.15)'}`,
-              borderRadius: '10px',
-              color: '#ffffff',
-              fontSize: '11px',
-              fontWeight: '700',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '3px',
-              boxShadow: showPremium ? '0 2px 8px rgba(255, 149, 0, 0.3)' : 'none',
+              fontSize: 11,
+              color: '#fff',
+              fontWeight: 600,
+              fontFamily: '"SF Mono","Monaco","Courier New",monospace',
+              lineHeight: 1.3,
             }}
           >
-            <span style={{ fontSize: '13px' }}>$</span>
-            Prem
-          </button>
-
-          {/* AI Button */}
-          <button
-            onClick={() => setShowAITowers(!showAITowers)}
+            {expectedRangePCRatio || '—'}
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            width: 110,
+            height: 34,
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+          }}
+        >
+          <span
             style={{
-              padding: '6px 4px',
-              background: showAITowers
-                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-                : 'linear-gradient(145deg, rgba(5, 10, 25, 0.95), rgba(0, 5, 15, 0.98))',
-              border: `1px solid ${showAITowers ? '#667eea' : 'rgba(255, 255, 255, 0.15)'}`,
-              borderRadius: '10px',
-              color: '#ffffff',
-              fontSize: '11px',
-              fontWeight: '700',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '3px',
-              boxShadow: showAITowers ? '0 2px 8px rgba(102, 126, 234, 0.3)' : 'none',
+              fontSize: 8,
+              color: '#ff6600',
+              fontWeight: 600,
+              letterSpacing: '0.3px',
+              textTransform: 'uppercase',
+              lineHeight: 1,
             }}
           >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-            AI
-          </button>
+            45D P/C
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: '#fff',
+              fontWeight: 600,
+              fontFamily: '"SF Mono","Monaco","Courier New",monospace',
+              lineHeight: 1.3,
+            }}
+          >
+            {cumulativePCRatio45Days || '—'}
+          </span>
         </div>
       </div>
 
@@ -290,7 +236,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           overflowY: 'scroll',
           overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
-          marginTop: '20px',
+          marginTop: '4px',
         }}
       >
         {/* MOBILE: Scaled Charts */}
@@ -305,16 +251,16 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           <div
             style={{
               width: '100%',
-              maxWidth: '430px',
-              height: '380px',
+              height: '320px',
+              overflow: 'hidden',
             }}
           >
             <div
               style={{
-                transform: 'scale(0.56)',
+                transform: 'scale(0.66)',
                 transformOrigin: 'top left',
                 width: '769px',
-                height: '450px',
+                height: '484px',
               }}
             >
               <DealerOpenInterestChart
@@ -338,17 +284,16 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             className="w-full"
             style={{
               width: '100%',
-              maxWidth: '430px',
-              height: '380px',
-              marginTop: '-20px',
+              height: '320px',
+              overflow: 'hidden',
             }}
           >
             <div
               style={{
-                transform: 'scale(0.56)',
+                transform: 'scale(0.66)',
                 transformOrigin: 'top left',
                 width: '769px',
-                height: '450px',
+                height: '484px',
               }}
             >
               <DealerGEXChart

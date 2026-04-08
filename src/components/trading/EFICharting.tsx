@@ -83,7 +83,7 @@ import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
 import LiquidPanel from '../analytics/LiquidPanel'
-import PutCallRatioChart from '../analytics/PutCallRatioChart'
+import PutCallRatioChart, { prefetchPCRatioData } from '../analytics/PutCallRatioChart'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
@@ -5022,9 +5022,12 @@ export default function TradingViewChart({
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
-  // Prefetch composite history on mount so the chart is ready before the watchlist panel opens
+  // Prefetch composite history immediately; PC ratio delayed 30s so the server
+  // contract/bar caches are warm (avoids cold-start timeout on first load)
   useEffect(() => {
     prefetchCompositeHistory()
+    const t = setTimeout(() => prefetchPCRatioData('1D'), 30_000)
+    return () => clearTimeout(t)
   }, [])
 
   // ─── Polygon WebSocket — live minute-bar prices via shared singleton ───
@@ -9395,6 +9398,8 @@ export default function TradingViewChart({
       string,
       {
         top10: Array<{ price: number; size: number; ts: number }>
+        totalNotional: number
+        topPrint: { price: number; size: number; ts: number }
       }
     >
   >({})
@@ -12778,9 +12783,9 @@ export default function TradingViewChart({
       const trades: RawTrade[] = []
       let url: string | null = urlStart
       while (url && !aborted) {
-        const res = await fetch(url)
+        const res: Response = await fetch(url)
         if (!res.ok) break
-        const json = await res.json()
+        const json: { results?: RawTrade[]; next_url?: string } = await res.json()
         const page: RawTrade[] = json.results || []
         for (const t of page) trades.push(t)
         url = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
@@ -12836,18 +12841,29 @@ export default function TradingViewChart({
         }
         if (dpTrades.length === 0) return null
 
-        // Top 10 by notional (price × size) — global pool across days gives us a stable top-5
-        const top10 = dpTrades
+        // Total notional for the day — used to rank days in the POI overlay
+        const totalNotional = dpTrades.reduce((sum, t) => sum + t.size * t.price, 0)
+
+        // Sort once; reuse for top10 and topPrint
+        const sortedByNotional = dpTrades
           .slice()
           .sort((a, b) => b.size * b.price - a.size * a.price)
-          .slice(0, 10)
-          .map((t) => ({
-            price: t.price,
-            size: t.size,
-            ts: Math.floor(t.sip_timestamp / 1_000_000),
-          }))
 
-        return { dateKey, result: { top10 } }
+        // Largest single print of the day — used as the price/time anchor for the day bubble
+        const rawTop = sortedByNotional[0]
+        const topPrint = {
+          price: rawTop.price,
+          size: rawTop.size,
+          ts: Math.floor(rawTop.sip_timestamp / 1_000_000),
+        }
+
+        const top10 = sortedByNotional.slice(0, 10).map((t) => ({
+          price: t.price,
+          size: t.size,
+          ts: Math.floor(t.sip_timestamp / 1_000_000),
+        }))
+
+        return { dateKey, result: { top10, totalNotional, topPrint } }
       } catch {
         return null
       }
@@ -14931,21 +14947,28 @@ export default function TradingViewChart({
       const candleDurationMs =
         visibleData.length >= 2 ? visibleData[1].timestamp - visibleData[0].timestamp : 86_400_000
 
-      // Collect + rank from the entire fetched dataset — by NOTIONAL (price × size) like VolumeLeaders
-      type PrintEntry = { price: number; size: number; ts: number; globalRank: number }
-      const globalPrints: Omit<PrintEntry, 'globalRank'>[] = []
-      for (const dp of Object.values(darkPoolData)) {
-        if (!dp?.top10?.length) continue
-        for (const p of dp.top10) globalPrints.push({ price: p.price, size: p.size, ts: p.ts })
+      // Rank DAYS by total notional, take top 5 — bubble placed at each day's largest single print
+      type DayEntry = {
+        price: number
+        size: number
+        ts: number
+        notional: number
+        globalRank: number
       }
-      globalPrints.sort((a, b) => b.size * b.price - a.size * a.price)
-      const globalTop3: PrintEntry[] = globalPrints
-        .slice(0, 3)
-        .map((p, i) => ({ ...p, globalRank: i }))
-      const globalMaxNotional = globalTop3.length > 0 ? globalTop3[0].size * globalTop3[0].price : 1
+      const daysSorted = Object.values(darkPoolData)
+        .filter((dp) => dp?.totalNotional > 0 && dp?.topPrint)
+        .sort((a, b) => b.totalNotional - a.totalNotional)
+      const globalTop5: DayEntry[] = daysSorted.slice(0, 5).map((dp, i) => ({
+        price: dp.topPrint.price,
+        size: dp.topPrint.size,
+        ts: dp.topPrint.ts,
+        notional: dp.totalNotional,
+        globalRank: i,
+      }))
+      const globalMaxNotional = globalTop5.length > 0 ? globalTop5[0].notional : 1
 
-      // Draw whichever of the top-3 fall within the current visible window
-      for (const print of globalTop3) {
+      // Draw whichever of the top-5 fall within the current visible window
+      for (const print of globalTop5) {
         const idx = visibleData.findIndex(
           (c) => print.ts >= c.timestamp && print.ts < c.timestamp + candleDurationMs
         )
@@ -14957,9 +14980,9 @@ export default function TradingViewChart({
           ((print.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
         if (printY < 0 || printY > priceChartHeight) continue
 
-        // Radius scales by notional value (not raw share count)
-        const notional = print.size * print.price
-        const r = Math.max(3, Math.min(18, Math.sqrt(notional / globalMaxNotional) * 18))
+        // Radius scales by day total notional (+25% larger)
+        const notional = print.notional
+        const r = Math.max(3.75, Math.min(22.5, Math.sqrt(notional / globalMaxNotional) * 22.5))
 
         if (print.globalRank === 0) {
           // #1 globally: glossy orange bubble
@@ -15037,10 +15060,12 @@ export default function TradingViewChart({
         // Dollar-value label below (or above) the bubble — shown when there's enough space
         if (r >= 5) {
           const label =
-            notional >= 1_000_000
-              ? `$${(notional / 1_000_000).toFixed(1)}M`
-              : `$${Math.round(notional / 1_000)}K`
-          const fontSize = Math.max(8, Math.min(11, r * 0.85))
+            notional >= 1_000_000_000
+              ? `$${(notional / 1_000_000_000).toFixed(2)}B`
+              : notional >= 1_000_000
+                ? `$${(notional / 1_000_000).toFixed(1)}M`
+                : `$${Math.round(notional / 1_000)}K`
+          const fontSize = Math.max(10, Math.min(13.75, r * 0.85))
           ctx.font = `bold ${fontSize}px sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
@@ -19692,12 +19717,12 @@ export default function TradingViewChart({
               className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg"
               style={{ marginRight: '36px' }}
             >
-              {['Watchlist', 'Tracking', 'Flow'].map((tab) => (
+              {['Watchlist', 'Tracking', 'Money'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => {
                     setActiveTab(tab)
-                    if (tab === 'Flow') fetchETFFlowHistory()
+                    if (tab === 'Money') fetchETFFlowHistory()
                   }}
                   className="md:text-[16px] text-[11px]"
                   style={{
@@ -19764,49 +19789,59 @@ export default function TradingViewChart({
 
             {/* Bloomberg-style Column Headers - 11 Columns */}
             <div
-              className="grid gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner"
+              className="grid gap-px border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner"
               style={{
-                gridTemplateColumns: '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
+                gridTemplateColumns:
+                  typeof window !== 'undefined' && window.innerWidth <= 768
+                    ? '45px 50px 44px 40px 40px 36px 40px 42px 36px 44px'
+                    : '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
               }}
             >
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600 text-center">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">
-                  Symbol
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600 text-center">
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-base text-[8px]">
+                  <span className="hidden md:inline">SYMBOL</span>
+                  <span className="md:hidden">SYM</span>
                 </span>
               </div>
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-base text-[8px]">
                   Price
                 </span>
               </div>
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">
-                  Change
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-base text-[8px]">
+                  CHG
                 </span>
               </div>
-              <div className="md:p-3 p-2 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold text-xs">TODAY</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">1D</span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold text-xs">WEEK</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">WK</span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold text-xs">13D</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">13D</span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold md:text-xs text-[10.8px]">MONTH</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">
+                  <span className="hidden md:inline">MONTH</span>
+                  <span className="md:hidden">MO</span>
+                </span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold md:text-xs text-[9.7px]">QUARTER</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">QTR</span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-white font-bold text-xs">YTD</span>
+              <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-white font-bold md:text-sm text-[7px]">YTD</span>
               </div>
-              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="text-yellow-400 font-bold text-xs">SCORE</span>
+              <div className="hidden md:block md:py-5 md:px-3 p-1 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <span className="text-yellow-400 font-bold md:text-sm text-[7px]">SCR</span>
               </div>
-              <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
-                <span className="text-yellow-400 font-bold text-xs">FLOW</span>
+              <div className="md:py-5 md:px-3 p-1 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
+                <span className="text-yellow-400 font-bold md:text-sm text-[7px]">
+                  <span className="hidden md:inline">MONEY</span>
+                  <span className="md:hidden">$$$</span>
+                </span>
               </div>
             </div>
 
@@ -19973,7 +20008,9 @@ export default function TradingViewChart({
                           className="grid gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
                           style={{
                             gridTemplateColumns:
-                              '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
+                              typeof window !== 'undefined' && window.innerWidth <= 768
+                                ? '45px 50px 44px 40px 40px 36px 40px 42px 36px 44px'
+                                : '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
                           }}
                           title={(() => {
                             const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA']
@@ -20002,9 +20039,9 @@ export default function TradingViewChart({
                           }}
                         >
                           {/* Symbol */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
                             <div className="flex flex-col items-center">
-                              <span className="font-mono font-bold text-[#FF6600] md:text-base text-[14px] tracking-wide">
+                              <span className="font-mono font-bold text-[#FF6600] md:text-base text-[10px] tracking-wide">
                                 {symbol}
                               </span>
                               <span className="font-sans text-white md:text-xs text-[10px] mt-0.5 md:block hidden">
@@ -20014,8 +20051,8 @@ export default function TradingViewChart({
                           </div>
 
                           {/* Price */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
-                            <div className="font-mono text-white font-bold md:text-base text-[12px]">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
+                            <div className="font-mono text-white font-bold md:text-base text-[9px]">
                               $
                               {data.price.toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
@@ -20025,9 +20062,9 @@ export default function TradingViewChart({
                           </div>
 
                           {/* Change */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
                             <div
-                              className={`font-mono font-bold md:text-base text-[12px] ${changeColor}`}
+                              className={`font-mono font-bold md:text-base text-[9px] ${changeColor}`}
                             >
                               {changeSign}
                               {data.change1d.toFixed(2)}%
@@ -20035,81 +20072,63 @@ export default function TradingViewChart({
                           </div>
 
                           {/* 1D Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf1d.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perf1d.color}`}
                             >
                               {perf1d.status}
                             </span>
                           </div>
 
                           {/* 5D Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf5d.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perf5d.color}`}
                             >
                               {perf5d.status}
                             </span>
                           </div>
 
                           {/* 13D Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf13d.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perf13d.color}`}
                             >
                               {perf13d.status}
                             </span>
                           </div>
 
                           {/* 21D Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf21d.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perf21d.color}`}
                             >
                               {perf21d.status}
                             </span>
                           </div>
 
                           {/* 50D Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf50d.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perf50d.color}`}
                             >
                               {perf50d.status}
                             </span>
                           </div>
 
                           {/* YTD Performance */}
-                          <div
-                            className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all overflow-hidden">
                             <span
-                              className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perfYTD.color}`}
+                              className={`font-bold md:text-base text-[7px] uppercase md:tracking-widest ${perfYTD.color}`}
                             >
                               {perfYTD.status}
                             </span>
                           </div>
 
                           {/* Flow Score */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="hidden md:flex bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
                             <span
-                              className={`font-mono font-bold md:text-base text-[12px] ${
+                              className={`font-mono font-bold md:text-base text-[9px] ${
                                 (data.score ?? 0) >= 60
                                   ? 'text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]'
                                   : (data.score ?? 0) >= 40
@@ -20121,11 +20140,11 @@ export default function TradingViewChart({
                             </span>
                           </div>
 
-                          {/* ETF Weekly Flow */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-1 flex items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          {/* ETF Weekly Money */}
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 flex items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
                             {sectorFlowData[symbol] !== undefined ? (
                               <span
-                                className={`font-mono font-bold md:text-base text-[12px] ${sectorFlowData[symbol] >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                                className={`font-mono font-bold md:text-base text-[9px] ${sectorFlowData[symbol] >= 0 ? 'text-green-400' : 'text-red-400'}`}
                                 style={{ whiteSpace: 'nowrap' }}
                               >
                                 {sectorFlowData[symbol] >= 0 ? '+' : '-'}$
@@ -20162,7 +20181,7 @@ export default function TradingViewChart({
                       setTrackingTimeframe(tf)
                       setTrackingData({})
                     }}
-                    className={`px-5 py-2.5 text-sm font-bold rounded-md transition-all border ${
+                    className={`px-3 py-1.5 md:px-5 md:py-2.5 text-xs md:text-sm font-bold rounded-md transition-all border ${
                       trackingTimeframe === tf
                         ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
                         : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
@@ -20208,7 +20227,7 @@ export default function TradingViewChart({
                           style={{ background: category.color }}
                         />
                         <h2
-                          className="text-xl font-black uppercase tracking-wider px-4"
+                          className="text-base md:text-xl font-black uppercase tracking-wider px-4"
                           style={{
                             color: '#ffffff',
                             textShadow: `0 0 20px ${category.color}80, 2px 2px 4px rgba(0,0,0,0.8)`,
@@ -20230,7 +20249,7 @@ export default function TradingViewChart({
                     </div>
 
                     {/* Cards Grid */}
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2">
                       {category.symbols.map((symbol) => {
                         const data = trackingData[symbol]
                         if (!data) return null
@@ -20566,13 +20585,13 @@ export default function TradingViewChart({
         )}
 
         {/* Options Trades Tab Content - only renders inside TradingPlan (hideNav=true) */}
-        {activeTab === 'Flow' && (
+        {activeTab === 'Money' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-black">
             {/* Header */}
             <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-between">
               <div>
                 <div className="text-white font-black uppercase tracking-widest text-sm">
-                  INSTITUTIONAL ETF FLOW
+                  INSTITUTIONAL ETF MONEY
                 </div>
                 <div className="text-gray-400 text-xs mt-0.5">Monthly net fund flows</div>
               </div>
@@ -30111,7 +30130,8 @@ export default function TradingViewChart({
                         ? '1500px'
                         : '1200px',
                   top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : '180px',
-                  bottom: '16px',
+                  bottom:
+                    typeof window !== 'undefined' && window.innerWidth <= 768 ? '0px' : '16px',
                 }}
                 data-sidebar-panel={activeSidebarPanel}
               >

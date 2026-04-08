@@ -748,7 +748,12 @@ const EMPTY_TARGETS: FlowTargets = {
 
 // Compute live DTE from today using expiry string (YYYY-MM-DD)
 function liveDTE(expiry: string): number {
-  const exp = new Date(expiry + 'T16:00:00-05:00') // market close ET
+  // market close is 4:00 PM ET — derive correct UTC offset (EDT=-04:00, EST=-05:00)
+  const probe = new Date(expiry + 'T12:00:00Z')
+  const isEDT = probe
+    .toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' })
+    .includes('EDT')
+  const exp = new Date(expiry + (isEDT ? 'T16:00:00-04:00' : 'T16:00:00-05:00'))
   const now = new Date()
   return Math.max(1, Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
 }

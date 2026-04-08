@@ -683,7 +683,8 @@ export default function DealerGEXChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const height = 605 - margin.top - margin.bottom
+    const totalSVGHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605
+    const height = totalSVGHeight - margin.top - margin.bottom
 
     const container = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -1254,35 +1255,39 @@ export default function DealerGEXChart({
   }, [data, currentPrice, viewMode, propShowAttrax, attraxPoints, showNetGamma])
 
   return (
-    <div className="bg-black border-2 border-orange-500 rounded-lg p-6">
+    <div
+      className={`bg-black border-2 border-orange-500 rounded-lg ${hideAllControls ? 'p-0' : 'p-6'}`}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        {/* View Mode Toggle - Hidden when controls are in unified bar */}
-        {!hideAllControls && (
-          <div className="flex gap-3">
-            <button
-              onClick={() => setViewMode('gex')}
-              className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                viewMode === 'gex'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-              }`}
-            >
-              GEX
-            </button>
-            <button
-              onClick={() => setViewMode('premium')}
-              className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                viewMode === 'premium'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-              }`}
-            >
-              Premium ($)
-            </button>
-          </div>
-        )}
-      </div>
+      {!hideAllControls && (
+        <div className="flex items-center justify-between mb-6">
+          {/* View Mode Toggle - Hidden when controls are in unified bar */}
+          {!hideAllControls && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => setViewMode('gex')}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
+                  viewMode === 'gex'
+                    ? 'bg-orange-600 text-white border-2 border-orange-500'
+                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                }`}
+              >
+                GEX
+              </button>
+              <button
+                onClick={() => setViewMode('premium')}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
+                  viewMode === 'premium'
+                    ? 'bg-orange-600 text-white border-2 border-orange-500'
+                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                }`}
+              >
+                Premium ($)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Control Bar */}
       {!hideAllControls && (
@@ -1492,7 +1497,12 @@ export default function DealerGEXChart({
           <div className="text-red-500 text-lg font-bold">{error}</div>
         </div>
       ) : (
-        <svg ref={svgRef} width={chartWidth} height={605} className="bg-black"></svg>
+        <svg
+          ref={svgRef}
+          width={chartWidth}
+          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605}
+          className="bg-black"
+        ></svg>
       )}
     </div>
   )

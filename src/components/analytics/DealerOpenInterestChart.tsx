@@ -1035,7 +1035,8 @@ export default function DealerOpenInterestChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const height = 605 - margin.top - margin.bottom
+    const totalSVGHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605
+    const height = totalSVGHeight - margin.top - margin.bottom
 
     const container = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -1171,7 +1172,35 @@ export default function DealerOpenInterestChart({
           null,
           undefined
         >
-        yAxisUpdate.call(d3.axisLeft(newYScale).tickFormat(yAxisFormat as any) as any)
+        const [nyMin, nyMax] = newYScale.domain()
+        const nyRange = nyMax - nyMin
+        const nyRawStep = nyRange / 5
+        const nyMag = Math.pow(10, Math.floor(Math.log10(nyRawStep || 1)))
+        const nyNiceSteps = [1, 2, 2.5, 5, 10].map((m) => m * nyMag)
+        const nyNiceStep =
+          nyNiceSteps.find((s) => s >= nyRawStep) || nyNiceSteps[nyNiceSteps.length - 1]
+        const nyTickVals: number[] = []
+        const nyTickStart = Math.ceil(nyMin / nyNiceStep) * nyNiceStep
+        for (
+          let t = nyTickStart;
+          t <= nyMax + nyNiceStep * 0.01;
+          t = Math.round((t + nyNiceStep) * 1e10) / 1e10
+        )
+          nyTickVals.push(t)
+        yAxisUpdate.call(
+          d3
+            .axisLeft(newYScale)
+            .tickValues(nyTickVals)
+            .tickFormat((d: any) => {
+              const v = +d
+              const abs = Math.abs(v)
+              if (abs >= 1000000)
+                return `${(v / 1000000) % 1 === 0 ? (v / 1000000).toFixed(0) : (v / 1000000).toFixed(1)}M`
+              if (abs >= 1000)
+                return `${(v / 1000) % 1 === 0 ? (v / 1000).toFixed(0) : (v / 1000).toFixed(1)}k`
+              return v.toString()
+            }) as any
+        )
 
         yAxisUpdate
           .selectAll('text')
@@ -1480,7 +1509,32 @@ export default function DealerOpenInterestChart({
       }
     }
 
-    const yAxis = d3.axisLeft(yScale).tickFormat(yAxisFormat as any)
+    const [yDomainMin, yDomainMax] = yScale.domain()
+    const yRange = yDomainMax - yDomainMin
+    const rawStep = yRange / 5
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)))
+    const niceSteps = [1, 2, 2.5, 5, 10].map((m) => m * mag)
+    const niceStep = niceSteps.find((s) => s >= rawStep) || niceSteps[niceSteps.length - 1]
+    const yTickVals: number[] = []
+    const yTickStart = Math.ceil(yDomainMin / niceStep) * niceStep
+    for (
+      let t = yTickStart;
+      t <= yDomainMax + niceStep * 0.01;
+      t = Math.round((t + niceStep) * 1e10) / 1e10
+    )
+      yTickVals.push(t)
+    const yAxis = d3
+      .axisLeft(yScale)
+      .tickValues(yTickVals)
+      .tickFormat((d) => {
+        const v = +d
+        const abs = Math.abs(v)
+        if (abs >= 1000000)
+          return `${(v / 1000000) % 1 === 0 ? (v / 1000000).toFixed(0) : (v / 1000000).toFixed(1)}M`
+        if (abs >= 1000)
+          return `${(v / 1000) % 1 === 0 ? (v / 1000).toFixed(0) : (v / 1000).toFixed(1)}k`
+        return v.toString()
+      })
 
     container
       .append('g')
@@ -2030,35 +2084,39 @@ export default function DealerOpenInterestChart({
   }, [data, currentPrice, viewMode, showTowers, towerStructures, expectedRange80])
 
   return (
-    <div className="bg-black border-2 border-orange-500 rounded-lg p-6">
+    <div
+      className={`bg-black border-2 border-orange-500 rounded-lg ${hideAllControls ? 'p-0' : 'p-6'}`}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        {/* View Mode Toggle - Hidden when controls are in unified bar */}
-        {!hideAllControls && (
-          <div className="flex gap-3">
-            <button
-              onClick={() => setViewMode('contracts')}
-              className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                viewMode === 'contracts'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-              }`}
-            >
-              Contracts
-            </button>
-            <button
-              onClick={() => setViewMode('premium')}
-              className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                viewMode === 'premium'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-              }`}
-            >
-              Premium ($)
-            </button>
-          </div>
-        )}
-      </div>
+      {!hideAllControls && (
+        <div className="flex items-center justify-between mb-6">
+          {/* View Mode Toggle - Hidden when controls are in unified bar */}
+          {!hideAllControls && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => setViewMode('contracts')}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
+                  viewMode === 'contracts'
+                    ? 'bg-orange-600 text-white border-2 border-orange-500'
+                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                }`}
+              >
+                Contracts
+              </button>
+              <button
+                onClick={() => setViewMode('premium')}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
+                  viewMode === 'premium'
+                    ? 'bg-orange-600 text-white border-2 border-orange-500'
+                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                }`}
+              >
+                Premium ($)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Control Bar */}
       {!hideAllControls && (
@@ -2486,7 +2544,12 @@ export default function DealerOpenInterestChart({
           <div className="text-red-500 text-lg font-bold">{error}</div>
         </div>
       ) : (
-        <svg ref={svgRef} width={chartWidth} height={605} className="bg-black"></svg>
+        <svg
+          ref={svgRef}
+          width={chartWidth}
+          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605}
+          className="bg-black"
+        ></svg>
       )}
     </div>
   )

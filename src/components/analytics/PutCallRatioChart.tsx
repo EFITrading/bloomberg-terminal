@@ -967,6 +967,53 @@ function PCMiniChart({
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Main component â€” module-level cache prevents re-fetch on remount
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
+// Standalone prefetch — call on panel mount to warm the cache so the RATIO
+// tab opens instantly (mirrors fetchHistory pattern). No React state involved.
+// ─────────────────────────────────────────────────────────────────────────────
+export function prefetchPCRatioData(range: PCRange = '1D'): void {
+  const staleMs = STALE_MS[range] ?? STALE_MS['1D']
+  const cacheFresh =
+    _mc.range === range &&
+    Date.now() - _mc.fetchedAt < staleMs &&
+    ALL_SYMBOLS.every((s) => s in _mc.data)
+
+  if (cacheFresh) return
+  if (_mc.fetching && _mc.range === range) return
+  _mc.range = range
+  _mc.data = {}
+  _mc.fetchedAt = Date.now()
+  _mc.fetching = true
+
+  ALL_SYMBOLS.forEach((sym) => {
+    fetch(`/api/historical-pc-ratio?symbol=${sym}&range=${range}`)
+      .then((res) => res.json())
+      .then((json) => {
+        const val: PCChartData | null =
+          json.success && json.ratios?.length ? { dates: json.dates, ratios: json.ratios } : null
+        if (val) {
+          _mc.data[sym] = val
+          _subs.forEach((cb) => cb(sym, val))
+        } else {
+          // Got 0 points — reset cache so the component does its own fetch on mount
+          _mc.data = {}
+          _mc.range = ''
+          _mc.fetchedAt = 0
+          _mc.fetching = false
+        }
+      })
+      .catch(() => {
+        _mc.data = {}
+        _mc.range = ''
+        _mc.fetchedAt = 0
+        _mc.fetching = false
+      })
+      .finally(() => {
+        if (ALL_SYMBOLS.every((s) => s in _mc.data)) _mc.fetching = false
+      })
+  })
+}
+
 export default function PutCallRatioChart({
   chartHeight,
   embedded,
@@ -974,9 +1021,8 @@ export default function PutCallRatioChart({
   const [range, setRange] = useState<PCRange>(() => (_mc.range as PCRange) || '1D')
   const [chartData, setChartData] = useState<Record<string, PCChartData | null>>(() => {
     // On mount, immediately populate from module cache if it's warm
-    if (_mc.range && Object.keys(_mc.data).length === ALL_SYMBOLS.length) {
-      return { ..._mc.data }
-    }
+    const warm = _mc.range && Object.keys(_mc.data).length === ALL_SYMBOLS.length
+    if (warm) return { ..._mc.data }
     return {}
   })
   const [loading, setLoading] = useState<Record<string, boolean>>(() => {
@@ -1002,9 +1048,7 @@ export default function PutCallRatioChart({
 
     // If a fetch is already in-flight for this exact range, don't start another —
     // the subscriber added in useEffect will deliver data when it arrives.
-    if (!force && _mc.fetching && _mc.range === r) {
-      return
-    }
+    if (!force && _mc.fetching && _mc.range === r) return
 
     // Invalidate module cache for this range
     _mc.range = r

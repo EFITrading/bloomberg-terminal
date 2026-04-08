@@ -112,7 +112,7 @@ export default function Navigation() {
           }}
         >
           <div className="nav-brand">
-            <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <Link href="/" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
               <div
                 style={{
                   display: 'flex',

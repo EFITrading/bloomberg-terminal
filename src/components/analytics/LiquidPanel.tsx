@@ -99,27 +99,205 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
   }, [selectedTicker])
 
   return (
-    <div className="space-y-8">
-      {/* Unified Control Bar - 2 Rows × 3 Columns Grid */}
+    <div className="flex flex-col gap-0">
+      {/* Mobile: compact single row matching row 1 style */}
+      <div className="md:hidden w-full flex items-center gap-1.5 mb-0" style={{ height: 34 }}>
+        {/* Expiration select */}
+        <select
+          value={sharedExpiration}
+          onChange={(e) => setSharedExpiration(e.target.value)}
+          style={{
+            height: 34,
+            flex: '2 1 0',
+            minWidth: 0,
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            outline: 'none',
+            cursor: 'pointer',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            colorScheme: 'dark',
+            padding: '0 6px',
+          }}
+        >
+          <option value="45-days" style={{ background: '#000', color: '#fff', fontWeight: 600 }}>
+            45D (All)
+          </option>
+          {expirationDates.map((date) => (
+            <option key={date} value={date} style={{ background: '#000', color: '#fff' }}>
+              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                timeZone: 'America/Los_Angeles',
+              })}
+            </option>
+          ))}
+        </select>
+        {/* OI/GEX mode select */}
+        <select
+          value={
+            showNetOI
+              ? 'net-oi'
+              : showNetGamma
+                ? 'net-gex'
+                : showCalls && showPuts && showPositiveGamma && showNegativeGamma
+                  ? 'both'
+                  : showCalls && showPuts
+                    ? 'oi-both'
+                    : showCalls
+                      ? 'calls'
+                      : showPuts
+                        ? 'puts'
+                        : showPositiveGamma
+                          ? 'positive'
+                          : 'negative'
+          }
+          onChange={(e) => {
+            const value = e.target.value
+            if (value === 'both') {
+              setShowCalls(true)
+              setShowPuts(true)
+              setShowNetOI(false)
+              setShowPositiveGamma(true)
+              setShowNegativeGamma(true)
+              setShowNetGamma(false)
+            } else if (value === 'oi-both') {
+              setShowCalls(true)
+              setShowPuts(true)
+              setShowNetOI(false)
+            } else if (value === 'calls') {
+              setShowCalls(true)
+              setShowPuts(false)
+              setShowNetOI(false)
+            } else if (value === 'puts') {
+              setShowCalls(false)
+              setShowPuts(true)
+              setShowNetOI(false)
+            } else if (value === 'net-oi') {
+              setShowNetOI(true)
+              setShowCalls(false)
+              setShowPuts(false)
+            } else if (value === 'positive') {
+              setShowPositiveGamma(true)
+              setShowNegativeGamma(false)
+              setShowNetGamma(false)
+            } else if (value === 'negative') {
+              setShowPositiveGamma(false)
+              setShowNegativeGamma(true)
+              setShowNetGamma(false)
+            } else if (value === 'net-gex') {
+              setShowNetGamma(true)
+              setShowPositiveGamma(false)
+              setShowNegativeGamma(false)
+            }
+          }}
+          style={{
+            height: 34,
+            flex: '2 1 0',
+            minWidth: 0,
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 500,
+            outline: 'none',
+            cursor: 'pointer',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            colorScheme: 'dark',
+            padding: '0 4px',
+          }}
+        >
+          <option value="oi-both" style={{ background: '#000', color: '#fff' }}>
+            OI: Both
+          </option>
+          <option value="calls" style={{ background: '#000', color: '#fff' }}>
+            OI: Calls
+          </option>
+          <option value="puts" style={{ background: '#000', color: '#fff' }}>
+            OI: Puts
+          </option>
+          <option value="net-oi" style={{ background: '#000', color: '#fff' }}>
+            OI: Net
+          </option>
+          <option value="both" style={{ background: '#000', color: '#fff' }}>
+            GEX: Both
+          </option>
+          <option value="positive" style={{ background: '#000', color: '#fff' }}>
+            GEX: +
+          </option>
+          <option value="negative" style={{ background: '#000', color: '#fff' }}>
+            GEX: -
+          </option>
+          <option value="net-gex" style={{ background: '#000', color: '#fff' }}>
+            GEX: Net
+          </option>
+        </select>
+        {/* $ Prem */}
+        <button
+          onClick={() => setShowPremium(!showPremium)}
+          style={{
+            height: 34,
+            padding: '0 8px',
+            background: showPremium
+              ? 'rgba(255,170,0,0.2)'
+              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showPremium ? '1px solid #ffaa00' : '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: showPremium ? '#ffaa00' : '#888',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: showPremium
+              ? '0 0 8px rgba(255,170,0,0.2)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          $ Prem
+        </button>
+        {/* AI */}
+        <button
+          onClick={() => setShowAITowers(!showAITowers)}
+          style={{
+            height: 34,
+            padding: '0 8px',
+            background: showAITowers
+              ? 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'
+              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showAITowers ? '1px solid #667eea' : '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: showAITowers
+              ? '0 4px 12px rgba(102,126,234,0.4)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          👑 AI
+        </button>
+      </div>
+
+      {/* Desktop: full grid card */}
       <div
+        className="hidden md:grid"
         style={{
-          display: 'grid',
           gridTemplateColumns: 'repeat(3, minmax(0, max-content))',
           gap: '8px',
           padding: '12px',
           background: '#000000',
           borderRadius: '12px',
           border: '1px solid #333333',
-          boxShadow: `
-          0 8px 32px rgba(0, 0, 0, 0.8),
-          0 2px 8px rgba(0, 0, 0, 0.6),
-          inset 0 1px 0 rgba(255, 255, 255, 0.1),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.8)
-        `,
+          boxShadow:
+            '0 8px 32px rgba(0,0,0,0.8), 0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1)',
           position: 'relative' as const,
           zIndex: 100,
-          transform: 'translateZ(0)',
-          backdropFilter: 'blur(20px)',
         }}
       >
         {/* 3D Highlight Effect */}
@@ -141,8 +319,8 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           value={sharedExpiration}
           onChange={(e) => setSharedExpiration(e.target.value)}
           style={{
-            background: '#000000',
-            border: '1px solid #333333',
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: '8px',
             color: '#ffffff',
             padding: '8px 10px',
@@ -152,12 +330,9 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             cursor: 'pointer',
             transition: 'all 0.2s ease',
             fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-            boxShadow: `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
             textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+            colorScheme: 'dark',
             zIndex: 1,
           }}
         >
@@ -184,14 +359,10 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         <div
           className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]"
           style={{
-            background: '#000000',
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
             borderRadius: '8px',
-            border: '1px solid #333333',
-            boxShadow: `
-            inset 0 2px 4px rgba(0, 0, 0, 0.6),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-            0 1px 0 rgba(255, 255, 255, 0.1)
-          `,
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
             zIndex: 1,
           }}
         >
@@ -222,14 +393,10 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         <div
           className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]"
           style={{
-            background: '#000000',
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
             borderRadius: '8px',
-            border: '1px solid #333333',
-            boxShadow: `
-            inset 0 2px 4px rgba(0, 0, 0, 0.6),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-            0 1px 0 rgba(255, 255, 255, 0.1)
-          `,
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
             zIndex: 1,
           }}
         >
@@ -265,21 +432,17 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             justifyContent: 'center',
             gap: '4px',
             padding: '8px 10px',
-            background: showPremium ? 'rgba(255, 170, 0, 0.2)' : '#000000',
-            border: showPremium ? '1px solid #ffaa00' : '1px solid #333333',
+            background: showPremium
+              ? 'rgba(255, 170, 0, 0.2)'
+              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showPremium ? '1px solid #ffaa00' : '1px solid rgba(255,255,255,0.1)',
             borderRadius: '8px',
             color: showPremium ? '#ffaa00' : '#ffffff',
             fontSize: '11px',
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: showPremium
-              ? 'none'
-              : `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
+            boxShadow: showPremium ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.08)',
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
             zIndex: 1,
@@ -299,8 +462,8 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             padding: '8px 10px',
             background: showAITowers
               ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-              : '#000000',
-            border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
+              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: showAITowers ? '1px solid #667eea' : '1px solid rgba(255,255,255,0.1)',
             borderRadius: '8px',
             color: '#ffffff',
             fontSize: '11px',
@@ -309,11 +472,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             transition: 'all 0.2s ease',
             boxShadow: showAITowers
               ? '0 4px 12px rgba(102, 126, 234, 0.4)'
-              : `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
+              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
             zIndex: 1,
@@ -381,8 +540,8 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             }
           }}
           style={{
-            background: '#000000',
-            border: '1px solid #333333',
+            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+            border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: '8px',
             color: '#ffffff',
             padding: '8px 10px',
@@ -392,12 +551,9 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             cursor: 'pointer',
             transition: 'all 0.2s ease',
             fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-            boxShadow: `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
             textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+            colorScheme: 'dark',
             zIndex: 1,
           }}
         >
@@ -432,7 +588,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         </select>
       </div>
 
-      <div className="w-full md:w-auto overflow-x-auto" style={{ maxHeight: '90%', height: '90%' }}>
+      <div className="w-full md:w-auto overflow-x-auto">
         <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -448,7 +604,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div className="w-full md:w-auto overflow-x-auto" style={{ maxHeight: '90%', height: '90%' }}>
+      <div className="w-full md:w-auto overflow-x-auto">
         <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -469,23 +625,23 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
 interface GEXData {
   strike: number
   [key: string]:
-  | number
-  | {
-    call: number
-    put: number
-    net: number
-    callOI: number
-    putOI: number
-    callPremium?: number
-    putPremium?: number
-    callVex?: number
-    putVex?: number
-    callDelta?: number
-    putDelta?: number
-    flowCall?: number
-    flowPut?: number
-    flowNet?: number
-  }
+    | number
+    | {
+        call: number
+        put: number
+        net: number
+        callOI: number
+        putOI: number
+        callPremium?: number
+        putPremium?: number
+        callVex?: number
+        putVex?: number
+        callDelta?: number
+        putDelta?: number
+        flowCall?: number
+        flowPut?: number
+        flowNet?: number
+      }
 }
 
 interface ServerGEXData {
@@ -620,34 +776,85 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
     })
     return Array.from(allStrikes)
       .map((strike) => {
-        let totalCallMM = 0, totalPutMM = 0, totalOI = 0, avgDTE = 0, validExp = 0
-        let tCD = 0, tPD = 0, tCG = 0, tPG = 0, tCT = 0, tPT = 0, tCV = 0, tPV = 0
+        let totalCallMM = 0,
+          totalPutMM = 0,
+          totalOI = 0,
+          avgDTE = 0,
+          validExp = 0
+        let tCD = 0,
+          tPD = 0,
+          tCG = 0,
+          tPG = 0,
+          tCT = 0,
+          tPT = 0,
+          tCV = 0,
+          tPV = 0
         mmExpirations.forEach((exp) => {
           const sd = gexByStrikeByExpiration[exp]?.[strike]
           if (sd) {
-            const daysToExp = Math.ceil((new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000)
+            const daysToExp = Math.ceil(
+              (new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000
+            )
             const w = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1
             totalCallMM += (sd.call / (currentPrice * 0.01)) * w
             totalPutMM += (sd.put / (currentPrice * 0.01)) * w
             totalOI += (sd.callOI || 0) + (sd.putOI || 0)
-            const cOI = sd.callOI || 0, pOI = sd.putOI || 0
+            const cOI = sd.callOI || 0,
+              pOI = sd.putOI || 0
             const m = strike / currentPrice
-            let cd = 0.4, pd = -0.6
-            if (m > 1.1) { cd = 0.1; pd = -0.9 }
-            else if (m > 1.05) { cd = 0.3; pd = -0.7 }
-            else if (m > 0.95) { cd = 0.6; pd = -0.4 }
-            else if (m > 0.9) { cd = 0.7; pd = -0.3 }
-            else if (m <= 0.9) { cd = 0.9; pd = -0.1 }
-            tCD += cd * cOI * 100 * w; tPD += pd * pOI * 100 * w
-            tCG += (sd.callGamma || 0) * cOI * w; tPG += (sd.putGamma || 0) * pOI * w
-            tCT += (sd.callTheta || 0) * cOI * w; tPT += (sd.putTheta || 0) * pOI * w
-            tCV += (sd.callVega || 0) * cOI * w; tPV += (sd.putVega || 0) * pOI * w
-            avgDTE += daysToExp; validExp++
+            let cd = 0.4,
+              pd = -0.6
+            if (m > 1.1) {
+              cd = 0.1
+              pd = -0.9
+            } else if (m > 1.05) {
+              cd = 0.3
+              pd = -0.7
+            } else if (m > 0.95) {
+              cd = 0.6
+              pd = -0.4
+            } else if (m > 0.9) {
+              cd = 0.7
+              pd = -0.3
+            } else if (m <= 0.9) {
+              cd = 0.9
+              pd = -0.1
+            }
+            tCD += cd * cOI * 100 * w
+            tPD += pd * pOI * 100 * w
+            tCG += (sd.callGamma || 0) * cOI * w
+            tPG += (sd.putGamma || 0) * pOI * w
+            tCT += (sd.callTheta || 0) * cOI * w
+            tPT += (sd.putTheta || 0) * pOI * w
+            tCV += (sd.callVega || 0) * cOI * w
+            tPV += (sd.putVega || 0) * pOI * w
+            avgDTE += daysToExp
+            validExp++
           }
         })
         if (validExp > 0) avgDTE /= validExp
         const netMM = totalCallMM + totalPutMM
-        return { strike, netMM, callMM: totalCallMM, putMM: totalPutMM, totalOI, daysToExpiry: Math.round(avgDTE), impact: Math.abs(netMM), netDelta: tCD + tPD, netGamma: tCG + tPG, netTheta: tCT + tPT, netVega: tCV + tPV, callDelta: tCD, putDelta: tPD, callGamma: tCG, putGamma: tPG, callTheta: tCT, putTheta: tPT, callVega: tCV, putVega: tPV }
+        return {
+          strike,
+          netMM,
+          callMM: totalCallMM,
+          putMM: totalPutMM,
+          totalOI,
+          daysToExpiry: Math.round(avgDTE),
+          impact: Math.abs(netMM),
+          netDelta: tCD + tPD,
+          netGamma: tCG + tPG,
+          netTheta: tCT + tPT,
+          netVega: tCV + tPV,
+          callDelta: tCD,
+          putDelta: tPD,
+          callGamma: tCG,
+          putGamma: tPG,
+          callTheta: tCT,
+          putTheta: tPT,
+          callVega: tCV,
+          putVega: tPV,
+        }
       })
       .sort((a, b) => b.strike - a.strike)
   }, [currentPrice, gexByStrikeByExpiration, mmExpirations])
@@ -662,23 +869,32 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
     const tS = Math.max(-100, Math.min(100, tNT / 1000))
     const vS = Math.max(-100, Math.min(100, tNV / 1000))
     const compositeScore = dS * 0.3 + gS * 0.35 + tS * 0.2 + vS * 0.15
-    let signal = 'WAIT', signalExplanation = 'Mixed signals - no clear edge'
+    let signal = 'WAIT',
+      signalExplanation = 'Mixed signals - no clear edge'
     if (compositeScore > 3) {
       signal = 'BUY SETUP'
-      if (gS > 5 && dS > 3) signalExplanation = 'Strong long gamma + bullish delta - dealers will buy dips & stabilize'
-      else if (tS < -5 && Math.abs(dS) > 5) signalExplanation = 'Large theta bleed + directional position - dealers need price movement'
+      if (gS > 5 && dS > 3)
+        signalExplanation = 'Strong long gamma + bullish delta - dealers will buy dips & stabilize'
+      else if (tS < -5 && Math.abs(dS) > 5)
+        signalExplanation = 'Large theta bleed + directional position - dealers need price movement'
       else signalExplanation = 'Net bullish positioning across all Greeks - favorable setup'
     } else if (compositeScore < -3) {
       signal = 'SELL SETUP'
-      if (gS < -5 && dS < -3) signalExplanation = 'Strong short gamma + bearish delta - dealers will sell rallies & amplify'
-      else if (tS > 5 && vS < -3) signalExplanation = 'Collecting premium + short vol - dealers want compression & decay'
+      if (gS < -5 && dS < -3)
+        signalExplanation =
+          'Strong short gamma + bearish delta - dealers will sell rallies & amplify'
+      else if (tS > 5 && vS < -3)
+        signalExplanation = 'Collecting premium + short vol - dealers want compression & decay'
       else signalExplanation = 'Net bearish positioning across all Greeks - favorable short setup'
     } else if (compositeScore > 1) {
-      signal = 'LEAN BUY'; signalExplanation = 'Moderate bullish bias - consider smaller long positions'
+      signal = 'LEAN BUY'
+      signalExplanation = 'Moderate bullish bias - consider smaller long positions'
     } else if (compositeScore < -1) {
-      signal = 'LEAN SELL'; signalExplanation = 'Moderate bearish bias - consider smaller short positions'
+      signal = 'LEAN SELL'
+      signalExplanation = 'Moderate bearish bias - consider smaller short positions'
     } else {
-      if (Math.abs(gS) < 2 && Math.abs(dS) < 2) signalExplanation = 'Low conviction across all Greeks - wait for clearer setup'
+      if (Math.abs(gS) < 2 && Math.abs(dS) < 2)
+        signalExplanation = 'Low conviction across all Greeks - wait for clearer setup'
       else signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade'
     }
     return { compositeScore, signal, signalExplanation }
@@ -686,19 +902,29 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
 
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0)
-      return { siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data', stabilityColor: 'text-gray-400' }
-    let totalGEX = 0, totalVEX = 0, totalDEX = 0
+      return {
+        siNorm: 0,
+        stability: 'UNKNOWN',
+        marketBehavior: 'No Data',
+        stabilityColor: 'text-gray-400',
+      }
+    let totalGEX = 0,
+      totalVEX = 0,
+      totalDEX = 0
     mmExpirations.forEach((exp) => {
       const gexData = gexByStrikeByExpiration[exp]
       if (gexData) {
         Object.entries(gexData).forEach(([strike, data]) => {
           const sp = parseFloat(strike)
-          const cOI = data.callOI || 0, pOI = data.putOI || 0
+          const cOI = data.callOI || 0,
+            pOI = data.putOI || 0
           if (cOI > 0 || pOI > 0) {
-            const cG = data.callGamma || 0, pG = data.putGamma || 0
+            const cG = data.callGamma || 0,
+              pG = data.putGamma || 0
             if (cOI > 0 && cG !== 0) totalGEX += cG * cOI * (currentPrice * currentPrice) * 100
             if (pOI > 0 && pG !== 0) totalGEX += -pG * pOI * (currentPrice * currentPrice) * 100
-            const cV = data.callVega || 0, pV = data.putVega || 0
+            const cV = data.callVega || 0,
+              pV = data.putVega || 0
             if (cOI > 0 && cV !== 0) totalVEX += cV * cOI * 100
             if (pOI > 0 && pV !== 0) totalVEX += -pV * pOI * 100
             const mn = sp / currentPrice
@@ -712,13 +938,34 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
     })
     const denom = Math.abs(totalVEX) + Math.abs(totalDEX)
     const si = denom !== 0 ? totalGEX / denom : 0
-    let stability = '', marketBehavior = '', stabilityColor = ''
-    if (si >= 2.0) { stability = 'EXTREMELY STABLE'; marketBehavior = 'Strong Mean Reversion'; stabilityColor = 'text-green-500' }
-    else if (si >= 0.5) { stability = 'HIGHLY STABLE'; marketBehavior = 'Mean Reverting'; stabilityColor = 'text-green-400' }
-    else if (si >= 0) { stability = 'MILDLY SUPPORTIVE'; marketBehavior = 'Range-bound'; stabilityColor = 'text-blue-400' }
-    else if (si >= -0.5) { stability = 'VOLATILITY BUILDING'; marketBehavior = 'Breakout Likely'; stabilityColor = 'text-yellow-400' }
-    else if (si >= -2.0) { stability = 'REFLEXIVE MARKET'; marketBehavior = 'Fragile & Explosive'; stabilityColor = 'text-red-400' }
-    else { stability = 'EXTREMELY REFLEXIVE'; marketBehavior = 'Highly Explosive'; stabilityColor = 'text-red-500' }
+    let stability = '',
+      marketBehavior = '',
+      stabilityColor = ''
+    if (si >= 2.0) {
+      stability = 'EXTREMELY STABLE'
+      marketBehavior = 'Strong Mean Reversion'
+      stabilityColor = 'text-green-500'
+    } else if (si >= 0.5) {
+      stability = 'HIGHLY STABLE'
+      marketBehavior = 'Mean Reverting'
+      stabilityColor = 'text-green-400'
+    } else if (si >= 0) {
+      stability = 'MILDLY SUPPORTIVE'
+      marketBehavior = 'Range-bound'
+      stabilityColor = 'text-blue-400'
+    } else if (si >= -0.5) {
+      stability = 'VOLATILITY BUILDING'
+      marketBehavior = 'Breakout Likely'
+      stabilityColor = 'text-yellow-400'
+    } else if (si >= -2.0) {
+      stability = 'REFLEXIVE MARKET'
+      marketBehavior = 'Fragile & Explosive'
+      stabilityColor = 'text-red-400'
+    } else {
+      stability = 'EXTREMELY REFLEXIVE'
+      marketBehavior = 'Highly Explosive'
+      stabilityColor = 'text-red-500'
+    }
     return { siNorm: si, stability, marketBehavior, stabilityColor }
   }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, mmExpirations])
 
@@ -738,17 +985,30 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           zIndex: 0,
         }}
       />
-      <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 md:gap-6 gap-4">
+      <div className="relative z-10 grid grid-cols-3 md:gap-6 gap-1">
         {/* ─── INTENSITY GAUGE ─── */}
         {(() => {
           const val = metrics.compositeScore
           const angle = -90 + ((Math.max(-20, Math.min(20, val)) + 20) / 40) * 180
-          const cx = 200, cy = 215, r = 150
+          const cx = 200,
+            cy = 215,
+            r = 150
           const arcLen = Math.PI * r
           const scoreColor = val > 3 ? '#00ff88' : val < -3 ? '#ff2244' : '#ffcc00'
           const scoreLabel =
-            val > 10 ? 'BREAKOUT' : val > 3 ? 'STRONG BUY' : val > 0.5 ? 'BUY SETUP'
-              : val < -10 ? 'BREAKDOWN' : val < -3 ? 'STRONG SELL' : val < -0.5 ? 'SELL SETUP' : 'NEUTRAL'
+            val > 10
+              ? 'BREAKOUT'
+              : val > 3
+                ? 'STRONG BUY'
+                : val > 0.5
+                  ? 'BUY SETUP'
+                  : val < -10
+                    ? 'BREAKDOWN'
+                    : val < -3
+                      ? 'STRONG SELL'
+                      : val < -0.5
+                        ? 'SELL SETUP'
+                        : 'NEUTRAL'
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -770,47 +1030,217 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                   </linearGradient>
                   <style>{`@keyframes gtp1{0%,100%{opacity:.45}50%{opacity:1}}.gtp1{animation:gtp1 2s ease-in-out infinite}`}</style>
                 </defs>
-                <text x="200" y="8" fill="#ff8000" fontSize="18" fontWeight="900" textAnchor="middle" letterSpacing="4" opacity="1">FLOW INTENSITY</text>
-                <path d="M 50 215 A 150 150 0 0 1 350 215" fill="none" stroke="#071825" strokeWidth="26" />
-                <path d="M 50 215 A 150 150 0 0 1 143 76" fill="none" stroke="#ff1144" strokeWidth="26" strokeOpacity="0.13" />
-                <path d="M 143 76 A 150 150 0 0 1 200 65" fill="none" stroke="#ffcc00" strokeWidth="26" strokeOpacity="0.10" />
-                <path d="M 200 65 A 150 150 0 0 1 257 76" fill="none" stroke="#ffcc00" strokeWidth="26" strokeOpacity="0.10" />
-                <path d="M 257 76 A 150 150 0 0 1 350 215" fill="none" stroke="#00ff88" strokeWidth="26" strokeOpacity="0.13" />
+                <text
+                  x="200"
+                  y="8"
+                  fill="#ff8000"
+                  fontSize="18"
+                  fontWeight="900"
+                  textAnchor="middle"
+                  letterSpacing="4"
+                  opacity="1"
+                >
+                  FLOW INTENSITY
+                </text>
+                <path
+                  d="M 50 215 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#071825"
+                  strokeWidth="26"
+                />
+                <path
+                  d="M 50 215 A 150 150 0 0 1 143 76"
+                  fill="none"
+                  stroke="#ff1144"
+                  strokeWidth="26"
+                  strokeOpacity="0.13"
+                />
+                <path
+                  d="M 143 76 A 150 150 0 0 1 200 65"
+                  fill="none"
+                  stroke="#ffcc00"
+                  strokeWidth="26"
+                  strokeOpacity="0.10"
+                />
+                <path
+                  d="M 200 65 A 150 150 0 0 1 257 76"
+                  fill="none"
+                  stroke="#ffcc00"
+                  strokeWidth="26"
+                  strokeOpacity="0.10"
+                />
+                <path
+                  d="M 257 76 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#00ff88"
+                  strokeWidth="26"
+                  strokeOpacity="0.13"
+                />
                 {val < 0 ? (
-                  <path d="M 200 65 A 150 150 0 0 0 50 215" fill="none" stroke="url(#gtSf1)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 0 50 215"
+                    fill="none"
+                    stroke="url(#gtSf1)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(Math.abs(val), 20) / 20)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 ) : (
-                  <path d="M 200 65 A 150 150 0 0 1 350 215" fill="none" stroke="url(#gtBf1)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 1 350 215"
+                    fill="none"
+                    stroke="url(#gtBf1)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(val, 20) / 20)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 )}
-                <path d="M 20 215 A 180 180 0 0 1 380 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
-                <path d="M 62 215 A 138 138 0 0 1 338 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
+                <path
+                  d="M 20 215 A 180 180 0 0 1 380 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M 62 215 A 138 138 0 0 1 338 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
                 {Array.from({ length: 17 }).map((_, i) => {
-                  const t = i / 16, a = Math.PI - t * Math.PI, major = i % 4 === 0
-                  const ro = major ? 173 : 168, ri = major ? 157 : 163
-                  return <line key={i} x1={cx + ro * Math.cos(a)} y1={cy - ro * Math.sin(a)} x2={cx + ri * Math.cos(a)} y2={cy - ri * Math.sin(a)} stroke={major ? '#ff8c00' : '#1a0800'} strokeWidth={major ? 2 : 1} />
+                  const t = i / 16,
+                    a = Math.PI - t * Math.PI,
+                    major = i % 4 === 0
+                  const ro = major ? 173 : 168,
+                    ri = major ? 157 : 163
+                  return (
+                    <line
+                      key={i}
+                      x1={cx + ro * Math.cos(a)}
+                      y1={cy - ro * Math.sin(a)}
+                      x2={cx + ri * Math.cos(a)}
+                      y2={cy - ri * Math.sin(a)}
+                      stroke={major ? '#ff8c00' : '#1a0800'}
+                      strokeWidth={major ? 2 : 1}
+                    />
+                  )
                 })}
-                <text fill="#ff2244" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="63" y="108" transform="rotate(-53 63 108)">BREAK</tspan><tspan x="63" y="117" transform="rotate(-53 63 117)">DOWN</tspan></text>
-                <text fill="#ff7700" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="98" y="66" transform="rotate(-36 98 66)">STRONG</tspan><tspan x="98" y="75" transform="rotate(-36 98 75)">SELL</tspan></text>
-                <text fill="#ffcc00" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="150" y="44" transform="rotate(-18 150 44)">SELL</tspan><tspan x="150" y="53" transform="rotate(-18 150 53)">SETUP</tspan></text>
-                <text fill="#00ccff" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="250" y="44" transform="rotate(18 250 44)">BUY</tspan><tspan x="250" y="53" transform="rotate(18 250 53)">SETUP</tspan></text>
-                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="302" y="66" transform="rotate(36 302 66)">STRONG</tspan><tspan x="302" y="75" transform="rotate(36 302 75)">BUY</tspan></text>
-                <text fill="#00ff44" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="337" y="108" transform="rotate(53 337 108)">BREAK</tspan><tspan x="337" y="117" transform="rotate(53 337 117)">OUT</tspan></text>
-                <g style={{ transformOrigin: `${cx}px ${cy}px`, transform: `rotate(${angle}deg)`, transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)' }}>
-                  <polygon points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`} fill="white" opacity="0.95" />
-                  <polygon points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`} fill="#ff8c00" opacity="0.7" />
+                <text fill="#ff2244" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="63" y="108" transform="rotate(-53 63 108)">
+                    BREAK
+                  </tspan>
+                  <tspan x="63" y="117" transform="rotate(-53 63 117)">
+                    DOWN
+                  </tspan>
+                </text>
+                <text fill="#ff7700" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="98" y="66" transform="rotate(-36 98 66)">
+                    STRONG
+                  </tspan>
+                  <tspan x="98" y="75" transform="rotate(-36 98 75)">
+                    SELL
+                  </tspan>
+                </text>
+                <text fill="#ffcc00" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="150" y="44" transform="rotate(-18 150 44)">
+                    SELL
+                  </tspan>
+                  <tspan x="150" y="53" transform="rotate(-18 150 53)">
+                    SETUP
+                  </tspan>
+                </text>
+                <text fill="#00ccff" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="250" y="44" transform="rotate(18 250 44)">
+                    BUY
+                  </tspan>
+                  <tspan x="250" y="53" transform="rotate(18 250 53)">
+                    SETUP
+                  </tspan>
+                </text>
+                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="302" y="66" transform="rotate(36 302 66)">
+                    STRONG
+                  </tspan>
+                  <tspan x="302" y="75" transform="rotate(36 302 75)">
+                    BUY
+                  </tspan>
+                </text>
+                <text fill="#00ff44" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="337" y="108" transform="rotate(53 337 108)">
+                    BREAK
+                  </tspan>
+                  <tspan x="337" y="117" transform="rotate(53 337 117)">
+                    OUT
+                  </tspan>
+                </text>
+                <g
+                  style={{
+                    transformOrigin: `${cx}px ${cy}px`,
+                    transform: `rotate(${angle}deg)`,
+                    transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)',
+                  }}
+                >
+                  <polygon
+                    points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`}
+                    fill="white"
+                    opacity="0.95"
+                  />
+                  <polygon
+                    points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`}
+                    fill="#ff8c00"
+                    opacity="0.7"
+                  />
                 </g>
                 <circle cx={cx} cy={cy} r="15" fill="#050505" stroke="#ff8c00" strokeWidth="1.5" />
                 <circle cx={cx} cy={cy} r="9" fill="url(#gtHg1)" />
                 <circle cx={cx} cy={cy} r="4" className="gtp1" fill={scoreColor} />
-                <text x="42" y="233" fill="#ff2244" fontSize="13" fontWeight="900" textAnchor="middle">SELL</text>
-                <text x="358" y="233" fill="#00ff88" fontSize="13" fontWeight="900" textAnchor="middle">BUY</text>
-                <text x="200" y="250" fill={scoreColor} fontSize="27" fontWeight="900" textAnchor="middle">{val > 0 ? '+' : ''}{val.toFixed(1)}</text>
-                <text x="200" y="267" fill={scoreColor} fontSize="11" fontWeight="bold" textAnchor="middle" letterSpacing="2.5" opacity="0.9">{scoreLabel}</text>
+                <text
+                  x="42"
+                  y="233"
+                  fill="#ff2244"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  SELL
+                </text>
+                <text
+                  x="358"
+                  y="233"
+                  fill="#00ff88"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  BUY
+                </text>
+                <text
+                  x="200"
+                  y="250"
+                  fill={scoreColor}
+                  fontSize="27"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  {val > 0 ? '+' : ''}
+                  {val.toFixed(1)}
+                </text>
+                <text
+                  x="200"
+                  y="267"
+                  fill={scoreColor}
+                  fontSize="11"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  letterSpacing="2.5"
+                  opacity="0.9"
+                >
+                  {scoreLabel}
+                </text>
               </svg>
             </div>
           )
@@ -819,11 +1249,15 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         {/* ─── DEALER SIGNAL GAUGE ─── */}
         {(() => {
           const dsScore = metrics.compositeScore
-          const isBull = dsScore > 3, isBear = dsScore < -3
+          const isBull = dsScore > 3,
+            isBear = dsScore < -3
           const actionText = isBull ? 'BUY CALLS' : isBear ? 'BUY PUTS' : 'STAY OUT'
           const actionColor = isBull ? '#00ff88' : isBear ? '#ff2244' : '#ffcc00'
           const angle = -90 + ((Math.max(-20, Math.min(20, dsScore)) + 20) / 40) * 180
-          const cx = 200, cy = 215, r = 150, arcLen = Math.PI * r
+          const cx = 200,
+            cy = 215,
+            r = 150,
+            arcLen = Math.PI * r
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -834,50 +1268,187 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                     <stop offset="100%" stopColor={actionColor} stopOpacity="0.05" />
                   </radialGradient>
                   <linearGradient id="gtDsf2" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#ff1144" /><stop offset="100%" stopColor="#ff1144" stopOpacity="0.15" />
+                    <stop offset="0%" stopColor="#ff1144" />
+                    <stop offset="100%" stopColor="#ff1144" stopOpacity="0.15" />
                   </linearGradient>
                   <linearGradient id="gtDbf2" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#00ff88" stopOpacity="0.15" /><stop offset="100%" stopColor="#00ff88" />
+                    <stop offset="0%" stopColor="#00ff88" stopOpacity="0.15" />
+                    <stop offset="100%" stopColor="#00ff88" />
                   </linearGradient>
                   <style>{`@keyframes gtp2{0%,100%{opacity:.45}50%{opacity:1}}.gtp2{animation:gtp2 2s ease-in-out infinite;animation-delay:.5s}`}</style>
                 </defs>
-                <text x="200" y="8" fill="#a855ff" fontSize="18" fontWeight="900" textAnchor="middle" letterSpacing="4" opacity="1">DEALER SIGNAL</text>
-                <path d="M 50 215 A 150 150 0 0 1 350 215" fill="none" stroke="#071825" strokeWidth="26" />
-                <path d="M 50 215 A 150 150 0 0 1 163 70" fill="none" stroke="#ff1144" strokeWidth="26" strokeOpacity={isBear ? '0.28' : '0.09'} />
-                <path d="M 163 70 A 150 150 0 0 1 237 70" fill="none" stroke="#ffcc00" strokeWidth="26" strokeOpacity={!isBull && !isBear ? '0.28' : '0.09'} />
-                <path d="M 237 70 A 150 150 0 0 1 350 215" fill="none" stroke="#00ff88" strokeWidth="26" strokeOpacity={isBull ? '0.28' : '0.09'} />
+                <text
+                  x="200"
+                  y="8"
+                  fill="#a855ff"
+                  fontSize="18"
+                  fontWeight="900"
+                  textAnchor="middle"
+                  letterSpacing="4"
+                  opacity="1"
+                >
+                  DEALER SIGNAL
+                </text>
+                <path
+                  d="M 50 215 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#071825"
+                  strokeWidth="26"
+                />
+                <path
+                  d="M 50 215 A 150 150 0 0 1 163 70"
+                  fill="none"
+                  stroke="#ff1144"
+                  strokeWidth="26"
+                  strokeOpacity={isBear ? '0.28' : '0.09'}
+                />
+                <path
+                  d="M 163 70 A 150 150 0 0 1 237 70"
+                  fill="none"
+                  stroke="#ffcc00"
+                  strokeWidth="26"
+                  strokeOpacity={!isBull && !isBear ? '0.28' : '0.09'}
+                />
+                <path
+                  d="M 237 70 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#00ff88"
+                  strokeWidth="26"
+                  strokeOpacity={isBull ? '0.28' : '0.09'}
+                />
                 {dsScore < 0 ? (
-                  <path d="M 200 65 A 150 150 0 0 0 50 215" fill="none" stroke="url(#gtDsf2)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 0 50 215"
+                    fill="none"
+                    stroke="url(#gtDsf2)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(Math.abs(dsScore), 20) / 20)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 ) : (
-                  <path d="M 200 65 A 150 150 0 0 1 350 215" fill="none" stroke="url(#gtDbf2)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 1 350 215"
+                    fill="none"
+                    stroke="url(#gtDbf2)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(dsScore, 20) / 20)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 )}
-                <path d="M 20 215 A 180 180 0 0 1 380 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
-                <path d="M 62 215 A 138 138 0 0 1 338 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
+                <path
+                  d="M 20 215 A 180 180 0 0 1 380 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M 62 215 A 138 138 0 0 1 338 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
                 {Array.from({ length: 17 }).map((_, i) => {
-                  const t = i / 16, a = Math.PI - t * Math.PI, major = i % 4 === 0
-                  const ro = major ? 173 : 168, ri = major ? 157 : 163
-                  return <line key={i} x1={cx + ro * Math.cos(a)} y1={cy - ro * Math.sin(a)} x2={cx + ri * Math.cos(a)} y2={cy - ri * Math.sin(a)} stroke={major ? '#9b59ff' : '#0f0015'} strokeWidth={major ? 2 : 1} />
+                  const t = i / 16,
+                    a = Math.PI - t * Math.PI,
+                    major = i % 4 === 0
+                  const ro = major ? 173 : 168,
+                    ri = major ? 157 : 163
+                  return (
+                    <line
+                      key={i}
+                      x1={cx + ro * Math.cos(a)}
+                      y1={cy - ro * Math.sin(a)}
+                      x2={cx + ri * Math.cos(a)}
+                      y2={cy - ri * Math.sin(a)}
+                      stroke={major ? '#9b59ff' : '#0f0015'}
+                      strokeWidth={major ? 2 : 1}
+                    />
+                  )
                 })}
                 <line x1="200" y1="50" x2="200" y2="67" stroke="#9b59ff" strokeWidth="2.5" />
-                <text fill="#ff4466" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="63" y="108" transform="rotate(-53 63 108)">BUY</tspan><tspan x="63" y="117" transform="rotate(-53 63 117)">PUTS</tspan></text>
-                <text x="200" y="54" fill="#9b59ff" fontSize="13" fontWeight="bold" textAnchor="middle" letterSpacing="1">CHOP</text>
-                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="337" y="108" transform="rotate(53 337 108)">BUY</tspan><tspan x="337" y="117" transform="rotate(53 337 117)">CALLS</tspan></text>
-                <g style={{ transformOrigin: `${cx}px ${cy}px`, transform: `rotate(${angle}deg)`, transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)' }}>
-                  <polygon points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`} fill="white" opacity="0.95" />
-                  <polygon points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`} fill={actionColor} opacity="0.75" />
+                <text fill="#ff4466" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="63" y="108" transform="rotate(-53 63 108)">
+                    BUY
+                  </tspan>
+                  <tspan x="63" y="117" transform="rotate(-53 63 117)">
+                    PUTS
+                  </tspan>
+                </text>
+                <text
+                  x="200"
+                  y="54"
+                  fill="#9b59ff"
+                  fontSize="13"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  letterSpacing="1"
+                >
+                  CHOP
+                </text>
+                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="337" y="108" transform="rotate(53 337 108)">
+                    BUY
+                  </tspan>
+                  <tspan x="337" y="117" transform="rotate(53 337 117)">
+                    CALLS
+                  </tspan>
+                </text>
+                <g
+                  style={{
+                    transformOrigin: `${cx}px ${cy}px`,
+                    transform: `rotate(${angle}deg)`,
+                    transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)',
+                  }}
+                >
+                  <polygon
+                    points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`}
+                    fill="white"
+                    opacity="0.95"
+                  />
+                  <polygon
+                    points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`}
+                    fill={actionColor}
+                    opacity="0.75"
+                  />
                 </g>
                 <circle cx={cx} cy={cy} r="15" fill="#050505" stroke="#9b59ff" strokeWidth="1.5" />
                 <circle cx={cx} cy={cy} r="9" fill="url(#gtHg2)" />
                 <circle cx={cx} cy={cy} r="4" className="gtp2" fill={actionColor} />
-                <text x="42" y="233" fill="#ff2244" fontSize="13" fontWeight="900" textAnchor="middle">PUTS</text>
-                <text x="358" y="233" fill="#00ff88" fontSize="13" fontWeight="900" textAnchor="middle">CALLS</text>
-                <text x="200" y="256" fill={actionColor} fontSize="22" fontWeight="900" textAnchor="middle" letterSpacing="3">{actionText}</text>
+                <text
+                  x="42"
+                  y="233"
+                  fill="#ff2244"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  PUTS
+                </text>
+                <text
+                  x="358"
+                  y="233"
+                  fill="#00ff88"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  CALLS
+                </text>
+                <text
+                  x="200"
+                  y="256"
+                  fill={actionColor}
+                  fontSize="22"
+                  fontWeight="900"
+                  textAnchor="middle"
+                  letterSpacing="3"
+                >
+                  {actionText}
+                </text>
               </svg>
             </div>
           )
@@ -887,11 +1458,25 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         {(() => {
           const val = siMetrics.siNorm
           const angle = -90 + ((Math.max(-10, Math.min(10, val)) + 10) / 20) * 180
-          const cx = 200, cy = 215, r = 150, arcLen = Math.PI * r
+          const cx = 200,
+            cy = 215,
+            r = 150,
+            arcLen = Math.PI * r
           const scoreColor = val > 2 ? '#00ff88' : val < -2 ? '#ff2244' : '#ffcc00'
           const scoreLabel =
-            val > 5 ? 'STABLE/PINNED' : val > 2 ? 'DAMPENED' : val > 0.5 ? 'NEUTRAL'
-              : val < -5 ? 'AMPLIFIED' : val < -2 ? 'VOLATILE' : val < -0.5 ? 'TRENDING' : 'NEUTRAL'
+            val > 5
+              ? 'STABLE/PINNED'
+              : val > 2
+                ? 'DAMPENED'
+                : val > 0.5
+                  ? 'NEUTRAL'
+                  : val < -5
+                    ? 'AMPLIFIED'
+                    : val < -2
+                      ? 'VOLATILE'
+                      : val < -0.5
+                        ? 'TRENDING'
+                        : 'NEUTRAL'
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -902,63 +1487,257 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                     <stop offset="100%" stopColor={scoreColor} stopOpacity="0.05" />
                   </radialGradient>
                   <linearGradient id="gtSf3" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#ff1144" /><stop offset="50%" stopColor="#ff8800" /><stop offset="100%" stopColor="#ffcc00" stopOpacity="0.2" />
+                    <stop offset="0%" stopColor="#ff1144" />
+                    <stop offset="50%" stopColor="#ff8800" />
+                    <stop offset="100%" stopColor="#ffcc00" stopOpacity="0.2" />
                   </linearGradient>
                   <linearGradient id="gtBf3" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#ffcc00" stopOpacity="0.2" /><stop offset="50%" stopColor="#00ccff" /><stop offset="100%" stopColor="#00ff88" />
+                    <stop offset="0%" stopColor="#ffcc00" stopOpacity="0.2" />
+                    <stop offset="50%" stopColor="#00ccff" />
+                    <stop offset="100%" stopColor="#00ff88" />
                   </linearGradient>
                   <style>{`@keyframes gtp3{0%,100%{opacity:.45}50%{opacity:1}}.gtp3{animation:gtp3 2s ease-in-out infinite;animation-delay:1s}`}</style>
                 </defs>
-                <text x="200" y="8" fill="#00cfff" fontSize="18" fontWeight="900" textAnchor="middle" letterSpacing="4" opacity="1">STABILITY INDEX</text>
-                <path d="M 50 215 A 150 150 0 0 1 350 215" fill="none" stroke="#071825" strokeWidth="26" />
-                <path d="M 50 215 A 150 150 0 0 1 94 109" fill="none" stroke="#ff1144" strokeWidth="26" strokeOpacity="0.14" />
-                <path d="M 94 109 A 150 150 0 0 1 154 72" fill="none" stroke="#ff8800" strokeWidth="26" strokeOpacity="0.13" />
-                <path d="M 154 72 A 150 150 0 0 1 200 65" fill="none" stroke="#ffcc00" strokeWidth="26" strokeOpacity="0.10" />
-                <path d="M 200 65 A 150 150 0 0 1 246 72" fill="none" stroke="#ffcc00" strokeWidth="26" strokeOpacity="0.10" />
-                <path d="M 246 72 A 150 150 0 0 1 306 109" fill="none" stroke="#00ccff" strokeWidth="26" strokeOpacity="0.13" />
-                <path d="M 306 109 A 150 150 0 0 1 350 215" fill="none" stroke="#00ff88" strokeWidth="26" strokeOpacity="0.14" />
+                <text
+                  x="200"
+                  y="8"
+                  fill="#00cfff"
+                  fontSize="18"
+                  fontWeight="900"
+                  textAnchor="middle"
+                  letterSpacing="4"
+                  opacity="1"
+                >
+                  STABILITY INDEX
+                </text>
+                <path
+                  d="M 50 215 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#071825"
+                  strokeWidth="26"
+                />
+                <path
+                  d="M 50 215 A 150 150 0 0 1 94 109"
+                  fill="none"
+                  stroke="#ff1144"
+                  strokeWidth="26"
+                  strokeOpacity="0.14"
+                />
+                <path
+                  d="M 94 109 A 150 150 0 0 1 154 72"
+                  fill="none"
+                  stroke="#ff8800"
+                  strokeWidth="26"
+                  strokeOpacity="0.13"
+                />
+                <path
+                  d="M 154 72 A 150 150 0 0 1 200 65"
+                  fill="none"
+                  stroke="#ffcc00"
+                  strokeWidth="26"
+                  strokeOpacity="0.10"
+                />
+                <path
+                  d="M 200 65 A 150 150 0 0 1 246 72"
+                  fill="none"
+                  stroke="#ffcc00"
+                  strokeWidth="26"
+                  strokeOpacity="0.10"
+                />
+                <path
+                  d="M 246 72 A 150 150 0 0 1 306 109"
+                  fill="none"
+                  stroke="#00ccff"
+                  strokeWidth="26"
+                  strokeOpacity="0.13"
+                />
+                <path
+                  d="M 306 109 A 150 150 0 0 1 350 215"
+                  fill="none"
+                  stroke="#00ff88"
+                  strokeWidth="26"
+                  strokeOpacity="0.14"
+                />
                 {val < 0 ? (
-                  <path d="M 200 65 A 150 150 0 0 0 50 215" fill="none" stroke="url(#gtSf3)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 0 50 215"
+                    fill="none"
+                    stroke="url(#gtSf3)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(Math.abs(val), 10) / 10)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 ) : (
-                  <path d="M 200 65 A 150 150 0 0 1 350 215" fill="none" stroke="url(#gtBf3)" strokeWidth="26"
+                  <path
+                    d="M 200 65 A 150 150 0 0 1 350 215"
+                    fill="none"
+                    stroke="url(#gtBf3)"
+                    strokeWidth="26"
                     strokeDasharray={`${arcLen / 2} ${arcLen / 2}`}
                     strokeDashoffset={(arcLen / 2) * (1 - Math.min(val, 10) / 10)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }} />
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1)' }}
+                  />
                 )}
-                <path d="M 20 215 A 180 180 0 0 1 380 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
-                <path d="M 62 215 A 138 138 0 0 1 338 215" fill="none" stroke="#0d2a45" strokeWidth="1.5" />
+                <path
+                  d="M 20 215 A 180 180 0 0 1 380 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M 62 215 A 138 138 0 0 1 338 215"
+                  fill="none"
+                  stroke="#0d2a45"
+                  strokeWidth="1.5"
+                />
                 {Array.from({ length: 17 }).map((_, i) => {
-                  const t = i / 16, a = Math.PI - t * Math.PI, major = i % 4 === 0
-                  const ro = major ? 173 : 168, ri = major ? 157 : 163
-                  return <line key={i} x1={cx + ro * Math.cos(a)} y1={cy - ro * Math.sin(a)} x2={cx + ri * Math.cos(a)} y2={cy - ri * Math.sin(a)} stroke={major ? '#00d4ff' : '#0a2035'} strokeWidth={major ? 2 : 1} />
+                  const t = i / 16,
+                    a = Math.PI - t * Math.PI,
+                    major = i % 4 === 0
+                  const ro = major ? 173 : 168,
+                    ri = major ? 157 : 163
+                  return (
+                    <line
+                      key={i}
+                      x1={cx + ro * Math.cos(a)}
+                      y1={cy - ro * Math.sin(a)}
+                      x2={cx + ri * Math.cos(a)}
+                      y2={cy - ri * Math.sin(a)}
+                      stroke={major ? '#00d4ff' : '#0a2035'}
+                      strokeWidth={major ? 2 : 1}
+                    />
+                  )
                 })}
-                <text fill="#ff2244" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="63" y="108" transform="rotate(-53 63 108)">AMPL-</tspan><tspan x="63" y="117" transform="rotate(-53 63 117)">IFIED</tspan></text>
-                <text fill="#ff8800" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="98" y="66" transform="rotate(-36 98 66)">VOL-</tspan><tspan x="98" y="75" transform="rotate(-36 98 75)">ATILE</tspan></text>
-                <text fill="#ffcc00" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="150" y="44" transform="rotate(-18 150 44)">TREND-</tspan><tspan x="150" y="53" transform="rotate(-18 150 53)">ING</tspan></text>
-                <text x="200" y="38" fill="#888888" fontSize="12" fontWeight="bold" textAnchor="middle">NEUTRAL</text>
-                <text fill="#00ccff" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="250" y="44" transform="rotate(18 250 44)">DAMP-</tspan><tspan x="250" y="53" transform="rotate(18 250 53)">ENED</tspan></text>
-                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="302" y="66" transform="rotate(36 302 66)">REVER-</tspan><tspan x="302" y="75" transform="rotate(36 302 75)">SION</tspan></text>
-                <text fill="#00ff44" fontSize="12" fontWeight="bold" textAnchor="middle"><tspan x="337" y="108" transform="rotate(53 337 108)">STABLE</tspan><tspan x="337" y="117" transform="rotate(53 337 117)">PINNED</tspan></text>
-                <g style={{ transformOrigin: `${cx}px ${cy}px`, transform: `rotate(${angle}deg)`, transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)' }}>
-                  <polygon points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`} fill="white" opacity="0.95" />
-                  <polygon points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`} fill={scoreColor} opacity="0.75" />
+                <text fill="#ff2244" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="63" y="108" transform="rotate(-53 63 108)">
+                    AMPL-
+                  </tspan>
+                  <tspan x="63" y="117" transform="rotate(-53 63 117)">
+                    IFIED
+                  </tspan>
+                </text>
+                <text fill="#ff8800" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="98" y="66" transform="rotate(-36 98 66)">
+                    VOL-
+                  </tspan>
+                  <tspan x="98" y="75" transform="rotate(-36 98 75)">
+                    ATILE
+                  </tspan>
+                </text>
+                <text fill="#ffcc00" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="150" y="44" transform="rotate(-18 150 44)">
+                    TREND-
+                  </tspan>
+                  <tspan x="150" y="53" transform="rotate(-18 150 53)">
+                    ING
+                  </tspan>
+                </text>
+                <text
+                  x="200"
+                  y="38"
+                  fill="#888888"
+                  fontSize="12"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                >
+                  NEUTRAL
+                </text>
+                <text fill="#00ccff" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="250" y="44" transform="rotate(18 250 44)">
+                    DAMP-
+                  </tspan>
+                  <tspan x="250" y="53" transform="rotate(18 250 53)">
+                    ENED
+                  </tspan>
+                </text>
+                <text fill="#00ff88" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="302" y="66" transform="rotate(36 302 66)">
+                    REVER-
+                  </tspan>
+                  <tspan x="302" y="75" transform="rotate(36 302 75)">
+                    SION
+                  </tspan>
+                </text>
+                <text fill="#00ff44" fontSize="12" fontWeight="bold" textAnchor="middle">
+                  <tspan x="337" y="108" transform="rotate(53 337 108)">
+                    STABLE
+                  </tspan>
+                  <tspan x="337" y="117" transform="rotate(53 337 117)">
+                    PINNED
+                  </tspan>
+                </text>
+                <g
+                  style={{
+                    transformOrigin: `${cx}px ${cy}px`,
+                    transform: `rotate(${angle}deg)`,
+                    transition: 'transform 0.7s cubic-bezier(0.4,0,0.2,1)',
+                  }}
+                >
+                  <polygon
+                    points={`${cx - 3},${cy} ${cx + 3},${cy} ${cx},${cy - 138}`}
+                    fill="white"
+                    opacity="0.95"
+                  />
+                  <polygon
+                    points={`${cx - 1.5},${cy} ${cx + 1.5},${cy} ${cx},${cy - 138}`}
+                    fill={scoreColor}
+                    opacity="0.75"
+                  />
                 </g>
                 <circle cx={cx} cy={cy} r="15" fill="#020810" stroke="#0d2a45" strokeWidth="1.5" />
                 <circle cx={cx} cy={cy} r="9" fill="url(#gtHg3)" />
                 <circle cx={cx} cy={cy} r="4" className="gtp3" fill={scoreColor} />
-                <text x="42" y="233" fill="#ff2244" fontSize="13" fontWeight="900" textAnchor="middle">VOLATILE</text>
-                <text x="358" y="233" fill="#00ff88" fontSize="13" fontWeight="900" textAnchor="middle">STABLE</text>
-                <text x="200" y="250" fill={scoreColor} fontSize="27" fontWeight="900" textAnchor="middle">{val > 0 ? '+' : ''}{val.toFixed(1)}</text>
-                <text x="200" y="267" fill={scoreColor} fontSize="11" fontWeight="bold" textAnchor="middle" letterSpacing="2.5" opacity="0.9">{scoreLabel}</text>
+                <text
+                  x="42"
+                  y="233"
+                  fill="#ff2244"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  VOLATILE
+                </text>
+                <text
+                  x="358"
+                  y="233"
+                  fill="#00ff88"
+                  fontSize="13"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  STABLE
+                </text>
+                <text
+                  x="200"
+                  y="250"
+                  fill={scoreColor}
+                  fontSize="27"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  {val > 0 ? '+' : ''}
+                  {val.toFixed(1)}
+                </text>
+                <text
+                  x="200"
+                  y="267"
+                  fill={scoreColor}
+                  fontSize="11"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  letterSpacing="2.5"
+                  opacity="0.9"
+                >
+                  {scoreLabel}
+                </text>
               </svg>
             </div>
           )
         })()}
       </div>
-
     </div>
   )
 }
@@ -1845,7 +2624,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         const now = Date.now()
         const cached = odtrioData[ticker]
         if (cached && cached.timestamp && now - cached.timestamp < 5 * 60 * 1000) {
-          console.log(`✨ Using cached ${ticker} data`)
           setOdtrioData((prev) => ({
             ...prev,
             [ticker]: { ...cached, loading: false },
@@ -1855,8 +2633,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
         // Special handling for SPX with strike range filtering
         if (ticker === 'SPX') {
-          console.time(`${ticker} total fetch time`)
-
           // STEP 1: Get all available expirations first (use same endpoint as QQQ/SPY)
           const allExpirationsResponse = await fetch(`/api/options-chain?ticker=SPX`)
           const allExpirationsResult = await allExpirationsResponse.json()
@@ -2066,14 +2842,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             .sort((a, b) => b.strike - a.strike)
 
           const netGEX = totalCallGEX + totalPutGEX
-
-          console.timeEnd(`${ticker} total fetch time`)
-
-          console.log(`   Current Price: $${currentPrice.toFixed(2)}`)
-
-          console.log(
-            `   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`
-          )
 
           setOdtrioData((prev) => ({
             ...prev,
@@ -2293,12 +3061,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
         const netGEX = totalCallGEX + totalPutGEX
 
-        console.log(`   Current Price: $${currentPrice.toFixed(2)}`)
-
-        console.log(
-          `   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`
-        )
-
         setOdtrioData((prev) => ({
           ...prev,
           [ticker]: {
@@ -2384,8 +3146,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           // For puts
           const putGamma = gexData.put_gex
             ? Math.abs(
-              gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
-            )
+                gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
+              )
             : 0
           const putDelta = -0.5 // Approximation
           const putVanna = 0 // Approximation
@@ -4149,11 +4911,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
     const isHighestPositive =
       value > 0 &&
       Math.abs(value - topVals.highestPositive) <
-      Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
+        Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
     const isHighestNegative =
       value < 0 &&
       Math.abs(Math.abs(value) - topVals.highestNegative) <
-      Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
+        Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
 
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
@@ -4365,10 +5127,19 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           box-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
         }
       `}</style>
-      <div className="dealer-attraction-container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <div
+        className="dealer-attraction-container"
+        style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}
+      >
         <div
           className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[99vw]'} px-4 mx-auto`}
-          style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
         >
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40" style={{ flexShrink: 0 }}>
@@ -4403,554 +5174,253 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                 {/* Only show these controls for GREEK SUITE tab */}
                 {activeTab === 'ATTRACTION' && (
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    {/* Mobile Layout - Two Rows */}
-                    <div className="md:hidden w-full space-y-2">
-                      {/* Row 1: Search + LIVE + Range + REFRESH */}
-                      <div className="flex items-center gap-2">
-                        {/* Search Bar */}
-                        <div
-                          className="search-bar-premium flex items-center space-x-1 px-2 rounded-md flex-shrink-0"
-                          style={{ width: '40px', height: '36px' }}
+                    {/* Mobile Layout - Single Row */}
+                    <div
+                      className="md:hidden w-full flex items-center gap-1.5"
+                      style={{ height: '34px' }}
+                    >
+                      {/* Ticker */}
+                      <div
+                        className="flex items-center gap-1 px-2 rounded flex-shrink-0"
+                        style={{
+                          height: '34px',
+                          minWidth: '70px',
+                          maxWidth: '90px',
+                          background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                          border: '1px solid rgba(255,102,0,0.45)',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          style={{ color: '#ff6600', flexShrink: 0 }}
                         >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            style={{ color: 'rgba(128, 128, 128, 0.5)' }}
-                          >
-                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
-                          </svg>
-                          <input
-                            type="text"
-                            value={tickerInput}
-                            onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleTickerSubmit()
-                              }
-                            }}
-                            className="bg-transparent border-0 outline-none flex-1 text-sm font-bold uppercase"
-                            style={{
-                              color: '#ffffff',
-                              textShadow:
-                                '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
-                              fontFamily: 'system-ui, -apple-system, sans-serif',
-                              letterSpacing: '0.5px',
-                            }}
-                            placeholder="Ticker"
-                          />
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            style={{ color: '#666' }}
-                          >
-                            <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
-                          </svg>
-                        </div>
-
-                        {/* LIVE Checkbox */}
-                        <div
-                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all"
-                          style={{
-                            height: '36px',
-                            background: liveMode
-                              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)'
-                              : 'transparent',
-                            border: liveMode
-                              ? '1px solid rgba(34, 197, 94, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: liveMode
-                              ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)'
-                              : 'none',
-                            opacity: liveOILoading ? 0.6 : 1,
-                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
+                          <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2.5" />
+                          <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2.5" />
+                        </svg>
+                        <input
+                          type="text"
+                          value={tickerInput}
+                          onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleTickerSubmit()
                           }}
-                          onClick={() => {
-                            if (liveOILoading) return
-                            const currentTicker = tickerInput.trim() || selectedTicker
-                            if (!currentTicker || currentTicker.trim() === '') {
-                              alert(
-                                'Please type a ticker in the search bar first before enabling Live OI'
-                              )
-                              return
-                            }
-                            if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
-                              const newTicker = tickerInput.trim().toUpperCase()
-                              setSelectedTicker(newTicker)
-                              setTickerInput(newTicker)
-                            }
-                            if (!liveMode) {
-                              setLiveMode(true)
-                              updateLiveOI()
-                            } else {
-                              setLiveMode(false)
-                              setLiveOIData(new Map())
-                              setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
-                              setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
-                            }
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={liveMode}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#22c55e',
-                              boxShadow: liveMode ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: liveMode ? '#22c55e' : '#ffffff',
-                              textShadow: liveMode ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none',
-                            }}
-                          >
-                            {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
-                          </span>
-                        </div>
+                          className="bg-transparent border-0 outline-none w-full font-black uppercase"
+                          style={{ color: '#fff', fontSize: '11px', letterSpacing: '0.5px' }}
+                          placeholder="TICKER"
+                        />
+                      </div>
 
-                        {/* Range Selector */}
-                        <div
-                          className="flex items-center gap-1"
-                          style={{ height: '36px', width: '70px' }}
-                        >
-                          <select
-                            value={otmFilter}
-                            onChange={(e) =>
-                              setOtmFilter(
-                                e.target.value as
-                                | '1%'
-                                | '2%'
-                                | '3%'
-                                | '5%'
-                                | '8%'
-                                | '10%'
-                                | '15%'
-                                | '20%'
-                                | '25%'
-                                | '40%'
-                                | '50%'
-                                | '100%'
-                              )
-                            }
-                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-2 text-white text-xs font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap w-full"
-                            style={{
-                              background: '#000000',
-                              boxShadow:
-                                'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
-                              height: '36px',
-                            }}
-                          >
-                            <option value="1%">±1% OTM</option>
-                            <option value="2%">±2% OTM</option>
-                            <option value="3%">±3% OTM</option>
-                            <option value="5%">±5% OTM</option>
-                            <option value="8%">±8% OTM</option>
-                            <option value="10%">±10% OTM</option>
-                            <option value="15%">±15% OTM</option>
-                            <option value="20%">±20% OTM</option>
-                            <option value="25%">±25% OTM</option>
-                            <option value="40%">±40% OTM</option>
-                            <option value="50%">±50% OTM</option>
-                            <option value="100%">±100% OTM</option>
-                          </select>
-                        </div>
-
-                        {/* MOBILE ONLY: Mode Dropdown (Normal, Dealer, Flow Map, ODTRIO) - After OTM Range */}
-                        <select
-                          className="md:hidden"
-                          value={
-                            showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                              ? 'normal'
-                              : !showGEX && showDealer && !showFlowGEX && !showODTRIO
-                                ? 'dealer'
-                                : !showGEX && !showDealer && showFlowGEX && !showODTRIO
-                                  ? 'flowmap'
-                                  : !showGEX && !showDealer && !showFlowGEX && showODTRIO
-                                    ? 'odtrio'
-                                    : 'normal'
+                      {/* LIVE */}
+                      <button
+                        onClick={() => {
+                          if (liveOILoading) return
+                          const t = tickerInput.trim() || selectedTicker
+                          if (!t) {
+                            alert('Enter a ticker first')
+                            return
                           }
-                          onChange={(e) => {
-                            const value = e.target.value
-                            setShowGEX(value === 'normal')
-                            setShowDealer(value === 'dealer')
-                            setShowFlowGEX(value === 'flowmap')
-                            setShowODTRIO(value === 'odtrio')
-                            if (value === 'normal') setGexMode('Net GEX')
-                            if (value === 'dealer') setGexMode('Net Dealer')
-                            if (value === 'odtrio') fetchODTRIOData()
-                          }}
+                          if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
+                            const u = tickerInput.trim().toUpperCase()
+                            setSelectedTicker(u)
+                            setTickerInput(u)
+                          }
+                          if (!liveMode) {
+                            setLiveMode(true)
+                            updateLiveOI()
+                          } else {
+                            setLiveMode(false)
+                            setLiveOIData(new Map())
+                            setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                            setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                          }
+                        }}
+                        className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
+                        style={{
+                          height: '34px',
+                          padding: '0 8px',
+                          fontSize: '10px',
+                          letterSpacing: '0.5px',
+                          background: liveMode
+                            ? 'rgba(34,197,94,0.15)'
+                            : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                          border: liveMode
+                            ? '1px solid rgba(34,197,94,0.55)'
+                            : '1px solid rgba(255,255,255,0.1)',
+                          color: liveMode ? '#22c55e' : '#888',
+                          boxShadow: liveMode
+                            ? '0 0 8px rgba(34,197,94,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
+                            : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <span
                           style={{
-                            height: '36px',
-                            padding: '0 12px',
-                            background: '#000000',
-                            border: '2px solid rgba(255, 255, 255, 0.2)',
-                            borderRadius: '4px',
-                            color: '#ffffff',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            textTransform: 'uppercase',
-                            outline: 'none',
-                            cursor: 'pointer',
-                            boxShadow:
-                              'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8)',
+                            width: 5,
+                            height: 5,
+                            borderRadius: '50%',
+                            background: liveMode ? '#22c55e' : '#555',
+                            display: 'inline-block',
+                            boxShadow: liveMode ? '0 0 5px #22c55e' : 'none',
                           }}
-                        >
-                          <option value="normal" style={{ background: '#000', color: '#22c55e' }}>
-                            Normal
-                          </option>
-                          <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>
-                            Dealer
-                          </option>
-                          <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>
-                            Flow Map
-                          </option>
-                          <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>
-                            ODTRIO
-                          </option>
-                        </select>
+                        />
+                        {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
+                      </button>
 
-                        {/* MOBILE ONLY: OI Button - After Mode Dropdown */}
-                        <div
-                          className="md:hidden flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showOI
-                              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)'
-                              : 'transparent',
-                            border: showOI
-                              ? '1px solid rgba(59, 130, 246, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showOI
-                              ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => setShowOI(!showOI)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showOI}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#3b82f6',
-                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showOI ? '#3b82f6' : '#ffffff',
-                              textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
-                            }}
-                          >
-                            OI
-                          </span>
-                        </div>
+                      {/* OTM Range */}
+                      <select
+                        value={otmFilter}
+                        onChange={(e) => setOtmFilter(e.target.value as any)}
+                        className="appearance-none cursor-pointer outline-none font-black uppercase text-center rounded flex-shrink-0"
+                        style={{
+                          height: '34px',
+                          padding: '0 4px',
+                          fontSize: '12px',
+                          width: '52px',
+                          backgroundColor: '#000',
+                          background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          color: '#fff',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                          colorScheme: 'dark',
+                        }}
+                      >
+                        <option value="1%">±1%</option>
+                        <option value="2%">±2%</option>
+                        <option value="3%">±3%</option>
+                        <option value="5%">±5%</option>
+                        <option value="8%">±8%</option>
+                        <option value="10%">±10%</option>
+                        <option value="15%">±15%</option>
+                        <option value="20%">±20%</option>
+                        <option value="25%">±25%</option>
+                        <option value="40%">±40%</option>
+                        <option value="50%">±50%</option>
+                        <option value="100%">±100%</option>
+                      </select>
 
-                        {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
-                        <button
-                          onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
-                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                            }`}
-                          style={{
-                            height: '36px',
-                            width: '36px',
-                            boxShadow: useBloombergTheme
-                              ? '0 0 10px rgba(245, 158, 11, 0.5)'
-                              : 'none',
-                          }}
-                          title="Toggle Bloomberg Terminal Theme"
-                        >
-                          BB
-                        </button>
-
-                        {/* Historical GEX Button - Hidden on mobile */}
-                        {!showODTRIO && (
-                          <button
-                            onClick={() => setShowHistoricalGEX(!showHistoricalGEX)}
-                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
-                              ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
-                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
-                              }`}
-                            style={{
-                              height: '36px',
-                              minWidth: '90px',
-                              boxShadow: showHistoricalGEX
-                                ? '0 0 10px rgba(59, 130, 246, 0.5)'
-                                : 'none',
-                            }}
-                            title="Toggle Historical GEX Scrubber"
-                          >
-                            HISTORICAL
-                          </button>
-                        )}
-
-                        {/* ODTRIO Button - Flow Map style with blue text - Desktop only */}
-                        <button
-                          onClick={() => {
-                            setShowODTRIO(!showODTRIO)
-                            if (!showODTRIO) {
-                              fetchODTRIOData()
-                            }
-                          }}
-                          className="hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded border-2 border-gray-800 hover:border-gray-600"
-                          style={{
-                            height: '36px',
-                            minWidth: '80px',
-                            background: '#000000',
-                            borderColor: '#444',
-                            color: '#3b82f6',
-                            fontWeight: '900',
-                            letterSpacing: '0.05em',
-                          }}
-                          title="ODTE Trio: SPX, QQQ, SPY"
-                        >
+                      {/* Mode */}
+                      <select
+                        value={
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? 'normal'
+                            : showDealer
+                              ? 'dealer'
+                              : showFlowGEX
+                                ? 'flowmap'
+                                : showODTRIO
+                                  ? 'odtrio'
+                                  : 'normal'
+                        }
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setShowGEX(v === 'normal')
+                          setShowDealer(v === 'dealer')
+                          setShowFlowGEX(v === 'flowmap')
+                          setShowODTRIO(v === 'odtrio')
+                          if (v === 'normal') setGexMode('Net GEX')
+                          if (v === 'dealer') setGexMode('Net Dealer')
+                          if (v === 'odtrio') fetchODTRIOData()
+                        }}
+                        className="appearance-none cursor-pointer outline-none font-black uppercase text-center rounded"
+                        style={{
+                          height: '34px',
+                          padding: '0 4px',
+                          fontSize: '12px',
+                          flex: '2 1 0',
+                          minWidth: 0,
+                          backgroundColor: '#000',
+                          background: showGEX
+                            ? 'linear-gradient(180deg,rgba(34,197,94,0.18) 0%,rgba(34,197,94,0.06) 60%)'
+                            : showDealer
+                              ? 'linear-gradient(180deg,rgba(168,85,247,0.18) 0%,rgba(168,85,247,0.06) 60%)'
+                              : showFlowGEX
+                                ? 'linear-gradient(180deg,rgba(249,115,22,0.18) 0%,rgba(249,115,22,0.06) 60%)'
+                                : 'linear-gradient(180deg,rgba(59,130,246,0.18) 0%,rgba(59,130,246,0.06) 60%)',
+                          border: showGEX
+                            ? '1px solid rgba(34,197,94,0.5)'
+                            : showDealer
+                              ? '1px solid rgba(168,85,247,0.5)'
+                              : showFlowGEX
+                                ? '1px solid rgba(249,115,22,0.5)'
+                                : '1px solid rgba(59,130,246,0.5)',
+                          color: showGEX
+                            ? '#22c55e'
+                            : showDealer
+                              ? '#a855f7'
+                              : showFlowGEX
+                                ? '#f97316'
+                                : '#3b82f6',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1)',
+                          colorScheme: 'dark',
+                        }}
+                      >
+                        <option value="normal" style={{ background: '#000', color: '#22c55e' }}>
+                          NORMAL
+                        </option>
+                        <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>
+                          DEALER
+                        </option>
+                        <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>
+                          FLOW MAP
+                        </option>
+                        <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>
                           ODTRIO
-                        </button>
+                        </option>
+                      </select>
 
-                        {/* ODTRIO LIVE OI Button - Only visible when ODTRIO is active */}
-                        {showODTRIO && (
-                          <button
-                            onClick={() => {
-                              if (!liveMode) {
-                                setLiveMode(true)
-                                updateOdtrioLiveOI()
-                              } else {
-                                setLiveMode(false)
-                                setLiveOIData(new Map())
-                                setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
-                              }
-                            }}
-                            disabled={liveOILoading}
-                            className="flex items-center justify-center gap-1 px-2 border-2 border-gray-800 font-black text-xs uppercase tracking-wider transition-all rounded whitespace-nowrap"
-                            style={{
-                              background: '#000000',
-                              borderColor: '#444',
-                              color: liveMode ? '#22c55e' : '#ef4444',
-                              height: '36px',
-                              minWidth: '75px',
-                              opacity: liveOILoading ? 0.5 : 1,
-                              cursor: liveOILoading ? 'not-allowed' : 'pointer',
-                            }}
-                            title="ODTRIO Live OI - Scan flow for ODTE strikes only"
-                          >
-                            <span>{liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}</span>
-                          </button>
-                        )}
-
-                        {/* REFRESH Button */}
-                        <button
-                          onClick={() => fetchOptionsData()}
-                          disabled={loading}
-                          className="flex items-center justify-center px-2 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded"
+                      {/* OI */}
+                      <button
+                        onClick={() => setShowOI(!showOI)}
+                        className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
+                        style={{
+                          height: '34px',
+                          padding: '0 8px',
+                          fontSize: '10px',
+                          letterSpacing: '0.5px',
+                          background: showOI
+                            ? 'rgba(59,130,246,0.15)'
+                            : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                          border: showOI
+                            ? '1px solid rgba(59,130,246,0.55)'
+                            : '1px solid rgba(255,255,255,0.1)',
+                          color: showOI ? '#3b82f6' : '#888',
+                          boxShadow: showOI
+                            ? '0 0 8px rgba(59,130,246,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
+                            : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <span
                           style={{
-                            background: '#000000',
-                            boxShadow:
-                              'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
-                            height: '36px',
-                            width: '36px',
+                            width: 5,
+                            height: 5,
+                            borderRadius: '50%',
+                            background: showOI ? '#3b82f6' : '#444',
+                            display: 'inline-block',
+                            boxShadow: showOI ? '0 0 5px #3b82f6' : 'none',
                           }}
-                        >
-                          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                        </button>
-                      </div>
+                        />
+                        OI
+                      </button>
 
-                      {/* Row 2: All Mode Checkboxes - Desktop Only */}
-                      <div className="hidden md:flex items-center gap-2 overflow-x-auto">
-                        {/* NORMAL */}
-                        <div
-                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showGEX
-                              ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)'
-                              : 'transparent',
-                            border: showGEX
-                              ? '1px solid rgba(34, 197, 94, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showGEX
-                              ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => {
-                            const newValue = !showGEX
-                            setShowGEX(newValue)
-                            if (newValue) setGexMode('Net GEX')
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showGEX}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#22c55e',
-                              boxShadow: showGEX ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showGEX ? '#22c55e' : '#ffffff',
-                              textShadow: showGEX ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none',
-                            }}
-                          >
-                            NORMAL
-                          </span>
-                        </div>
-
-                        {/* MM ACTIVITY */}
-                        <div
-                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showDealer
-                              ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%)'
-                              : 'transparent',
-                            border: showDealer
-                              ? '1px solid rgba(168, 85, 247, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showDealer
-                              ? 'inset 0 1px 2px rgba(168, 85, 247, 0.1), 0 2px 4px rgba(168, 85, 247, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => {
-                            const newValue = !showDealer
-                            setShowDealer(newValue)
-                            if (newValue) setGexMode('Net Dealer')
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showDealer}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#a855f7',
-                              boxShadow: showDealer ? '0 0 6px rgba(168, 85, 247, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showDealer ? '#a855f7' : '#facc15',
-                              textShadow: showDealer ? '0 0 8px rgba(168, 85, 247, 0.5)' : 'none',
-                            }}
-                          >
-                            DEALER
-                          </span>
-                        </div>
-
-                        {/* FLOW MAP */}
-                        <div
-                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showFlowGEX
-                              ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(249, 115, 22, 0.05) 100%)'
-                              : 'transparent',
-                            border: showFlowGEX
-                              ? '1px solid rgba(249, 115, 22, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showFlowGEX
-                              ? 'inset 0 1px 2px rgba(249, 115, 22, 0.1), 0 2px 4px rgba(249, 115, 22, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => setShowFlowGEX(!showFlowGEX)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showFlowGEX}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#f97316',
-                              boxShadow: showFlowGEX ? '0 0 6px rgba(249, 115, 22, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showFlowGEX ? '#f97316' : '#fb923c',
-                              textShadow: showFlowGEX ? '0 0 8px rgba(249, 115, 22, 0.5)' : 'none',
-                            }}
-                          >
-                            FLOW MAP
-                          </span>
-                        </div>
-
-                        {/* ODTRIO Button - Replaces VEX on mobile */}
-                        <div className="md:hidden">
-                          <button
-                            onClick={() => {
-                              setShowODTRIO(!showODTRIO)
-                              if (!showODTRIO) {
-                                fetchODTRIOData()
-                              }
-                            }}
-                            className="flex items-center justify-center px-2 font-black text-xs transition-all rounded border-2 border-gray-800 hover:border-gray-600"
-                            style={{
-                              height: '36px',
-                              minWidth: '80px',
-                              background: '#000000',
-                              borderColor: '#444',
-                              color: '#3b82f6',
-                              fontWeight: '900',
-                              letterSpacing: '0.05em',
-                            }}
-                            title="ODTE Trio: SPX, QQQ, SPY"
-                          >
-                            ODTRIO
-                          </button>
-                        </div>
-
-                        {/* OPEN INTEREST */}
-                        <div
-                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{
-                            height: '36px',
-                            background: showOI
-                              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)'
-                              : 'transparent',
-                            border: showOI
-                              ? '1px solid rgba(59, 130, 246, 0.3)'
-                              : '1px solid transparent',
-                            boxShadow: showOI
-                              ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)'
-                              : 'none',
-                          }}
-                          onClick={() => setShowOI(!showOI)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={showOI}
-                            onChange={() => { }}
-                            className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
-                            style={{
-                              accentColor: '#3b82f6',
-                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none',
-                            }}
-                          />
-                          <span
-                            className="text-xs font-black uppercase tracking-wider whitespace-nowrap"
-                            style={{
-                              color: showOI ? '#3b82f6' : '#ffffff',
-                              textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
-                            }}
-                          >
-                            OI
-                          </span>
-                        </div>
-                      </div>
+                      {/* Refresh */}
+                      <button
+                        onClick={() => fetchOptionsData()}
+                        disabled={loading}
+                        className="flex items-center justify-center flex-shrink-0 rounded disabled:opacity-40"
+                        style={{
+                          height: '34px',
+                          width: '34px',
+                          background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          color: '#ff6600',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                      </button>
                     </div>
                     {/* Desktop Layout - Original Horizontal */}
                     <div className="hidden md:flex md:items-center w-full">
@@ -5026,10 +5496,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     setShowDealer(false)
                                   }
                                 }}
-                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
-                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
-                                  }`}
+                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  duoMode
+                                    ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <span
@@ -5041,10 +5512,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                               {/* NORMAL (GEX) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
-                                  ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showGEX
+                                    ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5068,10 +5540,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                               {/* MM ACTIVITY (Dealer) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer
-                                  ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showDealer
+                                    ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5095,10 +5568,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                               {/* FLOW MAP Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX
-                                  ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showFlowGEX
+                                    ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5128,10 +5602,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                               {/* OI Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
-                                  ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                                  }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  showOI
+                                    ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                }`}
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5149,10 +5624,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                               {/* LIVE Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${liveMode
-                                  ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 border border-green-400/70 shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-green-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                                  } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                  liveMode
+                                    ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 border border-green-400/70 shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-green-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                                } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                 onClick={() => {
                                   if (liveOILoading) return
                                   const currentTicker = tickerInput.trim() || selectedTicker
@@ -5182,14 +5658,15 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                 <input
                                   type="checkbox"
                                   checked={liveMode}
-                                  onChange={() => { }}
+                                  onChange={() => {}}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-green-500 border-green-500/60 focus:ring-green-500 accent-green-500 pointer-events-none"
                                 />
                                 <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${liveMode
-                                    ? 'text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]'
-                                    : 'text-white'
-                                    }`}
+                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${
+                                    liveMode
+                                      ? 'text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]'
+                                      : 'text-white'
+                                  }`}
                                 >
                                   {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
                                 </span>
@@ -5208,18 +5685,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                 onChange={(e) =>
                                   setOtmFilter(
                                     e.target.value as
-                                    | '1%'
-                                    | '2%'
-                                    | '3%'
-                                    | '5%'
-                                    | '8%'
-                                    | '10%'
-                                    | '15%'
-                                    | '20%'
-                                    | '25%'
-                                    | '40%'
-                                    | '50%'
-                                    | '100%'
+                                      | '1%'
+                                      | '2%'
+                                      | '3%'
+                                      | '5%'
+                                      | '8%'
+                                      | '10%'
+                                      | '15%'
+                                      | '20%'
+                                      | '25%'
+                                      | '40%'
+                                      | '50%'
+                                      | '100%'
                                   )
                                 }
                                 className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
@@ -5307,13 +5784,19 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                     </div>
                   </div>
                 )}
-
-
               </div>
             </div>
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
             {loading ? (
               <div
                 className="flex flex-col items-center justify-center w-full py-32 border border-orange-500/20 bg-black"
@@ -5334,7 +5817,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         style={{ width: `${progress}%`, background: '#ff6600' }}
                       />
                     </div>
-                    <p className="text-[16px] mt-2 text-right font-mono" style={{ color: '#ff6600' }}>
+                    <p
+                      className="text-[16px] mt-2 text-right font-mono"
+                      style={{ color: '#ff6600' }}
+                    >
                       {progress}%
                     </p>
                   </div>
@@ -5390,11 +5876,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         {liveOIProgress}%
                       </p>
                     </div>
-                    <RefreshCw size={48} className="animate-spin mb-8" style={{ color: '#ff6600' }} />
+                    <RefreshCw
+                      size={48}
+                      className="animate-spin mb-8"
+                      style={{ color: '#ff6600' }}
+                    />
                     <div className="max-w-lg px-4">
                       <p
                         className="text-white font-semibold leading-relaxed"
-                        style={{ fontSize: '1.2rem', textShadow: '0 0 20px rgba(255,255,255,0.15)' }}
+                        style={{
+                          fontSize: '1.2rem',
+                          textShadow: '0 0 20px rgba(255,255,255,0.15)',
+                        }}
                       >
                         &ldquo;{liveLoadingQuote.body}&rdquo;
                       </p>
@@ -5403,7 +5896,15 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'hidden',
+                }}
+              >
                 <div style={{ flex: '0 1 auto', overflowY: 'auto' }}>
                   {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
@@ -5482,49 +5983,50 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         {(() => {
                           // Count how many tickers have golden zones above current price
                           const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {}
-                            ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
-                              const tickerData = odtrioData[ticker]
-                              const tickerDataArray = tickerData?.data || []
-                              const odteExpiry = tickerData?.odteExpiry
-                              const currentPrice = tickerData?.currentPrice || 0
+                          ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
+                            const tickerData = odtrioData[ticker]
+                            const tickerDataArray = tickerData?.data || []
+                            const odteExpiry = tickerData?.odteExpiry
+                            const currentPrice = tickerData?.currentPrice || 0
 
-                              if (odteExpiry && tickerDataArray.length > 0) {
-                                const normalGEXValues = tickerDataArray
-                                  .filter((row) => row.expirations && row.expirations[odteExpiry])
-                                  .map((row) => {
-                                    const gexData = row.expirations![odteExpiry]
-                                    return (gexData.call_gex || 0) + (gexData.put_gex || 0)
-                                  })
-                                const dealerGEXValues = tickerDataArray
-                                  .filter((row) => row.expirations && row.expirations[odteExpiry])
-                                  .map((row) => {
-                                    const gexData = row.expirations![odteExpiry]
-                                    return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                                  })
-
-                                const highestGEX = Math.max(...normalGEXValues)
-                                const highestDealer = Math.max(...dealerGEXValues)
-
-                                // Find golden zone row (highest GEX for both columns)
-                                const goldenRow = tickerDataArray.find((row) => {
-                                  const gexData = row.expirations?.[odteExpiry]
-                                  if (!gexData) return false
-                                  const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
-                                  const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                                  return (
-                                    netGEX === highestGEX &&
-                                    netDealer === highestDealer &&
-                                    netGEX > 0 &&
-                                    netDealer > 0
-                                  )
+                            if (odteExpiry && tickerDataArray.length > 0) {
+                              const normalGEXValues = tickerDataArray
+                                .filter((row) => row.expirations && row.expirations[odteExpiry])
+                                .map((row) => {
+                                  const gexData = row.expirations![odteExpiry]
+                                  return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                })
+                              const dealerGEXValues = tickerDataArray
+                                .filter((row) => row.expirations && row.expirations[odteExpiry])
+                                .map((row) => {
+                                  const gexData = row.expirations![odteExpiry]
+                                  return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
                                 })
 
-                                if (goldenRow) {
-                                  tickerGoldenPositions[ticker] =
-                                    goldenRow.strike > currentPrice ? 'above' : 'below'
-                                }
+                              const highestGEX = Math.max(...normalGEXValues)
+                              const highestDealer = Math.max(...dealerGEXValues)
+
+                              // Find golden zone row (highest GEX for both columns)
+                              const goldenRow = tickerDataArray.find((row) => {
+                                const gexData = row.expirations?.[odteExpiry]
+                                if (!gexData) return false
+                                const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                const netDealer =
+                                  (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                                return (
+                                  netGEX === highestGEX &&
+                                  netDealer === highestDealer &&
+                                  netGEX > 0 &&
+                                  netDealer > 0
+                                )
+                              })
+
+                              if (goldenRow) {
+                                tickerGoldenPositions[ticker] =
+                                  goldenRow.strike > currentPrice ? 'above' : 'below'
                               }
-                            })
+                            }
+                          })
 
                           const goldensAbove = Object.values(tickerGoldenPositions).filter(
                             (pos) => pos === 'above'
@@ -5596,7 +6098,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                             const tableBorderColor = useBloombergTheme
                               ? 'border-white/20'
                               : 'border-gray-700'
-                            const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                            const isMobile =
+                              typeof window !== 'undefined' && window.innerWidth < 768
                             const mobileStrikeWidth = isMobile ? 38 : 60
                             const mobileExpWidth = isMobile ? 48 : 90
 
@@ -5698,7 +6201,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     <div
                                       className="w-1.5 h-1.5 rounded-full"
                                       style={{
-                                        background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                        background:
+                                          'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
                                         boxShadow:
                                           '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)',
                                       }}
@@ -5720,7 +6224,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     <div
                                       className="w-1.5 h-1.5 rounded-full"
                                       style={{
-                                        background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                        background:
+                                          'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
                                         boxShadow:
                                           '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)',
                                       }}
@@ -5729,7 +6234,13 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                 </div>
                                 <div
                                   className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`}
-                                  style={{ maxHeight: 'calc(78.72vh - 270px)', overflowX: 'auto' }}
+                                  style={{
+                                    maxHeight:
+                                      typeof window !== 'undefined' && window.innerWidth < 768
+                                        ? 'calc(90vh - 120px)'
+                                        : 'calc(74.78vh - 270px)',
+                                    overflowX: 'auto',
+                                  }}
                                 >
                                   <table
                                     style={{
@@ -5746,7 +6257,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     >
                                       <tr
                                         className={
-                                          useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                          useBloombergTheme
+                                            ? ''
+                                            : 'border-b border-gray-700 bg-black'
                                         }
                                       >
                                         <th
@@ -5986,557 +6499,564 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                               >
                                                 <div
                                                   className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : isHighestGEX && isHighestDealer ? 'text-yellow-400' : isLowestGEX && isLowestDealer ? 'text-purple-400' : 'text-white'}`}
-                                                  style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}
+                                                  style={{
+                                                    fontSize: isMobile ? '0.8rem' : '1.8rem',
+                                                  }}
                                                 >
                                                   {Math.round(row.strike)}
                                                 </div>
 
                                                 {/* Arrows at right edge of Dealer column */}
-                                                {!isMobile && showNormalColumn && showDealerColumn && (
-                                                  <>
-                                                    {/* Green arrows UP - from purple box top */}
-                                                    {showGreenUpFromPurple && (
-                                                      <svg
-                                                        style={{
-                                                          position: 'absolute',
-                                                          left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`,
-                                                          bottom: '100%',
-                                                          width: '70px',
-                                                          height: '150px',
-                                                          pointerEvents: 'none',
-                                                          zIndex: 100,
-                                                          overflow: 'visible',
-                                                        }}
-                                                      >
-                                                        <defs>
-                                                          <path
-                                                            id={`greenUp-${row.strike}`}
-                                                            d="M 25 150 Q 50 130 45 90 L 45 10"
-                                                            fill="none"
-                                                          />
-                                                          <linearGradient
-                                                            id={`greenGrad-${row.strike}`}
-                                                            x1="0%"
-                                                            y1="0%"
-                                                            x2="100%"
-                                                            y2="100%"
-                                                          >
-                                                            <stop
-                                                              offset="0%"
-                                                              style={{
-                                                                stopColor: '#00ffaa',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                            <stop
-                                                              offset="50%"
-                                                              style={{
-                                                                stopColor: '#00ff88',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                            <stop
-                                                              offset="100%"
-                                                              style={{
-                                                                stopColor: '#00cc66',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                          </linearGradient>
-                                                          <filter
-                                                            id="greenGlow-${row.strike}"
-                                                            x="-50%"
-                                                            y="-50%"
-                                                            width="200%"
-                                                            height="200%"
-                                                          >
-                                                            <feGaussianBlur
-                                                              stdDeviation="4"
-                                                              result="coloredBlur"
-                                                            />
-                                                            <feMerge>
-                                                              <feMergeNode in="coloredBlur" />
-                                                              <feMergeNode in="SourceGraphic" />
-                                                            </feMerge>
-                                                          </filter>
-                                                        </defs>
-                                                        {/* 3D depth shadow layer */}
-                                                        {[0, 1, 2].map((i) => (
-                                                          <g key={`shadow-${i}`}>
-                                                            <text
-                                                              fontSize="42"
-                                                              fill="#003322"
-                                                              opacity="0.6"
-                                                              style={{ fontWeight: 'bold' }}
-                                                            >
-                                                              ↑
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 23 152 Q 48 132 43 92 L 43 12"
-                                                              />
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.2;0.6;0.6;0.6;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                            </text>
-                                                          </g>
-                                                        ))}
-                                                        {/* Main 3D arrows with gradient and outline */}
-                                                        {[0, 1, 2].map((i) => (
-                                                          <g key={i}>
-                                                            {/* Stroke outline for depth */}
-                                                            <text
-                                                              fontSize="42"
-                                                              fill="none"
-                                                              stroke="#00ffaa"
-                                                              strokeWidth="3"
-                                                              style={{ fontWeight: 'bold' }}
-                                                            >
-                                                              ↑
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 25 150 Q 50 130 45 90 L 45 10"
-                                                              >
-                                                                <mpath
-                                                                  href={`#greenUp-${row.strike}`}
-                                                                />
-                                                              </animateMotion>
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.3;1;1;1;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                            </text>
-                                                            {/* Inner fill with gradient */}
-                                                            <text
-                                                              fontSize="42"
-                                                              fill="url(#greenGrad-${row.strike})"
-                                                              style={{
-                                                                filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`,
-                                                                fontWeight: 'bold',
-                                                              }}
-                                                            >
-                                                              ↑
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 25 150 Q 50 130 45 90 L 45 10"
-                                                              >
-                                                                <mpath
-                                                                  href={`#greenUp-${row.strike}`}
-                                                                />
-                                                              </animateMotion>
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.3;1;1;1;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                              <animateTransform
-                                                                attributeName="transform"
-                                                                type="scale"
-                                                                values="0.9;1.05;1;1;0.9"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                additive="sum"
-                                                              />
-                                                            </text>
-                                                          </g>
-                                                        ))}
-                                                        <path
-                                                          d="M 45 150 Q 60 130 55 90 L 55 10"
-                                                          stroke="url(#greenGrad-${row.strike})"
-                                                          strokeWidth="4"
-                                                          strokeDasharray="10,5"
-                                                          fill="none"
-                                                          opacity="0.8"
+                                                {!isMobile &&
+                                                  showNormalColumn &&
+                                                  showDealerColumn && (
+                                                    <>
+                                                      {/* Green arrows UP - from purple box top */}
+                                                      {showGreenUpFromPurple && (
+                                                        <svg
                                                           style={{
-                                                            filter: 'drop-shadow(0 0 8px #00ff88)',
+                                                            position: 'absolute',
+                                                            left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`,
+                                                            bottom: '100%',
+                                                            width: '70px',
+                                                            height: '150px',
+                                                            pointerEvents: 'none',
+                                                            zIndex: 100,
+                                                            overflow: 'visible',
                                                           }}
-                                                        />
-                                                      </svg>
-                                                    )}
-
-                                                    {/* Red arrows DOWN - from purple box bottom */}
-                                                    {showRedDownFromPurple && (
-                                                      <svg
-                                                        style={{
-                                                          position: 'absolute',
-                                                          left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
-                                                          top: '100%',
-                                                          width: '70px',
-                                                          height: '150px',
-                                                          pointerEvents: 'none',
-                                                          zIndex: 100,
-                                                          overflow: 'visible',
-                                                        }}
-                                                      >
-                                                        <defs>
-                                                          <path
-                                                            id={`redDown-${row.strike}`}
-                                                            d="M 25 0 Q 0 20 5 60 L 5 140"
-                                                            fill="none"
-                                                          />
-                                                          <linearGradient
-                                                            id={`redGrad-${row.strike}`}
-                                                            x1="0%"
-                                                            y1="0%"
-                                                            x2="100%"
-                                                            y2="100%"
-                                                          >
-                                                            <stop
-                                                              offset="0%"
-                                                              style={{
-                                                                stopColor: '#ff3366',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                            <stop
-                                                              offset="50%"
-                                                              style={{
-                                                                stopColor: '#ff1744',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                            <stop
-                                                              offset="100%"
-                                                              style={{
-                                                                stopColor: '#cc0022',
-                                                                stopOpacity: 1,
-                                                              }}
-                                                            />
-                                                          </linearGradient>
-                                                          <filter
-                                                            id="redGlow-${row.strike}"
-                                                            x="-50%"
-                                                            y="-50%"
-                                                            width="200%"
-                                                            height="200%"
-                                                          >
-                                                            <feGaussianBlur
-                                                              stdDeviation="4"
-                                                              result="coloredBlur"
-                                                            />
-                                                            <feMerge>
-                                                              <feMergeNode in="coloredBlur" />
-                                                              <feMergeNode in="SourceGraphic" />
-                                                            </feMerge>
-                                                          </filter>
-                                                        </defs>
-                                                        {/* 3D depth shadow layer */}
-                                                        {[0, 1, 2].map((i) => (
-                                                          <g key={`shadow-${i}`}>
-                                                            <text
-                                                              fontSize="42"
-                                                              fill="#330011"
-                                                              opacity="0.6"
-                                                              style={{ fontWeight: 'bold' }}
-                                                            >
-                                                              ↓
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 23 -2 Q -2 18 3 58 L 3 138"
-                                                              />
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.2;0.6;0.6;0.6;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                            </text>
-                                                          </g>
-                                                        ))}
-                                                        {/* Main 3D arrows with gradient and outline */}
-                                                        {[0, 1, 2].map((i) => (
-                                                          <g key={i}>
-                                                            {/* Stroke outline for depth */}
-                                                            <text
-                                                              fontSize="42"
+                                                        >
+                                                          <defs>
+                                                            <path
+                                                              id={`greenUp-${row.strike}`}
+                                                              d="M 25 150 Q 50 130 45 90 L 45 10"
                                                               fill="none"
-                                                              stroke="#ff3366"
-                                                              strokeWidth="3"
-                                                              style={{ fontWeight: 'bold' }}
+                                                            />
+                                                            <linearGradient
+                                                              id={`greenGrad-${row.strike}`}
+                                                              x1="0%"
+                                                              y1="0%"
+                                                              x2="100%"
+                                                              y2="100%"
                                                             >
-                                                              ↓
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                              <stop
+                                                                offset="0%"
+                                                                style={{
+                                                                  stopColor: '#00ffaa',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                              <stop
+                                                                offset="50%"
+                                                                style={{
+                                                                  stopColor: '#00ff88',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                              <stop
+                                                                offset="100%"
+                                                                style={{
+                                                                  stopColor: '#00cc66',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                            </linearGradient>
+                                                            <filter
+                                                              id="greenGlow-${row.strike}"
+                                                              x="-50%"
+                                                              y="-50%"
+                                                              width="200%"
+                                                              height="200%"
+                                                            >
+                                                              <feGaussianBlur
+                                                                stdDeviation="4"
+                                                                result="coloredBlur"
+                                                              />
+                                                              <feMerge>
+                                                                <feMergeNode in="coloredBlur" />
+                                                                <feMergeNode in="SourceGraphic" />
+                                                              </feMerge>
+                                                            </filter>
+                                                          </defs>
+                                                          {/* 3D depth shadow layer */}
+                                                          {[0, 1, 2].map((i) => (
+                                                            <g key={`shadow-${i}`}>
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="#003322"
+                                                                opacity="0.6"
+                                                                style={{ fontWeight: 'bold' }}
                                                               >
-                                                                <mpath
-                                                                  href={`#redDown-${row.strike}`}
+                                                                ↑
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 23 152 Q 48 132 43 92 L 43 12"
                                                                 />
-                                                              </animateMotion>
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.3;1;1;1;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                            </text>
-                                                            {/* Inner fill with gradient */}
-                                                            <text
-                                                              fontSize="42"
-                                                              fill="url(#redGrad-${row.strike})"
-                                                              style={{
-                                                                filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`,
-                                                                fontWeight: 'bold',
-                                                              }}
-                                                            >
-                                                              ↓
-                                                              <animateMotion
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.2;0.6;0.6;0.6;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </text>
+                                                            </g>
+                                                          ))}
+                                                          {/* Main 3D arrows with gradient and outline */}
+                                                          {[0, 1, 2].map((i) => (
+                                                            <g key={i}>
+                                                              {/* Stroke outline for depth */}
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="none"
+                                                                stroke="#00ffaa"
+                                                                strokeWidth="3"
+                                                                style={{ fontWeight: 'bold' }}
                                                               >
-                                                                <mpath
-                                                                  href={`#redDown-${row.strike}`}
-                                                                />
-                                                              </animateMotion>
-                                                              <animate
-                                                                attributeName="opacity"
-                                                                values="0;0.3;1;1;1;0"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                              />
-                                                              <animateTransform
-                                                                attributeName="transform"
-                                                                type="scale"
-                                                                values="0.9;1.05;1;1;0.9"
-                                                                dur="2.2s"
-                                                                begin={`${i * 0.7}s`}
-                                                                repeatCount="indefinite"
-                                                                additive="sum"
-                                                              />
-                                                            </text>
-                                                          </g>
-                                                        ))}
-                                                        <path
-                                                          d="M 35 0 Q 15 20 15 60 L 15 140"
-                                                          stroke="url(#redGrad-${row.strike})"
-                                                          strokeWidth="4"
-                                                          strokeDasharray="10,5"
-                                                          fill="none"
-                                                          opacity="0.8"
-                                                          style={{
-                                                            filter: 'drop-shadow(0 0 8px #ff1744)',
-                                                          }}
-                                                        />
-                                                      </svg>
-                                                    )}
-
-                                                    {/* Horizontal rope at golden zone + Spinning pulley wheel */}
-                                                    {!isMobile &&
-                                                      isGoldenZone &&
-                                                      (() => {
-                                                        const wheelColor =
-                                                          goldenRowIndex > currentPriceRowIndex
-                                                            ? '#ff0000'
-                                                            : '#00ff00'
-                                                        const wheelDuration = isTurboMode
-                                                          ? '0.5s'
-                                                          : '2s' // Faster spin in turbo mode
-                                                        return (
-                                                          <>
-                                                            {/* Spinning pulley wheel at golden zone */}
-                                                            <svg
-                                                              style={{
-                                                                position: 'absolute',
-                                                                left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
-                                                                top: '50%',
-                                                                width: '60px',
-                                                                height: '60px',
-                                                                pointerEvents: 'none',
-                                                                zIndex: 100,
-                                                                overflow: 'visible',
-                                                                transform: 'translateY(-50%)',
-                                                              }}
-                                                            >
-                                                              <defs>
-                                                                <filter
-                                                                  id={`pulleyGlow-${row.strike}`}
-                                                                  x="-50%"
-                                                                  y="-50%"
-                                                                  width="200%"
-                                                                  height="200%"
+                                                                ↑
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 25 150 Q 50 130 45 90 L 45 10"
                                                                 >
-                                                                  <feGaussianBlur
-                                                                    stdDeviation="3"
-                                                                    result="coloredBlur"
+                                                                  <mpath
+                                                                    href={`#greenUp-${row.strike}`}
                                                                   />
-                                                                  <feMerge>
-                                                                    <feMergeNode in="coloredBlur" />
-                                                                    <feMergeNode in="SourceGraphic" />
-                                                                  </feMerge>
-                                                                </filter>
-                                                              </defs>
+                                                                </animateMotion>
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.3;1;1;1;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </text>
+                                                              {/* Inner fill with gradient */}
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="url(#greenGrad-${row.strike})"
+                                                                style={{
+                                                                  filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`,
+                                                                  fontWeight: 'bold',
+                                                                }}
+                                                              >
+                                                                ↑
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 25 150 Q 50 130 45 90 L 45 10"
+                                                                >
+                                                                  <mpath
+                                                                    href={`#greenUp-${row.strike}`}
+                                                                  />
+                                                                </animateMotion>
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.3;1;1;1;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                                <animateTransform
+                                                                  attributeName="transform"
+                                                                  type="scale"
+                                                                  values="0.9;1.05;1;1;0.9"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  additive="sum"
+                                                                />
+                                                              </text>
+                                                            </g>
+                                                          ))}
+                                                          <path
+                                                            d="M 45 150 Q 60 130 55 90 L 55 10"
+                                                            stroke="url(#greenGrad-${row.strike})"
+                                                            strokeWidth="4"
+                                                            strokeDasharray="10,5"
+                                                            fill="none"
+                                                            opacity="0.8"
+                                                            style={{
+                                                              filter:
+                                                                'drop-shadow(0 0 8px #00ff88)',
+                                                            }}
+                                                          />
+                                                        </svg>
+                                                      )}
 
-                                                              {/* Smoke animation - only in turbo mode */}
-                                                              {isTurboMode && (
-                                                                <>
-                                                                  {[...Array(5)].map((_, i) => (
-                                                                    <circle
-                                                                      key={i}
-                                                                      cx="30"
-                                                                      cy="30"
-                                                                      r="3"
-                                                                      fill="#888"
-                                                                      opacity="0"
-                                                                    >
-                                                                      <animate
-                                                                        attributeName="cy"
-                                                                        from="30"
-                                                                        to="0"
-                                                                        dur="2s"
-                                                                        begin={`${i * 0.4}s`}
-                                                                        repeatCount="indefinite"
-                                                                      />
-                                                                      <animate
-                                                                        attributeName="cx"
-                                                                        from="30"
-                                                                        to={
-                                                                          30 +
-                                                                          (Math.random() - 0.5) * 20
-                                                                        }
-                                                                        dur="2s"
-                                                                        begin={`${i * 0.4}s`}
-                                                                        repeatCount="indefinite"
-                                                                      />
-                                                                      <animate
-                                                                        attributeName="r"
-                                                                        from="2"
-                                                                        to="8"
-                                                                        dur="2s"
-                                                                        begin={`${i * 0.4}s`}
-                                                                        repeatCount="indefinite"
-                                                                      />
-                                                                      <animate
-                                                                        attributeName="opacity"
-                                                                        values="0;0.6;0.3;0"
-                                                                        dur="2s"
-                                                                        begin={`${i * 0.4}s`}
-                                                                        repeatCount="indefinite"
-                                                                      />
-                                                                    </circle>
-                                                                  ))}
-                                                                </>
-                                                              )}
+                                                      {/* Red arrows DOWN - from purple box bottom */}
+                                                      {showRedDownFromPurple && (
+                                                        <svg
+                                                          style={{
+                                                            position: 'absolute',
+                                                            left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
+                                                            top: '100%',
+                                                            width: '70px',
+                                                            height: '150px',
+                                                            pointerEvents: 'none',
+                                                            zIndex: 100,
+                                                            overflow: 'visible',
+                                                          }}
+                                                        >
+                                                          <defs>
+                                                            <path
+                                                              id={`redDown-${row.strike}`}
+                                                              d="M 25 0 Q 0 20 5 60 L 5 140"
+                                                              fill="none"
+                                                            />
+                                                            <linearGradient
+                                                              id={`redGrad-${row.strike}`}
+                                                              x1="0%"
+                                                              y1="0%"
+                                                              x2="100%"
+                                                              y2="100%"
+                                                            >
+                                                              <stop
+                                                                offset="0%"
+                                                                style={{
+                                                                  stopColor: '#ff3366',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                              <stop
+                                                                offset="50%"
+                                                                style={{
+                                                                  stopColor: '#ff1744',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                              <stop
+                                                                offset="100%"
+                                                                style={{
+                                                                  stopColor: '#cc0022',
+                                                                  stopOpacity: 1,
+                                                                }}
+                                                              />
+                                                            </linearGradient>
+                                                            <filter
+                                                              id="redGlow-${row.strike}"
+                                                              x="-50%"
+                                                              y="-50%"
+                                                              width="200%"
+                                                              height="200%"
+                                                            >
+                                                              <feGaussianBlur
+                                                                stdDeviation="4"
+                                                                result="coloredBlur"
+                                                              />
+                                                              <feMerge>
+                                                                <feMergeNode in="coloredBlur" />
+                                                                <feMergeNode in="SourceGraphic" />
+                                                              </feMerge>
+                                                            </filter>
+                                                          </defs>
+                                                          {/* 3D depth shadow layer */}
+                                                          {[0, 1, 2].map((i) => (
+                                                            <g key={`shadow-${i}`}>
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="#330011"
+                                                                opacity="0.6"
+                                                                style={{ fontWeight: 'bold' }}
+                                                              >
+                                                                ↓
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 23 -2 Q -2 18 3 58 L 3 138"
+                                                                />
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.2;0.6;0.6;0.6;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </text>
+                                                            </g>
+                                                          ))}
+                                                          {/* Main 3D arrows with gradient and outline */}
+                                                          {[0, 1, 2].map((i) => (
+                                                            <g key={i}>
+                                                              {/* Stroke outline for depth */}
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="none"
+                                                                stroke="#ff3366"
+                                                                strokeWidth="3"
+                                                                style={{ fontWeight: 'bold' }}
+                                                              >
+                                                                ↓
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                                >
+                                                                  <mpath
+                                                                    href={`#redDown-${row.strike}`}
+                                                                  />
+                                                                </animateMotion>
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.3;1;1;1;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </text>
+                                                              {/* Inner fill with gradient */}
+                                                              <text
+                                                                fontSize="42"
+                                                                fill="url(#redGrad-${row.strike})"
+                                                                style={{
+                                                                  filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`,
+                                                                  fontWeight: 'bold',
+                                                                }}
+                                                              >
+                                                                ↓
+                                                                <animateMotion
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                                >
+                                                                  <mpath
+                                                                    href={`#redDown-${row.strike}`}
+                                                                  />
+                                                                </animateMotion>
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.3;1;1;1;0"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                                <animateTransform
+                                                                  attributeName="transform"
+                                                                  type="scale"
+                                                                  values="0.9;1.05;1;1;0.9"
+                                                                  dur="2.2s"
+                                                                  begin={`${i * 0.7}s`}
+                                                                  repeatCount="indefinite"
+                                                                  additive="sum"
+                                                                />
+                                                              </text>
+                                                            </g>
+                                                          ))}
+                                                          <path
+                                                            d="M 35 0 Q 15 20 15 60 L 15 140"
+                                                            stroke="url(#redGrad-${row.strike})"
+                                                            strokeWidth="4"
+                                                            strokeDasharray="10,5"
+                                                            fill="none"
+                                                            opacity="0.8"
+                                                            style={{
+                                                              filter:
+                                                                'drop-shadow(0 0 8px #ff1744)',
+                                                            }}
+                                                          />
+                                                        </svg>
+                                                      )}
 
-                                                              <g transform="translate(30, 30)">
-                                                                {/* Pulley shadow */}
-                                                                <circle
-                                                                  cx="0"
-                                                                  cy="0"
-                                                                  r="22"
-                                                                  fill="#333"
-                                                                  opacity="0.5"
-                                                                  style={{ filter: 'blur(4px)' }}
-                                                                />
-                                                                {/* Pulley outer ring - golden color with conditional outline */}
-                                                                <circle
-                                                                  cx="0"
-                                                                  cy="0"
-                                                                  r="20"
-                                                                  fill="#ffd700"
-                                                                  stroke={wheelColor}
-                                                                  strokeWidth="3"
-                                                                  style={{
-                                                                    filter: `url(#pulleyGlow-${row.strike})`,
-                                                                  }}
-                                                                />
-                                                                {/* Inner dark ring */}
-                                                                <circle
-                                                                  cx="0"
-                                                                  cy="0"
-                                                                  r="15"
-                                                                  fill="#444"
-                                                                />
-                                                                {/* Spinning spokes - golden */}
-                                                                <g>
-                                                                  <line
-                                                                    x1="0"
-                                                                    y1="-15"
-                                                                    x2="0"
-                                                                    y2="15"
-                                                                    stroke="#ffd700"
-                                                                    strokeWidth="3"
+                                                      {/* Horizontal rope at golden zone + Spinning pulley wheel */}
+                                                      {!isMobile &&
+                                                        isGoldenZone &&
+                                                        (() => {
+                                                          const wheelColor =
+                                                            goldenRowIndex > currentPriceRowIndex
+                                                              ? '#ff0000'
+                                                              : '#00ff00'
+                                                          const wheelDuration = isTurboMode
+                                                            ? '0.5s'
+                                                            : '2s' // Faster spin in turbo mode
+                                                          return (
+                                                            <>
+                                                              {/* Spinning pulley wheel at golden zone */}
+                                                              <svg
+                                                                style={{
+                                                                  position: 'absolute',
+                                                                  left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
+                                                                  top: '50%',
+                                                                  width: '60px',
+                                                                  height: '60px',
+                                                                  pointerEvents: 'none',
+                                                                  zIndex: 100,
+                                                                  overflow: 'visible',
+                                                                  transform: 'translateY(-50%)',
+                                                                }}
+                                                              >
+                                                                <defs>
+                                                                  <filter
+                                                                    id={`pulleyGlow-${row.strike}`}
+                                                                    x="-50%"
+                                                                    y="-50%"
+                                                                    width="200%"
+                                                                    height="200%"
+                                                                  >
+                                                                    <feGaussianBlur
+                                                                      stdDeviation="3"
+                                                                      result="coloredBlur"
+                                                                    />
+                                                                    <feMerge>
+                                                                      <feMergeNode in="coloredBlur" />
+                                                                      <feMergeNode in="SourceGraphic" />
+                                                                    </feMerge>
+                                                                  </filter>
+                                                                </defs>
+
+                                                                {/* Smoke animation - only in turbo mode */}
+                                                                {isTurboMode && (
+                                                                  <>
+                                                                    {[...Array(5)].map((_, i) => (
+                                                                      <circle
+                                                                        key={i}
+                                                                        cx="30"
+                                                                        cy="30"
+                                                                        r="3"
+                                                                        fill="#888"
+                                                                        opacity="0"
+                                                                      >
+                                                                        <animate
+                                                                          attributeName="cy"
+                                                                          from="30"
+                                                                          to="0"
+                                                                          dur="2s"
+                                                                          begin={`${i * 0.4}s`}
+                                                                          repeatCount="indefinite"
+                                                                        />
+                                                                        <animate
+                                                                          attributeName="cx"
+                                                                          from="30"
+                                                                          to={
+                                                                            30 +
+                                                                            (Math.random() - 0.5) *
+                                                                              20
+                                                                          }
+                                                                          dur="2s"
+                                                                          begin={`${i * 0.4}s`}
+                                                                          repeatCount="indefinite"
+                                                                        />
+                                                                        <animate
+                                                                          attributeName="r"
+                                                                          from="2"
+                                                                          to="8"
+                                                                          dur="2s"
+                                                                          begin={`${i * 0.4}s`}
+                                                                          repeatCount="indefinite"
+                                                                        />
+                                                                        <animate
+                                                                          attributeName="opacity"
+                                                                          values="0;0.6;0.3;0"
+                                                                          dur="2s"
+                                                                          begin={`${i * 0.4}s`}
+                                                                          repeatCount="indefinite"
+                                                                        />
+                                                                      </circle>
+                                                                    ))}
+                                                                  </>
+                                                                )}
+
+                                                                <g transform="translate(30, 30)">
+                                                                  {/* Pulley shadow */}
+                                                                  <circle
+                                                                    cx="0"
+                                                                    cy="0"
+                                                                    r="22"
+                                                                    fill="#333"
+                                                                    opacity="0.5"
+                                                                    style={{ filter: 'blur(4px)' }}
                                                                   />
-                                                                  <line
-                                                                    x1="-15"
-                                                                    y1="0"
-                                                                    x2="15"
-                                                                    y2="0"
-                                                                    stroke="#ffd700"
+                                                                  {/* Pulley outer ring - golden color with conditional outline */}
+                                                                  <circle
+                                                                    cx="0"
+                                                                    cy="0"
+                                                                    r="20"
+                                                                    fill="#ffd700"
+                                                                    stroke={wheelColor}
                                                                     strokeWidth="3"
+                                                                    style={{
+                                                                      filter: `url(#pulleyGlow-${row.strike})`,
+                                                                    }}
                                                                   />
-                                                                  <line
-                                                                    x1="-10.5"
-                                                                    y1="-10.5"
-                                                                    x2="10.5"
-                                                                    y2="10.5"
+                                                                  {/* Inner dark ring */}
+                                                                  <circle
+                                                                    cx="0"
+                                                                    cy="0"
+                                                                    r="15"
+                                                                    fill="#444"
+                                                                  />
+                                                                  {/* Spinning spokes - golden */}
+                                                                  <g>
+                                                                    <line
+                                                                      x1="0"
+                                                                      y1="-15"
+                                                                      x2="0"
+                                                                      y2="15"
+                                                                      stroke="#ffd700"
+                                                                      strokeWidth="3"
+                                                                    />
+                                                                    <line
+                                                                      x1="-15"
+                                                                      y1="0"
+                                                                      x2="15"
+                                                                      y2="0"
+                                                                      stroke="#ffd700"
+                                                                      strokeWidth="3"
+                                                                    />
+                                                                    <line
+                                                                      x1="-10.5"
+                                                                      y1="-10.5"
+                                                                      x2="10.5"
+                                                                      y2="10.5"
+                                                                      stroke="#ffd700"
+                                                                      strokeWidth="3"
+                                                                    />
+                                                                    <line
+                                                                      x1="-10.5"
+                                                                      y1="10.5"
+                                                                      x2="10.5"
+                                                                      y2="-10.5"
+                                                                      stroke="#ffd700"
+                                                                      strokeWidth="3"
+                                                                    />
+                                                                    <animateTransform
+                                                                      attributeName="transform"
+                                                                      type="rotate"
+                                                                      from="0"
+                                                                      to="360"
+                                                                      dur={wheelDuration}
+                                                                      repeatCount="indefinite"
+                                                                    />
+                                                                  </g>
+                                                                  {/* Center bolt - golden */}
+                                                                  <circle
+                                                                    cx="0"
+                                                                    cy="0"
+                                                                    r="5"
+                                                                    fill="#b8860b"
                                                                     stroke="#ffd700"
-                                                                    strokeWidth="3"
+                                                                    strokeWidth="2"
                                                                   />
-                                                                  <line
-                                                                    x1="-10.5"
-                                                                    y1="10.5"
-                                                                    x2="10.5"
-                                                                    y2="-10.5"
-                                                                    stroke="#ffd700"
-                                                                    strokeWidth="3"
-                                                                  />
-                                                                  <animateTransform
-                                                                    attributeName="transform"
-                                                                    type="rotate"
-                                                                    from="0"
-                                                                    to="360"
-                                                                    dur={wheelDuration}
-                                                                    repeatCount="indefinite"
+                                                                  {/* Metallic shine */}
+                                                                  <circle
+                                                                    cx="-5"
+                                                                    cy="-5"
+                                                                    r="8"
+                                                                    fill="#fff"
+                                                                    opacity="0.4"
                                                                   />
                                                                 </g>
-                                                                {/* Center bolt - golden */}
-                                                                <circle
-                                                                  cx="0"
-                                                                  cy="0"
-                                                                  r="5"
-                                                                  fill="#b8860b"
-                                                                  stroke="#ffd700"
-                                                                  strokeWidth="2"
-                                                                />
-                                                                {/* Metallic shine */}
-                                                                <circle
-                                                                  cx="-5"
-                                                                  cy="-5"
-                                                                  r="8"
-                                                                  fill="#fff"
-                                                                  opacity="0.4"
-                                                                />
-                                                              </g>
-                                                            </svg>
-                                                          </>
-                                                        )
-                                                      })()}
-                                                  </>
-                                                )}
+                                                              </svg>
+                                                            </>
+                                                          )
+                                                        })()}
+                                                    </>
+                                                  )}
                                               </td>
                                               {showNormalColumn && (
                                                 <td
@@ -6598,721 +7118,742 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                       </div>
                     </div>
                   ) : /* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */
-                    showOI ||
-                      (showGEX && showDealer) ||
-                      (showGEX && showFlowGEX) ||
-                      (showDealer && showFlowGEX) ||
-                      (showGEX && showDealer && showFlowGEX) ? (
-                      <div
-                        className="flex overflow-x-auto"
-                        style={{
-                          gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
-                        }}
-                      >
-                        {/* OI/GEX Charts - Show when OI checkbox is active */}
-                        {showOI && (
-                          <div
-                            className="flex-shrink-0"
-                            style={{
-                              width: activeTableCount === 2 ? '1100px' : '1200px',
-                              minWidth: activeTableCount === 2 ? '1100px' : '1200px',
-                            }}
-                          >
-                            <OIGEXTab selectedTicker={selectedTicker} />
-                          </div>
-                        )}
-                        {(() => {
-                          // Calculate table width based on context
-                          const tableWidths: string[] = []
+                  showOI ||
+                    (showGEX && showDealer) ||
+                    (showGEX && showFlowGEX) ||
+                    (showDealer && showFlowGEX) ||
+                    (showGEX && showDealer && showFlowGEX) ? (
+                    <div
+                      className="flex overflow-x-auto"
+                      style={{
+                        gap:
+                          typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
+                      }}
+                    >
+                      {/* OI/GEX Charts - Show when OI checkbox is active */}
+                      {showOI && (
+                        <div
+                          className="flex-shrink-0"
+                          style={{
+                            width: activeTableCount === 2 ? '1100px' : '1200px',
+                            minWidth: activeTableCount === 2 ? '1100px' : '1200px',
+                          }}
+                        >
+                          <OIGEXTab selectedTicker={selectedTicker} />
+                        </div>
+                      )}
+                      {(() => {
+                        // Calculate table width based on context
+                        const tableWidths: string[] = []
 
-                          if (showOI && activeTableCount === 1) {
-                            // OI + 1 table: table gets 900px
-                            tableWidths.push('900px')
-                          } else if (showOI && activeTableCount === 2) {
-                            // OI + 2 tables: each table gets 895px
-                            tableWidths.push('895px', '895px')
-                          } else if (!showOI && activeTableCount === 2 && duoMode) {
-                            // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
-                            tableWidths.push('540px', '540px')
-                          } else if (!showOI && activeTableCount === 2) {
-                            // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
-                            tableWidths.push('887px', '887px')
-                          } else if (!showOI && activeTableCount === 3) {
-                            // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
-                            tableWidths.push('887px', '887px', '886px')
-                          }
+                        if (showOI && activeTableCount === 1) {
+                          // OI + 1 table: table gets 900px
+                          tableWidths.push('900px')
+                        } else if (showOI && activeTableCount === 2) {
+                          // OI + 2 tables: each table gets 895px
+                          tableWidths.push('895px', '895px')
+                        } else if (!showOI && activeTableCount === 2 && duoMode) {
+                          // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
+                          tableWidths.push('540px', '540px')
+                        } else if (!showOI && activeTableCount === 2) {
+                          // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
+                          tableWidths.push('887px', '887px')
+                        } else if (!showOI && activeTableCount === 3) {
+                          // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
+                          tableWidths.push('887px', '887px', '886px')
+                        }
 
-                          // Mobile detection - needed for getTableWidth function
-                          const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                        // Mobile detection - needed for getTableWidth function
+                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-                          let currentTableIndex = 0
-                          const getTableWidth = () => {
-                            // On mobile, enforce equal widths so tables don't collapse when empty
-                            if (isMobile) {
-                              if (activeTableCount === 3) {
-                                return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
-                              } else if (activeTableCount === 2) {
-                                return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
-                              }
-                              return undefined
-                            }
-                            if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
-                              return {
-                                width: tableWidths[currentTableIndex],
-                                minWidth: tableWidths[currentTableIndex++],
-                              }
+                        let currentTableIndex = 0
+                        const getTableWidth = () => {
+                          // On mobile, enforce equal widths so tables don't collapse when empty
+                          if (isMobile) {
+                            if (activeTableCount === 3) {
+                              return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
+                            } else if (activeTableCount === 2) {
+                              return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
                             }
                             return undefined
                           }
-
-                          // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
-                          const allThreeActive = showGEX && showDealer && showFlowGEX
-                          const mobileStrikeWidth = isMobile
-                            ? 45
-                            : allThreeActive
-                              ? Math.round(strikeColWidth * 0.56)
-                              : strikeColWidth
-                          let mobileExpWidth = isMobile ? 82 : allThreeActive ? 50 : 90
-
-                          // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
-                          if (duoMode && showGEX && showDealer && !isMobile) {
-                            mobileExpWidth = allThreeActive ? 50 : 70
-                          }
-
-                          let table1Expirations = expirations
-                          let table2Expirations = expirations
-                          let table3Expirations = expirations
-
-                          // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
-                          if (duoMode && showGEX && showDealer && !isMobile) {
-                            // Duo mode (no flow map): 6 expirations
-                            table1Expirations = expirations.slice(0, 6)
-                            table2Expirations = expirations.slice(0, 6)
-                            table3Expirations = expirations.slice(0, 6)
-                          } else if (allThreeActive && !duoMode && !isMobile) {
-                            // All three tables without duo mode: 8 expirations
-                            table1Expirations = expirations.slice(0, 8)
-                            table2Expirations = expirations.slice(0, 8)
-                            table3Expirations = expirations.slice(0, 8)
-                          }
-
-                          if (isMobile) {
-                            if (activeTableCount === 3) {
-                              // 3 tables on mobile: each gets 1 expiration
-                              table1Expirations = expirations.slice(0, 1)
-                              table2Expirations = expirations.slice(0, 1)
-                              table3Expirations = expirations.slice(0, 1)
-                            } else if (activeTableCount === 2) {
-                              // 2 tables on mobile: each gets 2 expirations
-                              table1Expirations = expirations.slice(0, 2)
-                              table2Expirations = expirations.slice(0, 2)
-                              table3Expirations = expirations.slice(0, 2)
+                          if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
+                            return {
+                              width: tableWidths[currentTableIndex],
+                              minWidth: tableWidths[currentTableIndex++],
                             }
                           }
+                          return undefined
+                        }
 
-                          return (
-                            <>
-                              {/* GEX/NORMAL TABLE */}
-                              {showGEX && (
-                                <div className="flex-shrink-0" style={getTableWidth()}>
-                                  <div
-                                    className={`${useBloombergTheme
+                        // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
+                        const allThreeActive = showGEX && showDealer && showFlowGEX
+                        const mobileStrikeWidth = isMobile
+                          ? 45
+                          : allThreeActive
+                            ? Math.round(strikeColWidth * 0.56)
+                            : strikeColWidth
+                        let mobileExpWidth = isMobile ? 82 : allThreeActive ? 50 : 90
+
+                        // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
+                        if (duoMode && showGEX && showDealer && !isMobile) {
+                          mobileExpWidth = allThreeActive ? 50 : 70
+                        }
+
+                        let table1Expirations = expirations
+                        let table2Expirations = expirations
+                        let table3Expirations = expirations
+
+                        // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
+                        if (duoMode && showGEX && showDealer && !isMobile) {
+                          // Duo mode (no flow map): 6 expirations
+                          table1Expirations = expirations.slice(0, 6)
+                          table2Expirations = expirations.slice(0, 6)
+                          table3Expirations = expirations.slice(0, 6)
+                        } else if (allThreeActive && !duoMode && !isMobile) {
+                          // All three tables without duo mode: 8 expirations
+                          table1Expirations = expirations.slice(0, 8)
+                          table2Expirations = expirations.slice(0, 8)
+                          table3Expirations = expirations.slice(0, 8)
+                        }
+
+                        if (isMobile) {
+                          if (activeTableCount === 3) {
+                            // 3 tables on mobile: each gets 1 expiration
+                            table1Expirations = expirations.slice(0, 1)
+                            table2Expirations = expirations.slice(0, 1)
+                            table3Expirations = expirations.slice(0, 1)
+                          } else if (activeTableCount === 2) {
+                            // 2 tables on mobile: each gets 2 expirations
+                            table1Expirations = expirations.slice(0, 2)
+                            table2Expirations = expirations.slice(0, 2)
+                            table3Expirations = expirations.slice(0, 2)
+                          }
+                        }
+
+                        return (
+                          <>
+                            {/* GEX/NORMAL TABLE */}
+                            {showGEX && (
+                              <div className="flex-shrink-0" style={getTableWidth()}>
+                                <div
+                                  className={`${
+                                    useBloombergTheme
                                       ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                                       : 'bg-black border-gray-700'
-                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                  >
+                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                >
+                                  {useBloombergTheme && (
+                                    <div
+                                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
+                                      style={{ animationDuration: '3s' }}
+                                    ></div>
+                                  )}
+                                  <div className="flex items-center justify-center gap-3 relative z-10">
                                     {useBloombergTheme && (
-                                      <div
-                                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
-                                        style={{ animationDuration: '3s' }}
-                                      ></div>
+                                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
                                     )}
-                                    <div className="flex items-center justify-center gap-3 relative z-10">
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-                                      )}
-                                      <h3
-                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
-                                        style={{
-                                          letterSpacing: '0.2em',
-                                          textShadow: useBloombergTheme
-                                            ? '0 0 20px rgba(52,211,153,0.5)'
-                                            : '0 2px 4px rgba(0,0,0,0.8)',
-                                        }}
-                                      >
-                                        NORMAL
-                                      </h3>
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div
-                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                    style={{
-                                      maxHeight: isMobile ? 'calc(78.72vh - 225px)' : 'calc(78.72vh - 270px)',
-                                      overflowX: 'auto',
-                                    }}
-                                  >
-                                    <table
+                                    <h3
+                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
                                       style={{
-                                        minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
-                                        width: '100%',
+                                        letterSpacing: '0.2em',
+                                        textShadow: useBloombergTheme
+                                          ? '0 0 20px rgba(52,211,153,0.5)'
+                                          : '0 2px 4px rgba(0,0,0,0.8)',
                                       }}
                                     >
-                                      <thead
-                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                        style={{
-                                          top: '0',
-                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                        }}
-                                      >
-                                        <tr
-                                          className={
-                                            useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                          }
-                                        >
-                                          <th
-                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
-                                            style={{
-                                              width: `${mobileStrikeWidth}px`,
-                                              minWidth: `${mobileStrikeWidth}px`,
-                                              maxWidth: `${mobileStrikeWidth}px`,
-                                            }}
-                                          >
-                                            <div
-                                              className={
-                                                useBloombergTheme
-                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
-                                              }
-                                            >
-                                              Strike
-                                            </div>
-                                          </th>
-                                          {table1Expirations.map((exp) => (
-                                            <th
-                                              key={exp}
-                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                              style={{
-                                                width: `${mobileExpWidth}px`,
-                                                minWidth: `${mobileExpWidth}px`,
-                                                maxWidth: `${mobileExpWidth}px`,
-                                              }}
-                                            >
-                                              <div
-                                                className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
-                                              >
-                                                {formatDate(exp)}
-                                              </div>
-                                            </th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {allCalculatedData
-                                          .filter((row) => {
-                                            const strikeRange = getStrikeRange(currentPrice)
-                                            return (
-                                              row.strike >= strikeRange.min &&
-                                              row.strike <= strikeRange.max
-                                            )
-                                          })
-                                          .map((row, idx) => {
-                                            // Use historical price when scrubbing, otherwise current price
-                                            const priceForRow = historicalTimestamp
-                                              ? historicalPrice
-                                              : currentPrice
-                                            const closestStrike =
-                                              priceForRow > 0
-                                                ? data.reduce((closest, current) =>
-                                                  Math.abs(current.strike - priceForRow) <
-                                                    Math.abs(closest.strike - priceForRow)
-                                                    ? current
-                                                    : closest
-                                                ).strike
-                                                : 0
-
-                                            const isCurrentPriceRow =
-                                              priceForRow > 0 && row.strike === closestStrike
-
-                                            return (
-                                              <tr
-                                                key={idx}
-                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
-                                                  ? 'border-2 border-orange-500'
-                                                  : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                                  }`}
-                                              >
-                                                <td
-                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                  style={{
-                                                    width: `${mobileStrikeWidth}px`,
-                                                    minWidth: `${mobileStrikeWidth}px`,
-                                                    maxWidth: `${mobileStrikeWidth}px`,
-                                                  }}
-                                                >
-                                                  <div
-                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                                  >
-                                                    {row.strike.toFixed(1)}
-                                                  </div>
-                                                </td>
-                                                {table1Expirations.map((exp) => {
-                                                  // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
-                                                  const calculatedRow = allGEXCalculatedData.find(
-                                                    (r) => r.strike === row.strike
-                                                  )
-                                                  const gexValue = calculatedRow?.[exp] as any
-                                                  const displayValue =
-                                                    (gexValue?.call || 0) + (gexValue?.put || 0)
-                                                  const cellStyle = getCellStyle(
-                                                    displayValue,
-                                                    false,
-                                                    row.strike,
-                                                    exp,
-                                                    gexTopValues,
-                                                    'gex'
-                                                  )
-
-                                                  return (
-                                                    <td
-                                                      key={exp}
-                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                      style={{
-                                                        width: `${mobileExpWidth}px`,
-                                                        minWidth: `${mobileExpWidth}px`,
-                                                        maxWidth: `${mobileExpWidth}px`,
-                                                      }}
-                                                    >
-                                                      <div
-                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
-                                                      >
-                                                        <div className="text-sm md:text-base font-bold mb-1">
-                                                          {formatCurrency(displayValue)}
-                                                        </div>
-                                                      </div>
-                                                    </td>
-                                                  )
-                                                })}
-                                              </tr>
-                                            )
-                                          })}
-                                      </tbody>
-                                    </table>
+                                      NORMAL
+                                    </h3>
+                                    {useBloombergTheme && (
+                                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                    )}
                                   </div>
                                 </div>
-                              )}
-
-                              {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
-                              {showDealer && (
                                 <div
-                                  key={`dealer-${liveMode}-${liveOIData.size}`}
-                                  className="flex-shrink-0"
-                                  style={
-                                    showOI && activeTableCount === 1
-                                      ? { width: '900px', minWidth: '900px' }
-                                      : getTableWidth()
-                                  }
+                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                                  style={{
+                                    maxHeight: isMobile
+                                      ? 'calc(74.78vh - 225px)'
+                                      : 'calc(74.78vh - 270px)',
+                                    overflowX: 'auto',
+                                  }}
                                 >
-                                  <div
-                                    className={`${useBloombergTheme
-                                      ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                                      : 'bg-black border-gray-700'
-                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                  >
-                                    {useBloombergTheme && (
-                                      <div
-                                        className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
-                                        style={{ animationDuration: '3s' }}
-                                      ></div>
-                                    )}
-                                    <div className="flex items-center justify-center gap-3 relative z-10">
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
-                                      )}
-                                      <h3
-                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
-                                        style={{
-                                          letterSpacing: '0.2em',
-                                          textShadow: useBloombergTheme
-                                            ? '0 0 20px rgba(251,191,36,0.5)'
-                                            : '0 2px 4px rgba(0,0,0,0.8)',
-                                        }}
-                                      >
-                                        DEALER
-                                      </h3>
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div
-                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                                  <table
                                     style={{
-                                      maxHeight: isMobile ? 'calc(78.72vh - 225px)' : 'calc(78.72vh - 270px)',
-                                      overflowX: 'auto',
+                                      minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
+                                      width: '100%',
                                     }}
                                   >
-                                    <table
+                                    <thead
+                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
                                       style={{
-                                        minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
-                                        width: '100%',
+                                        top: '0',
+                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
                                       }}
                                     >
-                                      <thead
-                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                        style={{
-                                          top: '0',
-                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                        }}
+                                      <tr
+                                        className={
+                                          useBloombergTheme
+                                            ? ''
+                                            : 'border-b border-gray-700 bg-black'
+                                        }
                                       >
-                                        <tr
-                                          className={
-                                            useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                          }
+                                        <th
+                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                          style={{
+                                            width: `${mobileStrikeWidth}px`,
+                                            minWidth: `${mobileStrikeWidth}px`,
+                                            maxWidth: `${mobileStrikeWidth}px`,
+                                          }}
                                         >
+                                          <div
+                                            className={
+                                              useBloombergTheme
+                                                ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                : 'text-xs md:text-sm font-bold text-white uppercase'
+                                            }
+                                          >
+                                            Strike
+                                          </div>
+                                        </th>
+                                        {table1Expirations.map((exp) => (
                                           <th
-                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                            key={exp}
+                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                             style={{
-                                              width: `${mobileStrikeWidth}px`,
-                                              minWidth: `${mobileStrikeWidth}px`,
-                                              maxWidth: `${mobileStrikeWidth}px`,
+                                              width: `${mobileExpWidth}px`,
+                                              minWidth: `${mobileExpWidth}px`,
+                                              maxWidth: `${mobileExpWidth}px`,
                                             }}
                                           >
                                             <div
-                                              className={
-                                                useBloombergTheme
-                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
-                                              }
+                                              className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
                                             >
-                                              Strike
+                                              {formatDate(exp)}
                                             </div>
                                           </th>
-                                          {table2Expirations.map((exp) => (
-                                            <th
-                                              key={exp}
-                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                              style={{
-                                                width: `${mobileExpWidth}px`,
-                                                minWidth: `${mobileExpWidth}px`,
-                                                maxWidth: `${mobileExpWidth}px`,
-                                              }}
-                                            >
-                                              <div
-                                                className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
-                                              >
-                                                {formatDate(exp)}
-                                              </div>
-                                            </th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {allCalculatedData
-                                          .filter((row) => {
-                                            const strikeRange = getStrikeRange(currentPrice)
-                                            return (
-                                              row.strike >= strikeRange.min &&
-                                              row.strike <= strikeRange.max
-                                            )
-                                          })
-                                          .map((row, idx) => {
-                                            // Use historical price when scrubbing, otherwise current price
-                                            const priceForRow = historicalTimestamp
-                                              ? historicalPrice
-                                              : currentPrice
-                                            const closestStrike =
-                                              priceForRow > 0
-                                                ? data.reduce((closest, current) =>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {allCalculatedData
+                                        .filter((row) => {
+                                          const strikeRange = getStrikeRange(currentPrice)
+                                          return (
+                                            row.strike >= strikeRange.min &&
+                                            row.strike <= strikeRange.max
+                                          )
+                                        })
+                                        .map((row, idx) => {
+                                          // Use historical price when scrubbing, otherwise current price
+                                          const priceForRow = historicalTimestamp
+                                            ? historicalPrice
+                                            : currentPrice
+                                          const closestStrike =
+                                            priceForRow > 0
+                                              ? data.reduce((closest, current) =>
                                                   Math.abs(current.strike - priceForRow) <
-                                                    Math.abs(closest.strike - priceForRow)
+                                                  Math.abs(closest.strike - priceForRow)
                                                     ? current
                                                     : closest
                                                 ).strike
-                                                : 0
+                                              : 0
 
-                                            const isCurrentPriceRow =
-                                              priceForRow > 0 && row.strike === closestStrike
+                                          const isCurrentPriceRow =
+                                            priceForRow > 0 && row.strike === closestStrike
 
-                                            return (
-                                              <tr
-                                                key={idx}
-                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
+                                          return (
+                                            <tr
+                                              key={idx}
+                                              className={`hover:bg-gray-800/20 transition-colors ${
+                                                isCurrentPriceRow
                                                   ? 'border-2 border-orange-500'
                                                   : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                                  }`}
+                                              }`}
+                                            >
+                                              <td
+                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                style={{
+                                                  width: `${mobileStrikeWidth}px`,
+                                                  minWidth: `${mobileStrikeWidth}px`,
+                                                  maxWidth: `${mobileStrikeWidth}px`,
+                                                }}
                                               >
-                                                <td
-                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                  style={{
-                                                    width: `${mobileStrikeWidth}px`,
-                                                    minWidth: `${mobileStrikeWidth}px`,
-                                                    maxWidth: `${mobileStrikeWidth}px`,
-                                                  }}
+                                                <div
+                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                                 >
-                                                  <div
-                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                                  >
-                                                    {row.strike.toFixed(1)}
-                                                  </div>
-                                                </td>
-                                                {table2Expirations.map((exp) => {
-                                                  // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
-                                                  const calculatedRow = allDealerCalculatedData.find(
-                                                    (r) => r.strike === row.strike
-                                                  )
-                                                  const dealerValue = calculatedRow?.[exp] as any
-                                                  const displayValue =
-                                                    (dealerValue?.call || 0) + (dealerValue?.put || 0)
-                                                  const cellStyle = getCellStyle(
-                                                    displayValue,
-                                                    false,
-                                                    row.strike,
-                                                    exp,
-                                                    dealerTopValues,
-                                                    'dealer'
-                                                  )
+                                                  {row.strike.toFixed(1)}
+                                                </div>
+                                              </td>
+                                              {table1Expirations.map((exp) => {
+                                                // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
+                                                const calculatedRow = allGEXCalculatedData.find(
+                                                  (r) => r.strike === row.strike
+                                                )
+                                                const gexValue = calculatedRow?.[exp] as any
+                                                const displayValue =
+                                                  (gexValue?.call || 0) + (gexValue?.put || 0)
+                                                const cellStyle = getCellStyle(
+                                                  displayValue,
+                                                  false,
+                                                  row.strike,
+                                                  exp,
+                                                  gexTopValues,
+                                                  'gex'
+                                                )
 
-                                                  return (
-                                                    <td
-                                                      key={exp}
-                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                      style={{
-                                                        width: `${mobileExpWidth}px`,
-                                                        minWidth: `${mobileExpWidth}px`,
-                                                        maxWidth: `${mobileExpWidth}px`,
-                                                      }}
+                                                return (
+                                                  <td
+                                                    key={exp}
+                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                    style={{
+                                                      width: `${mobileExpWidth}px`,
+                                                      minWidth: `${mobileExpWidth}px`,
+                                                      maxWidth: `${mobileExpWidth}px`,
+                                                    }}
+                                                  >
+                                                    <div
+                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
                                                     >
-                                                      <div
-                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top'
+                                                      <div className="text-sm md:text-base font-bold mb-1">
+                                                        {formatCurrency(displayValue)}
+                                                      </div>
+                                                    </div>
+                                                  </td>
+                                                )
+                                              })}
+                                            </tr>
+                                          )
+                                        })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                            {showDealer && (
+                              <div
+                                key={`dealer-${liveMode}-${liveOIData.size}`}
+                                className="flex-shrink-0"
+                                style={
+                                  showOI && activeTableCount === 1
+                                    ? { width: '900px', minWidth: '900px' }
+                                    : getTableWidth()
+                                }
+                              >
+                                <div
+                                  className={`${
+                                    useBloombergTheme
+                                      ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                                      : 'bg-black border-gray-700'
+                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                >
+                                  {useBloombergTheme && (
+                                    <div
+                                      className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
+                                      style={{ animationDuration: '3s' }}
+                                    ></div>
+                                  )}
+                                  <div className="flex items-center justify-center gap-3 relative z-10">
+                                    {useBloombergTheme && (
+                                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                    )}
+                                    <h3
+                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
+                                      style={{
+                                        letterSpacing: '0.2em',
+                                        textShadow: useBloombergTheme
+                                          ? '0 0 20px rgba(251,191,36,0.5)'
+                                          : '0 2px 4px rgba(0,0,0,0.8)',
+                                      }}
+                                    >
+                                      DEALER
+                                    </h3>
+                                    {useBloombergTheme && (
+                                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div
+                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                                  style={{
+                                    maxHeight: isMobile
+                                      ? 'calc(74.78vh - 225px)'
+                                      : 'calc(74.78vh - 270px)',
+                                    overflowX: 'auto',
+                                  }}
+                                >
+                                  <table
+                                    style={{
+                                      minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
+                                      width: '100%',
+                                    }}
+                                  >
+                                    <thead
+                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                      style={{
+                                        top: '0',
+                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                      }}
+                                    >
+                                      <tr
+                                        className={
+                                          useBloombergTheme
+                                            ? ''
+                                            : 'border-b border-gray-700 bg-black'
+                                        }
+                                      >
+                                        <th
+                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                          style={{
+                                            width: `${mobileStrikeWidth}px`,
+                                            minWidth: `${mobileStrikeWidth}px`,
+                                            maxWidth: `${mobileStrikeWidth}px`,
+                                          }}
+                                        >
+                                          <div
+                                            className={
+                                              useBloombergTheme
+                                                ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                : 'text-xs md:text-sm font-bold text-white uppercase'
+                                            }
+                                          >
+                                            Strike
+                                          </div>
+                                        </th>
+                                        {table2Expirations.map((exp) => (
+                                          <th
+                                            key={exp}
+                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                            style={{
+                                              width: `${mobileExpWidth}px`,
+                                              minWidth: `${mobileExpWidth}px`,
+                                              maxWidth: `${mobileExpWidth}px`,
+                                            }}
+                                          >
+                                            <div
+                                              className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                            >
+                                              {formatDate(exp)}
+                                            </div>
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {allCalculatedData
+                                        .filter((row) => {
+                                          const strikeRange = getStrikeRange(currentPrice)
+                                          return (
+                                            row.strike >= strikeRange.min &&
+                                            row.strike <= strikeRange.max
+                                          )
+                                        })
+                                        .map((row, idx) => {
+                                          // Use historical price when scrubbing, otherwise current price
+                                          const priceForRow = historicalTimestamp
+                                            ? historicalPrice
+                                            : currentPrice
+                                          const closestStrike =
+                                            priceForRow > 0
+                                              ? data.reduce((closest, current) =>
+                                                  Math.abs(current.strike - priceForRow) <
+                                                  Math.abs(closest.strike - priceForRow)
+                                                    ? current
+                                                    : closest
+                                                ).strike
+                                              : 0
+
+                                          const isCurrentPriceRow =
+                                            priceForRow > 0 && row.strike === closestStrike
+
+                                          return (
+                                            <tr
+                                              key={idx}
+                                              className={`hover:bg-gray-800/20 transition-colors ${
+                                                isCurrentPriceRow
+                                                  ? 'border-2 border-orange-500'
+                                                  : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                              }`}
+                                            >
+                                              <td
+                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                style={{
+                                                  width: `${mobileStrikeWidth}px`,
+                                                  minWidth: `${mobileStrikeWidth}px`,
+                                                  maxWidth: `${mobileStrikeWidth}px`,
+                                                }}
+                                              >
+                                                <div
+                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                >
+                                                  {row.strike.toFixed(1)}
+                                                </div>
+                                              </td>
+                                              {table2Expirations.map((exp) => {
+                                                // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
+                                                const calculatedRow = allDealerCalculatedData.find(
+                                                  (r) => r.strike === row.strike
+                                                )
+                                                const dealerValue = calculatedRow?.[exp] as any
+                                                const displayValue =
+                                                  (dealerValue?.call || 0) + (dealerValue?.put || 0)
+                                                const cellStyle = getCellStyle(
+                                                  displayValue,
+                                                  false,
+                                                  row.strike,
+                                                  exp,
+                                                  dealerTopValues,
+                                                  'dealer'
+                                                )
+
+                                                return (
+                                                  <td
+                                                    key={exp}
+                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                    style={{
+                                                      width: `${mobileExpWidth}px`,
+                                                      minWidth: `${mobileExpWidth}px`,
+                                                      maxWidth: `${mobileExpWidth}px`,
+                                                    }}
+                                                  >
+                                                    <div
+                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${
+                                                        cellStyle.clusterPosition === 'top'
                                                           ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                           : cellStyle.clusterPosition === 'middle'
                                                             ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                             : cellStyle.clusterPosition === 'bottom'
                                                               ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                               : ''
-                                                          }`}
-                                                      >
-                                                        <div className="text-sm md:text-base font-bold mb-1">
-                                                          {formatCurrency(displayValue)}
-                                                        </div>
+                                                      }`}
+                                                    >
+                                                      <div className="text-sm md:text-base font-bold mb-1">
+                                                        {formatCurrency(displayValue)}
                                                       </div>
-                                                    </td>
-                                                  )
-                                                })}
-                                              </tr>
-                                            )
-                                          })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                                    </div>
+                                                  </td>
+                                                )
+                                              })}
+                                            </tr>
+                                          )
+                                        })}
+                                    </tbody>
+                                  </table>
                                 </div>
-                              )}
+                              </div>
+                            )}
 
-                              {/* FLOW MAP Table - conditionally rendered */}
-                              {showFlowGEX && (
+                            {/* FLOW MAP Table - conditionally rendered */}
+                            {showFlowGEX && (
+                              <div
+                                key={`flowmap-${liveMode}-${liveOIData.size}`}
+                                className="flex-shrink-0"
+                                style={
+                                  showOI && activeTableCount === 1
+                                    ? { width: '900px', minWidth: '900px' }
+                                    : getTableWidth()
+                                }
+                              >
                                 <div
-                                  key={`flowmap-${liveMode}-${liveOIData.size}`}
-                                  className="flex-shrink-0"
-                                  style={
-                                    showOI && activeTableCount === 1
-                                      ? { width: '900px', minWidth: '900px' }
-                                      : getTableWidth()
-                                  }
-                                >
-                                  <div
-                                    className={`${useBloombergTheme
+                                  className={`${
+                                    useBloombergTheme
                                       ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
                                       : 'bg-black border-gray-700'
-                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                  >
+                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                >
+                                  {useBloombergTheme && (
+                                    <div
+                                      className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
+                                      style={{ animationDuration: '3s' }}
+                                    ></div>
+                                  )}
+                                  <div className="flex items-center justify-center gap-3 relative z-10">
                                     {useBloombergTheme && (
-                                      <div
-                                        className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
-                                        style={{ animationDuration: '3s' }}
-                                      ></div>
+                                      <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
                                     )}
-                                    <div className="flex items-center justify-center gap-3 relative z-10">
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                      )}
-                                      <h3
-                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
-                                        style={{
-                                          letterSpacing: '0.2em',
-                                          textShadow: useBloombergTheme
-                                            ? '0 0 20px rgba(251,146,60,0.5)'
-                                            : '0 2px 4px rgba(0,0,0,0.8)',
-                                        }}
-                                      >
-                                        FLOW MAP
-                                      </h3>
-                                      {useBloombergTheme && (
-                                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div
-                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                    style={{
-                                      maxHeight: isMobile ? 'calc(78.72vh - 225px)' : 'calc(78.72vh - 270px)',
-                                      overflowX: 'auto',
-                                    }}
-                                  >
-                                    <table
+                                    <h3
+                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
                                       style={{
-                                        minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
-                                        width: '100%',
+                                        letterSpacing: '0.2em',
+                                        textShadow: useBloombergTheme
+                                          ? '0 0 20px rgba(251,146,60,0.5)'
+                                          : '0 2px 4px rgba(0,0,0,0.8)',
                                       }}
                                     >
-                                      <thead
-                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
-                                        style={{
-                                          top: '0',
-                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
-                                        }}
+                                      FLOW MAP
+                                    </h3>
+                                    {useBloombergTheme && (
+                                      <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div
+                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                                  style={{
+                                    maxHeight: isMobile
+                                      ? 'calc(74.78vh - 225px)'
+                                      : 'calc(74.78vh - 270px)',
+                                    overflowX: 'auto',
+                                  }}
+                                >
+                                  <table
+                                    style={{
+                                      minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
+                                      width: '100%',
+                                    }}
+                                  >
+                                    <thead
+                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                      style={{
+                                        top: '0',
+                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                      }}
+                                    >
+                                      <tr
+                                        className={
+                                          useBloombergTheme
+                                            ? ''
+                                            : 'border-b border-gray-700 bg-black'
+                                        }
                                       >
-                                        <tr
-                                          className={
-                                            useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                                          }
+                                        <th
+                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                          style={{
+                                            width: `${mobileStrikeWidth}px`,
+                                            minWidth: `${mobileStrikeWidth}px`,
+                                            maxWidth: `${mobileStrikeWidth}px`,
+                                          }}
                                         >
+                                          <div
+                                            className={
+                                              useBloombergTheme
+                                                ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                : 'text-xs md:text-sm font-bold text-white uppercase'
+                                            }
+                                          >
+                                            Strike
+                                          </div>
+                                        </th>
+                                        {table3Expirations.map((exp) => (
                                           <th
-                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                            key={exp}
+                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                             style={{
-                                              width: `${mobileStrikeWidth}px`,
-                                              minWidth: `${mobileStrikeWidth}px`,
-                                              maxWidth: `${mobileStrikeWidth}px`,
+                                              width: `${mobileExpWidth}px`,
+                                              minWidth: `${mobileExpWidth}px`,
+                                              maxWidth: `${mobileExpWidth}px`,
                                             }}
                                           >
-                                            <div
-                                              className={
-                                                useBloombergTheme
-                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
-                                              }
-                                            >
-                                              Strike
+                                            <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                              {formatDate(exp)}
                                             </div>
                                           </th>
-                                          {table3Expirations.map((exp) => (
-                                            <th
-                                              key={exp}
-                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
-                                              style={{
-                                                width: `${mobileExpWidth}px`,
-                                                minWidth: `${mobileExpWidth}px`,
-                                                maxWidth: `${mobileExpWidth}px`,
-                                              }}
-                                            >
-                                              <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                                {formatDate(exp)}
-                                              </div>
-                                            </th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {allFlowWeightedDealerData
-                                          .filter((row) => {
-                                            const strikeRange = getStrikeRange(currentPrice)
-                                            return (
-                                              row.strike >= strikeRange.min &&
-                                              row.strike <= strikeRange.max
-                                            )
-                                          })
-                                          .map((row, idx) => {
-                                            // Use historical price when scrubbing, otherwise current price
-                                            const priceForRow = historicalTimestamp
-                                              ? historicalPrice
-                                              : currentPrice
-                                            const closestStrike =
-                                              priceForRow > 0
-                                                ? data.reduce((closest, current) =>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {allFlowWeightedDealerData
+                                        .filter((row) => {
+                                          const strikeRange = getStrikeRange(currentPrice)
+                                          return (
+                                            row.strike >= strikeRange.min &&
+                                            row.strike <= strikeRange.max
+                                          )
+                                        })
+                                        .map((row, idx) => {
+                                          // Use historical price when scrubbing, otherwise current price
+                                          const priceForRow = historicalTimestamp
+                                            ? historicalPrice
+                                            : currentPrice
+                                          const closestStrike =
+                                            priceForRow > 0
+                                              ? data.reduce((closest, current) =>
                                                   Math.abs(current.strike - priceForRow) <
-                                                    Math.abs(closest.strike - priceForRow)
+                                                  Math.abs(closest.strike - priceForRow)
                                                     ? current
                                                     : closest
                                                 ).strike
-                                                : 0
+                                              : 0
 
-                                            const isCurrentPriceRow =
-                                              priceForRow > 0 && row.strike === closestStrike
+                                          const isCurrentPriceRow =
+                                            priceForRow > 0 && row.strike === closestStrike
 
-                                            return (
-                                              <tr
-                                                key={idx}
-                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
+                                          return (
+                                            <tr
+                                              key={idx}
+                                              className={`hover:bg-gray-800/20 transition-colors ${
+                                                isCurrentPriceRow
                                                   ? 'border-2 border-orange-500'
                                                   : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                                  }`}
+                                              }`}
+                                            >
+                                              <td
+                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                style={{
+                                                  width: `${mobileStrikeWidth}px`,
+                                                  minWidth: `${mobileStrikeWidth}px`,
+                                                  maxWidth: `${mobileStrikeWidth}px`,
+                                                }}
                                               >
-                                                <td
-                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                  style={{
-                                                    width: `${mobileStrikeWidth}px`,
-                                                    minWidth: `${mobileStrikeWidth}px`,
-                                                    maxWidth: `${mobileStrikeWidth}px`,
-                                                  }}
+                                                <div
+                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                                 >
-                                                  <div
-                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                                  >
-                                                    {row.strike.toFixed(1)}
-                                                  </div>
-                                                </td>
-                                                {table3Expirations.map((exp) => {
-                                                  const value = row[exp] as any
-                                                  const displayValue =
-                                                    (value?.call || 0) + (value?.put || 0)
-                                                  const cellStyle = getCellStyle(
-                                                    displayValue,
-                                                    false,
-                                                    row.strike,
-                                                    exp,
-                                                    flowTopValues
-                                                  )
+                                                  {row.strike.toFixed(1)}
+                                                </div>
+                                              </td>
+                                              {table3Expirations.map((exp) => {
+                                                const value = row[exp] as any
+                                                const displayValue =
+                                                  (value?.call || 0) + (value?.put || 0)
+                                                const cellStyle = getCellStyle(
+                                                  displayValue,
+                                                  false,
+                                                  row.strike,
+                                                  exp,
+                                                  flowTopValues
+                                                )
 
-                                                  return (
-                                                    <td
-                                                      key={exp}
-                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                      style={{
-                                                        width: `${mobileExpWidth}px`,
-                                                        minWidth: `${mobileExpWidth}px`,
-                                                        maxWidth: `${mobileExpWidth}px`,
-                                                      }}
+                                                return (
+                                                  <td
+                                                    key={exp}
+                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                    style={{
+                                                      width: `${mobileExpWidth}px`,
+                                                      minWidth: `${mobileExpWidth}px`,
+                                                      maxWidth: `${mobileExpWidth}px`,
+                                                    }}
+                                                  >
+                                                    <div
+                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
                                                     >
-                                                      <div
-                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
-                                                      >
-                                                        <div className="text-sm md:text-base font-bold mb-1">
-                                                          {formatCurrency(displayValue)}
-                                                        </div>
+                                                      <div className="text-sm md:text-base font-bold mb-1">
+                                                        {formatCurrency(displayValue)}
                                                       </div>
-                                                    </td>
-                                                  )
-                                                })}
-                                              </tr>
-                                            )
-                                          })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                                    </div>
+                                                  </td>
+                                                )
+                                              })}
+                                            </tr>
+                                          )
+                                        })}
+                                    </tbody>
+                                  </table>
                                 </div>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </div>
-                    ) : (
-                      /* Original single table when only one mode is active */
-                      <div>
-                        {/* Title banner for single-table mode */}
-                        <div
-                          className={`${showGEX
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  ) : (
+                    /* Original single table when only one mode is active */
+                    <div>
+                      {/* Title banner for single-table mode */}
+                      <div
+                        className={`${
+                          showGEX
                             ? useBloombergTheme
                               ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                               : 'bg-black border-gray-700'
@@ -7325,117 +7866,130 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                   ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
                                   : 'bg-black border-gray-700'
                                 : 'bg-black border-gray-700'
-                            } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                        >
-                          <div className="flex items-center justify-center gap-3 relative z-10">
-                            {useBloombergTheme && (
-                              <div
-                                className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
-                              ></div>
-                            )}
-                            <h3
-                              className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme
+                        } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                      >
+                        <div className="flex items-center justify-center gap-3 relative z-10">
+                          {useBloombergTheme && (
+                            <div
+                              className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                            ></div>
+                          )}
+                          <h3
+                            className={`text-lg font-black uppercase tracking-widest text-center ${
+                              useBloombergTheme
                                 ? showGEX
                                   ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]'
                                   : showDealer
                                     ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]'
                                     : 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]'
                                 : 'text-white'
-                                }`}
-                              style={{ letterSpacing: '0.2em' }}
-                            >
-                              {showGEX ? 'NORMAL' : showDealer ? 'DEALER' : showFlowGEX ? 'FLOW MAP' : ''}
-                            </h3>
-                            {useBloombergTheme && (
-                              <div
-                                className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
-                              ></div>
-                            )}
-                          </div>
+                            }`}
+                            style={{ letterSpacing: '0.2em' }}
+                          >
+                            {showGEX
+                              ? 'NORMAL'
+                              : showDealer
+                                ? 'DEALER'
+                                : showFlowGEX
+                                  ? 'FLOW MAP'
+                                  : ''}
+                          </h3>
+                          {useBloombergTheme && (
+                            <div
+                              className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                            ></div>
+                          )}
                         </div>
-                        <div
-                          className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                      </div>
+                      <div
+                        className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                        style={{
+                          maxHeight:
+                            typeof window !== 'undefined' && window.innerWidth < 768
+                              ? 'calc(74.78vh - 225px)'
+                              : 'calc(74.78vh - 270px)',
+                          overflowX: 'auto',
+                        }}
+                      >
+                        <table
                           style={{
-                            maxHeight:
-                              typeof window !== 'undefined' && window.innerWidth < 768
-                                ? 'calc(78.72vh - 225px)'
-                                : 'calc(78.72vh - 270px)',
-                            overflowX: 'auto',
+                            minWidth: `${strikeColWidth + expirations.length * 90}px`,
+                            width: '100%',
                           }}
                         >
-                          <table
-                            style={{
-                              minWidth: `${strikeColWidth + expirations.length * 90}px`,
-                              width: '100%',
-                            }}
+                          <thead
+                            className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
                           >
-                            <thead
-                              className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
+                            <tr
+                              className={
+                                useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                              }
                             >
-                              <tr
-                                className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}
+                              <th
+                                className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
+                                style={{
+                                  width: `${strikeColWidth}px`,
+                                  minWidth: `${strikeColWidth}px`,
+                                  maxWidth: `${strikeColWidth}px`,
+                                }}
                               >
-                                <th
-                                  className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
-                                  style={{
-                                    width: `${strikeColWidth}px`,
-                                    minWidth: `${strikeColWidth}px`,
-                                    maxWidth: `${strikeColWidth}px`,
-                                  }}
+                                <div
+                                  className={
+                                    useBloombergTheme
+                                      ? 'bb-header text-xs md:text-sm text-gray-400'
+                                      : 'text-xs md:text-sm font-bold text-white uppercase'
+                                  }
                                 >
-                                  <div
-                                    className={
-                                      useBloombergTheme
-                                        ? 'bb-header text-xs md:text-sm text-gray-400'
-                                        : 'text-xs md:text-sm font-bold text-white uppercase'
-                                    }
-                                  >
-                                    Strike
+                                  Strike
+                                </div>
+                              </th>
+                              {expirations.map((exp) => (
+                                <th
+                                  key={exp}
+                                  className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`}
+                                  style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                >
+                                  <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                    {formatDate(exp)}
                                   </div>
                                 </th>
-                                {expirations.map((exp) => (
-                                  <th
-                                    key={exp}
-                                    className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`}
-                                    style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                                  >
-                                    <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                      {formatDate(exp)}
-                                    </div>
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(showFlowGEX
-                                ? allFlowWeightedDealerData
-                                : showDealer
-                                  ? allDealerCalculatedData
-                                  : allGEXCalculatedData
-                              )
-                                .filter((row) => {
-                                  const strikeRange = getStrikeRange(currentPrice)
-                                  return row.strike >= strikeRange.min && row.strike <= strikeRange.max
-                                })
-                                .map((row, idx) => {
-                                  // Find the single closest strike to current price (use historical when scrubbing)
-                                  const priceForRow = historicalTimestamp ? historicalPrice : currentPrice
-                                  const closestStrike =
-                                    priceForRow > 0
-                                      ? data.reduce((closest, current) =>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(showFlowGEX
+                              ? allFlowWeightedDealerData
+                              : showDealer
+                                ? allDealerCalculatedData
+                                : allGEXCalculatedData
+                            )
+                              .filter((row) => {
+                                const strikeRange = getStrikeRange(currentPrice)
+                                return (
+                                  row.strike >= strikeRange.min && row.strike <= strikeRange.max
+                                )
+                              })
+                              .map((row, idx) => {
+                                // Find the single closest strike to current price (use historical when scrubbing)
+                                const priceForRow = historicalTimestamp
+                                  ? historicalPrice
+                                  : currentPrice
+                                const closestStrike =
+                                  priceForRow > 0
+                                    ? data.reduce((closest, current) =>
                                         Math.abs(current.strike - priceForRow) <
-                                          Math.abs(closest.strike - priceForRow)
+                                        Math.abs(closest.strike - priceForRow)
                                           ? current
                                           : closest
                                       ).strike
-                                      : 0
+                                    : 0
 
-                                  // Find the strike with the highest GEX value using the same logic as cell highlighting
-                                  // This ensures purple row highlight is always on the same strike as the gold cell
-                                  const tolerance = 1
-                                  const largestValueStrike =
-                                    allCalculatedData.length > 0 && topValues.highest > 0
-                                      ? (allCalculatedData.find((row) => {
+                                // Find the strike with the highest GEX value using the same logic as cell highlighting
+                                // This ensures purple row highlight is always on the same strike as the gold cell
+                                const tolerance = 1
+                                const largestValueStrike =
+                                  allCalculatedData.length > 0 && topValues.highest > 0
+                                    ? (allCalculatedData.find((row) => {
                                         return expirations.some((exp) => {
                                           const value = row[exp] as {
                                             call: number
@@ -7458,103 +8012,119 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                           )
                                         })
                                       })?.strike ?? 0)
-                                      : 0
+                                    : 0
 
-                                  // Find the cell with largest VEX value (only when VEX is enabled)
-                                  const isCurrentPriceRow =
-                                    currentPrice > 0 && row.strike === closestStrike
-                                  const isLargestValueRow = row.strike === largestValueStrike
+                                // Find the cell with largest VEX value (only when VEX is enabled)
+                                const isCurrentPriceRow =
+                                  currentPrice > 0 && row.strike === closestStrike
+                                const isLargestValueRow = row.strike === largestValueStrike
 
-                                  return (
-                                    <tr
-                                      key={idx}
-                                      className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
+                                return (
+                                  <tr
+                                    key={idx}
+                                    className={`hover:bg-gray-800/20 transition-colors ${
+                                      isCurrentPriceRow
                                         ? 'border-2 border-orange-500'
                                         : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                        }`}
+                                    }`}
+                                  >
+                                    <td
+                                      className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                      style={{
+                                        width: `${strikeColWidth}px`,
+                                        minWidth: `${strikeColWidth}px`,
+                                        maxWidth: `${strikeColWidth}px`,
+                                      }}
                                     >
-                                      <td
-                                        className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                        style={{
-                                          width: `${strikeColWidth}px`,
-                                          minWidth: `${strikeColWidth}px`,
-                                          maxWidth: `${strikeColWidth}px`,
-                                        }}
+                                      <div
+                                        className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                       >
-                                        <div
-                                          className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                        {row.strike.toFixed(1)}
+                                      </div>
+                                    </td>
+                                    {expirations.map((exp) => {
+                                      const value = row[exp] as any
+                                      const displayValue = (value?.call || 0) + (value?.put || 0)
+
+                                      // Determine which top values and table type to use
+                                      const modeTopValues = showFlowGEX
+                                        ? flowTopValues
+                                        : showDealer
+                                          ? dealerTopValues
+                                          : gexTopValues
+                                      const tableType: 'gex' | 'dealer' | undefined = showFlowGEX
+                                        ? undefined
+                                        : showDealer
+                                          ? 'dealer'
+                                          : 'gex'
+
+                                      const cellStyle = getCellStyle(
+                                        displayValue,
+                                        false,
+                                        row.strike,
+                                        exp,
+                                        modeTopValues,
+                                        tableType
+                                      )
+                                      return (
+                                        <td
+                                          key={exp}
+                                          className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                          style={{
+                                            width: '90px',
+                                            minWidth: '90px',
+                                            maxWidth: '90px',
+                                          }}
                                         >
-                                          {row.strike.toFixed(1)}
-                                        </div>
-                                      </td>
-                                      {expirations.map((exp) => {
-                                        const value = row[exp] as any
-                                        const displayValue = (value?.call || 0) + (value?.put || 0)
-
-                                        // Determine which top values and table type to use
-                                        const modeTopValues = showFlowGEX
-                                          ? flowTopValues
-                                          : showDealer
-                                            ? dealerTopValues
-                                            : gexTopValues
-                                        const tableType: 'gex' | 'dealer' | undefined = showFlowGEX
-                                          ? undefined
-                                          : showDealer
-                                            ? 'dealer'
-                                            : 'gex'
-
-                                        const cellStyle = getCellStyle(
-                                          displayValue,
-                                          false,
-                                          row.strike,
-                                          exp,
-                                          modeTopValues,
-                                          tableType
-                                        )
-                                        return (
-                                          <td
-                                            key={exp}
-                                            className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                            style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                                          >
-                                            {/* Always display net value in a single cell */}
-                                            <div
-                                              className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105 ${cellStyle.clusterPosition === 'top'
+                                          {/* Always display net value in a single cell */}
+                                          <div
+                                            className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105 ${
+                                              cellStyle.clusterPosition === 'top'
                                                 ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                 : cellStyle.clusterPosition === 'middle'
                                                   ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                   : cellStyle.clusterPosition === 'bottom'
                                                     ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                     : ''
-                                                }`}
-                                            >
-                                              {/* Display the net value */}
-                                              <div className="text-sm md:text-base font-bold mb-1">
-                                                {formatCurrency(displayValue)}
-                                              </div>
+                                            }`}
+                                          >
+                                            {/* Display the net value */}
+                                            <div className="text-sm md:text-base font-bold mb-1">
+                                              {formatCurrency(displayValue)}
                                             </div>
-                                          </td>
-                                        )
-                                      })}
-                                    </tr>
-                                  )
-                                })}
-                            </tbody>
-                          </table>
-                        </div>
+                                          </div>
+                                        </td>
+                                      )
+                                    })}
+                                  </tr>
+                                )
+                              })}
+                          </tbody>
+                        </table>
                       </div>
-                    )}
-
+                    </div>
+                  )}
                 </div>
-                {/* ── Trading Signal Gauges — always pinned at bottom ── */}
-                <div style={{ flexShrink: 0, marginTop: 0 }}>
-                  <GaugeTrio
-                    currentPrice={currentPrice}
-                    gexByStrikeByExpiration={gexByStrikeByExpiration}
-                    vexByStrikeByExpiration={vexByStrikeByExpiration}
-                    expirations={expirations}
-                  />
-                </div>
+                {/* ── Trading Signal Gauges — hidden when OI mode or ODTRIO is active ── */}
+                {!showOI && !showODTRIO && (
+                  <div
+                    className="md:mt-0"
+                    style={{
+                      flexShrink: 0,
+                      marginTop:
+                        typeof window !== 'undefined' && window.innerWidth < 768
+                          ? '5px'
+                          : undefined,
+                    }}
+                  >
+                    <GaugeTrio
+                      currentPrice={currentPrice}
+                      gexByStrikeByExpiration={gexByStrikeByExpiration}
+                      vexByStrikeByExpiration={vexByStrikeByExpiration}
+                      expirations={expirations}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

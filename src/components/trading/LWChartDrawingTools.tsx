@@ -69,6 +69,206 @@ interface Drawing {
   showMidline?: boolean // For parallel channel
 }
 
+// ─── SOLID COLOR PALETTE ─────────────────────────────────────────────────────
+const SOLID_COLORS: string[][] = [
+  [
+    '#ffffff',
+    '#d1d4dc',
+    '#b2b5be',
+    '#9598a1',
+    '#787b86',
+    '#606269',
+    '#474a55',
+    '#363a45',
+    '#2a2e39',
+    '#000000',
+  ],
+  [
+    '#f23645',
+    '#ff6d00',
+    '#ffb100',
+    '#ffd700',
+    '#4caf50',
+    '#089981',
+    '#00bcd4',
+    '#2962ff',
+    '#9c27b0',
+    '#e91e63',
+  ],
+  [
+    '#ff8a80',
+    '#ffab40',
+    '#ffe57f',
+    '#ccff90',
+    '#b9f6ca',
+    '#a7ffeb',
+    '#80d8ff',
+    '#82b1ff',
+    '#ea80fc',
+    '#ff80ab',
+  ],
+  [
+    '#ffcdd2',
+    '#ffe0b2',
+    '#fff9c4',
+    '#dcedc8',
+    '#e8f5e9',
+    '#e0f7fa',
+    '#e3f2fd',
+    '#f3e5f5',
+    '#fce4ec',
+    '#fbe9e7',
+  ],
+  [
+    '#ef9a9a',
+    '#ffcc80',
+    '#fff176',
+    '#c5e1a5',
+    '#a5d6a7',
+    '#80cbc4',
+    '#80deea',
+    '#90caf9',
+    '#ce93d8',
+    '#f48fb1',
+  ],
+  [
+    '#e53935',
+    '#fb8c00',
+    '#fdd835',
+    '#7cb342',
+    '#43a047',
+    '#00897b',
+    '#1e88e5',
+    '#00acc1',
+    '#8e24aa',
+    '#d81b60',
+  ],
+  [
+    '#b71c1c',
+    '#e65100',
+    '#f9a825',
+    '#558b2f',
+    '#2e7d32',
+    '#00695c',
+    '#0d47a1',
+    '#006064',
+    '#4a148c',
+    '#880e4f',
+  ],
+  [
+    '#7f0000',
+    '#bf360c',
+    '#ff6f00',
+    '#33691e',
+    '#1b5e20',
+    '#004d40',
+    '#01579b',
+    '#004e6e',
+    '#311b92',
+    '#212121',
+  ],
+]
+
+interface SolidColorPickerProps {
+  value: string
+  onChange: (color: string) => void
+  recentColors: string[]
+  onAddRecent: (color: string) => void
+}
+
+const SolidColorPicker: React.FC<SolidColorPickerProps> = ({
+  value,
+  onChange,
+  recentColors,
+  onAddRecent,
+}) => {
+  const customRef = useRef<HTMLInputElement>(null)
+  const v = value.toLowerCase()
+
+  const handleSelect = (c: string) => {
+    onChange(c)
+    onAddRecent(c)
+  }
+
+  return (
+    <div style={{ userSelect: 'none' }}>
+      {SOLID_COLORS.map((row, ri) => (
+        <div key={ri} style={{ display: 'flex', gap: '3px', marginBottom: '3px' }}>
+          {row.map((c) => (
+            <div
+              key={c}
+              onClick={() => handleSelect(c)}
+              style={{
+                width: '24px',
+                height: '24px',
+                background: c,
+                borderRadius: '3px',
+                cursor: 'pointer',
+                border: v === c.toLowerCase() ? '2px solid #ffffff' : '2px solid transparent',
+                boxSizing: 'border-box',
+                flexShrink: 0,
+                transition: 'transform 0.1s',
+              }}
+              onMouseOver={(e) => {
+                ;(e.currentTarget as HTMLElement).style.transform = 'scale(1.25)'
+              }}
+              onMouseOut={(e) => {
+                ;(e.currentTarget as HTMLElement).style.transform = 'scale(1)'
+              }}
+            />
+          ))}
+        </div>
+      ))}
+      <div style={{ borderTop: '1px solid #333', margin: '8px 0' }} />
+      <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {recentColors.map((c, i) => (
+          <div
+            key={i}
+            onClick={() => handleSelect(c)}
+            style={{
+              width: '24px',
+              height: '24px',
+              background: c,
+              borderRadius: '3px',
+              cursor: 'pointer',
+              border: v === c.toLowerCase() ? '2px solid #ffffff' : '2px solid transparent',
+              boxSizing: 'border-box',
+              flexShrink: 0,
+            }}
+          />
+        ))}
+        <div
+          onClick={() => customRef.current?.click()}
+          style={{
+            width: '24px',
+            height: '24px',
+            background: '#1a1a1a',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            border: '1px solid #555',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '16px',
+            color: '#888',
+            flexShrink: 0,
+            position: 'relative',
+          }}
+        >
+          +
+          <input
+            ref={customRef}
+            type="color"
+            defaultValue={value.startsWith('#') ? value : '#00ff5e'}
+            onChange={(e) => handleSelect(e.target.value)}
+            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   width,
   height,
@@ -118,6 +318,26 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   const [editingPropertiesId, setEditingPropertiesId] = useState<string | null>(null)
   const [tempColor, setTempColor] = useState<string>('#00ff5e')
   const [tempBgColor, setTempBgColor] = useState<string>('#00ff5e')
+  const [recentColors, setRecentColors] = useState<string[]>(() => {
+    try {
+      const saved =
+        typeof window !== 'undefined' ? localStorage.getItem('lwChartRecentColors') : null
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+  const [showToolbarColorPicker, setShowToolbarColorPicker] = useState(false)
+  const toolbarColorPickerRef = useRef<HTMLDivElement>(null)
+  const addRecentColor = useCallback((c: string) => {
+    setRecentColors((prev) => {
+      const next = [c, ...prev.filter((x) => x !== c)].slice(0, 10)
+      try {
+        localStorage.setItem('lwChartRecentColors', JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [])
   const [isBrushing, setIsBrushing] = useState(false)
   const dragAnimationFrameRef = useRef<number | null>(null)
   const [justCompletedDrawing, setJustCompletedDrawing] = useState(false)
@@ -140,6 +360,21 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       setSelectedDrawing(drawingId)
     }
   }
+
+  // Close toolbar color picker when clicking outside
+  useEffect(() => {
+    if (!showToolbarColorPicker) return
+    const handler = (e: MouseEvent) => {
+      if (
+        toolbarColorPickerRef.current &&
+        !toolbarColorPickerRef.current.contains(e.target as Node)
+      ) {
+        setShowToolbarColorPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showToolbarColorPicker])
 
   // Initialize canvas
   useEffect(() => {
@@ -387,7 +622,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
         // Fill zone
         const zoneColor = drawing.type === 'buyZone' ? '#22c55e' : '#ef4444'
-        ctx.globalAlpha = 0.2
+        ctx.globalAlpha = 1.0
         ctx.fillStyle = zoneColor
         ctx.fillRect(x1, rectY, x2 - x1, defaultHeight)
         ctx.globalAlpha = opacity
@@ -635,7 +870,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         const rectY = screen1.y - defaultHeight / 2
 
         const zoneColor = currentTool === 'buyZone' ? '#22c55e' : '#ef4444'
-        ctx.globalAlpha = 0.2
+        ctx.globalAlpha = 1.0
         ctx.fillStyle = zoneColor
         ctx.fillRect(x1, rectY, x2 - x1, defaultHeight)
         ctx.globalAlpha = 1.0
@@ -1172,12 +1407,22 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             } else if (drawing.type === 'horizontal') {
               return {
                 ...drawing,
-                points: [{ time: originalDrawingPoints[0].time, price: originalDrawingPoints[0].price + dPrice }],
+                points: [
+                  {
+                    time: originalDrawingPoints[0].time + dTime,
+                    price: originalDrawingPoints[0].price + dPrice,
+                  },
+                ],
               }
             } else if (drawing.type === 'vertical') {
               return {
                 ...drawing,
-                points: [{ time: originalDrawingPoints[0].time + dTime, price: originalDrawingPoints[0].price }],
+                points: [
+                  {
+                    time: originalDrawingPoints[0].time + dTime,
+                    price: originalDrawingPoints[0].price,
+                  },
+                ],
               }
             }
           }
@@ -1187,8 +1432,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         setDrawings(updatedDrawings)
         return
       }
-
-
 
       // For parallel channel, allow preview with 1 or 2 points
       if (currentTool === 'parallelChannel') {
@@ -1304,9 +1547,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d =
         Math.abs(
           (screen2.y - screen1.y) * x -
-          (screen2.x - screen1.x) * y +
-          screen2.x * screen1.y -
-          screen2.y * screen1.x
+            (screen2.x - screen1.x) * y +
+            screen2.x * screen1.y -
+            screen2.y * screen1.x
         ) / Math.sqrt(Math.pow(screen2.y - screen1.y, 2) + Math.pow(screen2.x - screen1.x, 2))
 
       // Check if point is within line segment bounds
@@ -1366,9 +1609,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d1 =
         Math.abs(
           (screen2.y - screen1.y) * x -
-          (screen2.x - screen1.x) * y +
-          screen2.x * screen1.y -
-          screen2.y * screen1.x
+            (screen2.x - screen1.x) * y +
+            screen2.x * screen1.y -
+            screen2.y * screen1.x
         ) / Math.sqrt(Math.pow(screen2.y - screen1.y, 2) + Math.pow(screen2.x - screen1.x, 2))
       const minX1 = Math.min(screen1.x, screen2.x) - threshold
       const maxX1 = Math.max(screen1.x, screen2.x) + threshold
@@ -1388,9 +1631,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const d2 =
         Math.abs(
           (line2_p2_y - line2_p1_y) * x -
-          (line2_p2_x - line2_p1_x) * y +
-          line2_p2_x * line2_p1_y -
-          line2_p2_y * line2_p1_x
+            (line2_p2_x - line2_p1_x) * y +
+            line2_p2_x * line2_p1_y -
+            line2_p2_y * line2_p1_x
         ) / Math.sqrt(Math.pow(line2_p2_y - line2_p1_y, 2) + Math.pow(line2_p2_x - line2_p1_x, 2))
       const minX2 = Math.min(line2_p1_x, line2_p2_x) - threshold
       const maxX2 = Math.max(line2_p1_x, line2_p2_x) + threshold
@@ -2083,20 +2326,47 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           />
 
           {/* Color Picker */}
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            style={{
-              width: '32px',
-              height: '32px',
-              border: '1px solid #22c55e',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              background: 'transparent',
-            }}
-            title="Color"
-          />
+          <div ref={toolbarColorPickerRef} style={{ position: 'relative' }}>
+            <div
+              onClick={() => setShowToolbarColorPicker((v) => !v)}
+              title="Color"
+              style={{
+                width: '32px',
+                height: '32px',
+                background: color,
+                border: '2px solid #22c55e',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            />
+            {showToolbarColorPicker && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '38px',
+                  left: '0',
+                  zIndex: 1010,
+                  background: '#1e1e1e',
+                  border: '1px solid #444',
+                  borderRadius: '6px',
+                  padding: '10px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                }}
+              >
+                <SolidColorPicker
+                  value={color}
+                  onChange={(c) => {
+                    setColor(c)
+                    addRecentColor(c)
+                    setShowToolbarColorPicker(false)
+                  }}
+                  recentColors={recentColors}
+                  onAddRecent={addRecentColor}
+                />
+              </div>
+            )}
+          </div>
 
           <button
             onClick={clearDrawings}
@@ -2146,7 +2416,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           left: 0,
           width: '100%',
           height: '100%',
-          pointerEvents: currentTool !== 'select' || isDragging ? 'auto' : 'none',
+          pointerEvents:
+            currentTool !== 'select' || isDragging || !!editingDrawing ? 'auto' : 'none',
           cursor: currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',
           zIndex: 1001,
         }}
@@ -2274,7 +2545,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   return (
                     <line
                       key={drawing.id}
-                      x1={x}
+                      x1={0}
                       y1={y}
                       x2={width}
                       y2={y}
@@ -3318,8 +3589,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 border: '1px solid rgba(255, 120, 0, 0.3)',
                 borderRadius: '0',
                 padding: '0',
-                minWidth: '238px',
-                maxWidth: '280px',
+                minWidth: '279px',
+                maxWidth: '320px',
                 zIndex: 1004,
                 boxShadow:
                   '0 20px 60px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
@@ -3428,57 +3699,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   >
                     Color
                   </label>
-                  <input
-                    type="color"
-                    defaultValue={drawing.color}
-                    onBlur={(e) => updateDrawingProperty('color', e.target.value)}
-                    style={{
-                      width: '100%',
-                      height: '38px',
-                      cursor: 'pointer',
-                      border: '1px solid rgba(255, 120, 0, 0.2)',
-                      borderRadius: '3px',
-                      background: '#000',
-                      boxShadow:
-                        'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
-                    }}
-                  />
-                </div>
-
-                {/* Opacity */}
-                <div>
-                  <label
-                    style={{
-                      color: '#ffffff',
-                      fontSize: '14px',
-                      display: 'block',
-                      marginBottom: '8px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Opacity:{' '}
-                    <span style={{ color: '#ff7800' }}>
-                      {Math.round((drawing.opacity ?? 1.0) * 100)}%
-                    </span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={drawing.opacity ?? 1.0}
-                    onChange={(e) => updateDrawingProperty('opacity', parseFloat(e.target.value))}
-                    style={{
-                      width: '100%',
-                      height: '6px',
-                      borderRadius: '3px',
-                      background: 'linear-gradient(90deg, #1a1a1a, #333)',
-                      outline: 'none',
-                      appearance: 'none',
-                      cursor: 'pointer',
-                    }}
+                  <SolidColorPicker
+                    value={drawing.color}
+                    onChange={(c) => updateDrawingProperty('color', c)}
+                    recentColors={recentColors}
+                    onAddRecent={addRecentColor}
                   />
                 </div>
 
@@ -3489,39 +3714,39 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
                   drawing.type === 'parallelChannel') && (
-                    <div>
-                      <label
-                        style={{
-                          color: '#ffffff',
-                          fontSize: '14px',
-                          display: 'block',
-                          marginBottom: '8px',
-                          fontWeight: '600',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        Line Width:{' '}
-                        <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 4}px</span>
-                      </label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        value={drawing.lineWidth || 4}
-                        onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
-                        style={{
-                          width: '100%',
-                          height: '6px',
-                          borderRadius: '3px',
-                          background: 'linear-gradient(90deg, #1a1a1a, #333)',
-                          outline: 'none',
-                          appearance: 'none',
-                          cursor: 'pointer',
-                        }}
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <label
+                      style={{
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        display: 'block',
+                        marginBottom: '8px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Line Width:{' '}
+                      <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 4}px</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={drawing.lineWidth || 4}
+                      onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
+                      style={{
+                        width: '100%',
+                        height: '6px',
+                        borderRadius: '3px',
+                        background: 'linear-gradient(90deg, #1a1a1a, #333)',
+                        outline: 'none',
+                        appearance: 'none',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  </div>
+                )}
 
                 {/* Line Style (for lines) */}
                 {(drawing.type === 'trendline' ||
@@ -3530,146 +3755,97 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
                   drawing.type === 'parallelChannel') && (
-                    <div>
-                      <label
-                        style={{
-                          color: '#ffffff',
-                          fontSize: '14px',
-                          display: 'block',
-                          marginBottom: '8px',
-                          fontWeight: '600',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        Line Style
-                      </label>
-                      <select
-                        value={drawing.lineStyle || 'solid'}
-                        onChange={(e) => updateDrawingProperty('lineStyle', e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: 'linear-gradient(145deg, #0a0a0a, #1a1a1a)',
-                          color: '#ffffff',
-                          border: '1px solid rgba(255, 120, 0, 0.2)',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                          fontSize: '17px',
-                          fontWeight: '500',
-                          boxShadow:
-                            'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
-                          outline: 'none',
-                        }}
-                      >
-                        <option value="solid">Solid</option>
-                        <option value="dashed">Dashed</option>
-                        <option value="dotted">Dotted</option>
-                      </select>
-                    </div>
-                  )}
+                  <div>
+                    <label
+                      style={{
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        display: 'block',
+                        marginBottom: '8px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Line Style
+                    </label>
+                    <select
+                      value={drawing.lineStyle || 'solid'}
+                      onChange={(e) => updateDrawingProperty('lineStyle', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: 'linear-gradient(145deg, #0a0a0a, #1a1a1a)',
+                        color: '#ffffff',
+                        border: '1px solid rgba(255, 120, 0, 0.2)',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        fontSize: '17px',
+                        fontWeight: '500',
+                        boxShadow:
+                          'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
+                        outline: 'none',
+                      }}
+                    >
+                      <option value="solid">Solid</option>
+                      <option value="dashed">Dashed</option>
+                      <option value="dotted">Dotted</option>
+                    </select>
+                  </div>
+                )}
 
                 {/* Background Color */}
                 {(drawing.type === 'rectangle' ||
                   drawing.type === 'text' ||
                   drawing.type === 'parallelChannel') && (
-                    <div>
-                      <label
+                  <div>
+                    <label
+                      style={{
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginBottom: '8px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!drawing.backgroundColor}
+                        onChange={(e) =>
+                          updateDrawingProperty(
+                            'backgroundColor',
+                            e.target.checked ? '#ff7800' : undefined
+                          )
+                        }
                         style={{
-                          color: '#ffffff',
-                          fontSize: '14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          marginBottom: '8px',
-                          fontWeight: '600',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase',
+                          cursor: 'pointer',
+                          width: '16px',
+                          height: '16px',
+                          accentColor: '#ff7800',
                         }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!drawing.backgroundColor}
-                          onChange={(e) =>
-                            updateDrawingProperty(
-                              'backgroundColor',
-                              e.target.checked ? '#ff7800' : undefined
-                            )
-                          }
-                          style={{
-                            cursor: 'pointer',
-                            width: '16px',
-                            height: '16px',
-                            accentColor: '#ff7800',
-                          }}
-                        />
-                        {drawing.type === 'parallelChannel'
-                          ? 'Fill Between Lines'
-                          : 'Background Color'}
-                      </label>
-                      {drawing.backgroundColor && (
-                        <>
-                          <input
-                            type="color"
-                            defaultValue={
-                              drawing.backgroundColor.startsWith('#')
-                                ? drawing.backgroundColor
-                                : '#ff7800'
-                            }
-                            onBlur={(e) => updateDrawingProperty('backgroundColor', e.target.value)}
-                            style={{
-                              width: '100%',
-                              height: '38px',
-                              cursor: 'pointer',
-                              border: '1px solid rgba(255, 120, 0, 0.2)',
-                              borderRadius: '3px',
-                              marginBottom: '12px',
-                              background: '#000',
-                              boxShadow:
-                                'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
-                            }}
-                          />
-                          <div>
-                            <label
-                              style={{
-                                color: '#ffffff',
-                                fontSize: '14px',
-                                display: 'block',
-                                marginBottom: '8px',
-                                fontWeight: '600',
-                                letterSpacing: '0.5px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              Background Opacity:{' '}
-                              <span style={{ color: '#ff7800' }}>
-                                {Math.round((drawing.backgroundOpacity ?? 0.3) * 100)}%
-                              </span>
-                            </label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.05"
-                              value={drawing.backgroundOpacity ?? 0.3}
-                              onChange={(e) =>
-                                updateDrawingProperty('backgroundOpacity', parseFloat(e.target.value))
-                              }
-                              style={{
-                                width: '100%',
-                                height: '6px',
-                                borderRadius: '3px',
-                                background: 'linear-gradient(90deg, #1a1a1a, #333)',
-                                outline: 'none',
-                                appearance: 'none',
-                                cursor: 'pointer',
-                              }}
-                            />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
+                      />
+                      {drawing.type === 'parallelChannel'
+                        ? 'Fill Between Lines'
+                        : 'Background Color'}
+                    </label>
+                    {drawing.backgroundColor && (
+                      <SolidColorPicker
+                        value={
+                          drawing.backgroundColor.startsWith('#')
+                            ? drawing.backgroundColor
+                            : '#ff7800'
+                        }
+                        onChange={(c) => updateDrawingProperty('backgroundColor', c)}
+                        recentColors={recentColors}
+                        onAddRecent={addRecentColor}
+                      />
+                    )}
+                  </div>
+                )}
 
                 {/* Show Midline (for parallel channel) */}
                 {drawing.type === 'parallelChannel' && (
