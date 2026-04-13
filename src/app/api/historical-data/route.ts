@@ -126,10 +126,16 @@ export async function GET(request: NextRequest) {
     // Request in DESCENDING order to get latest data first, then limit
     const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${timeframeConfig.multiplier}/${timeframeConfig.timespan}/${startDate}/${endDate}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`
 
+    console.log(`[historical-data] ➜ ${symbol} ${timeframe} ${startDate}→${endDate}`)
+    const t0 = Date.now()
+
     // Create abort controller for timeout (more compatible than AbortSignal.timeout)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
 
+    console.log(
+      `[historical-data] fetching polygon now...  url=${url.replace(POLYGON_API_KEY, 'KEY')}`
+    )
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -142,6 +148,9 @@ export async function GET(request: NextRequest) {
     })
 
     clearTimeout(timeoutId)
+    console.log(
+      `[historical-data] polygon responded in ${Date.now() - t0}ms  status=${response.status}`
+    )
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -165,6 +174,9 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json()
+    console.log(
+      `[historical-data] json parsed in ${Date.now() - t0}ms  results=${data.results?.length ?? 0}`
+    )
 
     if (data.status === 'ERROR') {
       throw new Error(data.error || 'Unknown error from Polygon.io API')
@@ -209,6 +221,10 @@ export async function GET(request: NextRequest) {
       cache.set(cacheKey, { data: finalResponse, timestamp: now })
     }
 
+    console.log(
+      `[historical-data] ✓ done in ${Date.now() - t0}ms  returning=${limitedResults.length} points`
+    )
+
     // Clean old cache entries (keep cache size manageable)
     if (cache.size > 1000) {
       const oldestKey = cache.keys().next().value
@@ -224,6 +240,9 @@ export async function GET(request: NextRequest) {
       if (error.name === 'AbortError') {
         errorMessage = 'Request timeout - please try again'
         statusCode = 408
+        console.error(
+          `[historical-data] ✗ TIMEOUT after 60s  symbol=${symbol} timeframe=${timeframe} ${startDate}→${endDate}`
+        )
       } else if (error.message.includes('fetch')) {
         errorMessage = 'Network error - unable to connect to data provider'
         statusCode = 503

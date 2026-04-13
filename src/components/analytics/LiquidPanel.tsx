@@ -1,4 +1,4 @@
-﻿import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   AlertCircle,
@@ -280,7 +280,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             whiteSpace: 'nowrap',
           }}
         >
-          👑 AI
+          ?? AI
         </button>
       </div>
 
@@ -448,7 +448,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             zIndex: 1,
           }}
         >
-          💰 Premium
+          ?? Premium
         </button>
 
         {/* Row 2, Col 2: AI Button */}
@@ -478,7 +478,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             zIndex: 1,
           }}
         >
-          👑 AI
+          ?? AI
         </button>
 
         {/* Row 2, Col 3: Combined OI & GEX Dropdown */}
@@ -557,7 +557,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
             zIndex: 1,
           }}
         >
-          <optgroup label="━━━ OI Options ━━━" style={{ background: '#000000', color: '#ff6600' }}>
+          <optgroup label="??? OI Options ???" style={{ background: '#000000', color: '#ff6600' }}>
             <option value="oi-both" style={{ background: '#000000', color: '#ffffff' }}>
               OI: Both
             </option>
@@ -571,7 +571,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
               OI: Net
             </option>
           </optgroup>
-          <optgroup label="━━━ GEX Options ━━━" style={{ background: '#000000', color: '#667eea' }}>
+          <optgroup label="??? GEX Options ???" style={{ background: '#000000', color: '#667eea' }}>
             <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
               GEX: Both
             </option>
@@ -734,13 +734,15 @@ interface MMDashboardProps {
   strikeWidth?: number
 }
 
-// ─── GAUGE TRIO ────────────────────────────────────────────────────────────────
+// --- GAUGE TRIO ----------------------------------------------------------------
 // Self-contained gauge panel rendered in the Greek Suite (ATTRACTION) tab.
 interface GaugeTrioProps {
   currentPrice: number
   gexByStrikeByExpiration: MMDashboardProps['gexByStrikeByExpiration']
   vexByStrikeByExpiration: MMDashboardProps['vexByStrikeByExpiration']
   expirations: string[]
+  analysisSuiteMode?: boolean
+  onGaugeMetrics?: (data: { compositeScore: number; siNorm: number }) => void
 }
 
 const GaugeTrio: React.FC<GaugeTrioProps> = ({
@@ -748,6 +750,8 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
   gexByStrikeByExpiration,
   vexByStrikeByExpiration,
   expirations,
+  analysisSuiteMode,
+  onGaugeMetrics,
 }) => {
   const mmExpirations = useMemo(() => {
     const today = new Date()
@@ -969,12 +973,19 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
     return { siNorm: si, stability, marketBehavior, stabilityColor }
   }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, mmExpirations])
 
+  useEffect(() => {
+    if (onGaugeMetrics && mmData.length > 0) {
+      onGaugeMetrics({ compositeScore: metrics.compositeScore, siNorm: siMetrics.siNorm })
+    }
+  }, [metrics.compositeScore, siMetrics.siNorm]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div
-      className="relative border md:p-6 p-3"
+      className={analysisSuiteMode ? 'relative border' : 'relative border md:p-6 p-3'}
       style={{
         background: '#0a0a0a',
         borderColor: '#0d2a45',
+        padding: analysisSuiteMode ? '8px 12px 2px 12px' : undefined,
       }}
     >
       <div
@@ -986,7 +997,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         }}
       />
       <div className="relative z-10 grid grid-cols-3 md:gap-6 gap-1">
-        {/* ─── INTENSITY GAUGE ─── */}
+        {/* --- INTENSITY GAUGE --- */}
         {(() => {
           const val = metrics.compositeScore
           const angle = -90 + ((Math.max(-20, Math.min(20, val)) + 20) / 40) * 180
@@ -1233,7 +1244,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                   x="200"
                   y="267"
                   fill={scoreColor}
-                  fontSize="11"
+                  fontSize={analysisSuiteMode ? '17' : '11'}
                   fontWeight="bold"
                   textAnchor="middle"
                   letterSpacing="2.5"
@@ -1246,7 +1257,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           )
         })()}
 
-        {/* ─── DEALER SIGNAL GAUGE ─── */}
+        {/* --- DEALER SIGNAL GAUGE --- */}
         {(() => {
           const dsScore = metrics.compositeScore
           const isBull = dsScore > 3,
@@ -1454,7 +1465,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           )
         })()}
 
-        {/* ─── STABILITY GAUGE ─── */}
+        {/* --- STABILITY GAUGE --- */}
         {(() => {
           const val = siMetrics.siNorm
           const angle = -90 + ((Math.max(-10, Math.min(10, val)) + 10) / 20) * 180
@@ -1725,7 +1736,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                   x="200"
                   y="267"
                   fill={scoreColor}
-                  fontSize="11"
+                  fontSize={analysisSuiteMode ? '17' : '11'}
                   fontWeight="bold"
                   textAnchor="middle"
                   letterSpacing="2.5"
@@ -1743,7 +1754,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
 }
 
 // Helper function to calculate Vanna using Black-Scholes formula
-// Vanna = -e^(-rT) × N'(d₁) × d₂/σ
+// Vanna = -e^(-rT) � N'(d1) � d2/s
 const calculateVanna = (
   strike: number,
   spotPrice: number,
@@ -1765,7 +1776,7 @@ const calculateVanna = (
   // Calculate N'(d1) - standard normal probability density function
   const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1)
 
-  // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
+  // Vanna = -e^(-rT) � N'(d1) � d2/s
   const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma)
 
   return vanna
@@ -1773,10 +1784,13 @@ const calculateVanna = (
 
 interface LiquidPanelProps {
   onClose?: () => void
+  analysisSuiteMode?: boolean
+  externalTicker?: string
+  onGaugeMetrics?: (data: { compositeScore: number; siNorm: number }) => void
 }
 
 const LIVE_QUOTES = [
-  "Real-time data doesn't remove uncertainty — it just makes you faster at being wrong.",
+  "Real-time data doesn't remove uncertainty � it just makes you faster at being wrong.",
   'The tape never lies. Only the traders who read it do.',
   'Momentum is a fact. Direction is an opinion.',
   'Every print tells a story. Most traders skip to the last page.',
@@ -1788,52 +1802,57 @@ const LIVE_QUOTES = [
   'Live data is a weapon. Interpretation is the trigger.',
   "The dealer's hedge today is tomorrow's price magnet.",
   'In live markets, hesitation is a position.',
-  "Unusual options activity isn't always smart money — but it's always worth watching.",
+  "Unusual options activity isn't always smart money � but it's always worth watching.",
   'The market moves toward max pain like a river to the sea.',
   "Size doesn't guarantee direction, but it always guarantees attention.",
   'The market is the only place where things go on sale and everyone runs out of the store.',
-  'Bulls make money, bears make money, pigs get slaughtered. — Wall Street proverb',
-  'Never confuse a bull market with brains. — Humphrey Neill',
-  "The time to buy is when there's blood in the streets. — Baron Rothschild",
-  'Compound interest is the eighth wonder of the world. — attributed to Einstein',
-  'Know what you own and know why you own it. — Peter Lynch',
-  'The market is not your enemy. Your emotions are. — anonymous',
-  "A stock doesn't know you own it. — anonymous",
-  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. — Mark Twain',
+  'Bulls make money, bears make money, pigs get slaughtered. � Wall Street proverb',
+  'Never confuse a bull market with brains. � Humphrey Neill',
+  "The time to buy is when there's blood in the streets. � Baron Rothschild",
+  'Compound interest is the eighth wonder of the world. � attributed to Einstein',
+  'Know what you own and know why you own it. � Peter Lynch',
+  'The market is not your enemy. Your emotions are. � anonymous',
+  "A stock doesn't know you own it. � anonymous",
+  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. � Mark Twain',
 ]
 
 const MARKET_QUOTES = [
-  'The market is a device for transferring money from the impatient to the patient. — Warren Buffett',
-  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. — Benjamin Graham',
-  "The four most dangerous words in investing are: 'This time it's different.' — Sir John Templeton",
-  "Risk comes from not knowing what you're doing. — Warren Buffett",
-  'The stock market is filled with individuals who know the price of everything, but the value of nothing. — Philip Fisher',
-  'Be fearful when others are greedy, and greedy when others are fearful. — Warren Buffett',
-  'Markets can remain irrational longer than you can remain solvent. — John Maynard Keynes',
-  'The trend is your friend until the end. — Ed Seykota',
-  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. — Warren Buffett',
-  'Everyone has a plan until the market punches them in the face. — adapted',
-  'Cut your losses short and let your winners run. — Wall Street axiom',
-  'The market can do anything. — Mark Douglas',
-  'Price is what you pay. Value is what you get. — Warren Buffett',
-  'Volatility is not risk. The permanent loss of capital is risk. — Howard Marks',
-  "If you don't know who the sucker at the table is, it's you. — Warren Buffett",
-  'An investment in knowledge pays the best interest. — Benjamin Franklin',
-  'Wide diversification is only required when investors do not understand what they are doing. — Warren Buffett',
-  'The goal of a successful trader is to make the best trades. Money is secondary. — Alexander Elder',
-  'In investing, what is comfortable is rarely profitable. — Robert Arnott',
-  'The biggest risk is not taking any risk. — Mark Zuckerberg',
-  "The stock market is a no-called-strike game. You don't have to swing at everything. — Warren Buffett",
-  'Investing is the intersection of economics and psychology. — Seth Klarman',
-  'The secret to investing is to figure out the value of something and then pay a lot less for it. — Joel Greenblatt',
-  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. — Peter Lynch",
-  'The time of maximum pessimism is the best time to buy. — Sir John Templeton',
-  'Successful investing is about managing risk, not avoiding it. — Benjamin Graham',
-  "It's not whether you're right or wrong that's important, but how much money you make when you're right. — George Soros",
-  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. — anonymous',
+  'The market is a device for transferring money from the impatient to the patient. � Warren Buffett',
+  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. � Benjamin Graham',
+  "The four most dangerous words in investing are: 'This time it's different.' � Sir John Templeton",
+  "Risk comes from not knowing what you're doing. � Warren Buffett",
+  'The stock market is filled with individuals who know the price of everything, but the value of nothing. � Philip Fisher',
+  'Be fearful when others are greedy, and greedy when others are fearful. � Warren Buffett',
+  'Markets can remain irrational longer than you can remain solvent. � John Maynard Keynes',
+  'The trend is your friend until the end. � Ed Seykota',
+  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. � Warren Buffett',
+  'Everyone has a plan until the market punches them in the face. � adapted',
+  'Cut your losses short and let your winners run. � Wall Street axiom',
+  'The market can do anything. � Mark Douglas',
+  'Price is what you pay. Value is what you get. � Warren Buffett',
+  'Volatility is not risk. The permanent loss of capital is risk. � Howard Marks',
+  "If you don't know who the sucker at the table is, it's you. � Warren Buffett",
+  'An investment in knowledge pays the best interest. � Benjamin Franklin',
+  'Wide diversification is only required when investors do not understand what they are doing. � Warren Buffett',
+  'The goal of a successful trader is to make the best trades. Money is secondary. � Alexander Elder',
+  'In investing, what is comfortable is rarely profitable. � Robert Arnott',
+  'The biggest risk is not taking any risk. � Mark Zuckerberg',
+  "The stock market is a no-called-strike game. You don't have to swing at everything. � Warren Buffett",
+  'Investing is the intersection of economics and psychology. � Seth Klarman',
+  'The secret to investing is to figure out the value of something and then pay a lot less for it. � Joel Greenblatt',
+  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. � Peter Lynch",
+  'The time of maximum pessimism is the best time to buy. � Sir John Templeton',
+  'Successful investing is about managing risk, not avoiding it. � Benjamin Graham',
+  "It's not whether you're right or wrong that's important, but how much money you make when you're right. � George Soros",
+  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. � anonymous',
 ]
 
-const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
+const LiquidPanel: React.FC<LiquidPanelProps> = ({
+  onClose,
+  analysisSuiteMode = false,
+  externalTicker,
+  onGaugeMetrics,
+}) => {
   const [data, setData] = useState<GEXData[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1979,6 +1998,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const [liveOIProgress, setLiveOIProgress] = useState(0)
   const [useBloombergTheme, setUseBloombergTheme] = useState(true) // Bloomberg Terminal theme - default ON
   const [showODTRIO, setShowODTRIO] = useState(false) // ODTRIO mode for SPX, QQQ, SPY
+  const [showModeDropdown, setShowModeDropdown] = useState(false) // Custom mobile mode dropdown
+  const modeButtonRef = React.useRef<HTMLButtonElement>(null)
   const [odtrioData, setOdtrioData] = useState<{
     [key: string]: {
       data: any[]
@@ -2085,7 +2106,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           // If API still populates complete.trades (legacy), use them; otherwise use accumulated
           if (data.trades?.length > 0) allTrades = data.trades
           if (allTrades.length === 0) {
-            console.warn('⚠️ No trades received from stream')
+            console.warn('?? No trades received from stream')
             eventSource.close()
             setLiveOILoading(false)
             setLiveOIProgress(0)
@@ -2101,7 +2122,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
           const allContracts = new Map()
 
-          // Fetch data for each expiration — paginate to get ALL contracts (SPX has >250 per expiry)
+          // Fetch data for each expiration � paginate to get ALL contracts (SPX has >250 per expiry)
           for (let i = 0; i < uniqueExpirations.length; i++) {
             const expiry = uniqueExpirations[i]
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
@@ -2113,7 +2134,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               while (pageUrl) {
                 const response: Response = await fetch(pageUrl)
                 if (!response.ok) {
-                  console.warn(`🔴 [LIVE] Expiry ${expiryParam} — HTTP ${response.status}`)
+                  console.warn(`?? [LIVE] Expiry ${expiryParam} � HTTP ${response.status}`)
                   break
                 }
                 const chainData: any = await response.json()
@@ -2137,7 +2158,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               // Update progress: 20% to 60% during contract fetching
               setLiveOIProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
             } catch (error) {
-              console.error(`  ❌ Error fetching ${expiryParam}:`, error)
+              console.error(`  ? Error fetching ${expiryParam}:`, error)
             }
           }
 
@@ -2156,7 +2177,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           setLiveOIProgress(70) // 70% - trades enriched
 
           // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
-          // Same approach as AlgoFlowScreener & Options Flow page — fetches the bid/ask
+          // Same approach as AlgoFlowScreener & Options Flow page � fetches the bid/ask
           // that existed at the moment the trade printed, not the current live snapshot.
 
           const normalizeTickerForOptions = (ticker: string) => {
@@ -2180,8 +2201,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             return fillPrice >= midpoint ? 'A' : 'B'
           }
 
-          // Build deduplicated batch payload — unique by contract + second bucket (same as AlgoFlow)
-          // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C06560000)
+          // Build deduplicated batch payload � unique by contract + second bucket (same as AlgoFlow)
+          // Use trade.ticker directly � it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C06560000)
           // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for lookups
           type QuoteKey = string
           const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -2197,7 +2218,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
           }
 
-          // Single batch POST — server fans out Polygon /v3/quotes calls with timestamp.lte
+          // Single batch POST � server fans out Polygon /v3/quotes calls with timestamp.lte
           // to get the exact bid/ask at the moment each trade printed (works for SPX too)
           const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
           const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
@@ -2221,7 +2242,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             }
           } catch {
             // All trades fall through to N/A fill style
-            console.warn(`🔴 [LIVE] Historical quote batch failed — all fills will be N/A`)
+            console.warn(`?? [LIVE] Historical quote batch failed � all fills will be N/A`)
           }
 
           setLiveOIProgress(78) // 78% - historical quotes fetched
@@ -2318,7 +2339,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           setLiveOIProgress(100)
         }
       } catch (error) {
-        console.error('🔴 [LIVE] ❌ Error:', error)
+        console.error('?? [LIVE] ? Error:', error)
         setLiveOILoading(false)
         setLiveOIProgress(0)
       }
@@ -2326,11 +2347,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
     eventSource.onerror = (error) => {
       if (scanComplete) {
-        // Stream closed normally after completion — not a real error
+        // Stream closed normally after completion � not a real error
         eventSource.close()
         return
       }
-      console.error('❌ EventSource error:', error)
+      console.error('? EventSource error:', error)
       eventSource.close()
       setLiveOILoading(false)
       setLiveOIProgress(0)
@@ -2341,6 +2362,44 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const updateOdtrioLiveOI = async () => {
     setLiveOILoading(true)
     setLiveOIProgress(0)
+
+    // Helper: fetch price + ODTE expiry directly from API (used when state hasn't loaded yet)
+    const fetchTickerMeta = async (
+      ticker: string
+    ): Promise<{ currentPrice: number; odteExpiry: string } | null> => {
+      try {
+        const apiEndpoint =
+          ticker === 'SPX' ? `/api/options-chain?ticker=SPX` : `/api/options-chain?ticker=${ticker}`
+        const res = await fetch(apiEndpoint)
+        const result = await res.json()
+        if (!result.success || !result.data) return null
+        const currentPrice = result.currentPrice
+        const allExpirations = Object.keys(result.data).sort()
+        const nowPST = new Date(
+          new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+        )
+        const currentHour = nowPST.getHours()
+        const currentMinute = nowPST.getMinutes()
+        const targetDate = new Date()
+        targetDate.setHours(0, 0, 0, 0)
+        if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
+          targetDate.setDate(targetDate.getDate() + 1)
+        }
+        let odteExpiry = allExpirations.find((exp) => {
+          const expDate = new Date(exp)
+          expDate.setHours(0, 0, 0, 0)
+          const daysDiff = Math.ceil(
+            (expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24)
+          )
+          return daysDiff >= 0 && daysDiff <= 1
+        })
+        if (!odteExpiry && allExpirations.length > 0) odteExpiry = allExpirations[0]
+        if (!odteExpiry) return null
+        return { currentPrice, odteExpiry }
+      } catch (e) {
+        return null
+      }
+    }
 
     const tickers = ['SPX', 'QQQ', 'SPY']
     const liveOIMap = new Map<string, number>()
@@ -2372,7 +2431,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               resolve()
             }
           } catch (error) {
-            console.error(`❌ ${ticker} Error:`, error)
+            console.error(`? ${ticker} Error:`, error)
             eventSource.close()
             resolve()
           }
@@ -2380,12 +2439,12 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
         eventSource.onerror = (error) => {
           if (odtrioScanComplete) {
-            // Stream closed normally after completion — not a real error
+            // Stream closed normally after completion � not a real error
             eventSource.close()
             resolve()
             return
           }
-          console.error(`❌ ${ticker} EventSource error:`, error)
+          console.error(`? ${ticker} EventSource error:`, error)
           eventSource.close()
           resolve()
         }
@@ -2397,26 +2456,40 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
       // Get current ODTRIO data to determine expiration and strike range
       const tickerData = odtrioData[ticker]
-      if (!tickerData || !tickerData.odteExpiry || !tickerData.currentPrice) {
-        continue
-      }
 
-      const odteExpiry = tickerData.odteExpiry
-      const currentPrice = tickerData.currentPrice
+      let odteExpiry = tickerData?.odteExpiry
+      let currentPrice = tickerData?.currentPrice
+
+      // If state hasn't loaded yet, fetch directly from API
+      if (!odteExpiry || !currentPrice) {
+        const meta = await fetchTickerMeta(ticker)
+        if (!meta) {
+          continue
+        }
+        odteExpiry = meta.odteExpiry
+        currentPrice = meta.currentPrice
+      }
 
       let minStrike, maxStrike
 
       // For SPX: Get exactly 50 calls and 50 puts (100 total contracts)
       if (ticker === 'SPX') {
         // Get all available strikes from ODTRIO data to find closest ones
-        const allStrikes = tickerData.data.map((row) => row.strike).sort((a, b) => a - b)
+        const allStrikes = (tickerData?.data || [])
+          .map((row: any) => row.strike)
+          .sort((a: number, b: number) => a - b)
 
-        // Find strikes closest to current price
-        const callStrikes = allStrikes.filter((s) => s >= currentPrice).slice(0, 50) // 50 calls at/above price
-        const putStrikes = allStrikes.filter((s) => s <= currentPrice).slice(-50) // 50 puts at/below price
-
-        minStrike = Math.min(...putStrikes, ...callStrikes)
-        maxStrike = Math.max(...putStrikes, ...callStrikes)
+        if (allStrikes.length > 0) {
+          // Find strikes closest to current price
+          const callStrikes = allStrikes.filter((s: number) => s >= currentPrice).slice(0, 50)
+          const putStrikes = allStrikes.filter((s: number) => s <= currentPrice).slice(-50)
+          minStrike = Math.min(...putStrikes, ...callStrikes)
+          maxStrike = Math.max(...putStrikes, ...callStrikes)
+        } else {
+          // State data not loaded � use percentage-based range for SPX (�1.5%)
+          minStrike = currentPrice * 0.985
+          maxStrike = currentPrice * 1.015
+        }
       } else {
         // For QQQ/SPY: Use percentage-based range
         let minStrikePercent = 0.95,
@@ -2446,9 +2519,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
       const allContracts = new Map()
 
       try {
-        const response = await fetch(
-          `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
-        )
+        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
+        const response = await fetch(snapshotUrl)
 
         if (response.ok) {
           const chainData = await response.json()
@@ -2468,7 +2540,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           }
         }
       } catch (error) {
-        console.error(`  ❌ ${ticker} Error fetching ${expiryParam}:`, error)
+        console.error(`  ? ${ticker} Error fetching ${expiryParam}:`, error)
       }
 
       // Enrich trades with volume/OI
@@ -2638,7 +2710,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           const allExpirationsResult = await allExpirationsResponse.json()
 
           if (!allExpirationsResult.success || !allExpirationsResult.data) {
-            console.error(`❌ ${ticker} Failed to fetch available expirations`)
+            console.error(`? ${ticker} Failed to fetch available expirations`)
             setOdtrioData((prev) => ({
               ...prev,
               [ticker]: {
@@ -2663,16 +2735,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           const currentHour = nowPST.getHours()
           const currentMinute = nowPST.getMinutes()
 
-          console.log(
-            `🕐 ${ticker} Current PST time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
-          )
-
           // After 1:15 PM PST, look for next trading day (same logic as QQQ/SPY)
           const targetDate = new Date()
           targetDate.setHours(0, 0, 0, 0)
           if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
             targetDate.setDate(targetDate.getDate() + 1)
-            console.log(`⏰ ${ticker} After 4:15 PM PST, targeting next day's expiration`)
           }
 
           // Find next available expiration (handles weekends automatically)
@@ -2690,7 +2757,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           }
 
           if (!odteExpiry) {
-            console.error(`❌ ${ticker} No expiry available`)
+            console.error(`? ${ticker} No expiry available`)
             setOdtrioData((prev) => ({
               ...prev,
               [ticker]: {
@@ -2714,7 +2781,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           const result = await odteResponse.json()
 
           if (!result.success || !result.data) {
-            console.error(`❌ ${ticker} ODTE fetch failed for ${odteExpiry}`)
+            console.error(`? ${ticker} ODTE fetch failed for ${odteExpiry}`)
             setOdtrioData((prev) => ({
               ...prev,
               [ticker]: {
@@ -2783,10 +2850,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             if (callDealer !== 0) totalCallDealer += callDealer
           })
 
-          console.log(
-            `📞 ${ticker} Calls: ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`
-          )
-
           // Process puts
           let putsWithGamma = 0
           let putsWithOI = 0
@@ -2823,10 +2886,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             if (putGex !== 0) totalPutGEX += putGex
             if (putDealer !== 0) totalPutDealer += putDealer
           })
-
-          console.log(
-            `📉 ${ticker} Puts: ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`
-          )
 
           // Convert to array format
           const dataArray = Object.keys(gexByStrike)
@@ -2865,7 +2924,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         const result = await response.json()
 
         if (!result.success || !result.data) {
-          console.error(`❌ ${ticker} API failed`)
+          console.error(`? ${ticker} API failed`)
           setOdtrioData((prev) => ({
             ...prev,
             [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now },
@@ -2884,16 +2943,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         const currentHour = nowPST.getHours()
         const currentMinute = nowPST.getMinutes()
 
-        console.log(
-          `🕐 ${ticker} Current PST time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`
-        )
-
         // After 4:15 PM PST, look for next trading day
         const targetDate = new Date()
         targetDate.setHours(0, 0, 0, 0)
         if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
           targetDate.setDate(targetDate.getDate() + 1)
-          console.log(`⏰ ${ticker} After 4:15 PM PST, targeting next day's expiration`)
         }
 
         let odteExpiry = allExpirations.find((exp) => {
@@ -2910,7 +2964,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         }
 
         if (!odteExpiry) {
-          console.error(`❌ ${ticker} No expiry available`)
+          console.error(`? ${ticker} No expiry available`)
           setOdtrioData((prev) => ({
             ...prev,
             [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now },
@@ -2996,7 +3050,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         })
 
         console.log(
-          `📞 ${ticker} Calls: Scanned ${callsScanned}/${totalCallContracts}, ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`
+          `?? ${ticker} Calls: Scanned ${callsScanned}/${totalCallContracts}, ${callsWithGamma} with gamma, ${callsWithOI} with OI, Total OI: ${totalCallOI.toLocaleString()}, Total GEX: ${totalCallGEX.toLocaleString()}`
         )
 
         // Process puts (filter by strike range)
@@ -3043,7 +3097,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         })
 
         console.log(
-          `📉 ${ticker} Puts: Scanned ${putsScanned}/${totalPutContracts}, ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`
+          `?? ${ticker} Puts: Scanned ${putsScanned}/${totalPutContracts}, ${putsWithGamma} with gamma, ${putsWithOI} with OI, Total OI: ${totalPutOI.toLocaleString()}, Total GEX: ${totalPutGEX.toLocaleString()}`
         )
 
         // Convert to array format
@@ -3072,7 +3126,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           },
         }))
       } catch (error) {
-        console.error(`❌ ${ticker} Error:`, error)
+        console.error(`? ${ticker} Error:`, error)
         setOdtrioData((prev) => ({
           ...prev,
           [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '' },
@@ -3185,7 +3239,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           },
         }))
       } catch (error) {
-        console.error(`❌ ${ticker} Error recalculating:`, error)
+        console.error(`? ${ticker} Error recalculating:`, error)
       }
     }
   }
@@ -3346,7 +3400,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           // DEBUG: Log if premium is zero
           if (totalCost === 0) {
             console.warn(
-              `⚠️ ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`
+              `?? ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`
             )
           }
 
@@ -3418,11 +3472,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             const strikeNum = parseFloat(strike)
             let oi = data.open_interest || 0
 
-            // 🔥 USE LIVE OI IF AVAILABLE
+            // ?? USE LIVE OI IF AVAILABLE
             const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
               const liveOI = liveOIDataFromState.get(contractKey) || 0
-              // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              // console.log(`?? USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI
             }
 
@@ -3492,7 +3546,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               }
 
               if (callPremium > 0) {
-                // console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
+                // console.log(`?? FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
               }
 
               // ALWAYS calculate BOTH formulas
@@ -3538,7 +3592,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               vexByStrikeByExp[expDate][strikeNum].callVega = vega // Store vega for recalculation
               if (vega && vega !== 0) {
                 // Professional VEX Formula (Goldman Sachs style):
-                // VEX = Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
+                // VEX = Vega � OI � Spot � 100 � Moneyness_Weight � Time_Weight
 
                 const expirationDate = new Date(expDate)
                 const today = new Date()
@@ -3563,11 +3617,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             }
           })
 
-          // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium with Theta calculation
+          // STEP 2: Process puts - Same order: OI ? GEX ? VEX ? Premium with Theta calculation
 
           // Special debugging for Nov 10
           if (expDate === '2025-11-10') {
-            console.log(`🚨 NOV 10 PUT PROCESSING DEBUG:`)
+            console.log(`?? NOV 10 PUT PROCESSING DEBUG:`)
             console.log(`  Raw puts object keys: ${Object.keys(puts).slice(0, 10).join(', ')}...`)
             console.log(`  6700 in puts: ${puts.hasOwnProperty('6700')}`)
             console.log(`  6750 in puts: ${puts.hasOwnProperty('6750')}`)
@@ -3579,11 +3633,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             const strikeNum = parseFloat(strike)
             let oi = data.open_interest || 0
 
-            // 🔥 USE LIVE OI IF AVAILABLE
+            // ?? USE LIVE OI IF AVAILABLE
             const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
               const liveOI = liveOIDataFromState.get(contractKey) || 0
-              // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              // console.log(`?? USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI
             }
 
@@ -3682,7 +3736,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts // Store contract count
 
               if (putPremium > 0) {
-                // console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
+                // console.log(`?? FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
               }
 
               // ALWAYS calculate BOTH formulas
@@ -3728,7 +3782,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               vexByStrikeByExp[expDate][strikeNum].putVega = vega // Store vega for recalculation
               if (vega) {
                 // Professional VEX Formula (Goldman Sachs style):
-                // VEX = -Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
+                // VEX = -Vega � OI � Spot � 100 � Moneyness_Weight � Time_Weight
 
                 const expirationDate = new Date(expDate)
                 const today = new Date()
@@ -3856,7 +3910,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
       setLiveMode(true)
       updateLiveOI()
     } else if (selectedTicker && liveMode) {
-      // Ticker changed while live mode is already on — fetch fresh base data first, then live scan
+      // Ticker changed while live mode is already on � fetch fresh base data first, then live scan
       setLiveOIData(new Map())
       fetchOptionsData().then(() => updateLiveOI())
     } else if (selectedTicker && !showFlowGEX && !liveMode) {
@@ -4020,7 +4074,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   }, [dealerByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData])
 
   // Flow-weighted Dealer data: base dealer GEX (70%) blended with live dealer GEX (30%)
-  // The fresh OI change from live flow is weighted 30% — prominent but not overriding the base position.
+  // The fresh OI change from live flow is weighted 30% � prominent but not overriding the base position.
   // When not yet in live mode (base === live), result equals standard dealer values.
   const allFlowWeightedDealerData = useMemo(() => {
     const baseData = baseDealerByStrikeByExpiration
@@ -4029,7 +4083,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
     const hasLiveData = liveData && Object.keys(liveData).length > 0
     if (!hasLiveData) return []
 
-    // If base data not yet captured (first load, live never triggered), treat base == live → result is pure dealer
+    // If base data not yet captured (first load, live never triggered), treat base == live ? result is pure dealer
     const effectiveBase = baseData && Object.keys(baseData).length > 0 ? baseData : liveData
 
     const allStrikes = Array.from(
@@ -4153,7 +4207,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           // Recalculate based on the current mode
           if (gexMode === 'Net Dealer') {
             // Use dealer formula for live recalc
-            // console.log(`🔄 LIVE OI RECALC - NET DEALER MODE: Strike ${strike}, Exp ${exp}`);
+            // console.log(`?? LIVE OI RECALC - NET DEALER MODE: Strike ${strike}, Exp ${exp}`);
             if (
               liveCallOI !== undefined &&
               greeksData.callGamma &&
@@ -4170,7 +4224,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               const liveWeight =
                 Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta))
               callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult
-              // console.log(`  📈 Call: LiveOI ${liveCallOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
+              // console.log(`  ?? Call: LiveOI ${liveCallOI} � gammaEff ${gammaEff.toFixed(6)} � liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
             }
 
             if (
@@ -4188,21 +4242,21 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
               const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma
               const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta))
               putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult
-              // console.log(`  📉 Put: LiveOI ${livePutOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
+              // console.log(`  ?? Put: LiveOI ${livePutOI} � gammaEff ${gammaEff.toFixed(6)} � liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
             }
           } else {
             // Use standard GEX formula for live recalc
-            // console.log(`🔄 LIVE OI RECALC - NET GEX MODE: Strike ${strike}, Exp ${exp}`);
+            // console.log(`?? LIVE OI RECALC - NET GEX MODE: Strike ${strike}, Exp ${exp}`);
             if (liveCallOI !== undefined && greeksData.callGamma) {
               callOI = liveCallOI
               callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100
-              // console.log(`  📈 Call: ${greeksData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX.toFixed(2)}`);
+              // console.log(`  ?? Call: ${greeksData.callGamma} � ${liveCallOI} � ${currentPrice}� � 100 = ${callGEX.toFixed(2)}`);
             }
 
             if (livePutOI !== undefined && greeksData.putGamma) {
               putOI = livePutOI
               putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100
-              // console.log(`  📉 Put: -${greeksData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX.toFixed(2)}`);
+              // console.log(`  ?? Put: -${greeksData.putGamma} � ${livePutOI} � ${currentPrice}� � 100 = ${putGEX.toFixed(2)}`);
             }
           }
 
@@ -4252,6 +4306,14 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   useEffect(() => {
     setTickerInput(selectedTicker)
   }, [selectedTicker])
+
+  // Accept external ticker from parent (e.g. trading lens search bar)
+  useEffect(() => {
+    if (externalTicker && externalTicker !== selectedTicker) {
+      setSelectedTicker(externalTicker)
+      setTickerInput(externalTicker)
+    }
+  }, [externalTicker]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Recalculate GEX when historical timestamp changes
   useEffect(() => {
@@ -4652,7 +4714,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const dealerTopValues = useMemo(() => {
     const tv = calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer')
 
-    // ── DEALER ATTRACTION MAIN TABLE DEBUG ───────────────────────────────────
+    // -- DEALER ATTRACTION MAIN TABLE DEBUG -----------------------------------
     if (allDealerCalculatedData.length > 0) {
       // Find which strike+expiry is yellow (highest positive net dealer)
       let yellowStrike: number | null = null
@@ -4695,7 +4757,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
         })
         .sort((a: any, b: any) => Math.abs(b.totalNet) - Math.abs(a.totalNet))
 
-      // ── Write to global store so OptionsFlowTable can read identical values ──────
+      // -- Write to global store so OptionsFlowTable can read identical values ------
       const willUseLiveData = liveMode && liveOIData.size > 0
       setDealerZone(selectedTicker, {
         golden: yellowStrike,
@@ -4711,9 +4773,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
             : null,
         isLive: willUseLiveData,
       })
-      // ──────────────────────────────────────────────────────────────────────────────
+      // ------------------------------------------------------------------------------
     }
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     return tv
   }, [allDealerCalculatedData, expirations, selectedTicker, liveMode, liveOIData, setDealerZone])
@@ -4726,8 +4788,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const loadingQuoteRef = useRef(
     (() => {
       const q = MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]
-      const body = q.includes(' — ') ? q.split(' — ')[0] : q
-      const author = q.includes(' — ') ? '— ' + q.split(' — ')[1] : ''
+      const body = q.includes(' � ') ? q.split(' � ')[0] : q
+      const author = q.includes(' � ') ? '� ' + q.split(' � ')[1] : ''
       return { body, author }
     })()
   )
@@ -5049,7 +5111,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
   const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
+    <div
+      className={`${analysisSuiteMode ? '' : 'min-h-screen '}bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white`}
+    >
       <style>{`
         /* Custom scrollbar styling - Hidden */
         .overflow-x-auto::-webkit-scrollbar,
@@ -5126,28 +5190,52 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
           transform: scale(1.02);
           box-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
         }
+
+        /* Trading lens: 20% larger table text + solid white expiry headers */
+        .analysis-suite-panel .table-scroll-container {
+          font-size: 1.2em;
+        }
+        .analysis-suite-panel .table-scroll-container th div {
+          color: #ffffff !important;
+        }
+        /* Trading lens: reduce table height by 5% */
+        .analysis-suite-panel .table-scroll-container[style*="maxHeight"],
+        .analysis-suite-panel .table-scroll-container {
+          max-height: calc((74.78vh - 270px) * 0.95) !important;
+        }
       `}</style>
       <div
-        className="dealer-attraction-container"
-        style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}
+        className={`dealer-attraction-container${analysisSuiteMode ? ' analysis-suite-panel' : ''}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: analysisSuiteMode ? 'auto' : '100vh',
+          overflow: 'hidden',
+        }}
       >
         <div
           className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[99vw]'} px-4 mx-auto`}
           style={{
             display: 'flex',
             flexDirection: 'column',
-            flex: 1,
+            flex: analysisSuiteMode ? '0 0 auto' : 1,
             minHeight: 0,
-            overflow: 'hidden',
+            overflow: analysisSuiteMode ? 'visible' : 'hidden',
           }}
         >
           {/* Bloomberg Terminal Header */}
-          <div className="mb-6 bg-black border border-gray-600/40" style={{ flexShrink: 0 }}>
+          <div
+            className="bg-black border border-gray-600/40"
+            style={{ flexShrink: 0, marginBottom: analysisSuiteMode ? '0' : undefined }}
+          >
             {/* Control Panel */}
             <div className="bg-black border-y border-gray-800">
               <div className="px-4 md:px-8 pt-1 pb-3 md:py-6">
                 {/* Main Tabs */}
-                <div className="flex gap-0 w-full mb-2 md:mb-4 relative">
+                <div
+                  className="flex gap-0 w-full mb-2 md:mb-4 relative"
+                  style={{ display: analysisSuiteMode ? 'none' : undefined }}
+                >
                   <button
                     onClick={() => setActiveTab('ATTRACTION')}
                     className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'}`}
@@ -5166,7 +5254,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                       className="absolute -top-2 -right-2 w-8 h-8 flex items-center justify-center bg-black border-2 border-orange-500 hover:bg-orange-500 hover:text-black text-orange-500 transition-all rounded"
                       style={{ zIndex: 10 }}
                     >
-                      <span className="text-xl font-bold leading-none">×</span>
+                      <span className="text-xl font-bold leading-none">�</span>
                     </button>
                   )}
                 </div>
@@ -5177,42 +5265,44 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                     {/* Mobile Layout - Single Row */}
                     <div
                       className="md:hidden w-full flex items-center gap-1.5"
-                      style={{ height: '34px' }}
+                      style={{ height: analysisSuiteMode ? '51px' : '34px' }}
                     >
                       {/* Ticker */}
-                      <div
-                        className="flex items-center gap-1 px-2 rounded flex-shrink-0"
-                        style={{
-                          height: '34px',
-                          minWidth: '70px',
-                          maxWidth: '90px',
-                          background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
-                          border: '1px solid rgba(255,102,0,0.45)',
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          style={{ color: '#ff6600', flexShrink: 0 }}
-                        >
-                          <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2.5" />
-                          <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2.5" />
-                        </svg>
-                        <input
-                          type="text"
-                          value={tickerInput}
-                          onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleTickerSubmit()
+                      {!analysisSuiteMode && (
+                        <div
+                          className="flex items-center gap-1 px-2 rounded flex-shrink-0"
+                          style={{
+                            height: '34px',
+                            minWidth: '70px',
+                            maxWidth: '90px',
+                            background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                            border: '1px solid rgba(255,102,0,0.45)',
+                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
                           }}
-                          className="bg-transparent border-0 outline-none w-full font-black uppercase"
-                          style={{ color: '#fff', fontSize: '11px', letterSpacing: '0.5px' }}
-                          placeholder="TICKER"
-                        />
-                      </div>
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            style={{ color: '#ff6600', flexShrink: 0 }}
+                          >
+                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2.5" />
+                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2.5" />
+                          </svg>
+                          <input
+                            type="text"
+                            value={tickerInput}
+                            onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleTickerSubmit()
+                            }}
+                            className="bg-transparent border-0 outline-none w-full font-black uppercase"
+                            style={{ color: '#fff', fontSize: '11px', letterSpacing: '0.5px' }}
+                            placeholder="TICKER"
+                          />
+                        </div>
+                      )}
 
                       {/* LIVE */}
                       <button
@@ -5240,9 +5330,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         }}
                         className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
                         style={{
-                          height: '34px',
-                          padding: '0 8px',
-                          fontSize: '10px',
+                          height: analysisSuiteMode ? '51px' : '34px',
+                          padding: analysisSuiteMode ? '0 14px' : '0 8px',
+                          fontSize: analysisSuiteMode ? '15px' : '10px',
                           letterSpacing: '0.5px',
                           background: liveMode
                             ? 'rgba(34,197,94,0.15)'
@@ -5254,6 +5344,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                           boxShadow: liveMode
                             ? '0 0 8px rgba(34,197,94,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
                             : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                          display: showODTRIO ? 'none' : undefined,
                         }}
                       >
                         <span
@@ -5275,10 +5366,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         onChange={(e) => setOtmFilter(e.target.value as any)}
                         className="appearance-none cursor-pointer outline-none font-black uppercase text-center rounded flex-shrink-0"
                         style={{
-                          height: '34px',
+                          height: analysisSuiteMode ? '51px' : '34px',
                           padding: '0 4px',
-                          fontSize: '12px',
-                          width: '52px',
+                          fontSize: analysisSuiteMode ? '18px' : '12px',
+                          width: analysisSuiteMode ? '78px' : '52px',
                           backgroundColor: '#000',
                           background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
                           border: '1px solid rgba(255,255,255,0.1)',
@@ -5287,21 +5378,173 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="1%">±1%</option>
-                        <option value="2%">±2%</option>
-                        <option value="3%">±3%</option>
-                        <option value="5%">±5%</option>
-                        <option value="8%">±8%</option>
-                        <option value="10%">±10%</option>
-                        <option value="15%">±15%</option>
-                        <option value="20%">±20%</option>
-                        <option value="25%">±25%</option>
-                        <option value="40%">±40%</option>
-                        <option value="50%">±50%</option>
-                        <option value="100%">±100%</option>
+                        <option value="1%">�1%</option>
+                        <option value="2%">�2%</option>
+                        <option value="3%">�3%</option>
+                        <option value="5%">�5%</option>
+                        <option value="8%">�8%</option>
+                        <option value="10%">�10%</option>
+                        <option value="15%">�15%</option>
+                        <option value="20%">�20%</option>
+                        <option value="25%">�25%</option>
+                        <option value="40%">�40%</option>
+                        <option value="50%">�50%</option>
+                        <option value="100%">�100%</option>
                       </select>
 
-                      {/* Mode */}
+                      {/* Mode � custom dropdown mobile */}
+                      {(() => {
+                        const modeValue =
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? 'normal'
+                            : showDealer
+                              ? 'dealer'
+                              : showFlowGEX
+                                ? 'flowmap'
+                                : showODTRIO
+                                  ? 'odtrio'
+                                  : 'normal'
+                        const modeColor =
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? '#22c55e'
+                            : showDealer
+                              ? '#a855f7'
+                              : showFlowGEX
+                                ? '#f97316'
+                                : '#3b82f6'
+                        const modeBorder =
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? 'rgba(34,197,94,0.5)'
+                            : showDealer
+                              ? 'rgba(168,85,247,0.5)'
+                              : showFlowGEX
+                                ? 'rgba(249,115,22,0.5)'
+                                : 'rgba(59,130,246,0.5)'
+                        const modeGlow =
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? 'rgba(34,197,94,0.15)'
+                            : showDealer
+                              ? 'rgba(168,85,247,0.15)'
+                              : showFlowGEX
+                                ? 'rgba(249,115,22,0.15)'
+                                : 'rgba(59,130,246,0.15)'
+                        const modeLabel =
+                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                            ? 'NORMAL'
+                            : showDealer
+                              ? 'DEALER'
+                              : showFlowGEX
+                                ? 'FLOW MAP'
+                                : 'ODTRIO'
+                        const applyMode = (v: string) => {
+                          setShowGEX(v === 'normal')
+                          setShowDealer(v === 'dealer')
+                          setShowFlowGEX(v === 'flowmap')
+                          setShowODTRIO(v === 'odtrio')
+                          if (v === 'normal') setGexMode('Net GEX')
+                          if (v === 'dealer') setGexMode('Net Dealer')
+                          if (v === 'odtrio') fetchODTRIOData()
+                          setShowModeDropdown(false)
+                        }
+                        const opts = [
+                          {
+                            value: 'normal',
+                            label: 'NORMAL',
+                            color: '#22c55e',
+                            glow: 'rgba(34,197,94,0.3)',
+                          },
+                          {
+                            value: 'dealer',
+                            label: 'DEALER',
+                            color: '#a855f7',
+                            glow: 'rgba(168,85,247,0.3)',
+                          },
+                          {
+                            value: 'flowmap',
+                            label: 'FLOW MAP',
+                            color: '#f97316',
+                            glow: 'rgba(249,115,22,0.3)',
+                          },
+                          {
+                            value: 'odtrio',
+                            label: 'ODTRIO',
+                            color: '#3b82f6',
+                            glow: 'rgba(59,130,246,0.3)',
+                          },
+                        ]
+                        return (
+                          <div
+                            className="relative md:hidden"
+                            style={{ flex: '2 1 0', minWidth: 0 }}
+                          >
+                            <button
+                              ref={modeButtonRef}
+                              onClick={() => setShowModeDropdown((p) => !p)}
+                              className="w-full font-black uppercase text-center rounded"
+                              style={{
+                                height: analysisSuiteMode ? '51px' : '34px',
+                                fontSize: analysisSuiteMode ? '15px' : '12px',
+                                background: `linear-gradient(180deg, rgba(30,30,30,0.95) 0%, rgba(10,10,10,0.98) 50%, rgba(5,5,5,1) 100%)`,
+                                border: `1px solid ${modeBorder}`,
+                                color: modeColor,
+                                boxShadow: `0 2px 8px ${modeGlow}, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.5)`,
+                              }}
+                            >
+                              {modeLabel}
+                            </button>
+                            {showModeDropdown && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShowModeDropdown(false)}
+                                />
+                                <div
+                                  className="fixed z-50 rounded overflow-hidden"
+                                  style={{
+                                    top:
+                                      (modeButtonRef.current?.getBoundingClientRect().bottom ?? 0) +
+                                      4,
+                                    left: modeButtonRef.current?.getBoundingClientRect().left ?? 0,
+                                    width:
+                                      modeButtonRef.current?.getBoundingClientRect().width ?? 120,
+                                    background:
+                                      'linear-gradient(180deg, #1c1c1c 0%, #0d0d0d 40%, #080808 100%)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    boxShadow:
+                                      '0 8px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.06)',
+                                  }}
+                                >
+                                  {opts.map((opt) => (
+                                    <button
+                                      key={opt.value}
+                                      onClick={() => applyMode(opt.value)}
+                                      className="w-full font-black uppercase text-center"
+                                      style={{
+                                        height: '36px',
+                                        fontSize: '12px',
+                                        color: opt.color,
+                                        background:
+                                          modeValue === opt.value
+                                            ? `linear-gradient(90deg, rgba(${opt.color === '#22c55e' ? '34,197,94' : opt.color === '#a855f7' ? '168,85,247' : opt.color === '#f97316' ? '249,115,22' : '59,130,246'},0.15) 0%, transparent 100%)`
+                                            : 'transparent',
+                                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                        boxShadow:
+                                          modeValue === opt.value
+                                            ? `inset 0 -2px 0 ${opt.color}`
+                                            : 'none',
+                                      }}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Mode � native select desktop */}
                       <select
                         value={
                           showGEX && !showDealer && !showFlowGEX && !showODTRIO
@@ -5324,11 +5567,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                           if (v === 'dealer') setGexMode('Net Dealer')
                           if (v === 'odtrio') fetchODTRIOData()
                         }}
-                        className="appearance-none cursor-pointer outline-none font-black uppercase text-center rounded"
+                        className="appearance-none cursor-pointer outline-none font-black uppercase text-center rounded hidden md:block"
                         style={{
-                          height: '34px',
+                          height: analysisSuiteMode ? '51px' : '34px',
                           padding: '0 4px',
-                          fontSize: '12px',
+                          fontSize: analysisSuiteMode ? '15px' : '12px',
                           flex: '2 1 0',
                           minWidth: 0,
                           backgroundColor: '#000',
@@ -5357,53 +5600,121 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="normal" style={{ background: '#000', color: '#22c55e' }}>
+                        <option
+                          value="normal"
+                          style={{
+                            background: 'linear-gradient(135deg,#1a1a1a 0%,#0a0a0a 100%)',
+                            color: '#22c55e',
+                            fontWeight: 900,
+                          }}
+                        >
                           NORMAL
                         </option>
-                        <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>
+                        <option
+                          value="dealer"
+                          style={{
+                            background: 'linear-gradient(135deg,#1a1a1a 0%,#0a0a0a 100%)',
+                            color: '#a855f7',
+                            fontWeight: 900,
+                          }}
+                        >
                           DEALER
                         </option>
-                        <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>
+                        <option
+                          value="flowmap"
+                          style={{
+                            background: 'linear-gradient(135deg,#1a1a1a 0%,#0a0a0a 100%)',
+                            color: '#f97316',
+                            fontWeight: 900,
+                          }}
+                        >
                           FLOW MAP
                         </option>
-                        <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>
+                        <option
+                          value="odtrio"
+                          style={{
+                            background: 'linear-gradient(135deg,#1a1a1a 0%,#0a0a0a 100%)',
+                            color: '#3b82f6',
+                            fontWeight: 900,
+                          }}
+                        >
                           ODTRIO
                         </option>
                       </select>
 
                       {/* OI */}
-                      <button
-                        onClick={() => setShowOI(!showOI)}
-                        className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
-                        style={{
-                          height: '34px',
-                          padding: '0 8px',
-                          fontSize: '10px',
-                          letterSpacing: '0.5px',
-                          background: showOI
-                            ? 'rgba(59,130,246,0.15)'
-                            : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
-                          border: showOI
-                            ? '1px solid rgba(59,130,246,0.55)'
-                            : '1px solid rgba(255,255,255,0.1)',
-                          color: showOI ? '#3b82f6' : '#888',
-                          boxShadow: showOI
-                            ? '0 0 8px rgba(59,130,246,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
-                            : 'inset 0 1px 0 rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <span
+                      {!analysisSuiteMode && (
+                        <button
+                          onClick={() => setShowOI(!showOI)}
+                          className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
                           style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: '50%',
-                            background: showOI ? '#3b82f6' : '#444',
-                            display: 'inline-block',
-                            boxShadow: showOI ? '0 0 5px #3b82f6' : 'none',
+                            height: '34px',
+                            padding: '0 8px',
+                            fontSize: '10px',
+                            letterSpacing: '0.5px',
+                            background: showOI
+                              ? 'rgba(59,130,246,0.15)'
+                              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                            border: showOI
+                              ? '1px solid rgba(59,130,246,0.55)'
+                              : '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff',
+                            boxShadow: showOI
+                              ? '0 0 8px rgba(59,130,246,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
+                              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
                           }}
-                        />
-                        OI
-                      </button>
+                        >
+                          <span
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: '50%',
+                              background: showOI ? '#3b82f6' : '#444',
+                              display: 'inline-block',
+                              boxShadow: showOI ? '0 0 5px #3b82f6' : 'none',
+                            }}
+                          />
+                          OI
+                        </button>
+                      )}
+
+                      {/* LiveDte button � mobile only, shown when ODTRIO active, replaces LIVE */}
+                      {showODTRIO && (
+                        <button
+                          onClick={() => {
+                            if (!liveMode) {
+                              setLiveMode(true)
+                              updateOdtrioLiveOI()
+                            } else {
+                              setLiveMode(false)
+                              setLiveOIData(new Map())
+                              setOdtrioData(JSON.parse(JSON.stringify(baseOdtrioData)))
+                            }
+                          }}
+                          disabled={liveOILoading}
+                          className="flex items-center justify-center gap-1 flex-shrink-0 font-black uppercase rounded md:hidden"
+                          style={{
+                            height: '34px',
+                            padding: '0 8px',
+                            fontSize: '10px',
+                            letterSpacing: '0.5px',
+                            background: liveMode
+                              ? 'rgba(34,197,94,0.15)'
+                              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                            border: liveMode
+                              ? '1px solid rgba(34,197,94,0.55)'
+                              : '1px solid rgba(255,255,255,0.1)',
+                            color: liveMode ? '#22c55e' : '#888',
+                            opacity: liveOILoading ? 0.5 : 1,
+                            cursor: liveOILoading ? 'not-allowed' : 'pointer',
+                            boxShadow: liveMode
+                              ? '0 0 8px rgba(34,197,94,0.2)'
+                              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          {liveOILoading ? `${liveOIProgress}%` : 'LiveDte'}
+                        </button>
+                      )}
 
                       {/* Refresh */}
                       <button
@@ -5411,8 +5722,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         disabled={loading}
                         className="flex items-center justify-center flex-shrink-0 rounded disabled:opacity-40"
                         style={{
-                          height: '34px',
-                          width: '34px',
+                          height: analysisSuiteMode ? '51px' : '34px',
+                          width: analysisSuiteMode ? '51px' : '34px',
                           background: 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
                           border: '1px solid rgba(255,255,255,0.1)',
                           color: '#ff6600',
@@ -5427,56 +5738,62 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                       {/* Left Controls */}
                       <div className="flex items-center gap-4 md:gap-8">
                         {/* Ticker Search */}
-                        <div className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
-                          <div className="relative flex items-center">
-                            <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                style={{ color: 'rgba(128, 128, 128, 0.5)' }}
-                              >
-                                <circle
-                                  cx="11"
-                                  cy="11"
-                                  r="8"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
+                        {!analysisSuiteMode && (
+                          <div className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
+                            <div className="relative flex items-center">
+                              <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  style={{ color: 'rgba(128, 128, 128, 0.5)' }}
+                                >
+                                  <circle
+                                    cx="11"
+                                    cy="11"
+                                    r="8"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  />
+                                  <path
+                                    d="m21 21-4.35-4.35"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  />
+                                </svg>
+                                <input
+                                  type="text"
+                                  value={tickerInput}
+                                  onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleTickerSubmit()
+                                    }
+                                  }}
+                                  className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
+                                  style={{
+                                    color: '#ffffff',
+                                    textShadow:
+                                      '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                                    letterSpacing: '0.8px',
+                                  }}
+                                  placeholder="Search..."
                                 />
-                                <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
-                              </svg>
-                              <input
-                                type="text"
-                                value={tickerInput}
-                                onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    handleTickerSubmit()
-                                  }
-                                }}
-                                className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
-                                style={{
-                                  color: '#ffffff',
-                                  textShadow:
-                                    '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
-                                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                                  letterSpacing: '0.8px',
-                                }}
-                                placeholder="Search..."
-                              />
-                              <svg
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                style={{ color: '#666' }}
-                              >
-                                <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
-                              </svg>
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  style={{ color: '#666' }}
+                                >
+                                  <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
+                                </svg>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Analysis Type & OTM Dropdown */}
                         <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-8">
@@ -5501,10 +5818,15 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
                                 }`}
+                                style={
+                                  analysisSuiteMode
+                                    ? { padding: '10px 24px', fontSize: '18px' }
+                                    : {}
+                                }
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}
                                 >
                                   DUO
                                 </span>
@@ -5517,6 +5839,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
                                 }`}
+                                style={
+                                  analysisSuiteMode
+                                    ? { padding: '10px 18px', fontSize: '18px' }
+                                    : {}
+                                }
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5532,7 +5859,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-emerald-500 border-emerald-500/60 focus:ring-emerald-500 accent-emerald-500"
                                 />
                                 <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}
                                 >
                                   NORMAL
                                 </span>
@@ -5545,6 +5872,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
                                 }`}
+                                style={
+                                  analysisSuiteMode
+                                    ? { padding: '10px 18px', fontSize: '18px' }
+                                    : {}
+                                }
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5555,12 +5887,13 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     setShowDealer(isChecked)
                                     if (isChecked) {
                                       setGexMode('Net Dealer')
+                                      setShowFlowGEX(false)
                                     }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-amber-500 border-amber-500/60 focus:ring-amber-500 accent-amber-500"
                                 />
                                 <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}
                                 >
                                   DEALER
                                 </span>
@@ -5573,6 +5906,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
                                 }`}
+                                style={
+                                  analysisSuiteMode
+                                    ? { padding: '10px 18px', fontSize: '18px' }
+                                    : {}
+                                }
                               >
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5581,46 +5919,49 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                   checked={showFlowGEX}
                                   onClick={(e) => {
                                     console.log(
-                                      `🔥 FLOW GEX CHECKBOX CLICKED (desktop) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`
+                                      `?? FLOW GEX CHECKBOX CLICKED (desktop) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`
                                     )
                                   }}
                                   onChange={(e) => {
                                     console.log(
-                                      `🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`
+                                      `?? FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`
                                     )
                                     setShowFlowGEX(e.target.checked)
+                                    if (e.target.checked) setShowDealer(false)
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-orange-500 border-orange-500/60 focus:ring-orange-500 accent-orange-500"
                                 />
                                 <label
                                   htmlFor="flowgex-checkbox-desktop"
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}
                                 >
                                   FLOW MAP
                                 </label>
                               </div>
 
                               {/* OI Checkbox */}
-                              <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  showOI
-                                    ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                                }`}
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
-                                <input
-                                  type="checkbox"
-                                  checked={showOI}
-                                  onChange={(e) => setShowOI(e.target.checked)}
-                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-blue-500 border-blue-500/60 focus:ring-blue-500 accent-blue-500"
-                                />
-                                <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}
+                              {!analysisSuiteMode && (
+                                <div
+                                  className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
+                                    showOI
+                                      ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                  }`}
                                 >
-                                  OI
-                                </span>
-                              </div>
+                                  <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                  <input
+                                    type="checkbox"
+                                    checked={showOI}
+                                    onChange={(e) => setShowOI(e.target.checked)}
+                                    className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-blue-500 border-blue-500/60 focus:ring-blue-500 accent-blue-500"
+                                  />
+                                  <span
+                                    className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}
+                                  >
+                                    OI
+                                  </span>
+                                </div>
+                              )}
 
                               {/* LIVE Checkbox */}
                               <div
@@ -5629,6 +5970,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 border border-green-400/70 shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-green-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.2)]'
                                 } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                style={
+                                  analysisSuiteMode
+                                    ? { padding: '10px 18px', fontSize: '18px' }
+                                    : {}
+                                }
                                 onClick={() => {
                                   if (liveOILoading) return
                                   const currentTicker = tickerInput.trim() || selectedTicker
@@ -5662,7 +6008,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-green-500 border-green-500/60 focus:ring-green-500 accent-green-500 pointer-events-none"
                                 />
                                 <span
-                                  className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${
                                     liveMode
                                       ? 'text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]'
                                       : 'text-white'
@@ -5676,7 +6022,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
 
                           {/* OTM Filter Dropdown */}
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">
+                            <span
+                              className={`${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold text-white uppercase tracking-wider`}
+                            >
                               RANGE
                             </span>
                             <div className="relative">
@@ -5699,20 +6047,20 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                       | '100%'
                                   )
                                 }
-                                className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
+                                className={`bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none ${analysisSuiteMode ? 'px-6 py-4 text-base min-w-[135px]' : 'px-4 py-2.5 text-sm min-w-[90px]'} pr-10 text-white font-bold uppercase appearance-none cursor-pointer transition-all`}
                               >
-                                <option value="1%">±1%</option>
-                                <option value="2%">±2%</option>
-                                <option value="3%">±3%</option>
-                                <option value="5%">±5%</option>
-                                <option value="8%">±8%</option>
-                                <option value="10%">±10%</option>
-                                <option value="15%">±15%</option>
-                                <option value="20%">±20%</option>
-                                <option value="25%">±25%</option>
-                                <option value="40%">±40%</option>
-                                <option value="50%">±50%</option>
-                                <option value="100%">±100%</option>
+                                <option value="1%">�1%</option>
+                                <option value="2%">�2%</option>
+                                <option value="3%">�3%</option>
+                                <option value="5%">�5%</option>
+                                <option value="8%">�8%</option>
+                                <option value="10%">�10%</option>
+                                <option value="15%">�15%</option>
+                                <option value="20%">�20%</option>
+                                <option value="25%">�25%</option>
+                                <option value="40%">�40%</option>
+                                <option value="50%">�50%</option>
+                                <option value="100%">�100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg
@@ -5732,26 +6080,28 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                         </div>
 
                         {/* ODTRIO Button */}
-                        <button
-                          onClick={() => {
-                            const newState = !showODTRIO
-                            setShowODTRIO(newState)
-                            if (newState) {
-                              fetchODTRIOData()
-                            }
-                          }}
-                          className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2"
-                          style={{
-                            background: showODTRIO ? 'rgba(59,130,246,0.15)' : '#000000',
-                            borderColor: showODTRIO ? '#3b82f6' : '#444',
-                            color: '#3b82f6',
-                            fontWeight: '900',
-                            letterSpacing: '0.05em',
-                          }}
-                          title="ODTE Trio: SPX, QQQ, SPY"
-                        >
-                          ODTRIO
-                        </button>
+                        {!analysisSuiteMode && (
+                          <button
+                            onClick={() => {
+                              const newState = !showODTRIO
+                              setShowODTRIO(newState)
+                              if (newState) {
+                                fetchODTRIOData()
+                              }
+                            }}
+                            className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2"
+                            style={{
+                              background: showODTRIO ? 'rgba(59,130,246,0.15)' : '#000000',
+                              borderColor: showODTRIO ? '#3b82f6' : '#444',
+                              color: '#3b82f6',
+                              fontWeight: '900',
+                              letterSpacing: '0.05em',
+                            }}
+                            title="ODTE Trio: SPX, QQQ, SPY"
+                          >
+                            ODTRIO
+                          </button>
+                        )}
 
                         {/* ODTRIO LIVE OI Button - Desktop version */}
                         {showODTRIO && (
@@ -5900,7 +6250,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  flex: 1,
+                  flex: analysisSuiteMode ? '0 0 auto' : 1,
                   minHeight: 0,
                   overflow: 'hidden',
                 }}
@@ -5909,7 +6259,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                   {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
                   {/* GEX Timeline Scrubber - Show when showHistoricalGEX is true, ticker selected, and not in OI or ODTRIO mode */}
-                  {showHistoricalGEX &&
+                  {!analysisSuiteMode &&
+                    showHistoricalGEX &&
                     !showODTRIO &&
                     selectedTicker &&
                     !showOI &&
@@ -6122,7 +6473,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                             const highestDealer = Math.max(...dealerGEXValues)
                             const lowestDealer = Math.min(...dealerGEXValues)
 
-                            // ── DEALER ATTRACTION DEBUG ────────────────────────────────────────────
+                            // -- DEALER ATTRACTION DEBUG --------------------------------------------
                             {
                               const goldenRow = tickerDataArray.find((row) => {
                                 if (!row.expirations?.[odteExpiry]) return false
@@ -6156,7 +6507,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     Math.abs(Number(b.netDealer)) - Math.abs(Number(a.netDealer))
                                 )
                             }
-                            // ──────────────────────────────────────────────────────────────────────
+                            // ----------------------------------------------------------------------
 
                             // Calculate top values for proper gradient opacity
                             const normalTopValues = {
@@ -6219,7 +6570,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                         textShadow: '0 0 8px rgba(0,0,0,1)',
                                       }}
                                     >
-                                      • {tricoTicker} •
+                                      � {tricoTicker} �
                                     </h3>
                                     <div
                                       className="w-1.5 h-1.5 rounded-full"
@@ -6586,7 +6937,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                 opacity="0.6"
                                                                 style={{ fontWeight: 'bold' }}
                                                               >
-                                                                ↑
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -6614,7 +6965,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                 strokeWidth="3"
                                                                 style={{ fontWeight: 'bold' }}
                                                               >
-                                                                ↑
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -6642,7 +6993,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                   fontWeight: 'bold',
                                                                 }}
                                                               >
-                                                                ↑
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -6762,7 +7113,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                 opacity="0.6"
                                                                 style={{ fontWeight: 'bold' }}
                                                               >
-                                                                ↓
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -6790,7 +7141,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                 strokeWidth="3"
                                                                 style={{ fontWeight: 'bold' }}
                                                               >
-                                                                ↓
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -6818,7 +7169,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                                                   fontWeight: 'bold',
                                                                 }}
                                                               >
-                                                                ↓
+                                                                ?
                                                                 <animateMotion
                                                                   dur="2.2s"
                                                                   begin={`${i * 0.7}s`}
@@ -7200,21 +7551,47 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                           mobileExpWidth = allThreeActive ? 50 : 70
                         }
 
-                        let table1Expirations = expirations
-                        let table2Expirations = expirations
-                        let table3Expirations = expirations
+                        const tlOffset = analysisSuiteMode ? 1 : 0
+
+                        let table1Expirations = analysisSuiteMode
+                          ? expirations.slice(0, 4)
+                          : expirations
+                        let table2Expirations = analysisSuiteMode
+                          ? expirations.slice(0, 4)
+                          : expirations
+                        let table3Expirations = analysisSuiteMode
+                          ? expirations.slice(0, 4)
+                          : expirations
 
                         // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
                         if (duoMode && showGEX && showDealer && !isMobile) {
                           // Duo mode (no flow map): 6 expirations
-                          table1Expirations = expirations.slice(0, 6)
-                          table2Expirations = expirations.slice(0, 6)
-                          table3Expirations = expirations.slice(0, 6)
+                          table1Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 6 - tlOffset
+                          )
+                          table2Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 6 - tlOffset
+                          )
+                          table3Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 6 - tlOffset
+                          )
                         } else if (allThreeActive && !duoMode && !isMobile) {
                           // All three tables without duo mode: 8 expirations
-                          table1Expirations = expirations.slice(0, 8)
-                          table2Expirations = expirations.slice(0, 8)
-                          table3Expirations = expirations.slice(0, 8)
+                          table1Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 8 - tlOffset
+                          )
+                          table2Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 8 - tlOffset
+                          )
+                          table3Expirations = expirations.slice(
+                            0,
+                            analysisSuiteMode ? 4 : 8 - tlOffset
+                          )
                         }
 
                         if (isMobile) {
@@ -7225,9 +7602,9 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                             table3Expirations = expirations.slice(0, 1)
                           } else if (activeTableCount === 2) {
                             // 2 tables on mobile: each gets 2 expirations
-                            table1Expirations = expirations.slice(0, 2)
-                            table2Expirations = expirations.slice(0, 2)
-                            table3Expirations = expirations.slice(0, 2)
+                            table1Expirations = expirations.slice(0, 2 - tlOffset)
+                            table2Expirations = expirations.slice(0, 2 - tlOffset)
+                            table3Expirations = expirations.slice(0, 2 - tlOffset)
                           }
                         }
 
@@ -7276,6 +7653,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                       ? 'calc(74.78vh - 225px)'
                                       : 'calc(74.78vh - 270px)',
                                     overflowX: 'auto',
+                                    zoom: analysisSuiteMode ? 1.5 : undefined,
                                   }}
                                 >
                                   <table
@@ -7481,6 +7859,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                     maxHeight: isMobile
                                       ? 'calc(74.78vh - 225px)'
                                       : 'calc(74.78vh - 270px)',
+                                    zoom: analysisSuiteMode ? 1.5 : undefined,
                                     overflowX: 'auto',
                                   }}
                                 >
@@ -7696,6 +8075,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                                       ? 'calc(74.78vh - 225px)'
                                       : 'calc(74.78vh - 270px)',
                                     overflowX: 'auto',
+                                    zoom: analysisSuiteMode ? 1.5 : undefined,
                                   }}
                                 >
                                   <table
@@ -7909,6 +8289,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                               ? 'calc(74.78vh - 225px)'
                               : 'calc(74.78vh - 270px)',
                           overflowX: 'auto',
+                          zoom: analysisSuiteMode ? 1.5 : undefined,
                         }}
                       >
                         <table
@@ -8105,7 +8486,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                     </div>
                   )}
                 </div>
-                {/* ── Trading Signal Gauges — hidden when OI mode or ODTRIO is active ── */}
+                {/* -- Trading Signal Gauges � hidden when OI mode or ODTRIO is active -- */}
                 {!showOI && !showODTRIO && (
                   <div
                     className="md:mt-0"
@@ -8122,6 +8503,15 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({ onClose }) => {
                       gexByStrikeByExpiration={gexByStrikeByExpiration}
                       vexByStrikeByExpiration={vexByStrikeByExpiration}
                       expirations={expirations}
+                      analysisSuiteMode={analysisSuiteMode}
+                      onGaugeMetrics={
+                        // Only pass the callback when selectedTicker matches externalTicker.
+                        // This prevents GaugeTrio from firing with stale data from the
+                        // previous ticker while the new ticker's fetch is still in-flight.
+                        !externalTicker || selectedTicker === externalTicker
+                          ? onGaugeMetrics
+                          : undefined
+                      }
                     />
                   </div>
                 )}

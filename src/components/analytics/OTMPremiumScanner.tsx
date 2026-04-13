@@ -25,6 +25,8 @@ interface PremiumImbalance {
   strikeSpacing: number
   putStrike: number
   callStrike: number
+  lastSeenTime?: string
+  expiry?: string
 }
 
 interface OTMPremiumScannerProps {
@@ -49,22 +51,15 @@ const getNextMonthlyExpiry = () => {
   return `${yyyy}-${mm}-${dd}`
 }
 
-// Helper function to calculate next weekly expiry (next Friday)
+// Helper function to calculate next weekly expiry (next Friday, rolls if within 2 days)
 const getNextWeeklyExpiry = () => {
   const today = new Date()
-  const dayOfWeek = today.getDay() // 0 = Sunday, 5 = Friday
+  const dayOfWeek = today.getDay() // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   let daysUntilFriday = 5 - dayOfWeek
+  if (daysUntilFriday < 0) daysUntilFriday += 7
 
-  // If today is Friday, look at the time to determine if we should use today or next Friday
-  if (daysUntilFriday === 0) {
-    // If it's past 4 PM ET on Friday, use next Friday
-    const currentHour = today.getHours()
-    if (currentHour >= 16) {
-      daysUntilFriday = 7
-    }
-  } else if (daysUntilFriday < 0) {
-    daysUntilFriday += 7
-  }
+  // Less than 2 days until expiry (Thu or Fri) → roll to NEXT Friday
+  if (daysUntilFriday < 2) daysUntilFriday += 7
 
   const nextFriday = new Date(today)
   nextFriday.setDate(today.getDate() + daysUntilFriday)
@@ -83,8 +78,14 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
   const [otmScanProgress, setOtmScanProgress] = useState({ current: 0, total: 0 })
   const [otmScanningSymbol, setOtmScanningSymbol] = useState('')
   const [customTicker, setCustomTicker] = useState('')
-  const [expiryType, setExpiryType] = useState<'weekly' | 'monthly'>('monthly')
+  const [expiryType, setExpiryType] = useState<'weekly' | 'monthly'>('weekly')
+  const [nextScanIn, setNextScanIn] = useState<number>(0)
   const otmEventSourceRef = useRef<EventSource | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const autoScanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const nextScanTimeRef = useRef<number>(0)
+  const scanOTMPremiumsRef = useRef<() => void>(() => {})
 
   // Calculate expiry based on selected type
   const otmExpiry = expiryType === 'monthly' ? getNextMonthlyExpiry() : getNextWeeklyExpiry()
@@ -99,41 +100,44 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
     }
 
     try {
-      const eventSource = new EventSource(
-        `/api/scan-premium-stream?symbols=${encodeURIComponent(otmSymbols)}&expiry=${encodeURIComponent(otmExpiry)}`
-      )
+      const url = `/api/scan-premium-stream?symbols=${encodeURIComponent(otmSymbols)}&expiry=${encodeURIComponent(otmExpiry)}`
+      const eventSource = new EventSource(url)
       otmEventSourceRef.current = eventSource
 
       eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'progress') {
-          setOtmScanProgress(data.progress)
-          setOtmScanningSymbol(data.symbol)
-        } else if (data.type === 'result') {
-          setOtmResults((prev) => {
-            const newResults = [...prev, data.result]
-            return newResults.sort(
-              (a, b) => Math.abs(b.imbalancePercent) - Math.abs(a.imbalancePercent)
-            )
-          })
-        } else if (data.type === 'complete') {
-          setOtmLoading(false)
-          setOtmLastUpdate(new Date())
-          setOtmScanningSymbol('')
-          eventSource.close()
-        } else if (data.type === 'error') {
-          console.error('OTM Scan error:', data.error)
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'progress') {
+            setOtmScanProgress(data.progress)
+            setOtmScanningSymbol(data.symbol)
+          } else if (data.type === 'result') {
+            setOtmResults((prev) => {
+              const newResults = [...prev, data.result]
+              return newResults.sort(
+                (a, b) => Math.abs(b.imbalancePercent) - Math.abs(a.imbalancePercent)
+              )
+            })
+          } else if (data.type === 'complete') {
+            setOtmLoading(false)
+            setOtmLastUpdate(new Date())
+            setOtmScanningSymbol('')
+            eventSource.close()
+          } else if (data.type === 'error') {
+            console.error('[OTM] scanner error:', data.error)
+          }
+        } catch (e) {
+          console.error('[OTM] parse error:', event.data, e)
         }
       }
 
-      eventSource.onerror = () => {
+      eventSource.onerror = (e) => {
+        console.error('[OTM] EventSource error, readyState:', eventSource.readyState, e)
         setOtmLoading(false)
         setOtmScanningSymbol('')
         eventSource.close()
       }
     } catch (error) {
-      console.error('OTM Scan error:', error)
+      console.error('[OTM] failed to open stream:', error)
       setOtmLoading(false)
     }
   }
@@ -156,30 +160,34 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
       otmEventSourceRef.current = eventSource
 
       eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'progress') {
-          setOtmScanProgress(data.progress)
-          setOtmScanningSymbol(data.symbol)
-        } else if (data.type === 'result') {
-          setOtmResults((prev) => {
-            const newResults = [...prev, data.result]
-            return newResults.sort(
-              (a, b) => Math.abs(b.imbalancePercent) - Math.abs(a.imbalancePercent)
-            )
-          })
-        } else if (data.type === 'complete') {
-          setOtmLoading(false)
-          setOtmLastUpdate(new Date())
-          setOtmScanningSymbol('')
-          setCustomTicker('')
-          eventSource.close()
-        } else if (data.type === 'error') {
-          console.error('OTM Scan error:', data.error)
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'progress') {
+            setOtmScanProgress(data.progress)
+            setOtmScanningSymbol(data.symbol)
+          } else if (data.type === 'result') {
+            setOtmResults((prev) => {
+              const newResults = [...prev, data.result]
+              return newResults.sort(
+                (a, b) => Math.abs(b.imbalancePercent) - Math.abs(a.imbalancePercent)
+              )
+            })
+          } else if (data.type === 'complete') {
+            setOtmLoading(false)
+            setOtmLastUpdate(new Date())
+            setOtmScanningSymbol('')
+            setCustomTicker('')
+            eventSource.close()
+          } else if (data.type === 'error') {
+            console.error('[OTM] scanner error:', data.error)
+          }
+        } catch (e) {
+          console.error('[OTM] parse error:', event.data, e)
         }
       }
 
-      eventSource.onerror = () => {
+      eventSource.onerror = (e) => {
+        console.error('[OTM] EventSource error, readyState:', eventSource.readyState, e)
         setOtmLoading(false)
         setOtmScanningSymbol('')
         eventSource.close()
@@ -190,6 +198,9 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
     }
   }
 
+  // Keep ref in sync so the interval can always call the latest version
+  scanOTMPremiumsRef.current = scanOTMPremiums
+
   const formatExpiryDate = (dateStr: string) => {
     if (!dateStr) return ''
     const date = new Date(dateStr + 'T00:00:00')
@@ -198,7 +209,7 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
 
   return (
     <div
-      className="text-white overflow-hidden"
+      className="text-white"
       style={{
         background: '#06060a',
         border: '1px solid rgba(255,120,0,0.18)',
@@ -283,6 +294,46 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
             </div>
           </div>
         )}
+        {/* Last scan + next scan countdown */}
+        <div className="flex items-center gap-3 ml-auto" style={{ flexShrink: 0 }}>
+          {otmLastUpdate && !otmLoading && (
+            <span
+              style={{
+                fontSize: 11,
+                color: '#888',
+                fontFamily: 'monospace',
+                letterSpacing: '0.06em',
+              }}
+            >
+              LAST{' '}
+              <span style={{ color: '#ffffff' }}>
+                {otmLastUpdate.toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                  timeZone: 'America/Los_Angeles',
+                })}{' '}
+                PST
+              </span>
+            </span>
+          )}
+          {!otmLoading && nextScanIn > 0 && (
+            <span
+              style={{
+                fontSize: 11,
+                color: '#888',
+                fontFamily: 'monospace',
+                letterSpacing: '0.06em',
+              }}
+            >
+              NEXT{' '}
+              <span style={{ color: '#00ff00' }}>
+                {String(Math.floor(nextScanIn / 60)).padStart(2, '0')}:
+                {String(nextScanIn % 60).padStart(2, '0')}
+              </span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ── Controls bar ── */}
@@ -439,145 +490,374 @@ export default function OTMPremiumScanner({ compactMode = false }: OTMPremiumSca
         </div>
       )}
 
-      {/* Results */}
-      <div className="space-y-3 px-3 md:px-6 py-3 md:py-6">
+      {/* Results Grid */}
+      <div
+        ref={scrollContainerRef}
+        style={{
+          padding: '12px 16px',
+          overflowX: 'auto',
+          overflowY: 'auto',
+          maxHeight: 'calc(100vh - 210px)',
+        }}
+      >
+        {/* Empty states */}
         {otmResults.length === 0 && !otmLoading && !otmLastUpdate && (
-          <div className="text-center py-16">
-            <div className="text-xl font-semibold text-gray-500">
-              Click "Scan Now" to begin analysis
-            </div>
-          </div>
-        )}
-
-        {otmResults.length === 0 && !otmLoading && otmLastUpdate && (
-          <div className="text-center py-16">
-            <div className="text-xl font-semibold text-gray-500">No results found</div>
-          </div>
-        )}
-
-        {otmResults.length === 0 && otmLoading && (
-          <div className="text-center py-8 md:py-16">
-            <RefreshCw className="w-6 h-6 md:w-8 md:h-8 text-white animate-spin mb-3 md:mb-4 mx-auto" />
-            <div className="text-white text-xs md:text-sm font-medium">
-              Scanning TOP 1000 stocks for OTM premium imbalances...
-            </div>
-            <div className="text-gray-400 text-xs mt-2">
-              Finding calls above stock vs puts below stock imbalances
-            </div>
-          </div>
-        )}
-
-        {otmResults.map((result, idx) => (
           <div
-            key={`${result.symbol}-${idx}`}
-            className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border-2 border-gray-700 rounded-xl p-4 md:p-6 hover:border-blue-500/50 transition-all duration-300 shadow-xl"
+            style={{
+              textAlign: 'center',
+              padding: '40px 0',
+              color: '#c0c0c8',
+              fontSize: 14,
+              fontFamily: 'monospace',
+            }}
           >
-            {/* Header Row */}
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="text-2xl md:text-3xl font-black text-white mb-1">
-                  {result.symbol}
-                </div>
-                <div className="text-xs text-white font-medium">
-                  ${result.stockPrice.toFixed(2)}
-                </div>
-              </div>
-              <div
-                className={`px-3 py-1 text-xs font-black ${
-                  result.imbalanceSeverity === 'EXTREME'
-                    ? 'bg-gradient-to-r from-red-500 to-red-400 text-white'
-                    : result.imbalanceSeverity === 'HIGH'
-                      ? 'bg-gradient-to-r from-red-400 to-red-300 text-white'
-                      : 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-black'
-                } rounded-lg`}
-              >
-                {result.imbalanceSeverity}
-              </div>
-            </div>
-
-            {/* Strikes Info */}
-            <div className="text-center bg-gray-900/50 rounded-lg p-2 mb-4">
-              <div className="text-xs text-gray-300 font-bold mb-1">STRIKES</div>
-              <div className="text-white font-bold text-sm">
-                ${result.putStrike} / ${result.callStrike}
-              </div>
-              <div className="text-xs text-gray-400 font-medium mt-0.5">
-                ({result.strikeSpacing} spacing)
-              </div>
-            </div>
-
-            {/* Calls vs Puts */}
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="bg-green-900/20 border border-green-500/30 p-2 rounded-lg">
-                <div className="flex items-center gap-1 mb-1">
-                  <TrendingUp className="w-3 h-3 text-green-400" />
-                  <span className="text-xs text-green-300 font-bold">CALLS</span>
-                </div>
-                <div className="text-lg font-black text-white">${result.callMid.toFixed(2)}</div>
-                <div className="text-xs text-gray-300 font-medium mt-1">${result.callStrike}</div>
-                <div className="text-xs text-gray-400">
-                  {result.callBid.toFixed(2)} × {result.callAsk.toFixed(2)}
-                </div>
-              </div>
-
-              <div className="bg-red-900/20 border border-red-500/30 p-2 rounded-lg">
-                <div className="flex items-center gap-1 mb-1">
-                  <TrendingDown className="w-3 h-3 text-red-400" />
-                  <span className="text-xs text-red-300 font-bold">PUTS</span>
-                </div>
-                <div className="text-lg font-black text-white">${result.putMid.toFixed(2)}</div>
-                <div className="text-xs text-gray-300 font-medium mt-1">${result.putStrike}</div>
-                <div className="text-xs text-gray-400">
-                  {result.putBid.toFixed(2)} × {result.putAsk.toFixed(2)}
-                </div>
-              </div>
-            </div>
-
-            {/* Metrics */}
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="bg-gray-900/50 rounded-lg p-2 text-center">
-                <div className="text-xs text-gray-300 font-bold mb-1">DIFFERENCE</div>
-                <div
-                  className={`text-lg font-black ${result.premiumDifference > 0 ? 'text-green-300' : 'text-red-300'}`}
-                >
-                  ${Math.abs(result.premiumDifference).toFixed(2)}
-                </div>
-              </div>
-
-              <div className="bg-gray-900/50 rounded-lg p-2 text-center">
-                <div className="text-xs text-gray-300 font-bold mb-1">IMBALANCE</div>
-                <div
-                  className={`text-2xl font-black ${
-                    result.imbalanceSeverity === 'EXTREME'
-                      ? 'text-red-500'
-                      : result.imbalanceSeverity === 'HIGH'
-                        ? 'text-red-400'
-                        : 'text-yellow-400'
-                  }`}
-                >
-                  {Math.abs(result.imbalancePercent).toFixed(1)}%
-                </div>
-              </div>
-            </div>
-
-            {/* Footer Info */}
-            <div className="border-t border-gray-700 pt-2 space-y-1 text-xs">
-              <div className="text-gray-300">
-                Call Spread:{' '}
-                <span className="text-white font-bold">{result.callSpreadPercent.toFixed(1)}%</span>
-              </div>
-              <div className="text-gray-300">
-                Put Spread:{' '}
-                <span className="text-white font-bold">{result.putSpreadPercent.toFixed(1)}%</span>
-              </div>
-              <div className="text-white font-bold text-xs">
-                {result.expensiveSide === 'CALLS'
-                  ? `→ OTM Calls more expensive - BULLISH`
-                  : `→ OTM Puts more expensive - BEARISH`}
-              </div>
+            CLICK SCAN ALL TO BEGIN
+          </div>
+        )}
+        {otmResults.length === 0 && !otmLoading && otmLastUpdate && (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '40px 0',
+              color: '#c0c0c8',
+              fontSize: 14,
+              fontFamily: 'monospace',
+            }}
+          >
+            NO IMBALANCES FOUND
+          </div>
+        )}
+        {otmResults.length === 0 && otmLoading && (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <RefreshCw
+              style={{ width: 20, height: 20, color: '#f97316', display: 'inline-block' }}
+              className="animate-spin"
+            />
+            <div style={{ color: '#d0d0e0', fontSize: 13, marginTop: 10, fontFamily: 'monospace' }}>
+              SCANNING {otmScanProgress.current} / {otmScanProgress.total}
+              {otmScanningSymbol ? ` · ${otmScanningSymbol}` : ''}
             </div>
           </div>
-        ))}
+        )}
+
+        {/* 5-column card grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 360px)',
+            gap: 8,
+            minWidth: 1840,
+          }}
+        >
+          {otmResults.map((result, idx) => {
+            const isBull = result.expensiveSide === 'CALLS'
+            const sevColor =
+              result.imbalanceSeverity === 'EXTREME'
+                ? '#ff2222'
+                : result.imbalanceSeverity === 'HIGH'
+                  ? '#00ff00'
+                  : '#ffffff'
+            const accentRgb =
+              result.imbalanceSeverity === 'EXTREME'
+                ? '255,34,34'
+                : result.imbalanceSeverity === 'HIGH'
+                  ? '0,255,0'
+                  : '255,255,255'
+            const biasColor = isBull ? '#3db86a' : '#cc4444'
+            return (
+              <div
+                key={`${result.symbol}-${idx}`}
+                style={{
+                  background: '#000000',
+                  border: `1px solid rgba(${accentRgb},0.45)`,
+                  borderRadius: 8,
+                  fontFamily: 'monospace',
+                  boxShadow: `0 2px 16px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)`,
+                  position: 'relative' as const,
+                }}
+              >
+                {/* Glossy top sheen */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 36,
+                    background:
+                      'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 100%)',
+                    pointerEvents: 'none',
+                    borderRadius: '8px 8px 0 0',
+                  }}
+                />
+
+                {/* Header */}
+                <div
+                  style={{
+                    padding: '11px 13px 10px',
+                    borderBottom: `1px solid rgba(${accentRgb},0.25)`,
+                    background: `linear-gradient(135deg, rgba(${accentRgb},0.12) 0%, rgba(${accentRgb},0.04) 100%)`,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 27,
+                          fontWeight: 900,
+                          color: '#ffffff',
+                          letterSpacing: '0.05em',
+                          lineHeight: 1,
+                        }}
+                      >
+                        {result.symbol}
+                      </div>
+                      <div
+                        style={{ fontSize: 18, color: '#ffffff', fontWeight: 700, marginTop: 4 }}
+                      >
+                        ${result.stockPrice.toFixed(2)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 800,
+                          color: sevColor,
+                          letterSpacing: '0.12em',
+                          border: `1px solid rgba(${accentRgb},0.5)`,
+                          borderRadius: 3,
+                          padding: '3px 8px',
+                          display: 'inline-block',
+                          background: `rgba(${accentRgb},0.1)`,
+                        }}
+                      >
+                        {result.imbalanceSeverity}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 800,
+                          color: biasColor,
+                          marginTop: 4,
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        {isBull ? '▲ BULL' : '▼ BEAR'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strikes */}
+                <div
+                  style={{
+                    padding: '8px 13px',
+                    borderBottom: `1px solid rgba(255,255,255,0.05)`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'rgba(0,0,0,0.2)',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 15,
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      letterSpacing: '0.1em',
+                    }}
+                  >
+                    STRIKES
+                  </span>
+                  <span style={{ fontSize: 19, fontWeight: 800, color: '#ffffff' }}>
+                    ${result.putStrike}/<wbr />${result.callStrike}
+                  </span>
+                  <span style={{ fontSize: 15, color: '#ffffff', fontWeight: 600 }}>
+                    {result.strikeSpacing}spc
+                  </span>
+                </div>
+
+                {/* Put / Call */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+                  <div
+                    style={{
+                      padding: '10px 13px',
+                      borderRight: `1px solid rgba(255,255,255,0.05)`,
+                      background: 'rgba(180,30,30,0.07)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 15,
+                        color: '#ff2222',
+                        fontWeight: 800,
+                        letterSpacing: '0.1em',
+                        marginBottom: 4,
+                      }}
+                    >
+                      PUT ${result.putStrike}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 25,
+                        fontWeight: 900,
+                        color: '#ff2222',
+                        letterSpacing: '-0.01em',
+                      }}
+                    >
+                      ${result.putMid.toFixed(2)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: '#ffffff',
+                        marginTop: 4,
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      <span style={{ color: '#00ff00', fontWeight: 700 }}>BID</span>{' '}
+                      {result.putBid.toFixed(2)} /{' '}
+                      <span style={{ color: '#ff2222', fontWeight: 700 }}>ASK</span>{' '}
+                      {result.putAsk.toFixed(2)}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#ffffff' }}>
+                      spr {result.putSpreadPercent.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div style={{ padding: '10px 13px', background: 'rgba(30,180,80,0.07)' }}>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        color: '#00ff00',
+                        fontWeight: 800,
+                        letterSpacing: '0.1em',
+                        marginBottom: 4,
+                      }}
+                    >
+                      CALL ${result.callStrike}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 25,
+                        fontWeight: 900,
+                        color: '#00ff00',
+                        letterSpacing: '-0.01em',
+                      }}
+                    >
+                      ${result.callMid.toFixed(2)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: '#ffffff',
+                        marginTop: 4,
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      <span style={{ color: '#00ff00', fontWeight: 700 }}>BID</span>{' '}
+                      {result.callBid.toFixed(2)} /{' '}
+                      <span style={{ color: '#ff2222', fontWeight: 700 }}>ASK</span>{' '}
+                      {result.callAsk.toFixed(2)}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#ffffff' }}>
+                      spr {result.callSpreadPercent.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expiry + Scan Time */}
+                <div
+                  style={{
+                    padding: '5px 13px',
+                    background: 'rgba(0,0,0,0.15)',
+                    borderTop: '1px solid rgba(255,255,255,0.04)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#ffffff' }}>
+                    <span style={{ color: '#ffffff', letterSpacing: '0.08em', fontWeight: 700 }}>
+                      EXP
+                    </span>{' '}
+                    <span style={{ color: '#ffffff' }}>
+                      {result.expiry ? formatExpiryDate(result.expiry) : '—'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#ffffff' }}>
+                    <span style={{ color: '#ffffff', letterSpacing: '0.08em', fontWeight: 700 }}>
+                      SCANNED
+                    </span>{' '}
+                    <span style={{ color: '#ffffff' }}>{result.lastSeenTime || '—'}</span>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '9px 13px',
+                    borderTop: `1px solid rgba(255,255,255,0.05)`,
+                    background: 'rgba(0,0,0,0.25)',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                      }}
+                    >
+                      DIFF
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 21,
+                        fontWeight: 900,
+                        color: result.premiumDifference > 0 ? '#00ff00' : '#ff2222',
+                      }}
+                    >
+                      ${Math.abs(result.premiumDifference).toFixed(2)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                      }}
+                    >
+                      IMBALANCE
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 30,
+                        fontWeight: 900,
+                        color: sevColor,
+                        letterSpacing: '-0.02em',
+                      }}
+                    >
+                      {Math.abs(result.imbalancePercent).toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

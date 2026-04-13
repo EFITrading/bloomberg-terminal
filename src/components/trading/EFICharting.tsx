@@ -3475,6 +3475,8 @@ interface TradingViewChartProps {
   height?: number
   onSymbolChange?: (symbol: string) => void
   onTimeframeChange?: (timeframe: string) => void
+  lwToolbarPosition?: 'top' | 'left'
+  disableSidebarAutoScan?: boolean
 }
 
 // ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
@@ -5019,12 +5021,15 @@ export default function TradingViewChart({
   height = 600,
   onSymbolChange,
   onTimeframeChange,
+  lwToolbarPosition = 'top',
+  disableSidebarAutoScan = false,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
   // Prefetch composite history immediately; PC ratio delayed 30s so the server
   // contract/bar caches are warm (avoids cold-start timeout on first load)
   useEffect(() => {
+    if (disableSidebarAutoScan) return // analysis-suite: skip composite history + PC ratio prefetch
     prefetchCompositeHistory()
     const t = setTimeout(() => prefetchPCRatioData('1D'), 30_000)
     return () => clearTimeout(t)
@@ -8756,6 +8761,7 @@ export default function TradingViewChart({
 
   // Prefetch ALL regime tabs in parallel when panel opens
   useEffect(() => {
+    if (disableSidebarAutoScan) return // analysis-suite: skip regime scan
     if (
       activeSidebarPanel === 'markets' &&
       !allRegimesLoaded &&
@@ -8813,6 +8819,7 @@ export default function TradingViewChart({
 
   // Load Market Regimes after watchlist completes (background prefetch)
   useEffect(() => {
+    if (disableSidebarAutoScan) return // trading-lens: no background regime scan
     if (watchlistLoading) return // Wait for watchlist to populate first
     if (allRegimesLoaded || Object.keys(regimeDataCache).length > 0) {
       return // Already loaded
@@ -10169,6 +10176,10 @@ export default function TradingViewChart({
 
   // Fetch market data
   useEffect(() => {
+    if (disableSidebarAutoScan) {
+      setWatchlistLoading(false)
+      return
+    } // analysis-suite: skip full market scan
     const fetchRealMarketData = async (isInitialLoad = false) => {
       if (isInitialLoad) {
         setWatchlistLoading(true)
@@ -10847,6 +10858,7 @@ export default function TradingViewChart({
   // Fetch real ETF weekly fund flows using share_class_shares_outstanding from Polygon.
   // Runs once after initial watchlist data is loaded. Flow = Δ(shares) × price.
   useEffect(() => {
+    if (disableSidebarAutoScan) return // analysis-suite: skip ETF flow scan
     if (watchlistLoading) return
 
     const etfSymbols = [
@@ -11101,6 +11113,10 @@ export default function TradingViewChart({
 
   // Fetch data for Tracking tab - auto-fetch on mount
   useEffect(() => {
+    if (disableSidebarAutoScan) {
+      setTrackingLoading(false)
+      return
+    } // analysis-suite: skip tracking scan
     setTrackingLoading(true)
 
     const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
@@ -12797,8 +12813,9 @@ export default function TradingViewChart({
       const dateKey = new Date(candle.timestamp).toISOString().split('T')[0]
       const dayStartMs = new Date(dateKey).getTime() // midnight UTC
 
-      // ── RTH-only fetch: only request trades during 9:30 AM – 4:00 PM ET ──
-      // This avoids afterhours/overnight prints dominating the top-5 bubbles.
+      // ── RTH-only fetch: only request trades during 9:30 AM – 4:15 PM ET ──
+      // Extended to 4:15 PM (was 4:00 PM) to capture large block prints that are
+      // reported to FINRA TRF in the minutes immediately after the official close.
       // DST: EDT (UTC-4) runs Mar 2nd-Sun → Nov 1st-Sun; EST (UTC-5) otherwise.
       const d = new Date(dateKey + 'T12:00:00Z')
       const yr = d.getUTCFullYear()
@@ -12809,9 +12826,9 @@ export default function TradingViewChart({
       while (novFirstSun.getUTCDay() !== 0) novFirstSun.setUTCDate(novFirstSun.getUTCDate() + 1)
       const isEDT = d >= marchSecondSun && d < novFirstSun
       const etOffsetMs = isEDT ? 4 * 3600_000 : 5 * 3600_000 // EDT=UTC-4, EST=UTC-5
-      // 9:30 AM ET and 4:00 PM ET expressed as UTC milliseconds from day midnight
+      // 9:30 AM ET and 4:15 PM ET expressed as UTC milliseconds from day midnight
       const rthOpenUtcMs = 9 * 3600_000 + 30 * 60_000 + etOffsetMs // e.g. 13:30 UTC in EDT
-      const rthCloseUtcMs = 16 * 3600_000 + etOffsetMs // e.g. 20:00 UTC in EDT
+      const rthCloseUtcMs = 16 * 3600_000 + 15 * 60_000 + etOffsetMs // e.g. 20:15 UTC in EDT
       const rthStartNs = (dayStartMs + rthOpenUtcMs) * 1_000_000
       const rthEndNs = (dayStartMs + rthCloseUtcMs) * 1_000_000
 
@@ -12863,6 +12880,16 @@ export default function TradingViewChart({
           ts: Math.floor(t.sip_timestamp / 1_000_000),
         }))
 
+        if (config.symbol === 'MAGS') {
+          console.log('[POI-BTN][MAGS] fetchDayAll result', dateKey, {
+            allTradesCount: allTrades.length,
+            dpTradesCount: dpTrades.length,
+            totalNotional,
+            topPrint,
+            top10,
+          })
+        }
+
         return { dateKey, result: { top10, totalNotional, topPrint } }
       } catch {
         return null
@@ -12908,6 +12935,15 @@ export default function TradingViewChart({
         setDarkPoolData(result)
         setDarkPoolProgress(100)
         setDarkPoolLoading(false)
+        if (config.symbol === 'MAGS') {
+          const top5Days = Object.entries(result)
+            .sort((a, b) => b[1].totalNotional - a[1].totalNotional)
+            .slice(0, 5)
+            .map(([date, dp]) => ({ date, totalNotional: dp.totalNotional, topPrint: dp.topPrint }))
+          console.log('[POI-BTN][MAGS] RUN COMPLETE — total days:', Object.keys(result).length)
+          console.log('[POI-BTN][MAGS] Top-5 days by notional:', top5Days)
+          console.log('[POI-BTN][MAGS] Full cache:', result)
+        }
       }
     }
 
@@ -14984,101 +15020,91 @@ export default function TradingViewChart({
         const notional = print.notional
         const r = Math.max(3.75, Math.min(22.5, Math.sqrt(notional / globalMaxNotional) * 22.5))
 
-        if (print.globalRank === 0) {
-          // #1 globally: glossy orange bubble
-          // Base fill
-          const baseGradO = ctx.createRadialGradient(cx, printY, r * 0.1, cx, printY, r)
-          baseGradO.addColorStop(0, 'rgba(255, 160, 40, 0.75)')
-          baseGradO.addColorStop(0.5, 'rgba(220, 100, 10, 0.60)')
-          baseGradO.addColorStop(1, 'rgba(140, 50, 0, 0.40)')
-          ctx.beginPath()
-          ctx.arc(cx, printY, r, 0, Math.PI * 2)
-          ctx.fillStyle = baseGradO
-          ctx.fill()
-          // Rim
-          ctx.strokeStyle = 'rgba(255, 180, 60, 0.80)'
-          ctx.lineWidth = 1.2
-          ctx.stroke()
-          // Gloss highlight — upper-left white sheen
-          const glossO = ctx.createRadialGradient(
-            cx - r * 0.3,
-            printY - r * 0.35,
-            r * 0.05,
-            cx - r * 0.1,
-            printY - r * 0.2,
-            r * 0.55
-          )
-          glossO.addColorStop(0, 'rgba(255, 255, 255, 0.72)')
-          glossO.addColorStop(0.5, 'rgba(255, 255, 255, 0.18)')
-          glossO.addColorStop(1, 'rgba(255, 255, 255, 0)')
-          ctx.beginPath()
-          ctx.arc(cx, printY, r, 0, Math.PI * 2)
-          ctx.fillStyle = glossO
-          ctx.fill()
-          // Center solid dot
-          ctx.beginPath()
-          ctx.arc(cx, printY, Math.max(2, r * 0.18), 0, Math.PI * 2)
-          ctx.fillStyle = 'rgba(255, 120, 0, 0.95)'
-          ctx.fill()
-        } else {
-          // #2–5 globally: glossy blue bubble
-          const baseGradB = ctx.createRadialGradient(cx, printY, r * 0.1, cx, printY, r)
-          baseGradB.addColorStop(0, 'rgba(80, 180, 255, 0.70)')
-          baseGradB.addColorStop(0.5, 'rgba(20, 120, 210, 0.55)')
-          baseGradB.addColorStop(1, 'rgba(0, 60, 140, 0.35)')
-          ctx.beginPath()
-          ctx.arc(cx, printY, r, 0, Math.PI * 2)
-          ctx.fillStyle = baseGradB
-          ctx.fill()
-          // Rim
-          ctx.strokeStyle = 'rgba(100, 200, 255, 0.75)'
-          ctx.lineWidth = 1
-          ctx.stroke()
-          // Gloss highlight
-          const glossB = ctx.createRadialGradient(
-            cx - r * 0.3,
-            printY - r * 0.35,
-            r * 0.05,
-            cx - r * 0.1,
-            printY - r * 0.2,
-            r * 0.55
-          )
-          glossB.addColorStop(0, 'rgba(255, 255, 255, 0.65)')
-          glossB.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)')
-          glossB.addColorStop(1, 'rgba(255, 255, 255, 0)')
-          ctx.beginPath()
-          ctx.arc(cx, printY, r, 0, Math.PI * 2)
-          ctx.fillStyle = glossB
-          ctx.fill()
-          // Center solid dot
-          ctx.beginPath()
-          ctx.arc(cx, printY, Math.max(2, r * 0.15), 0, Math.PI * 2)
-          ctx.fillStyle = 'rgba(41, 182, 246, 0.95)'
-          ctx.fill()
+        // Bubble style per rank: 0=orange, 1=blue, 2=white, 3=gray, 4=faded gray
+        type BubbleStyle = {
+          base: [string, string, string]
+          rim: string
+          dot: string
+          gloss: [string, string]
+          lw: number
         }
-
-        // Dollar-value label below (or above) the bubble — shown when there's enough space
-        if (r >= 5) {
-          const label =
-            notional >= 1_000_000_000
-              ? `$${(notional / 1_000_000_000).toFixed(2)}B`
-              : notional >= 1_000_000
-                ? `$${(notional / 1_000_000).toFixed(1)}M`
-                : `$${Math.round(notional / 1_000)}K`
-          const fontSize = Math.max(10, Math.min(13.75, r * 0.85))
-          ctx.font = `bold ${fontSize}px sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'top'
-          ctx.fillStyle =
-            print.globalRank === 0 ? 'rgba(255, 180, 60, 0.95)' : 'rgba(100, 200, 255, 0.95)'
-          const labelY = printY + r + 3
-          if (labelY + fontSize + 2 <= priceChartHeight) {
-            ctx.fillText(label, cx, labelY)
-          } else {
-            ctx.textBaseline = 'bottom'
-            ctx.fillText(label, cx, printY - r - 2)
-          }
-        }
+        const BUBBLE_STYLES: BubbleStyle[] = [
+          // #1 orange
+          {
+            base: ['rgba(255,160,40,0.75)', 'rgba(220,100,10,0.60)', 'rgba(140,50,0,0.40)'],
+            rim: 'rgba(255,180,60,0.80)',
+            dot: 'rgba(255,120,0,0.95)',
+            gloss: ['rgba(255,255,255,0.72)', 'rgba(255,255,255,0.18)'],
+            lw: 1.2,
+          },
+          // #2 blue
+          {
+            base: ['rgba(80,180,255,0.70)', 'rgba(20,120,210,0.55)', 'rgba(0,60,140,0.35)'],
+            rim: 'rgba(100,200,255,0.75)',
+            dot: 'rgba(41,182,246,0.95)',
+            gloss: ['rgba(255,255,255,0.65)', 'rgba(255,255,255,0.15)'],
+            lw: 1.0,
+          },
+          // #3 white
+          {
+            base: ['rgba(245,245,245,0.80)', 'rgba(195,195,195,0.62)', 'rgba(110,110,110,0.35)'],
+            rim: 'rgba(255,255,255,0.85)',
+            dot: 'rgba(225,225,225,0.95)',
+            gloss: ['rgba(255,255,255,0.80)', 'rgba(255,255,255,0.22)'],
+            lw: 1.0,
+          },
+          // #4 gray
+          {
+            base: ['rgba(160,160,160,0.70)', 'rgba(100,100,100,0.52)', 'rgba(50,50,50,0.30)'],
+            rim: 'rgba(185,185,185,0.72)',
+            dot: 'rgba(145,145,145,0.92)',
+            gloss: ['rgba(255,255,255,0.50)', 'rgba(255,255,255,0.12)'],
+            lw: 0.9,
+          },
+          // #5 faded gray
+          {
+            base: ['rgba(115,115,115,0.48)', 'rgba(75,75,75,0.32)', 'rgba(35,35,35,0.15)'],
+            rim: 'rgba(145,145,145,0.45)',
+            dot: 'rgba(100,100,100,0.72)',
+            gloss: ['rgba(255,255,255,0.32)', 'rgba(255,255,255,0.06)'],
+            lw: 0.8,
+          },
+        ]
+        const s = BUBBLE_STYLES[Math.min(print.globalRank, 4)]
+        // Base fill
+        const basGrad = ctx.createRadialGradient(cx, printY, r * 0.1, cx, printY, r)
+        basGrad.addColorStop(0, s.base[0])
+        basGrad.addColorStop(0.5, s.base[1])
+        basGrad.addColorStop(1, s.base[2])
+        ctx.beginPath()
+        ctx.arc(cx, printY, r, 0, Math.PI * 2)
+        ctx.fillStyle = basGrad
+        ctx.fill()
+        // Rim
+        ctx.strokeStyle = s.rim
+        ctx.lineWidth = s.lw
+        ctx.stroke()
+        // Gloss highlight
+        const glossGrad = ctx.createRadialGradient(
+          cx - r * 0.3,
+          printY - r * 0.35,
+          r * 0.05,
+          cx - r * 0.1,
+          printY - r * 0.2,
+          r * 0.55
+        )
+        glossGrad.addColorStop(0, s.gloss[0])
+        glossGrad.addColorStop(0.5, s.gloss[1])
+        glossGrad.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.beginPath()
+        ctx.arc(cx, printY, r, 0, Math.PI * 2)
+        ctx.fillStyle = glossGrad
+        ctx.fill()
+        // Center dot
+        ctx.beginPath()
+        ctx.arc(cx, printY, Math.max(2, r * 0.17), 0, Math.PI * 2)
+        ctx.fillStyle = s.dot
+        ctx.fill()
       }
 
       ctx.restore()
@@ -25430,7 +25456,11 @@ export default function TradingViewChart({
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
                 <div className="flex items-center space-x-3">
-                  <div className="relative flex items-center" ref={searchInputRef}>
+                  <div
+                    className="relative flex items-center"
+                    ref={searchInputRef}
+                    style={{ display: disableSidebarAutoScan ? 'none' : undefined }}
+                  >
                     <div
                       style={{
                         display: 'inline-flex',
@@ -27818,832 +27848,844 @@ export default function TradingViewChart({
                 onClick={() => setShowDarkPoolIndicator((v) => !v)}
               />
 
-              {/* Drawing Tools - Individual Buttons */}
-              <div
-                className="ml-4 flex items-center space-x-2"
-                style={{
-                  padding: '6px 10px',
-                }}
-              >
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(
-                      currentDrawingTool === 'trendline' ? 'select' : 'trendline'
-                    )
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'trendline'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'trendline'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'trendline' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'trendline'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Trendline"
-                >
-                  <TbLine className="w-5 h-5" />
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Trend
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(
-                      currentDrawingTool === 'horizontal' ? 'select' : 'horizontal'
-                    )
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'horizontal'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'horizontal'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'horizontal' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'horizontal'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Horizontal Line"
-                >
-                  <TbMinus className="w-5 h-5" />
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    H-Line
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(currentDrawingTool === 'vertical' ? 'select' : 'vertical')
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'vertical'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'vertical'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'vertical' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'vertical'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Vertical Line"
-                >
-                  <TbArrowsVertical className="w-5 h-5" />
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    V-Line
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(
-                      currentDrawingTool === 'parallelChannel' ? 'select' : 'parallelChannel'
-                    )
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'parallelChannel'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'parallelChannel'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'parallelChannel' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'parallelChannel'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Parallel Channel"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="3" y1="6" x2="21" y2="6" />
-                    <line x1="3" y1="18" x2="21" y2="18" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Channel
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(
-                      currentDrawingTool === 'rectangle' ? 'select' : 'rectangle'
-                    )
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'rectangle'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'rectangle'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'rectangle' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'rectangle'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Rectangle"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="4" y="6" width="16" height="12" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Box
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(currentDrawingTool === 'buyZone' ? 'select' : 'buyZone')
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'buyZone'
-                        ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'buyZone'
-                        ? '2px solid #22c55e'
-                        : '2px solid rgba(34, 197, 94, 0.3)',
-                    color: currentDrawingTool === 'buyZone' ? '#000' : '#22c55e',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'buyZone' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Buy Zone"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'}
-                    stroke={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="4" y="6" width="16" height="12" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Buy
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(currentDrawingTool === 'sellZone' ? 'select' : 'sellZone')
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'sellZone'
-                        ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'sellZone'
-                        ? '2px solid #ef4444'
-                        : '2px solid rgba(239, 68, 68, 0.3)',
-                    color: currentDrawingTool === 'sellZone' ? '#000' : '#ef4444',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'sellZone'
-                        ? '0 0 15px rgba(239, 68, 68, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Sell Zone"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'}
-                    stroke={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="4" y="6" width="16" height="12" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Sell
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setCurrentDrawingTool(
-                      currentDrawingTool === 'priceRange' ? 'select' : 'priceRange'
-                    )
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'priceRange'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'priceRange'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'priceRange' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'priceRange'
-                        ? '0 0 15px rgba(255, 133, 0, 0.5)'
-                        : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Price Range"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="4" y1="6" x2="20" y2="6" />
-                    <line x1="12" y1="6" x2="12" y2="18" />
-                    <line x1="4" y1="18" x2="20" y2="18" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Range
-                  </span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    setCurrentDrawingTool(currentDrawingTool === 'brush' ? 'select' : 'brush')
-                  }
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'brush'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'brush'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'brush' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'brush' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Brush Tool"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9.06 11.9l8.07-8.06a1.5 1.5 0 1 1 2.12 2.12l-8.06 8.08" />
-                    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Brush
-                  </span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    setCurrentDrawingTool(currentDrawingTool === 'text' ? 'select' : 'text')
-                  }
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 10px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '6px',
-                    background:
-                      currentDrawingTool === 'text'
-                        ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
-                        : '#000',
-                    border:
-                      currentDrawingTool === 'text'
-                        ? '2px solid #FF8500'
-                        : '2px solid rgba(255,255,255,0.1)',
-                    color: currentDrawingTool === 'text' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    boxShadow:
-                      currentDrawingTool === 'text' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Text Note Tool"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="4 7 4 4 20 4 20 7" />
-                    <line x1="9" y1="20" x2="15" y2="20" />
-                    <line x1="12" y1="4" x2="12" y2="20" />
-                  </svg>
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: '600',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Text
-                  </span>
-                </button>
-
+              {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
+              {lwToolbarPosition !== 'left' && (
                 <div
+                  className="ml-4 flex items-center space-x-2"
                   style={{
-                    width: '1px',
-                    height: '50px',
-                    background: 'rgba(255,255,255,0.2)',
-                    margin: '0 6px',
+                    padding: '6px 10px',
                   }}
-                />
-
-                <button
-                  onClick={() => setIsDrawingToolLocked(!isDrawingToolLocked)}
-                  style={{
-                    padding: '8px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '4px',
-                    background: isDrawingToolLocked ? '#FFD700' : 'transparent',
-                    border: isDrawingToolLocked ? '2px solid #FFD700' : '1px solid #444',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    justifyContent: 'center',
-                    boxShadow:
-                      'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)',
-                  }}
-                  title={
-                    isDrawingToolLocked
-                      ? 'Drawing Lock: ON (Infinite Use)'
-                      : 'Drawing Lock: OFF (Single Use)'
-                  }
                 >
-                  {isDrawingToolLocked ? (
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'trendline' ? 'select' : 'trendline'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'trendline'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'trendline'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'trendline' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'trendline'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Trendline"
+                  >
+                    <TbLine className="w-5 h-5" />
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Trend
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'horizontal' ? 'select' : 'horizontal'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'horizontal'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'horizontal'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'horizontal' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'horizontal'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Horizontal Line"
+                  >
+                    <TbMinus className="w-5 h-5" />
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      H-Line
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'vertical' ? 'select' : 'vertical'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'vertical'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'vertical'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'vertical' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'vertical'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Vertical Line"
+                  >
+                    <TbArrowsVertical className="w-5 h-5" />
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      V-Line
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'parallelChannel' ? 'select' : 'parallelChannel'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'parallelChannel'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'parallelChannel'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'parallelChannel' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'parallelChannel'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Parallel Channel"
+                  >
                     <svg
-                      width="16"
-                      height="16"
+                      width="20"
+                      height="20"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="#000"
+                      stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      <line x1="3" y1="6" x2="21" y2="6" />
+                      <line x1="3" y1="18" x2="21" y2="18" />
                     </svg>
-                  ) : (
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Channel
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'rectangle' ? 'select' : 'rectangle'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'rectangle'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'rectangle'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'rectangle' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'rectangle'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Rectangle"
+                  >
                     <svg
-                      width="16"
-                      height="16"
+                      width="20"
+                      height="20"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="white"
+                      stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                      <rect x="4" y="6" width="16" height="12" />
                     </svg>
-                  )}
-                </button>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Box
+                    </span>
+                  </button>
 
-                {/* Undo Button */}
-                <button
-                  onClick={() => {
-                    if (currentHistoryIndex > 0) {
-                      const newIndex = currentHistoryIndex - 1
-                      setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
-                      setLwChartDrawings((prev) => ({
-                        ...prev,
-                        [currentSymbol]: currentHistory[newIndex],
-                      }))
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(currentDrawingTool === 'buyZone' ? 'select' : 'buyZone')
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'buyZone'
+                          ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'buyZone'
+                          ? '2px solid #22c55e'
+                          : '2px solid rgba(34, 197, 94, 0.3)',
+                      color: currentDrawingTool === 'buyZone' ? '#000' : '#22c55e',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'buyZone'
+                          ? '0 0 15px rgba(34, 197, 94, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Buy Zone"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'}
+                      stroke={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="4" y="6" width="16" height="12" />
+                    </svg>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Buy
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'sellZone' ? 'select' : 'sellZone'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'sellZone'
+                          ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'sellZone'
+                          ? '2px solid #ef4444'
+                          : '2px solid rgba(239, 68, 68, 0.3)',
+                      color: currentDrawingTool === 'sellZone' ? '#000' : '#ef4444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'sellZone'
+                          ? '0 0 15px rgba(239, 68, 68, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Sell Zone"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'}
+                      stroke={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="4" y="6" width="16" height="12" />
+                    </svg>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Sell
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentDrawingTool(
+                        currentDrawingTool === 'priceRange' ? 'select' : 'priceRange'
+                      )
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'priceRange'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'priceRange'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'priceRange' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'priceRange'
+                          ? '0 0 15px rgba(255, 133, 0, 0.5)'
+                          : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Price Range"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="4" y1="6" x2="20" y2="6" />
+                      <line x1="12" y1="6" x2="12" y2="18" />
+                      <line x1="4" y1="18" x2="20" y2="18" />
+                    </svg>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Range
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setCurrentDrawingTool(currentDrawingTool === 'brush' ? 'select' : 'brush')
                     }
-                  }}
-                  disabled={currentHistoryIndex <= 0}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentHistoryIndex <= 0 ? '#1e293b' : 'transparent',
-                    cursor: currentHistoryIndex <= 0 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: currentHistoryIndex <= 0 ? 0.5 : 1,
-                  }}
-                  title="Undo"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'brush'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'brush'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'brush' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'brush' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Brush Tool"
                   >
-                    <path
-                      d="M9 14L4 9L9 4"
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                    />
-                    <path
-                      d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
+                    >
+                      <path d="M9.06 11.9l8.07-8.06a1.5 1.5 0 1 1 2.12 2.12l-8.06 8.08" />
+                      <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+                    </svg>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Brush
+                    </span>
+                  </button>
 
-                {/* Redo Button */}
-                <button
-                  onClick={() => {
-                    if (currentHistoryIndex < currentHistory.length - 1) {
-                      const newIndex = currentHistoryIndex + 1
-                      setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
-                      setLwChartDrawings((prev) => ({
-                        ...prev,
-                        [currentSymbol]: currentHistory[newIndex],
-                      }))
+                  <button
+                    onClick={() =>
+                      setCurrentDrawingTool(currentDrawingTool === 'text' ? 'select' : 'text')
                     }
-                  }}
-                  disabled={currentHistoryIndex >= currentHistory.length - 1}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '4px',
-                    background:
-                      currentHistoryIndex >= currentHistory.length - 1 ? '#1e293b' : 'transparent',
-                    cursor:
-                      currentHistoryIndex >= currentHistory.length - 1 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: currentHistoryIndex >= currentHistory.length - 1 ? 0.5 : 1,
-                  }}
-                  title="Redo"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 10px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '6px',
+                      background:
+                        currentDrawingTool === 'text'
+                          ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
+                          : '#000',
+                      border:
+                        currentDrawingTool === 'text'
+                          ? '2px solid #FF8500'
+                          : '2px solid rgba(255,255,255,0.1)',
+                      color: currentDrawingTool === 'text' ? '#000' : '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      boxShadow:
+                        currentDrawingTool === 'text' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                    title="Text Note Tool"
                   >
-                    <path
-                      d="M15 14L20 9L15 4"
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                    />
-                    <path
-                      d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
+                    >
+                      <polyline points="4 7 4 4 20 4 20 7" />
+                      <line x1="9" y1="20" x2="15" y2="20" />
+                      <line x1="12" y1="4" x2="12" y2="20" />
+                    </svg>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Text
+                    </span>
+                  </button>
 
-                {/* Background Toggle Button */}
-                <button
-                  onClick={() => setIsBackgroundVisible(!isBackgroundVisible)}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '4px',
-                    background: isBackgroundVisible ? '#22c55e' : 'transparent',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  title={isBackgroundVisible ? 'Hide Drawings' : 'Show Drawings'}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
+                  <div
+                    style={{
+                      width: '1px',
+                      height: '50px',
+                      background: 'rgba(255,255,255,0.2)',
+                      margin: '0 6px',
+                    }}
+                  />
+
+                  <button
+                    onClick={() => setIsDrawingToolLocked(!isDrawingToolLocked)}
+                    style={{
+                      padding: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '4px',
+                      background: isDrawingToolLocked ? '#FFD700' : 'transparent',
+                      border: isDrawingToolLocked ? '2px solid #FFD700' : '1px solid #444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      justifyContent: 'center',
+                      boxShadow:
+                        'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)',
+                    }}
+                    title={
+                      isDrawingToolLocked
+                        ? 'Drawing Lock: ON (Infinite Use)'
+                        : 'Drawing Lock: OFF (Single Use)'
+                    }
                   >
-                    {isBackgroundVisible ? (
-                      <>
-                        <path
-                          d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <circle
-                          cx="12"
-                          cy="12"
-                          r="3"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </>
+                    {isDrawingToolLocked ? (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#000"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
                     ) : (
-                      <>
-                        <path
-                          d="M3 3L21 21"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M10.5 10.5C10.1872 10.8128 10 11.2448 10 11.7C10 12.7046 10.8954 13.5 12 13.5C12.5552 13.5 12.9872 13.3128 13.3 13"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M7.36 7.36C5.68 8.68 4.5 10.5 4.5 12C4.5 12 7 17 12 17C13.5 17 14.82 16.64 15.64 16.36"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M12 7C17 7 19.5 12 19.5 12C19.5 12 19 13.18 17.88 14.5"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                      </>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                      </svg>
                     )}
-                  </svg>
-                </button>
+                  </button>
 
-                <button
-                  onClick={() => {
-                    const sym = currentSymbol
-                    // Clear only the current symbol's drawings
-                    setLwChartDrawings((prev) => ({ ...prev, [sym]: [] }))
-                    setDrawingHistory((prev) => ({ ...prev, [sym]: [[]] }))
-                    setHistoryIndex((prev) => ({ ...prev, [sym]: 0 }))
-                    setCurrentDrawingTool('select')
-                  }}
-                  className="btn-3d-carved"
-                  style={{
-                    padding: '8px 12px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    borderRadius: '4px',
-                    border: '1px solid #DC143C',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    justifyContent: 'center',
-                  }}
-                  title="Clear All Drawings"
-                >
-                  <TbX className="w-4 h-4" style={{ color: '#DC143C' }} />
-                  <span style={{ color: '#DC143C' }}>Clear</span>
-                </button>
-              </div>
+                  {/* Undo Button */}
+                  <button
+                    onClick={() => {
+                      if (currentHistoryIndex > 0) {
+                        const newIndex = currentHistoryIndex - 1
+                        setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                        setLwChartDrawings((prev) => ({
+                          ...prev,
+                          [currentSymbol]: currentHistory[newIndex],
+                        }))
+                      }
+                    }}
+                    disabled={currentHistoryIndex <= 0}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '4px',
+                      background: currentHistoryIndex <= 0 ? '#1e293b' : 'transparent',
+                      cursor: currentHistoryIndex <= 0 ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: currentHistoryIndex <= 0 ? 0.5 : 1,
+                    }}
+                    title="Undo"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M9 14L4 9L9 4"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+
+                  {/* Redo Button */}
+                  <button
+                    onClick={() => {
+                      if (currentHistoryIndex < currentHistory.length - 1) {
+                        const newIndex = currentHistoryIndex + 1
+                        setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                        setLwChartDrawings((prev) => ({
+                          ...prev,
+                          [currentSymbol]: currentHistory[newIndex],
+                        }))
+                      }
+                    }}
+                    disabled={currentHistoryIndex >= currentHistory.length - 1}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '4px',
+                      background:
+                        currentHistoryIndex >= currentHistory.length - 1
+                          ? '#1e293b'
+                          : 'transparent',
+                      cursor:
+                        currentHistoryIndex >= currentHistory.length - 1
+                          ? 'not-allowed'
+                          : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: currentHistoryIndex >= currentHistory.length - 1 ? 0.5 : 1,
+                    }}
+                    title="Redo"
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M15 14L20 9L15 4"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+
+                  {/* Background Toggle Button */}
+                  <button
+                    onClick={() => setIsBackgroundVisible(!isBackgroundVisible)}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '4px',
+                      background: isBackgroundVisible ? '#22c55e' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title={isBackgroundVisible ? 'Hide Drawings' : 'Show Drawings'}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      {isBackgroundVisible ? (
+                        <>
+                          <path
+                            d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="3"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <path
+                            d="M3 3L21 21"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M10.5 10.5C10.1872 10.8128 10 11.2448 10 11.7C10 12.7046 10.8954 13.5 12 13.5C12.5552 13.5 12.9872 13.3128 13.3 13"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M7.36 7.36C5.68 8.68 4.5 10.5 4.5 12C4.5 12 7 17 12 17C13.5 17 14.82 16.64 15.64 16.36"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M12 7C17 7 19.5 12 19.5 12C19.5 12 19 13.18 17.88 14.5"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                        </>
+                      )}
+                    </svg>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const sym = currentSymbol
+                      // Clear only the current symbol's drawings
+                      setLwChartDrawings((prev) => ({ ...prev, [sym]: [] }))
+                      setDrawingHistory((prev) => ({ ...prev, [sym]: [[]] }))
+                      setHistoryIndex((prev) => ({ ...prev, [sym]: 0 }))
+                      setCurrentDrawingTool('select')
+                    }}
+                    className="btn-3d-carved"
+                    style={{
+                      padding: '8px 12px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      borderRadius: '4px',
+                      border: '1px solid #DC143C',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      justifyContent: 'center',
+                    }}
+                    title="Clear All Drawings"
+                  >
+                    <TbX className="w-4 h-4" style={{ color: '#DC143C' }} />
+                    <span style={{ color: '#DC143C' }}>Clear</span>
+                  </button>
+                </div>
+              )}
 
               {/* Spacer to push remaining items to the right */}
               <div className="flex-1"></div>
@@ -29649,6 +29691,7 @@ export default function TradingViewChart({
                       isToolLocked={isDrawingToolLocked}
                       priceToScreen={priceToScreen}
                       screenToPrice={screenToPrice}
+                      toolbarPosition={lwToolbarPosition}
                       onMouseMove={(e) =>
                         handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
                       }
@@ -30149,29 +30192,33 @@ export default function TradingViewChart({
                       savedScrollRef={watchlistSavedScrollRef}
                     />
                   )}
-                  {/* Always mounted so MarketScannerPanel auto-scans in background */}
+                  {/* Always mounted so MarketScannerPanel auto-scans in background.
+                      In trading-lens (disableSidebarAutoScan) we use conditional mount
+                      to prevent background API calls when the panel is hidden. */}
                   <div
                     style={{
                       display: activeSidebarPanel === 'markets' ? 'block' : 'none',
                       height: '100%',
                     }}
                   >
-                    <RegimesPanelComponent
-                      activeTab={regimesTab}
-                      setActiveTab={setRegimesTab}
-                      marketRegimeData={marketRegimeData}
-                      isLoadingRegimes={isLoadingRegimes}
-                      regimeUpdateProgress={regimeUpdateProgress}
-                      regimeLoadingStage={regimeLoadingStage}
-                      scanGroupMode={scanGroupMode}
-                      setScanGroupMode={setScanGroupMode}
-                      highlightedTradesCache={highlightedTradesCache}
-                      tradeDetailPopup={tradeDetailPopup}
-                      setTradeDetailPopup={setTradeDetailPopup}
-                      setActiveSidebarPanel={setActiveSidebarPanel}
-                      scanPricesCacheRef={scanPricesCacheRef}
-                      scanAllScoredRef={scanAllScoredRef}
-                    />
+                    {(!disableSidebarAutoScan || activeSidebarPanel === 'markets') && (
+                      <RegimesPanelComponent
+                        activeTab={regimesTab}
+                        setActiveTab={setRegimesTab}
+                        marketRegimeData={marketRegimeData}
+                        isLoadingRegimes={isLoadingRegimes}
+                        regimeUpdateProgress={regimeUpdateProgress}
+                        regimeLoadingStage={regimeLoadingStage}
+                        scanGroupMode={scanGroupMode}
+                        setScanGroupMode={setScanGroupMode}
+                        highlightedTradesCache={highlightedTradesCache}
+                        tradeDetailPopup={tradeDetailPopup}
+                        setTradeDetailPopup={setTradeDetailPopup}
+                        setActiveSidebarPanel={setActiveSidebarPanel}
+                        scanPricesCacheRef={scanPricesCacheRef}
+                        scanAllScoredRef={scanAllScoredRef}
+                      />
+                    )}
                   </div>
                   {activeSidebarPanel === 'flow' && (
                     <FlowPanel
@@ -30227,7 +30274,7 @@ export default function TradingViewChart({
                               screenersPanelScrollRef.current.scrollTop
                           }
                         }}
-                        className="flex-1 overflow-y-auto"
+                        className="flex-1 overflow-y-auto overflow-x-auto"
                         style={{ overscrollBehavior: 'contain' }}
                       >
                         <ScreenersPanel />

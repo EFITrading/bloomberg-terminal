@@ -12,7 +12,7 @@ interface ContractionResult {
   currentPrice: number
   change: number
   changePercent: number
-  period: '5-DAY' | '13-DAY'
+  period: '4-DAY'
   averageVolume: number
   currentVolume: number
   volumeRatio: number
@@ -39,7 +39,7 @@ interface ContractionResult {
 interface TradeSetup {
   symbol: string
   currentPrice: number
-  period: '5-DAY' | '13-DAY'
+  period: '4-DAY'
   contractionPercent: number
   callStrike: number
   callPremium: number
@@ -400,9 +400,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
       }
     })
 
-  // Separate results by period
-  const results5Day = sortedResults.filter((r) => r.period === '5-DAY')
-  const results13Day = sortedResults.filter((r) => r.period === '13-DAY')
+  const results4Day = sortedResults
 
   return (
     <div
@@ -785,158 +783,24 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
 
         {/* Two Column Layout */}
         {results.length > 0 && (
-          <div className="grid grid-cols-2 gap-4">
-            {/* Left Column - 5-DAY */}
+          <div>
+            {/* 4-DAY Results */}
             <div>
               <div className="mb-4 pb-3 border-b" style={{ borderColor: '#ff6b00' }}>
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-4" style={{ backgroundColor: '#ff6b00' }}></div>
                   <h3 className="text-xl font-bold tracking-widest" style={{ color: '#ff6b00' }}>
-                    5D CONSOLIDATION
+                    4D CONSOLIDATION
                   </h3>
                   <span className="text-xl font-mono" style={{ color: '#ffffff' }}>
-                    [{results5Day.length}]
+                    [{results4Day.length}]
                   </span>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {results5Day.map((result, idx) => (
+                {results4Day.map((result, idx) => (
                   <div
                     key={`${result.symbol}-5d-${idx}`}
-                    className="border transition-all hover:border-orange-600 cursor-pointer"
-                    style={{
-                      padding: '16px',
-                      borderColor: result.qualifies === false ? '#dc2626' : '#333',
-                      backgroundColor: '#000000',
-                      opacity: result.qualifies === false ? 0.8 : 1,
-                    }}
-                    onClick={() =>
-                      result.contractionPercent >= 45 &&
-                      result.qualifies !== false &&
-                      loadTradeSetup(result)
-                    }
-                  >
-                    {/* Ticker with Status Badge */}
-                    <div className="flex items-center justify-between mb-4">
-                      <div
-                        className="text-3xl font-bold tracking-wider"
-                        style={{ color: '#ffffff', fontFamily: 'monospace' }}
-                      >
-                        {result.symbol}
-                      </div>
-                      {result.qualifies === false ? (
-                        <div
-                          className="text-xs font-bold tracking-wider px-2 py-1 rounded"
-                          style={{
-                            backgroundColor: '#dc2626',
-                            color: '#ffffff',
-                          }}
-                        >
-                          NOT QUALIFIED
-                        </div>
-                      ) : (
-                        <div
-                          className="text-base font-bold tracking-wider"
-                          style={{
-                            color: result.squeezeStatus === 'ON' ? '#16a34a' : '#dc2626',
-                          }}
-                        >
-                          {result.squeezeStatus}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Diagnostic Info for Non-Qualifying */}
-                    {result.qualifies === false && result.failReason && (
-                      <div className="mb-3 p-2 border-l-2" style={{ borderColor: '#dc2626' }}>
-                        <div className="text-xs font-bold mb-1" style={{ color: '#ffffff' }}>
-                          WHY NOT QUALIFIED:
-                        </div>
-                        <div className="text-xs font-bold" style={{ color: '#ffffff' }}>
-                          {result.failReason}
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          {result.actualCompression !== undefined && (
-                            <div className="text-xs font-bold" style={{ color: '#ffffff' }}>
-                              Compression: {result.actualCompression.toFixed(1)}% (need{' '}
-                              {result.requiredCompression}%+)
-                            </div>
-                          )}
-                          {result.netMovePercent !== undefined && (
-                            <div className="text-xs font-bold" style={{ color: '#ffffff' }}>
-                              Sideways: {result.isSideways ? 'YES' : 'NO'} (
-                              {result.netMovePercent.toFixed(1)}% net move)
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Price and Contraction Score */}
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-3xl font-mono" style={{ color: '#ffffff' }}>
-                        ${result.currentPrice.toFixed(2)}
-                      </div>
-                      <div className="flex items-baseline gap-0.5">
-                        <span
-                          className="text-4xl font-bold"
-                          style={{ color: '#ff6b00', fontFamily: 'monospace' }}
-                        >
-                          {Math.abs(result.contractionPercent).toFixed(1)}
-                        </span>
-                        <span className="text-2xl font-bold" style={{ color: '#ff6b00' }}>
-                          %
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Change */}
-                    <div
-                      className="text-3xl font-mono font-bold mb-2"
-                      style={{
-                        color: result.change >= 0 ? '#16a34a' : '#dc2626',
-                      }}
-                    >
-                      {result.change >= 0 ? '+' : ''}
-                      {result.changePercent.toFixed(2)}%
-                    </div>
-
-                    {/* Trade Available Badge */}
-                    {result.contractionPercent >= 45 && (
-                      <div className="mt-3 pt-3 border-t" style={{ borderColor: '#333' }}>
-                        <div
-                          className="text-xs font-bold tracking-widest text-center py-1 px-2"
-                          style={{
-                            backgroundColor: '#ff6b00',
-                            color: '#000',
-                          }}
-                        >
-                          STRADDLE AVAILABLE
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right Column - 13-DAY */}
-            <div>
-              <div className="mb-4 pb-3 border-b" style={{ borderColor: '#ff6b00' }}>
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-4" style={{ backgroundColor: '#ff6b00' }}></div>
-                  <h3 className="text-xl font-bold tracking-widest" style={{ color: '#ff6b00' }}>
-                    13D CONSOLIDATION
-                  </h3>
-                  <span className="text-xl font-mono" style={{ color: '#ffffff' }}>
-                    [{results13Day.length}]
-                  </span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {results13Day.map((result, idx) => (
-                  <div
-                    key={`${result.symbol}-13d-${idx}`}
                     className="border transition-all hover:border-orange-600 cursor-pointer"
                     style={{
                       padding: '16px',

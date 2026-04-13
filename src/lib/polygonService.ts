@@ -157,7 +157,6 @@ class PolygonService {
     const cached = this.cache.get(key)
 
     if (cached && cached.expiry > Date.now()) {
-      console.log(` Cache hit for ${endpoint}`)
       return cached.data
     }
 
@@ -190,7 +189,6 @@ class PolygonService {
     await this.rateLimitDelay()
 
     const url = `${this.baseUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}apikey=${this.apiKey}`
-    console.log(`Making Polygon API request: ${url}`)
 
     try {
       const response = await fetch(url, {
@@ -242,7 +240,6 @@ class PolygonService {
   async getTickerDetails(symbol: string): Promise<PolygonTickerData | null> {
     try {
       const endpoint = `/api/ticker-details?symbol=${symbol}`
-      console.log(` Fetching ticker details for ${symbol} via backend API`)
 
       const response = await fetch(endpoint, {
         method: 'GET',
@@ -362,17 +359,9 @@ class PolygonService {
           const endDateStr = endDate.toISOString().split('T')[0]
           const startDateStr = startDate.toISOString().split('T')[0]
 
-          console.log(
-            ` Fetching ${years} years of bulk data for ${symbol} (${startDateStr} to ${endDateStr}) - Attempt ${attempt}/${maxRetries}`
-          )
-
           // Call Polygon API directly to avoid server-side relative URL issue
           const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
           const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`
-
-          console.log(
-            ` Direct Polygon API call for ${symbol}: ${url.replace(POLYGON_API_KEY, 'API_KEY')}`
-          )
 
           // Add timeout and abort controller for better connection handling
           const controller = new AbortController()
@@ -417,9 +406,6 @@ class PolygonService {
 
           const data = await response.json()
 
-          // Enhanced validation with detailed logging
-          console.log(` Raw response for ${symbol}:`, JSON.stringify(data).slice(0, 200))
-
           if (!data) {
             console.error(` NULL response received for ${symbol}`)
             return null
@@ -447,9 +433,6 @@ class PolygonService {
           // Reverse array since we requested DESC order (newest first) but need ASC (oldest first)
           data.results.reverse()
 
-          console.log(
-            ` ✓ Retrieved ${data.results.length} data points for ${symbol} (${startDateStr} to ${endDateStr})`
-          )
           return data
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Unknown error')
@@ -475,7 +458,6 @@ class PolygonService {
           // Wait before retry with exponential backoff
           if (attempt < maxRetries) {
             const delay = Math.pow(2, attempt - 1) * 2000 // 2s, 4s, 8s
-            console.log(` Retrying ${symbol} in ${delay / 1000}s...`)
             await new Promise((resolve) => setTimeout(resolve, delay))
           }
         }
@@ -491,13 +473,11 @@ class PolygonService {
 
   async getFeaturedPatterns(): Promise<SeasonalPattern[]> {
     try {
-      console.log(' [Featured Patterns] Using worker-based processing...')
       const featuredSymbols = ['AAPL', 'TSLA', 'NVDA', 'SPY', 'QQQ']
 
       // Use MarketDataProcessor for efficient batch processing
       const patterns = await this.processor.calculateSeasonalPatterns(featuredSymbols, 5)
 
-      console.log(` [Featured Patterns] Generated ${patterns.length} patterns using real data`)
       return patterns || []
     } catch (error) {
       console.error(' Error fetching featured patterns:', error)
@@ -507,9 +487,6 @@ class PolygonService {
 
   async getMarketPatterns(market: string, years: number): Promise<SeasonalPattern[]> {
     try {
-      console.log(` [Market Patterns] Processing ${market} with batched approach...`)
-
-      // Define market constituents (reduced for performance)
       const marketSymbols: { [key: string]: string[] } = {
         SP500: ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN'],
         Technology: ['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'],
@@ -522,7 +499,6 @@ class PolygonService {
       // Use processor for efficient batch processing
       const patterns = await this.processor.calculateSeasonalPatterns(symbols, years)
 
-      console.log(` [Market Patterns] Generated ${patterns.length} patterns for ${market}`)
       return patterns || []
     } catch (error) {
       console.error(` Error fetching ${market} patterns:`, error)

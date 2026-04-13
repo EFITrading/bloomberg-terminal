@@ -252,15 +252,27 @@ class ContractionScanner {
     bars: HistoricalBar[],
     days: number
   ): { qualifies: boolean; contractionPercent: number; movePercent: number } {
-    if (bars.length < 60) return { qualifies: false, contractionPercent: 0, movePercent: 0 }
+    if (bars.length < 120) return { qualifies: false, contractionPercent: 0, movePercent: 0 }
 
     const lookbackBars = bars.slice(-days)
     if (lookbackBars.length < days)
       return { qualifies: false, contractionPercent: 0, movePercent: 0 }
 
-    // Calculate stock's normal volatility (avg N-day range over 60 days)
-    const avgHistoricalMove = this.calculateHistoricalVolatility(bars, days, 60)
+    // Calculate stock's normal volatility over 120-day baseline (was 60 — too short)
+    const avgHistoricalMove = this.calculateHistoricalVolatility(bars, days, 120)
     if (avgHistoricalMove === 0) return { qualifies: false, contractionPercent: 0, movePercent: 0 }
+    // Reject low-beta stocks that are perpetually in "contraction" vs their own tiny baseline.
+    // Require the 120-bar avg 4D range to be at least 3.0% — this filters VZ/T/utilities
+    // (VZ avg 4D move ~1.8-2.5%, needs to be 3%+ to be worth trading a coil)
+    if (avgHistoricalMove < 3.0) return { qualifies: false, contractionPercent: 0, movePercent: 0 }
+
+    // Reject low-beta stocks by average single-day H-L range over last 20 bars.
+    // VZ avg daily range ~1.92% — stocks this slow are never worth trading a coil.
+    // Require average daily candle >= 2.0% to qualify.
+    const last20 = bars.slice(-20)
+    const avgDailyRangePct =
+      last20.reduce((sum, b) => sum + ((b.h - b.l) / b.l) * 100, 0) / last20.length
+    if (avgDailyRangePct < 2.0) return { qualifies: false, contractionPercent: 0, movePercent: 0 }
 
     // Current N-day price range
     const high = Math.max(...lookbackBars.map((b) => b.h))
@@ -268,57 +280,26 @@ class ContractionScanner {
     const currentRange = high - low
     const currentRangePercent = (currentRange / low) * 100
 
-    // How tight is this range compared to normal? (contraction %)
-    // Higher % = tighter than normal = better consolidation
+    // How tight vs normal (higher = tighter = better coil)
     const compressionPercent = ((avgHistoricalMove - currentRangePercent) / avgHistoricalMove) * 100
 
-    // Check if price is SIDEWAYS (oscillating, not trending one direction)
+    // Net move check: must be < 80% of range (allows drifting coils, rejects pure vertical moves)
     const startPrice = lookbackBars[0].c
     const endPrice = lookbackBars[lookbackBars.length - 1].c
     const netMove = Math.abs(endPrice - startPrice)
-    const netMovePercent = currentRange > 0 ? (netMove / currentRange) * 100 : 100
+    const notTrending = currentRange > 0 ? netMove / currentRange < 0.8 : false
 
-    // Count directional flips (up/down changes)
-    let directionalFlips = 0
-    let prevDirection = 0
-
-    for (let i = 1; i < lookbackBars.length; i++) {
-      const change = lookbackBars[i].c - lookbackBars[i - 1].c
-      const currDirection = change > 0 ? 1 : change < 0 ? -1 : 0
-
-      if (prevDirection !== 0 && currDirection !== 0 && prevDirection !== currDirection) {
-        directionalFlips++
-      }
-
-      if (currDirection !== 0) {
-        prevDirection = currDirection
-      }
-    }
-
-    // STRICT sideways check: must have flips AND VERY small net movement
-    // Real consolidation = bouncing around same level, not trending
-    const isSideways = directionalFlips >= 1 && netMovePercent < 40
-
-    // Additional check: price should be in middle 60% of range (not at extremes trending)
-    const priceInRange = currentRange > 0 ? (endPrice - low) / currentRange : 0.5
-    const notAtExtremes = priceInRange > 0.2 && priceInRange < 0.8
-
-    // Current bar should still be tight (not expanding out)
+    // Last bar must still be contained (not already exploding out)
     const currentBar = lookbackBars[lookbackBars.length - 1]
     const currentBarRange = currentBar.h - currentBar.l
     const avgBarRange = lookbackBars.reduce((sum, b) => sum + (b.h - b.l), 0) / lookbackBars.length
-    const currentBarTight = avgBarRange > 0 && currentBarRange <= avgBarRange * 1.3
+    const currentBarTight = avgBarRange > 0 && currentBarRange <= avgBarRange * 2.0
 
-    // Qualification:
-    // 1. Range compressed at least 30% vs normal (tight)
-    // 2. Price moving sideways with VERY small net movement (< 40%)
-    // 3. Price not stuck at extremes (middle 60% of range)
-    // 4. Current bar still tight (not breaking out yet)
-    const qualifies = compressionPercent > 30 && isSideways && notAtExtremes && currentBarTight
+    const qualifies = compressionPercent > 30 && notTrending && currentBarTight
 
     return {
       qualifies,
-      contractionPercent: qualifies ? compressionPercent : 0,
+      contractionPercent: compressionPercent,
       movePercent: currentRangePercent,
     }
   }
@@ -450,19 +431,16 @@ class ContractionScanner {
 
   /**
    * Analyze a single symbol for TTM Squeeze on DAILY bars
-   * 5-DAY: Check squeeze on last 5 days
-   * 13-DAY: Check squeeze on last 13 days
+   * 4-DAY: Same period as ConsolidationHistoryScreener
    */
   private async analyzeSymbol(symbol: string): Promise<ContractionResult[]> {
     try {
-      // Fetch DAILY bars - need ~120 days for proper volatility calculation + lookback
-      const bars = await this.getHistoricalData(symbol, 120, 'day', 1)
+      // Fetch DAILY bars — need 250 calendar days for 120-bar baseline + lookback
+      const bars = await this.getHistoricalData(symbol, 250, 'day', 1)
 
-      if (bars.length < 60) {
+      if (bars.length < 120) {
         return []
       }
-
-      const results: ContractionResult[] = []
 
       const currentBar = bars[bars.length - 1]
       const prevBar = bars[bars.length - 2]
@@ -470,147 +448,70 @@ class ContractionScanner {
       const change = currentPrice - prevBar.c
       const changePercent = (change / prevBar.c) * 100
 
-      // Check 5-day pivot setup: Big move → consolidation pattern
-      if (bars.length >= 5) {
-        const pivot5D = this.detectPivotSetup(bars, 5)
-        const squeeze5D = this.calculateContraction(bars, 5)
-        const atr = this.calculateATR(bars)
-        const pricePosition = this.calculatePricePosition(bars)
-        const { daysSinceHigh, daysSinceLow } = this.findDaysSinceExtremes(bars)
-        const tightnessScore = this.calculateContractionScore(bars, 20)
+      // 4-day pivot setup — matches ConsolidationHistoryScreener exactly
+      const pivot4D = this.detectPivotSetup(bars, 4)
+      const squeeze4D = this.calculateContraction(bars, 4)
+      const atr = this.calculateATR(bars)
 
-        // Calculate detailed diagnostics
-        const lookbackBars = bars.slice(-5)
-        const startPrice = lookbackBars[0].c
-        const endPrice = lookbackBars[lookbackBars.length - 1].c
-        const high = Math.max(...lookbackBars.map((b) => b.h))
-        const low = Math.min(...lookbackBars.map((b) => b.l))
-        const currentRange = high - low
-        const netMove = Math.abs(endPrice - startPrice)
-        const netMovePercent = currentRange > 0 ? (netMove / currentRange) * 100 : 100
-        const priceInRange = currentRange > 0 ? (endPrice - low) / currentRange : 0.5
-        const isAtExtremes = priceInRange <= 0.2 || priceInRange >= 0.8
-        const hasExpanded = this.hasRecentExpansion(bars, 10)
+      const pricePosition = this.calculatePricePosition(bars)
+      const { daysSinceHigh, daysSinceLow } = this.findDaysSinceExtremes(bars)
+      const tightnessScore = this.calculateContractionScore(bars, 20)
 
-        // Determine fail reason
-        let failReason = ''
-        if (!pivot5D.qualifies) {
-          if (pivot5D.contractionPercent < 30) {
-            failReason = `Not tight enough (${pivot5D.contractionPercent.toFixed(1)}% vs 30% required)`
-          } else if (netMovePercent >= 40) {
-            failReason = `Trending (${netMovePercent.toFixed(1)}% net move, need <40%)`
-          } else if (isAtExtremes) {
-            failReason = `At price extremes (${(priceInRange * 100).toFixed(0)}% of range)`
-          } else if (hasExpanded) {
-            failReason = 'Already expanding/breaking out'
-          } else {
-            failReason = 'Multiple criteria not met'
-          }
+      // Calculate detailed diagnostics
+      const lookbackBars = bars.slice(-4)
+      const startPrice = lookbackBars[0].c
+      const endPrice = lookbackBars[lookbackBars.length - 1].c
+      const high = Math.max(...lookbackBars.map((b) => b.h))
+      const low = Math.min(...lookbackBars.map((b) => b.l))
+      const currentRange = high - low
+      const netMove = Math.abs(endPrice - startPrice)
+      const netMovePercent = currentRange > 0 ? (netMove / currentRange) * 100 : 100
+      const notTrending = currentRange > 0 ? netMove / currentRange < 0.8 : false
+      const hasExpanded = this.hasRecentExpansion(bars, 10)
+
+      let failReason = ''
+      if (!pivot4D.qualifies) {
+        if (pivot4D.contractionPercent < 30) {
+          failReason = `Not tight enough (${pivot4D.contractionPercent.toFixed(1)}% vs 30% required)`
+        } else if (!notTrending) {
+          failReason = `Trending (net move ${netMovePercent.toFixed(1)}% of range, need <80%)`
+        } else if (hasExpanded) {
+          failReason = 'Already expanding/breaking out'
+        } else {
+          failReason = 'Last bar too wide'
         }
-
-        const result: ContractionResult = {
-          symbol,
-          currentPrice,
-          change,
-          changePercent,
-          period: '5-DAY',
-          averageVolume: 0,
-          currentVolume: currentBar.v,
-          volumeRatio: 0,
-          atr,
-          contractionScore: tightnessScore,
-          contractionLevel:
-            tightnessScore >= 200 ? 'EXTREME' : tightnessScore >= 100 ? 'HIGH' : 'MODERATE',
-          daysSinceHigh,
-          daysSinceLow,
-          pricePosition,
-          squeezeStatus: squeeze5D.squeezeStatus,
-          squeezeBarsCount: tightnessScore,
-          contractionPercent: pivot5D.contractionPercent,
-          qualifies: pivot5D.qualifies,
-          failReason: pivot5D.qualifies ? undefined : failReason,
-          actualCompression: pivot5D.contractionPercent,
-          requiredCompression: 30,
-          isSideways: netMovePercent < 40,
-          netMovePercent,
-          isAtExtremes,
-          hasExpanded,
-        }
-
-        results.push(result)
       }
 
-      // Check 13-day pivot setup: Big move → consolidation pattern
-      if (bars.length >= 13) {
-        const pivot13D = this.detectPivotSetup(bars, 13)
-        const squeeze13D = this.calculateContraction(bars, 13)
-        const atr = this.calculateATR(bars)
-        const pricePosition = this.calculatePricePosition(bars)
-        const { daysSinceHigh, daysSinceLow } = this.findDaysSinceExtremes(bars)
-        const tightnessScore = this.calculateContractionScore(bars, 20)
-
-        // Calculate detailed diagnostics
-        const lookbackBars = bars.slice(-13)
-        const startPrice = lookbackBars[0].c
-        const endPrice = lookbackBars[lookbackBars.length - 1].c
-        const high = Math.max(...lookbackBars.map((b) => b.h))
-        const low = Math.min(...lookbackBars.map((b) => b.l))
-        const currentRange = high - low
-        const netMove = Math.abs(endPrice - startPrice)
-        const netMovePercent = currentRange > 0 ? (netMove / currentRange) * 100 : 100
-        const priceInRange = currentRange > 0 ? (endPrice - low) / currentRange : 0.5
-        const isAtExtremes = priceInRange <= 0.2 || priceInRange >= 0.8
-        const hasExpanded = this.hasRecentExpansion(bars, 10)
-
-        // Determine fail reason
-        let failReason = ''
-        if (!pivot13D.qualifies) {
-          if (pivot13D.contractionPercent < 30) {
-            failReason = `Not tight enough (${pivot13D.contractionPercent.toFixed(1)}% vs 30% required)`
-          } else if (netMovePercent >= 40) {
-            failReason = `Trending (${netMovePercent.toFixed(1)}% net move, need <40%)`
-          } else if (isAtExtremes) {
-            failReason = `At price extremes (${(priceInRange * 100).toFixed(0)}% of range)`
-          } else if (hasExpanded) {
-            failReason = 'Already expanding/breaking out'
-          } else {
-            failReason = 'Multiple criteria not met'
-          }
-        }
-
-        const result: ContractionResult = {
-          symbol,
-          currentPrice,
-          change,
-          changePercent,
-          period: '13-DAY',
-          averageVolume: 0,
-          currentVolume: currentBar.v,
-          volumeRatio: 0,
-          atr,
-          contractionScore: tightnessScore,
-          contractionLevel:
-            tightnessScore >= 250 ? 'EXTREME' : tightnessScore >= 125 ? 'HIGH' : 'MODERATE',
-          daysSinceHigh,
-          daysSinceLow,
-          pricePosition,
-          squeezeStatus: squeeze13D.squeezeStatus,
-          squeezeBarsCount: tightnessScore,
-          contractionPercent: pivot13D.contractionPercent,
-          qualifies: pivot13D.qualifies,
-          failReason: pivot13D.qualifies ? undefined : failReason,
-          actualCompression: pivot13D.contractionPercent,
-          requiredCompression: 30,
-          isSideways: netMovePercent < 40,
-          netMovePercent,
-          isAtExtremes,
-          hasExpanded,
-        }
-
-        results.push(result)
+      const result: ContractionResult = {
+        symbol,
+        currentPrice,
+        change,
+        changePercent,
+        period: '4-DAY',
+        averageVolume: 0,
+        currentVolume: currentBar.v,
+        volumeRatio: 0,
+        atr,
+        contractionScore: tightnessScore,
+        contractionLevel:
+          tightnessScore >= 200 ? 'EXTREME' : tightnessScore >= 100 ? 'HIGH' : 'MODERATE',
+        daysSinceHigh,
+        daysSinceLow,
+        pricePosition,
+        squeezeStatus: squeeze4D.squeezeStatus,
+        squeezeBarsCount: tightnessScore,
+        contractionPercent: pivot4D.contractionPercent,
+        qualifies: pivot4D.qualifies,
+        failReason: pivot4D.qualifies ? undefined : failReason,
+        actualCompression: pivot4D.contractionPercent,
+        requiredCompression: 30,
+        isSideways: notTrending,
+        netMovePercent,
+        isAtExtremes: false,
+        hasExpanded,
       }
 
-      return results
+      return [result]
     } catch (error) {
       console.error(`Error analyzing ${symbol}:`, error)
       return []
@@ -623,21 +524,10 @@ class ContractionScanner {
    * HIGH = Significant compression
    * MODERATE = Notable but less extreme
    */
-  private determineContractionLevel(
-    contraction: number,
-    period: '5-DAY' | '13-DAY'
-  ): 'EXTREME' | 'HIGH' | 'MODERATE' {
-    // TTM Squeeze bandwidth contraction thresholds
-    if (period === '5-DAY') {
-      if (contraction >= 40) return 'EXTREME' // 40%+ bandwidth compression
-      if (contraction >= 25) return 'HIGH' // 25-40% compression
-      return 'MODERATE' // 10-25% compression
-    } else {
-      // 13-DAY
-      if (contraction >= 50) return 'EXTREME' // 50%+ bandwidth compression
-      if (contraction >= 30) return 'HIGH' // 30-50% compression
-      return 'MODERATE' // 10-30% compression
-    }
+  private determineContractionLevel(contraction: number): 'EXTREME' | 'HIGH' | 'MODERATE' {
+    if (contraction >= 40) return 'EXTREME'
+    if (contraction >= 25) return 'HIGH'
+    return 'MODERATE'
   }
 
   /**

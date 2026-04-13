@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import * as d3 from 'd3'
 
@@ -28,6 +28,10 @@ interface DealerOpenInterestChartProps {
   onExpectedRangePCRatioChange?: (value: string) => void
   onCumulativePCRatio45DaysChange?: (value: string) => void
   onExpectedRange90Change?: (range: { call: number; put: number } | null) => void
+  style?: React.CSSProperties
+  hideViewModeToggle?: boolean
+  analysisSuiteMode?: boolean
+  svgHeight?: number
 }
 
 export default function DealerOpenInterestChart({
@@ -46,6 +50,10 @@ export default function DealerOpenInterestChart({
   onExpectedRangePCRatioChange,
   onCumulativePCRatio45DaysChange,
   onExpectedRange90Change,
+  style,
+  hideViewModeToggle = false,
+  analysisSuiteMode = false,
+  svgHeight = 605,
 }: DealerOpenInterestChartProps) {
   const [selectedExpiration, setSelectedExpiration] = useState<string>(propExpiration || '')
   const [expirationDates, setExpirationDates] = useState<string[]>([])
@@ -853,7 +861,7 @@ export default function DealerOpenInterestChart({
           if (totalCallOI === 0 && totalPutOI === 0) {
             setExpectedRangePCRatio('N/A')
           } else if (totalCallOI === 0) {
-            setExpectedRangePCRatio('∞ (No Calls)')
+            setExpectedRangePCRatio('âˆž (No Calls)')
           } else {
             const ratio = totalPutOI / totalCallOI
             setExpectedRangePCRatio(
@@ -930,7 +938,7 @@ export default function DealerOpenInterestChart({
         if (totalCallOI === 0 && totalPutOI === 0) {
           setExpectedRangePCRatio('N/A')
         } else if (totalCallOI === 0) {
-          setExpectedRangePCRatio('∞ (No Calls)')
+          setExpectedRangePCRatio('âˆž (No Calls)')
         } else {
           const ratio = totalPutOI / totalCallOI
           setExpectedRangePCRatio(`${ratio.toFixed(2)} (${put90.toFixed(0)}-${call90.toFixed(0)})`)
@@ -1012,7 +1020,7 @@ export default function DealerOpenInterestChart({
         if (totalCallOI === 0 && totalPutOI === 0) {
           setCumulativePCRatio45Days('N/A')
         } else if (totalCallOI === 0) {
-          setCumulativePCRatio45Days('∞ (No Calls)')
+          setCumulativePCRatio45Days('âˆž (No Calls)')
         } else {
           const ratio = totalPutOI / totalCallOI
           setCumulativePCRatio45Days(`${ratio.toFixed(2)} (${expCount} exp)`)
@@ -1035,8 +1043,11 @@ export default function DealerOpenInterestChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const totalSVGHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605
+    const totalSVGHeight =
+      typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight
     const height = totalSVGHeight - margin.top - margin.bottom
+    const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
+    const range80Color = analysisSuiteMode ? '#00FFFF' : '#3b82f6'
 
     const container = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -1144,7 +1155,7 @@ export default function DealerOpenInterestChart({
 
         xAxisUpdate
           .selectAll('text')
-          .style('fill', '#ffaa00')
+          .style('fill', axisColor)
           .style('font-size', '14px')
           .style('font-weight', 'bold')
           .attr('transform', 'rotate(-35)')
@@ -1152,7 +1163,7 @@ export default function DealerOpenInterestChart({
           .attr('dx', '-0.5em')
           .attr('dy', '0.5em')
 
-        xAxisUpdate.selectAll('path, line').style('stroke', '#ffaa00').style('stroke-width', '2px')
+        xAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
 
         // Update Y-axis with new scale
         const yAxisFormat = (d: any) => {
@@ -1204,11 +1215,11 @@ export default function DealerOpenInterestChart({
 
         yAxisUpdate
           .selectAll('text')
-          .style('fill', '#ffaa00')
+          .style('fill', axisColor)
           .style('font-size', '14px')
           .style('font-weight', 'bold')
 
-        yAxisUpdate.selectAll('path, line').style('stroke', '#ffaa00').style('stroke-width', '2px')
+        yAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
 
         // Update current price line position during zoom
         if (currentPrice > 0) {
@@ -1455,8 +1466,8 @@ export default function DealerOpenInterestChart({
           .attr('x2', xPos)
           .attr('y1', 0)
           .attr('y2', height)
-          .style('stroke', '#ffaa00')
-          .style('stroke-width', '3px')
+          .style('stroke', axisColor)
+          .style('stroke-width', '1.5px')
           .style('stroke-dasharray', '8,4')
 
         container
@@ -1464,9 +1475,9 @@ export default function DealerOpenInterestChart({
           .attr('class', 'current-price-label')
           .attr('x', xPos + 5)
           .attr('y', -10)
-          .style('fill', '#ffaa00')
-          .style('font-size', '14px')
-          .style('font-weight', 'bold')
+          .style('fill', axisColor)
+          .style('font-size', '12px')
+          .style('font-weight', '500')
           .text(`Current: $${currentPrice.toFixed(2)}`)
       }
     }
@@ -1484,7 +1495,7 @@ export default function DealerOpenInterestChart({
       .attr('transform', `translate(0,${height})`)
       .call(xAxis)
       .selectAll('text')
-      .style('fill', '#cc3300')
+      .style('fill', axisColor)
       .style('font-size', '14px')
       .style('font-weight', 'bold')
       .attr('transform', 'rotate(-35)')
@@ -1494,7 +1505,7 @@ export default function DealerOpenInterestChart({
 
     container
       .selectAll('.x-axis path, .x-axis line')
-      .style('stroke', '#cc3300')
+      .style('stroke', axisColor)
       .style('stroke-width', '2px')
 
     // Y-axis
@@ -1541,13 +1552,13 @@ export default function DealerOpenInterestChart({
       .attr('class', 'y-axis')
       .call(yAxis)
       .selectAll('text')
-      .style('fill', '#cc3300')
+      .style('fill', axisColor)
       .style('font-size', '14px')
       .style('font-weight', 'bold')
 
     container
       .selectAll('.y-axis path, .y-axis line')
-      .style('stroke', '#cc3300')
+      .style('stroke', axisColor)
       .style('stroke-width', '2px')
 
     // Y-axis label
@@ -1557,9 +1568,9 @@ export default function DealerOpenInterestChart({
       .attr('x', -height / 2)
       .attr('y', -60)
       .attr('text-anchor', 'middle')
-      .style('fill', '#cc3300')
-      .style('font-size', '16px')
-      .style('font-weight', 'bold')
+      .style('fill', '#ffffff')
+      .style('font-size', '13px')
+      .style('font-weight', '500')
       .text(viewMode === 'premium' ? 'Open Interest Premium ($)' : 'Open Interest (Contracts)')
 
     // Draw 80% Expected Range lines (blue dashed vertical lines)
@@ -1594,7 +1605,7 @@ export default function DealerOpenInterestChart({
           .attr('x2', putXPosition)
           .attr('y1', 0)
           .attr('y2', height)
-          .style('stroke', '#3b82f6')
+          .style('stroke', range80Color)
           .style('stroke-width', 2)
           .style('stroke-dasharray', '5,5')
           .style('opacity', 0.7)
@@ -1605,7 +1616,7 @@ export default function DealerOpenInterestChart({
           .attr('x', putXPosition)
           .attr('y', -25)
           .style('text-anchor', 'middle')
-          .style('fill', '#3b82f6')
+          .style('fill', range80Color)
           .style('font-size', '11px')
           .style('font-weight', 'bold')
           .text(`80% Put: $${put80.toFixed(2)}`)
@@ -1639,7 +1650,7 @@ export default function DealerOpenInterestChart({
           .attr('x2', callXPosition)
           .attr('y1', 0)
           .attr('y2', height)
-          .style('stroke', '#3b82f6')
+          .style('stroke', range80Color)
           .style('stroke-width', 2)
           .style('stroke-dasharray', '5,5')
           .style('opacity', 0.7)
@@ -1650,7 +1661,7 @@ export default function DealerOpenInterestChart({
           .attr('x', callXPosition)
           .attr('y', -25)
           .style('text-anchor', 'middle')
-          .style('fill', '#3b82f6')
+          .style('fill', range80Color)
           .style('font-size', '11px')
           .style('font-weight', 'bold')
           .text(`80% Call: $${call80.toFixed(2)}`)
@@ -1670,7 +1681,7 @@ export default function DealerOpenInterestChart({
         const rightBandX = xScale(rightStrikeStr)
 
         if (centerBandX === undefined || leftBandX === undefined || rightBandX === undefined) {
-          console.warn('⚠️ Strike not found in scale for tower:', tower)
+          console.warn('âš ï¸ Strike not found in scale for tower:', tower)
           return
         }
 
@@ -2043,7 +2054,7 @@ export default function DealerOpenInterestChart({
               .style('z-index', '10000')
               .html(
                 `
-                <div style="margin-bottom: 4px;">👑 <strong>TOWER STRUCTURE</strong></div>
+                <div style="margin-bottom: 4px;">ðŸ‘‘ <strong>TOWER STRUCTURE</strong></div>
                 <div style="color: #ffffff;">Strike: <span style="color: #ffd700;">${tower.strike}</span></div>
                 <div style="color: #ffffff;">Type: <span style="color: ${lineColor};">${tower.type.toUpperCase()}</span></div>
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ffd700;">
@@ -2086,9 +2097,10 @@ export default function DealerOpenInterestChart({
   return (
     <div
       className={`bg-black border-2 border-orange-500 rounded-lg ${hideAllControls ? 'p-0' : 'p-6'}`}
+      style={style}
     >
       {/* Header */}
-      {!hideAllControls && (
+      {!hideAllControls && !hideViewModeToggle && (
         <div className="flex items-center justify-between mb-6">
           {/* View Mode Toggle - Hidden when controls are in unified bar */}
           {!hideAllControls && (
@@ -2127,57 +2139,43 @@ export default function DealerOpenInterestChart({
             flexWrap: 'nowrap',
             gap: '16px',
             alignItems: 'center',
-            marginBottom: '24px',
-            padding: '20px 24px',
-            background: '#000000',
+            marginBottom: analysisSuiteMode ? '19px' : '24px',
+            padding: analysisSuiteMode ? '16px 24px' : '20px 24px',
+            background: 'linear-gradient(145deg, #020B14, #000508)',
             borderRadius: '12px',
-            border: '1px solid #333333',
+            border: '1px solid rgba(30, 58, 138, 0.4)',
             boxShadow: `
           0 8px 32px rgba(0, 0, 0, 0.8),
           0 2px 8px rgba(0, 0, 0, 0.6),
-          inset 0 1px 0 rgba(255, 255, 255, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06),
           inset 0 -1px 0 rgba(0, 0, 0, 0.8)
         `,
             position: 'relative' as const,
             zIndex: 100,
             transform: 'translateZ(0)',
-            backdropFilter: 'blur(20px)',
             overflow: 'visible' as const,
           }}
         >
-          {/* 3D Highlight Effect */}
-          <div
-            style={{
-              position: 'absolute' as const,
-              top: '1px',
-              left: '1px',
-              right: '1px',
-              height: '50%',
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '12px 12px 0 0',
-              pointerEvents: 'none' as const,
-            }}
-          />
-
           {/* Expiration Selector - only show if not hidden */}
           {!hideExpirationSelector && (
             <>
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '4px',
                   zIndex: 1,
                 }}
               >
                 <label
                   style={{
                     color: '#ffffff',
-                    fontSize: '13px',
+                    fontSize: analysisSuiteMode ? '12px' : '11px',
                     fontWeight: '600',
                     letterSpacing: '0.5px',
                     textTransform: 'uppercase' as const,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                    whiteSpace: 'nowrap' as const,
                   }}
                 >
                   Expiry
@@ -2194,22 +2192,29 @@ export default function DealerOpenInterestChart({
                     border: '1px solid #333333',
                     borderRadius: '8px',
                     color: '#ffffff',
-                    padding: '10px 14px',
-                    fontSize: '14px',
+                    padding: '6px 8px',
+                    fontSize: analysisSuiteMode ? '13px' : '12px',
                     fontWeight: '500',
-                    minWidth: '160px',
+                    width: '100px',
                     outline: 'none',
                     cursor: 'pointer',
                     transition: 'all 0.2s ease',
                     fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                    boxShadow: `
-                  inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                  inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                  0 1px 0 rgba(255, 255, 255, 0.1)
-                `,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                   }}
                 >
+                  {analysisSuiteMode && (
+                    <option
+                      value="all-expirations"
+                      style={{ background: '#000000', color: '#ffffff' }}
+                    >
+                      All
+                    </option>
+                  )}
+                  {analysisSuiteMode && (
+                    <option value="45-days" style={{ background: '#000000', color: '#ffffff' }}>
+                      45D
+                    </option>
+                  )}
                   {expirationDates.map((date) => (
                     <option
                       key={date}
@@ -2248,19 +2253,20 @@ export default function DealerOpenInterestChart({
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '4px',
                   zIndex: 1,
                 }}
               >
                 <label
                   style={{
                     color: '#ffffff',
-                    fontSize: '13px',
+                    fontSize: analysisSuiteMode ? '12px' : '11px',
                     fontWeight: '600',
                     letterSpacing: '0.5px',
                     textTransform: 'uppercase' as const,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                    whiteSpace: 'nowrap' as const,
                   }}
                 >
                   90% Range P/C
@@ -2270,11 +2276,11 @@ export default function DealerOpenInterestChart({
                     background: '#000000',
                     border: '1px solid #333333',
                     borderRadius: '8px',
-                    padding: '10px 16px',
+                    padding: '6px 12px',
                     color: (() => {
                       if (expectedRangePCRatio === 'N/A' || expectedRangePCRatio === 'Error')
                         return '#888888'
-                      if (expectedRangePCRatio.startsWith('∞')) return '#ff6b6b'
+                      if (expectedRangePCRatio.startsWith('âˆž')) return '#ff6b6b'
                       const match = expectedRangePCRatio.match(/^([\d.]+)/)
                       if (match) {
                         const pcValue = parseFloat(match[1])
@@ -2286,17 +2292,10 @@ export default function DealerOpenInterestChart({
                       }
                       return '#00ff00'
                     })(),
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    minWidth: '180px',
+                    fontSize: analysisSuiteMode ? '14px' : '13px',
+                    fontWeight: '600',
                     textAlign: 'center' as const,
                     fontFamily: '"SF Mono", Consolas, monospace',
-                    boxShadow: `
-                  inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                  inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                  0 1px 0 rgba(255, 255, 255, 0.1)
-                `,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                   }}
                 >
                   {expectedRangePCRatio}
@@ -2321,19 +2320,20 @@ export default function DealerOpenInterestChart({
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '4px',
                   zIndex: 1,
                 }}
               >
                 <label
                   style={{
                     color: '#ffffff',
-                    fontSize: '13px',
+                    fontSize: analysisSuiteMode ? '12px' : '11px',
                     fontWeight: '600',
                     letterSpacing: '0.5px',
                     textTransform: 'uppercase' as const,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                    whiteSpace: 'nowrap' as const,
                   }}
                 >
                   45D P/C
@@ -2343,23 +2343,16 @@ export default function DealerOpenInterestChart({
                     background: '#000000',
                     border: '1px solid #333333',
                     borderRadius: '8px',
-                    padding: '10px 16px',
-                    color: cumulativePCRatio45Days.startsWith('∞')
+                    padding: '6px 12px',
+                    color: cumulativePCRatio45Days.startsWith('âˆž')
                       ? '#ff6b6b'
                       : cumulativePCRatio45Days === 'N/A' || cumulativePCRatio45Days === 'Error'
                         ? '#888888'
                         : '#00ff88',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    minWidth: '140px',
+                    fontSize: analysisSuiteMode ? '14px' : '13px',
+                    fontWeight: '600',
                     textAlign: 'center' as const,
                     fontFamily: '"SF Mono", Consolas, monospace',
-                    boxShadow: `
-                  inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                  inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                  0 1px 0 rgba(255, 255, 255, 0.1)
-                `,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                   }}
                 >
                   {cumulativePCRatio45Days}
@@ -2388,148 +2381,203 @@ export default function DealerOpenInterestChart({
               zIndex: 1,
             }}
           >
-            <button
-              onClick={() => detectTowerStructures()}
-              style={{
-                background: '#3b82f6',
-                border: '1px solid #3b82f6',
-                borderRadius: '8px',
-                color: '#ffffff',
-                padding: '10px 16px',
-                fontSize: '13px',
-                fontWeight: '600',
-                letterSpacing: '0.3px',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                textTransform: 'uppercase' as const,
-                boxShadow: `
-                0 2px 8px rgba(59, 130, 246, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.2)
-              `,
-                textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#60a5fa'
-                e.currentTarget.style.transform = 'translateY(-2px)'
-                e.currentTarget.style.boxShadow = `
-                0 4px 16px rgba(59, 130, 246, 0.6),
-                0 2px 8px rgba(0, 0, 0, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.1)
-              `
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#3b82f6'
-                e.currentTarget.style.transform = 'translateY(0)'
-                e.currentTarget.style.boxShadow = `
-                0 2px 8px rgba(59, 130, 246, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.2)
-              `
-              }}
-            >
-              AI
-            </button>
-
-            {towerStructures.length > 0 && (
-              <button
-                onClick={() => setShowTowers(!showTowers)}
+            {analysisSuiteMode ? (
+              /* Trading-lens: merged dropdown with Premium + AI Towers */
+              <select
+                value={
+                  viewMode === 'premium'
+                    ? 'premium'
+                    : showTowers
+                      ? 'towers'
+                      : showNetOI
+                        ? 'net'
+                        : showCalls && showPuts
+                          ? 'both'
+                          : showCalls
+                            ? 'calls'
+                            : 'puts'
+                }
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (value === 'premium') {
+                    setViewMode('premium')
+                    setShowTowers(false)
+                  } else if (value === 'towers') {
+                    setViewMode('contracts')
+                    detectTowerStructures()
+                    setShowTowers(true)
+                  } else {
+                    setViewMode('contracts')
+                    setShowTowers(false)
+                    if (value === 'net') {
+                      setShowNetOI(true)
+                      setShowCalls(false)
+                      setShowPuts(false)
+                    } else if (value === 'both') {
+                      setShowNetOI(false)
+                      setShowCalls(true)
+                      setShowPuts(true)
+                    } else if (value === 'calls') {
+                      setShowNetOI(false)
+                      setShowCalls(true)
+                      setShowPuts(false)
+                    } else if (value === 'puts') {
+                      setShowNetOI(false)
+                      setShowCalls(false)
+                      setShowPuts(true)
+                    }
+                  }
+                }}
                 style={{
-                  background: showTowers ? '#ffd700' : '#333333',
-                  border: showTowers ? '1px solid #ffd700' : '1px solid #555555',
+                  background: '#000000',
+                  border: '1px solid #333333',
                   borderRadius: '8px',
-                  color: showTowers ? '#000000' : '#999999',
-                  padding: '10px 16px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  letterSpacing: '0.3px',
+                  color: '#ffffff',
+                  padding: '10px 14px',
+                  fontSize: '15px',
+                  fontWeight: '500',
+                  minWidth: '140px',
+                  outline: 'none',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                  textTransform: 'uppercase' as const,
-                  boxShadow: showTowers
-                    ? '0 2px 8px rgba(255, 215, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-                    : '0 1px 4px rgba(0, 0, 0, 0.4)',
-                  textShadow: showTowers ? '0 1px 1px rgba(0, 0, 0, 0.3)' : 'none',
-                }}
-                onMouseEnter={(e) => {
-                  if (showTowers) {
-                    e.currentTarget.style.background = '#ffed4e'
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                  } else {
-                    e.currentTarget.style.background = '#444444'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = showTowers ? '#ffd700' : '#333333'
-                  e.currentTarget.style.transform = 'translateY(0)'
                 }}
               >
-                👑 Towers ({towerStructures.length})
-              </button>
+                <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+                  Calls + Puts
+                </option>
+                <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
+                  Calls Only
+                </option>
+                <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
+                  Puts Only
+                </option>
+                <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
+                  Net OI
+                </option>
+                <option value="premium" style={{ background: '#000000', color: '#ffffff' }}>
+                  Premium
+                </option>
+                <option value="towers" style={{ background: '#000000', color: '#ffffff' }}>
+                  AI Towers
+                </option>
+              </select>
+            ) : (
+              /* Original: standalone AI + Towers buttons + Calls/Puts dropdown */
+              <>
+                <button
+                  onClick={() => detectTowerStructures()}
+                  style={{
+                    background: '#00FFFF',
+                    border: '1px solid #00FFFF',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    letterSpacing: '0.3px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+                    textTransform: 'uppercase' as const,
+                    boxShadow: `
+                    0 2px 8px rgba(59, 130, 246, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.2)
+                  `,
+                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#60a5fa'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#00FFFF'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  AI
+                </button>
+                {towerStructures.length > 0 && (
+                  <button
+                    onClick={() => setShowTowers(!showTowers)}
+                    style={{
+                      background: showTowers ? '#ffd700' : '#333333',
+                      border: showTowers ? '1px solid #ffd700' : '1px solid #555555',
+                      borderRadius: '8px',
+                      color: showTowers ? '#000000' : '#999999',
+                      padding: '10px 16px',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+                      textTransform: 'uppercase' as const,
+                    }}
+                  >
+                    ðŸ‘‘ Towers ({towerStructures.length})
+                  </button>
+                )}
+                <select
+                  value={
+                    showNetOI
+                      ? 'net'
+                      : showCalls && showPuts
+                        ? 'both'
+                        : showCalls
+                          ? 'calls'
+                          : 'puts'
+                  }
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === 'net') {
+                      setShowNetOI(true)
+                      setShowCalls(false)
+                      setShowPuts(false)
+                    } else if (value === 'both') {
+                      setShowNetOI(false)
+                      setShowCalls(true)
+                      setShowPuts(true)
+                    } else if (value === 'calls') {
+                      setShowNetOI(false)
+                      setShowCalls(true)
+                      setShowPuts(false)
+                    } else if (value === 'puts') {
+                      setShowNetOI(false)
+                      setShowCalls(false)
+                      setShowPuts(true)
+                    }
+                  }}
+                  style={{
+                    background: '#000000',
+                    border: '1px solid #333333',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    padding: '10px 14px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    minWidth: '140px',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+                  }}
+                >
+                  <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
+                    Calls + Puts
+                  </option>
+                  <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
+                    Calls Only
+                  </option>
+                  <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
+                    Puts Only
+                  </option>
+                  <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
+                    Net OI
+                  </option>
+                </select>
+              </>
             )}
-
-            {/* OI Filter Dropdown */}
-            <select
-              value={
-                showNetOI ? 'net' : showCalls && showPuts ? 'both' : showCalls ? 'calls' : 'puts'
-              }
-              onChange={(e) => {
-                const value = e.target.value
-                if (value === 'net') {
-                  setShowNetOI(true)
-                  setShowCalls(false)
-                  setShowPuts(false)
-                } else if (value === 'both') {
-                  setShowNetOI(false)
-                  setShowCalls(true)
-                  setShowPuts(true)
-                } else if (value === 'calls') {
-                  setShowNetOI(false)
-                  setShowCalls(true)
-                  setShowPuts(false)
-                } else if (value === 'puts') {
-                  setShowNetOI(false)
-                  setShowCalls(false)
-                  setShowPuts(true)
-                }
-              }}
-              style={{
-                background: '#000000',
-                border: '1px solid #333333',
-                borderRadius: '8px',
-                color: '#ffffff',
-                padding: '10px 14px',
-                fontSize: '14px',
-                fontWeight: '500',
-                minWidth: '140px',
-                outline: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                boxShadow: `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `,
-                textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-              }}
-            >
-              <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
-                Calls + Puts
-              </option>
-              <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
-                Calls Only
-              </option>
-              <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
-                Puts Only
-              </option>
-              <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
-                Net OI
-              </option>
-            </select>
           </div>
         </div>
       )}
@@ -2547,8 +2595,7 @@ export default function DealerOpenInterestChart({
         <svg
           ref={svgRef}
           width={chartWidth}
-          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605}
-          className="bg-black"
+          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight}
         ></svg>
       )}
     </div>

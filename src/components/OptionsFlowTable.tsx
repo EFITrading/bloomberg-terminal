@@ -3090,8 +3090,26 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     filteredAndSortedData.forEach((trade) => {
       const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
+      const result = calculatePositioningGrade(trade, comboTradeMap)
+      cache.set(tradeId, result)
 
-      cache.set(tradeId, calculatePositioningGrade(trade, comboTradeMap))
+      if (efiHighlightsActive && meetsEfiCriteria(trade)) {
+        const expiry = trade.expiry.replace(/-/g, '').slice(2)
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+        const normalizedTicker = (trade.underlying_ticker || '').replace(/\./g, '')
+        const opTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+        console.log(
+          `[EFI-TABLE] grade ${trade.underlying_ticker} ${trade.type} $${trade.strike} exp=${trade.expiry}` +
+            ` | fill=${(trade as any).fill_style} | dte=${trade.days_to_expiry} | entryPx=${trade.premium_per_contract}` +
+            ` | curOptPx=${currentOptionPrices[opTicker] ?? 'N/A'} | curStkPx=${currentPrices[trade.underlying_ticker] ?? 'N/A'}` +
+            ` | stdDev=${historicalStdDevs.get(trade.underlying_ticker) ?? 'N/A'}` +
+            ` | rs=${relativeStrengthData.get(trade.underlying_ticker) ?? 'N/A'}` +
+            ` | vol=${trade.volume ?? 'N/A'} | oi=${trade.open_interest ?? 'N/A'}` +
+            ` | combo=${comboTradeMap.get(`${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${(trade as any).fill_style}`) ?? false}` +
+            ` → grade=${result.grade} score=${result.score} [${result.breakdown.replace(/\n/g, ' | ')}]`
+        )
+      }
     })
 
     return cache

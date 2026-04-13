@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { usePathname } from 'next/navigation'
+
 import { polygonRateLimiter } from '@/lib/polygonRateLimiter'
 import { polygonStocksWS } from '@/lib/polygonStocksWS'
 
@@ -27,12 +29,16 @@ interface TickerData {
 }
 
 export default function TickerScroller() {
+  const pathname = usePathname()
   const [tickerData, setTickerData] = useState<TickerData[]>(
     TICKER_SYMBOLS.map((s) => ({ symbol: s, change: 0 }))
   )
   const prevCloseRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
+    // Skip bulk REST fetch on analysis-suite — no multi-stock scans needed there
+    if (pathname === '/analysis-suite') return
+
     let unsubWS: (() => void) | null = null
 
     // ── 1. Seed prev-day closes once via REST ──

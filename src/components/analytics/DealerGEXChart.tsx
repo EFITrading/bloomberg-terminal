@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import * as d3 from 'd3'
 
@@ -25,6 +25,9 @@ interface DealerGEXChartProps {
   showNetGamma?: boolean
   showAttrax?: boolean // AI button triggers Attrax detection
   expectedRange90?: { call: number; put: number } | null
+  analysisSuiteMode?: boolean
+  svgHeight?: number
+  style?: React.CSSProperties
 }
 
 export default function DealerGEXChart({
@@ -40,6 +43,9 @@ export default function DealerGEXChart({
   showNetGamma: propShowNetGamma,
   showAttrax: propShowAttrax,
   expectedRange90,
+  analysisSuiteMode = false,
+  svgHeight = 605,
+  style,
 }: DealerGEXChartProps) {
   const [selectedExpiration, setSelectedExpiration] = useState<string>(propExpiration || '')
   const [expirationDates, setExpirationDates] = useState<string[]>([])
@@ -683,8 +689,10 @@ export default function DealerGEXChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const totalSVGHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605
+    const totalSVGHeight =
+      typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight
     const height = totalSVGHeight - margin.top - margin.bottom
+    const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
 
     const container = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -801,7 +809,7 @@ export default function DealerGEXChart({
 
         xAxisUpdate
           .selectAll('text')
-          .style('fill', '#ffaa00')
+          .style('fill', axisColor)
           .style('font-size', '14px')
           .style('font-weight', 'bold')
           .attr('transform', 'rotate(-35)')
@@ -809,7 +817,7 @@ export default function DealerGEXChart({
           .attr('dx', '-0.5em')
           .attr('dy', '0.5em')
 
-        xAxisUpdate.selectAll('path, line').style('stroke', '#ffaa00').style('stroke-width', '2px')
+        xAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
 
         const yAxisFormat = (d: any) => {
           const value = Math.abs(d)
@@ -834,11 +842,11 @@ export default function DealerGEXChart({
 
         yAxisUpdate
           .selectAll('text')
-          .style('fill', '#ffaa00')
+          .style('fill', axisColor)
           .style('font-size', '14px')
           .style('font-weight', 'bold')
 
-        yAxisUpdate.selectAll('path, line').style('stroke', '#ffaa00').style('stroke-width', '2px')
+        yAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
 
         if (currentPrice > 0) {
           const currentPriceX = visibleStrikes.findIndex((strike) => strike >= currentPrice)
@@ -930,8 +938,8 @@ export default function DealerGEXChart({
         .attr('x2', width)
         .attr('y1', yScale(0))
         .attr('y2', yScale(0))
-        .style('stroke', '#ffaa00')
-        .style('stroke-width', '2px')
+        .style('stroke', axisColor)
+        .style('stroke-width', '1px')
     }
 
     // Add bars
@@ -1015,8 +1023,8 @@ export default function DealerGEXChart({
           .attr('x2', xPos)
           .attr('y1', 0)
           .attr('y2', height)
-          .style('stroke', '#ffaa00')
-          .style('stroke-width', '3px')
+          .style('stroke', axisColor)
+          .style('stroke-width', '1.5px')
           .style('stroke-dasharray', '8,4')
 
         container
@@ -1024,9 +1032,9 @@ export default function DealerGEXChart({
           .attr('class', 'current-price-label')
           .attr('x', xPos + 5)
           .attr('y', -10)
-          .style('fill', '#ffaa00')
-          .style('font-size', '14px')
-          .style('font-weight', 'bold')
+          .style('fill', axisColor)
+          .style('font-size', '12px')
+          .style('font-weight', '500')
           .text(`Current: $${currentPrice.toFixed(2)}`)
       }
     }
@@ -1044,7 +1052,7 @@ export default function DealerGEXChart({
       .attr('transform', `translate(0,${height})`)
       .call(xAxis)
       .selectAll('text')
-      .style('fill', '#cc3300')
+      .style('fill', axisColor)
       .style('font-size', '14px')
       .style('font-weight', 'bold')
       .attr('transform', 'rotate(-35)')
@@ -1054,7 +1062,7 @@ export default function DealerGEXChart({
 
     container
       .selectAll('.x-axis path, .x-axis line')
-      .style('stroke', '#cc3300')
+      .style('stroke', axisColor)
       .style('stroke-width', '2px')
 
     // Y-axis
@@ -1078,13 +1086,13 @@ export default function DealerGEXChart({
       .attr('class', 'y-axis')
       .call(yAxis)
       .selectAll('text')
-      .style('fill', '#cc3300')
+      .style('fill', axisColor)
       .style('font-size', '14px')
       .style('font-weight', 'bold')
 
     container
       .selectAll('.y-axis path, .y-axis line')
-      .style('stroke', '#cc3300')
+      .style('stroke', axisColor)
       .style('stroke-width', '2px')
 
     // Y-axis label
@@ -1094,9 +1102,9 @@ export default function DealerGEXChart({
       .attr('x', -height / 2)
       .attr('y', -60)
       .attr('text-anchor', 'middle')
-      .style('fill', '#ffaa00')
-      .style('font-size', '16px')
-      .style('font-weight', 'bold')
+      .style('fill', axisColor)
+      .style('font-size', '13px')
+      .style('font-weight', '500')
       .text(viewMode === 'premium' ? 'Gamma Premium ($)' : 'Gamma Exposure (GEX)')
 
     // Create overlay layer for Attrax (not affected by zoom)
@@ -1257,6 +1265,7 @@ export default function DealerGEXChart({
   return (
     <div
       className={`bg-black border-2 border-orange-500 rounded-lg ${hideAllControls ? 'p-0' : 'p-6'}`}
+      style={style}
     >
       {/* Header */}
       {!hideAllControls && (
@@ -1312,7 +1321,6 @@ export default function DealerGEXChart({
             position: 'relative' as const,
             zIndex: 100,
             transform: 'translateZ(0)',
-            backdropFilter: 'blur(20px)',
             overflow: 'visible' as const,
           }}
         >
@@ -1348,7 +1356,6 @@ export default function DealerGEXChart({
                     fontWeight: '600',
                     letterSpacing: '0.5px',
                     textTransform: 'uppercase' as const,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                   }}
                 >
                   Expiry
@@ -1369,14 +1376,21 @@ export default function DealerGEXChart({
                     cursor: 'pointer',
                     transition: 'all 0.2s ease',
                     fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                    boxShadow: `
-                  inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                  inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                  0 1px 0 rgba(255, 255, 255, 0.1)
-                `,
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                   }}
                 >
+                  {analysisSuiteMode && (
+                    <option
+                      value="all-expirations"
+                      style={{ background: '#000000', color: '#ffffff' }}
+                    >
+                      All
+                    </option>
+                  )}
+                  {analysisSuiteMode && (
+                    <option value="45-days" style={{ background: '#000000', color: '#ffffff' }}>
+                      45D
+                    </option>
+                  )}
                   {expirationDates.map((date) => (
                     <option
                       key={date}
@@ -1421,32 +1435,39 @@ export default function DealerGEXChart({
           >
             <select
               value={
-                showNetGamma
-                  ? 'net'
-                  : showPositiveGamma && showNegativeGamma
-                    ? 'both'
-                    : showPositiveGamma
-                      ? 'positive'
-                      : 'negative'
+                analysisSuiteMode && viewMode === 'premium'
+                  ? 'premium'
+                  : showNetGamma
+                    ? 'net'
+                    : showPositiveGamma && showNegativeGamma
+                      ? 'both'
+                      : showPositiveGamma
+                        ? 'positive'
+                        : 'negative'
               }
               onChange={(e) => {
                 const value = e.target.value
-                if (value === 'net') {
-                  setShowNetGamma(true)
-                  setShowPositiveGamma(false)
-                  setShowNegativeGamma(false)
-                } else if (value === 'both') {
-                  setShowNetGamma(false)
-                  setShowPositiveGamma(true)
-                  setShowNegativeGamma(true)
-                } else if (value === 'positive') {
-                  setShowNetGamma(false)
-                  setShowPositiveGamma(true)
-                  setShowNegativeGamma(false)
-                } else if (value === 'negative') {
-                  setShowNetGamma(false)
-                  setShowPositiveGamma(false)
-                  setShowNegativeGamma(true)
+                if (value === 'premium') {
+                  setViewMode('premium')
+                } else {
+                  setViewMode('gex')
+                  if (value === 'net') {
+                    setShowNetGamma(true)
+                    setShowPositiveGamma(false)
+                    setShowNegativeGamma(false)
+                  } else if (value === 'both') {
+                    setShowNetGamma(false)
+                    setShowPositiveGamma(true)
+                    setShowNegativeGamma(true)
+                  } else if (value === 'positive') {
+                    setShowNetGamma(false)
+                    setShowPositiveGamma(true)
+                    setShowNegativeGamma(false)
+                  } else if (value === 'negative') {
+                    setShowNetGamma(false)
+                    setShowPositiveGamma(false)
+                    setShowNegativeGamma(true)
+                  }
                 }
               }}
               style={{
@@ -1462,12 +1483,6 @@ export default function DealerGEXChart({
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
                 fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-                boxShadow: `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `,
-                textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
               }}
             >
               <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
@@ -1482,6 +1497,11 @@ export default function DealerGEXChart({
               <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
                 Net GEX
               </option>
+              {analysisSuiteMode && (
+                <option value="premium" style={{ background: '#000000', color: '#ffffff' }}>
+                  Premium
+                </option>
+              )}
             </select>
           </div>
         </div>
@@ -1500,8 +1520,7 @@ export default function DealerGEXChart({
         <svg
           ref={svgRef}
           width={chartWidth}
-          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : 605}
-          className="bg-black"
+          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight}
         ></svg>
       )}
     </div>

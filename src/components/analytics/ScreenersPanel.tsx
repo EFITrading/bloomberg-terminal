@@ -7,8 +7,11 @@ import HVScreener from '../HVScreener'
 import LeadershipScan from '../LeadershipScan'
 import RSScreener from '../RSScreener'
 import AttractionZoneScanner from './AttractionZoneScanner'
+import ConsolidationHistoryScreener from './ConsolidationHistoryScreener'
 import LiquidationScreener from './LiquidationScreener'
+import OTMPremiumHistoryChart from './OTMPremiumHistoryChart'
 import OTMPremiumScanner from './OTMPremiumScanner'
+import POIScreener from './POIScreener'
 import PivotScanner from './PivotScanner'
 
 type ScreenerTab =
@@ -19,6 +22,9 @@ type ScreenerTab =
   | 'rs-screener'
   | 'hv-screener'
   | 'leadership'
+  | 'poi'
+  | 'consolidation-history'
+  | 'premium-history'
   | 'unified-search'
 
 interface PremiumImbalance {
@@ -67,7 +73,7 @@ interface ContractionResult {
   currentPrice: number
   change: number
   changePercent: number
-  period: '5-DAY' | '13-DAY'
+  period: '4-DAY'
   averageVolume: number
   currentVolume: number
   volumeRatio: number
@@ -140,6 +146,9 @@ const TABS = [
   { id: 'rs-screener' as const, label: 'Relative Strength', color: '#00ff88' },
   { id: 'hv-screener' as const, label: 'Historical Volatility', color: '#ffd700' },
   { id: 'leadership' as const, label: 'Leadership Scan', color: '#ff8c00' },
+  { id: 'poi' as const, label: 'POI', color: '#00E5FF' },
+  { id: 'consolidation-history' as const, label: 'Consolidation History', color: '#FF8C00' },
+  { id: 'premium-history' as const, label: 'Premium Imbalance History', color: '#00d4ff' },
 ]
 
 export default function ScreenersPanel() {
@@ -1210,6 +1219,12 @@ export default function ScreenersPanel() {
         return <HVScreener />
       case 'leadership':
         return <LeadershipScan />
+      case 'poi':
+        return <POIScreener />
+      case 'consolidation-history':
+        return <ConsolidationHistoryScreener />
+      case 'premium-history':
+        return <OTMPremiumHistoryChart />
       default:
         return null
     }
@@ -1221,7 +1236,6 @@ export default function ScreenersPanel() {
         background: 'rgba(0, 0, 0, 0.95)',
         borderRadius: '0px',
         border: '1px solid #333',
-        overflow: 'hidden',
       }}
     >
       {/* Unified Search Bar */}
@@ -1386,6 +1400,7 @@ export default function ScreenersPanel() {
         style={{
           background: '#000000',
           minHeight: '600px',
+          overflowX: 'auto',
         }}
       >
         {renderScreener()}

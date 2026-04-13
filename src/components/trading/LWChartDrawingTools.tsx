@@ -2,6 +2,7 @@
 
 import { FiTrendingDown, FiTrendingUp } from 'react-icons/fi'
 import {
+  TbArrowBackUp,
   TbArrowUpRight,
   TbArrowsVertical,
   TbLayout,
@@ -10,6 +11,7 @@ import {
   TbSelector,
   TbSquare,
   TbTextSize,
+  TbTrash,
   TbX,
 } from 'react-icons/tb'
 
@@ -30,6 +32,7 @@ interface LWChartDrawingToolsProps {
   timeToScreen?: (index: number) => number
   screenToTime?: (x: number) => number
   onMouseMove?: (e: React.MouseEvent<HTMLElement>) => void
+  toolbarPosition?: 'top' | 'left'
 }
 
 type DrawingTool =
@@ -284,6 +287,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   timeToScreen,
   screenToTime,
   onMouseMove,
+  toolbarPosition = 'top',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLInputElement>(null)
@@ -1892,79 +1896,49 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         zIndex: 1000,
       }}
     >
-      {/* Toolbar - Only show when active and using internal tool state */}
-      {isActive && !externalCurrentTool && (
+      {/* Toolbar - Only show when active and using internal tool state (or always when left sidebar) */}
+      {isActive && (!externalCurrentTool || toolbarPosition === 'left') && (
         <div
           style={{
             position: 'absolute',
-            top: '10px',
-            left: '10px',
-            background: 'rgba(0, 0, 0, 0.9)',
-            border: '2px solid #22c55e',
-            borderRadius: '8px',
-            padding: '12px',
+            ...(toolbarPosition === 'left'
+              ? {
+                  top: '60px',
+                  left: '10px',
+                  flexDirection: 'column' as const,
+                  maxHeight: 'calc(100% - 80px)',
+                  overflowY: 'auto' as const,
+                }
+              : { top: '10px', left: '10px', flexWrap: 'wrap' as const, maxWidth: '95%' }),
+            background:
+              'linear-gradient(180deg, rgba(255,255,255,0.03) 0%, #090909 15%, #040404 100%)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '10px',
+            padding: toolbarPosition === 'left' ? '6px 4px' : '8px 6px',
             display: 'flex',
-            flexWrap: 'wrap',
-            gap: '8px',
+            gap: toolbarPosition === 'left' ? '3px' : '5px',
             alignItems: 'center',
-            boxShadow: '0 4px 12px rgba(34, 197, 94, 0.3)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)',
             zIndex: 101,
-            maxWidth: '95%',
             pointerEvents: 'auto',
           }}
         >
           {/* Tool Buttons */}
-          <button
-            onClick={() => setCurrentTool('select')}
-            style={{
-              padding: '8px 10px',
-              background:
-                currentTool === 'select'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
-                  : '#000',
-              color: currentTool === 'select' ? '#000' : '#fff',
-              border:
-                currentTool === 'select' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '4px',
-              boxShadow: currentTool === 'select' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
-              transition: 'all 0.2s ease',
-            }}
-            title="Select"
-          >
-            <TbSelector size={18} />
-            <span
-              style={{
-                fontSize: '9px',
-                fontWeight: '600',
-                letterSpacing: '0.5px',
-                textTransform: 'uppercase',
-              }}
-            >
-              Select
-            </span>
-          </button>
-
           <button
             onClick={() => {
               setCurrentTool('trendline')
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'trendline'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'trendline' ? '#000' : '#fff',
               border:
                 currentTool === 'trendline'
-                  ? '2px solid #22c55e'
+                  ? '2px solid #FF8500'
                   : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -1973,7 +1947,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'trendline' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Trendline"
@@ -1997,15 +1970,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'horizontal'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'horizontal' ? '#000' : '#fff',
               border:
                 currentTool === 'horizontal'
-                  ? '2px solid #22c55e'
+                  ? '2px solid #FF8500'
                   : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -2014,7 +1987,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'horizontal' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Horizontal Line"
@@ -2038,15 +2010,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'vertical'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'vertical' ? '#000' : '#fff',
               border:
                 currentTool === 'vertical'
-                  ? '2px solid #22c55e'
+                  ? '2px solid #FF8500'
                   : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -2055,7 +2027,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'vertical' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Vertical Line"
@@ -2079,14 +2050,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'ray'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'ray' ? '#000' : '#fff',
               border:
-                currentTool === 'ray' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                currentTool === 'ray' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
               display: 'flex',
@@ -2094,7 +2065,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'ray' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Ray"
@@ -2118,15 +2088,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'rectangle'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'rectangle' ? '#000' : '#fff',
               border:
                 currentTool === 'rectangle'
-                  ? '2px solid #22c55e'
+                  ? '2px solid #FF8500'
                   : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -2135,7 +2105,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'rectangle' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Rectangle"
@@ -2159,14 +2128,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'text'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'text' ? '#000' : '#fff',
               border:
-                currentTool === 'text' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                currentTool === 'text' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
               display: 'flex',
@@ -2174,7 +2143,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'text' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Text"
@@ -2198,15 +2166,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'parallelChannel'
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)'
                   : '#000',
               color: currentTool === 'parallelChannel' ? '#000' : '#fff',
               border:
                 currentTool === 'parallelChannel'
-                  ? '2px solid #22c55e'
+                  ? '2px solid #FF8500'
                   : '2px solid rgba(255,255,255,0.1)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -2215,8 +2183,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow:
-                currentTool === 'parallelChannel' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Parallel Channel"
@@ -2240,16 +2206,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'buyZone'
                   ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
                   : '#000',
               color: currentTool === 'buyZone' ? '#000' : '#22c55e',
               border:
-                currentTool === 'buyZone'
-                  ? '2px solid #22c55e'
-                  : '2px solid rgba(34, 197, 94, 0.3)',
+                currentTool === 'buyZone' ? '2px solid #22c55e' : '2px solid rgba(34,197,94,0.3)',
               borderRadius: '6px',
               cursor: 'pointer',
               display: 'flex',
@@ -2257,7 +2221,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'buyZone' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Buy Zone"
@@ -2281,16 +2244,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               setCurrentPoints([])
             }}
             style={{
-              padding: '8px 10px',
+              padding: '6px 8px',
               background:
                 currentTool === 'sellZone'
                   ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
                   : '#000',
               color: currentTool === 'sellZone' ? '#000' : '#ef4444',
               border:
-                currentTool === 'sellZone'
-                  ? '2px solid #ef4444'
-                  : '2px solid rgba(239, 68, 68, 0.3)',
+                currentTool === 'sellZone' ? '2px solid #ef4444' : '2px solid rgba(239,68,68,0.3)',
               borderRadius: '6px',
               cursor: 'pointer',
               display: 'flex',
@@ -2298,7 +2259,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              boxShadow: currentTool === 'sellZone' ? '0 0 15px rgba(239, 68, 68, 0.5)' : 'none',
               transition: 'all 0.2s ease',
             }}
             title="Sell Zone"
@@ -2316,89 +2276,68 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             </span>
           </button>
 
+          <button
+            onClick={() => {
+              if (drawings.length > 0) setDrawings(drawings.slice(0, -1))
+            }}
+            style={{
+              padding: '6px 8px',
+              background: '#000',
+              color: drawings.length > 0 ? '#fff' : 'rgba(255,255,255,0.2)',
+              border:
+                drawings.length > 0
+                  ? '2px solid rgba(255,255,255,0.1)'
+                  : '2px solid rgba(255,255,255,0.04)',
+              borderRadius: '6px',
+              cursor: drawings.length > 0 ? 'pointer' : 'default',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease',
+            }}
+            title="Undo last drawing"
+          >
+            <TbArrowBackUp size={18} />
+            <span
+              style={{
+                fontSize: '9px',
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Undo
+            </span>
+          </button>
+
           <div
             style={{
-              width: '1px',
-              height: '40px',
-              background: 'rgba(34, 197, 94, 0.3)',
-              margin: '0 4px',
+              width: toolbarPosition === 'left' ? '100%' : '1px',
+              height: toolbarPosition === 'left' ? '1px' : '50px',
+              background: 'rgba(255,255,255,0.2)',
+              margin: toolbarPosition === 'left' ? '4px 0' : '0 6px',
             }}
           />
-
-          {/* Color Picker */}
-          <div ref={toolbarColorPickerRef} style={{ position: 'relative' }}>
-            <div
-              onClick={() => setShowToolbarColorPicker((v) => !v)}
-              title="Color"
-              style={{
-                width: '32px',
-                height: '32px',
-                background: color,
-                border: '2px solid #22c55e',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            />
-            {showToolbarColorPicker && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '38px',
-                  left: '0',
-                  zIndex: 1010,
-                  background: '#1e1e1e',
-                  border: '1px solid #444',
-                  borderRadius: '6px',
-                  padding: '10px',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
-                }}
-              >
-                <SolidColorPicker
-                  value={color}
-                  onChange={(c) => {
-                    setColor(c)
-                    addRecentColor(c)
-                    setShowToolbarColorPicker(false)
-                  }}
-                  recentColors={recentColors}
-                  onAddRecent={addRecentColor}
-                />
-              </div>
-            )}
-          </div>
 
           <button
             onClick={clearDrawings}
             style={{
               padding: '8px 12px',
               background: 'transparent',
-              color: '#ef4444',
-              border: '1px solid #ef4444',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: 'bold',
-            }}
-          >
-            Clear
-          </button>
-
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px',
-              background: 'transparent',
-              color: '#22c55e',
-              border: '1px solid #22c55e',
+              color: '#DC143C',
+              border: '1px solid #DC143C',
               borderRadius: '4px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              gap: '6px',
               justifyContent: 'center',
             }}
+            title="Clear all drawings"
           >
-            <TbX size={18} />
+            <TbTrash size={16} />
           </button>
         </div>
       )}

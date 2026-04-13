@@ -9,6 +9,15 @@ datasource db {
   directUrl = env("POSTGRES_URL") // uses a direct connection
 }
 
+model UserLayout {
+  id        String   @id @default(cuid())
+  userId    String   @unique  // one layout per user (or use a fixed key for single-user)
+  data      String   // JSON stringified { panelOffsets, panelEnabled }
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 model Flow {
   id        String   @id @default(cuid())
   date      DateTime @unique

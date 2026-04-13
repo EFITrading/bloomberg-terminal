@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import GlobalDataCache from '../../lib/GlobalDataCache'
 import ElectionCycleService, { ElectionCycleData } from '../../lib/electionCycleService'
@@ -119,7 +119,8 @@ interface SeasonalityChartProps {
   onMonthlyDataLoaded?: (
     monthlyData: Array<{ month: string; outperformance: number }>,
     best30Day?: any,
-    worst30Day?: any
+    worst30Day?: any,
+    mode?: 'normal' | 'election'
   ) => void
   chartHeight?: number
   externalSelectedEvent?: string | null
@@ -145,7 +146,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   externalSelectedEvent,
   externalSelectedPatterns = [],
 }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'SPY')
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || '')
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null)
   const [electionData, setElectionData] = useState<ElectionCycleData | null>(null)
   const [isElectionMode, setIsElectionMode] = useState<boolean>(false)
@@ -364,25 +365,28 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     comparisonSymbols: [],
   })
 
+  // isInitialMount ref: on first render we only scan if autoStart=true.
+  // On subsequent selectedSymbol changes (user input or prop update) we always scan.
+  const isInitialMount = useRef(true)
+
   useEffect(() => {
-    console.log('SeasonalityChart useEffect triggered with selectedSymbol:', selectedSymbol)
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      // Only auto-scan on mount when autoStart=true AND we have a symbol
+      if (autoStart && selectedSymbol) {
+        loadSeasonalAnalysis(selectedSymbol)
+      }
+      return
+    }
+    // Subsequent symbol changes: always scan if symbol is set
     if (selectedSymbol) {
       loadSeasonalAnalysis(selectedSymbol)
     }
   }, [selectedSymbol])
 
-  // Auto-start data loading when autoStart prop is true
-  useEffect(() => {
-    if (autoStart && selectedSymbol) {
-      console.log(' Auto-starting seasonal analysis for:', selectedSymbol)
-      loadSeasonalAnalysis(selectedSymbol)
-    }
-  }, [autoStart, selectedSymbol])
-
   // Update selected symbol when initialSymbol prop changes
   useEffect(() => {
     if (initialSymbol && initialSymbol !== selectedSymbol) {
-      console.log(' Updating symbol from prop:', initialSymbol)
       setSelectedSymbol(initialSymbol)
     }
   }, [initialSymbol])
@@ -414,20 +418,31 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     }
   }, [externalElectionMode])
 
-  // Notify parent when monthly data loads
+  // Notify parent when normal seasonal data loads/changes
   useEffect(() => {
-    const data = isElectionMode ? electionData : seasonalData
-    if (data?.spyComparison?.monthlyData && onMonthlyDataLoaded) {
+    if (seasonalData?.spyComparison?.monthlyData && onMonthlyDataLoaded) {
       onMonthlyDataLoaded(
-        data.spyComparison.monthlyData,
-        data.spyComparison.best30DayPeriod,
-        data.spyComparison.worst30DayPeriod
+        seasonalData.spyComparison.monthlyData,
+        seasonalData.spyComparison.best30DayPeriod,
+        seasonalData.spyComparison.worst30DayPeriod,
+        'normal'
       )
     }
-  }, [seasonalData, electionData, isElectionMode, onMonthlyDataLoaded])
+  }, [seasonalData, onMonthlyDataLoaded])
+
+  // Notify parent when election/cycle seasonal data loads/changes
+  useEffect(() => {
+    if (electionData?.spyComparison?.monthlyData && onMonthlyDataLoaded) {
+      onMonthlyDataLoaded(
+        electionData.spyComparison.monthlyData,
+        electionData.spyComparison.best30DayPeriod,
+        electionData.spyComparison.worst30DayPeriod,
+        'election'
+      )
+    }
+  }, [electionData, onMonthlyDataLoaded])
 
   const handleElectionModeToggle = async (isEnabled: boolean) => {
-    console.log('Election mode toggled:', isEnabled)
     if (!isEnabled) {
       // Switch back to normal seasonal mode
       setIsElectionMode(false)
@@ -469,12 +484,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
       if (electionResult) {
         setElectionData(electionResult)
-        console.log(
-          'Election cycle data loaded successfully:',
-          electionResult.symbol,
-          'Years:',
-          electionResult.statistics.yearsOfData
-        )
       } else {
         setError('Failed to load election cycle data')
       }
@@ -1031,9 +1040,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
     // DEBUG: Log calculated periods for comparison with screener
     if (symbol === 'GLD' || symbol === 'LVS') {
-      console.log(`CHART ${symbol} calculated periods:`)
-      console.log(` Best: ${bestPeriod.period} (${(bestPeriod.avgReturn * 30).toFixed(2)}%)`)
-      console.log(` Worst: ${worstPeriod.period} (${(worstPeriod.avgReturn * 30).toFixed(2)}%)`)
     }
 
     return {
@@ -1245,7 +1251,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
   const handleRefresh = () => {
     if (selectedSymbol) {
-      console.log('Refreshing data for', selectedSymbol)
       if (isElectionMode) {
         loadElectionCycleAnalysis(
           selectedSymbol,
@@ -1258,7 +1263,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handleMonthClick = (monthIndex: number, monthName: string) => {
-    console.log(`📅 Month clicked: ${monthName} (index: ${monthIndex})`)
     setSelectedMonthIndex(monthIndex)
     setSelectedMonthName(monthName)
     setMonthlyViewActive(true)
@@ -1287,8 +1291,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
   const calculateCorrelation = async (symbol: string, seasonalData: SeasonalAnalysis) => {
     try {
-      console.log('Calculating correlation for', symbol, 'for year 2025')
-
       // Get current year data (2025)
       const currentYear = new Date().getFullYear() // 2025
       const currentDate = new Date()
@@ -1307,7 +1309,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       )
 
       if (!currentYearData || !currentYearData.results || currentYearData.results.length < 2) {
-        console.log('Insufficient current year data for correlation')
         return null
       }
 
@@ -1348,7 +1349,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       const seasonalAvgReturns = seasonalReturns.slice(0, minLength)
 
       if (minLength < 5) {
-        console.log('Not enough data points for meaningful correlation')
         return null
       }
 
@@ -1361,14 +1361,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       // Calculate cumulative returns for display
       const currentYearCumulativeReturn = currentReturns.reduce((acc, ret) => acc + ret, 0)
       const seasonalCumulativeReturn = seasonalAvgReturns.reduce((acc, ret) => acc + ret, 0)
-
-      console.log('Correlation calculated:', {
-        rawCorrelation: Math.round(rawCorrelation * 100),
-        adjustedCorrelation: Math.round(adjustedCorrelation * 100),
-        currentYearReturn: currentYearCumulativeReturn.toFixed(2),
-        seasonalReturn: seasonalCumulativeReturn.toFixed(2),
-        dataPoints: minLength,
-      })
 
       return {
         correlation: Math.round(adjustedCorrelation * 100), // Convert to percentage
@@ -1532,8 +1524,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       startDate: newStartStr,
       endDate: newEndStr,
     })
-
-    console.log(`Date range changed ${direction}: ${newStartStr} - ${newEndStr}`)
   }
 
   // Compare functionality handlers
@@ -1650,7 +1640,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             top: '-55px',
             marginBottom: '-80px',
             zIndex: 1000,
-            left: '20px',
+            left: hideScreener ? '20px' : '20px',
           }}
         >
           {/* Group 1: Search + all inline controls */}

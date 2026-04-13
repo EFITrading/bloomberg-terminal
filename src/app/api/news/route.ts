@@ -2,12 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
-// ─── RSS Sources (same as social/route.ts) ────────────────────────────────────
+// ─── RSS Sources ─────────────────────────────────────────────────────────────
+// NOTE: https://www.benzinga.com/feed is intentionally excluded — it returns
+// only crypto price predictions and "here's how much $100" evergreen clickbait.
 const RSS_SOURCES = [
-  { name: 'Benzinga', url: 'https://www.benzinga.com/feed' },
-  { name: 'Benzinga Markets', url: 'https://www.benzinga.com/markets/feed' },
-  { name: 'Benzinga Trading Ideas', url: 'https://www.benzinga.com/trading-ideas/feed' },
-  { name: 'Benzinga Movers', url: 'https://www.benzinga.com/movers/feed' },
+  { name: 'Benzinga News', url: 'https://www.benzinga.com/news/feed', format: 'rss' },
+  { name: 'Benzinga Markets', url: 'https://www.benzinga.com/markets/feed', format: 'rss' },
+  {
+    name: 'Benzinga Trading Ideas',
+    url: 'https://www.benzinga.com/trading-ideas/feed',
+    format: 'rss',
+  },
+  { name: 'Benzinga Movers', url: 'https://www.benzinga.com/movers/feed', format: 'rss' },
+  {
+    name: 'Benzinga Breaking',
+    url: 'https://www.benzinga.com/topic/breaking-news/feed',
+    format: 'atom',
+  },
 ]
 
 function calcRSSUrgency(title: string, desc: string, published: Date): number {
@@ -73,13 +84,63 @@ function parseRSSXML(xml: string, sourceName: string): any[] {
           '',
         300
       )
-      const link = item.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() ?? '#'
+      // Decode HTML entities in URL (e.g. &amp; → &)
+      const rawLink = item.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() ?? '#'
+      const link = decodeHtml(rawLink)
       const pubDate = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] ?? ''
       const published = pubDate ? new Date(pubDate) : new Date()
       if (!title) return null
       const urgency = calcRSSUrgency(title, desc, published)
       return {
         id: `rss_${sourceName}_${i}`,
+        title,
+        description: desc,
+        article_url: link,
+        published_utc: published.toISOString(),
+        publisher: { name: sourceName },
+        tickers: [],
+        urgency,
+        sentiment: 'neutral',
+        sentiment_score: 0.5,
+        relevance_score: urgency,
+        time_ago: getTimeAgo(published.toISOString()),
+        category: urgency >= 0.65 ? 'breaking' : 'market',
+      }
+    })
+    .filter(Boolean)
+}
+
+// Atom feed parser (used for Benzinga /topic/breaking-news/feed)
+function parseAtomXML(xml: string, sourceName: string): any[] {
+  const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || []
+  return entries
+    .map((entry, i) => {
+      const title = cleanText(
+        entry.match(/<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ??
+          entry.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ??
+          ''
+      )
+      const desc = cleanText(
+        entry.match(/<summary[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/summary>/)?.[1] ??
+          entry.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ??
+          entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] ??
+          '',
+        300
+      )
+      const rawLink =
+        entry.match(/<link[^>]+href=["']([^"']+)["']/)?.[1] ??
+        entry.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() ??
+        '#'
+      const link = decodeHtml(rawLink)
+      const pubDate =
+        entry.match(/<published>([\s\S]*?)<\/published>/)?.[1] ??
+        entry.match(/<updated>([\s\S]*?)<\/updated>/)?.[1] ??
+        ''
+      const published = pubDate ? new Date(pubDate) : new Date()
+      if (!title) return null
+      const urgency = calcRSSUrgency(title, desc, published)
+      return {
+        id: `atom_${sourceName}_${i}`,
         title,
         description: desc,
         article_url: link,
@@ -105,10 +166,21 @@ async function fetchAllRSS(): Promise<any[]> {
         signal: AbortSignal.timeout(5000),
       })
       if (!res.ok) return []
-      return parseRSSXML(await res.text(), src.name)
+      const xml = await res.text()
+      return src.format === 'atom' ? parseAtomXML(xml, src.name) : parseRSSXML(xml, src.name)
     })
   )
-  return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+  const all = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+
+  // Deduplicate by article URL — keep the copy with the highest urgency score
+  const byUrl = new Map<string, any>()
+  for (const article of all) {
+    const key = article.article_url
+    if (!byUrl.has(key) || article.urgency > byUrl.get(key).urgency) {
+      byUrl.set(key, article)
+    }
+  }
+  return Array.from(byUrl.values())
 }
 
 interface NewsArticle {
