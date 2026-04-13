@@ -12461,10 +12461,11 @@ export default function TradingViewChart({
     const startDate = new Date(data[0].timestamp).toISOString().split('T')[0]
 
     // Fetch only SPY for relative strength; use already-loaded `data` as symbolPrices
+    // Match the chart's current timeframe so RS comparison is apples-to-apples
     fetch('/api/bulk-chart-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols: ['SPY'], timeframe: '1d', startDate, endDate }),
+      body: JSON.stringify({ symbols: ['SPY'], timeframe: config.timeframe, startDate, endDate }),
       signal: controller.signal,
     })
       .then((r) => r.json())
@@ -12631,15 +12632,15 @@ export default function TradingViewChart({
           }
 
           // Weighted composite — 7 unique dimensions, zero RSI/MACD derivatives:
-          // ATR-Mom(22) + IVP(22) + PVD(20) + CMF(16) + EFI(12) + OBV(5) + RS(3)
+          // ATR-Mom(19) + IVP(19) + PVD(18) + CMF(14) + EFI(11) + OBV(4) + RS(15)
           const composite =
-            atrMomScore * 0.22 +
-            ivpScore * 0.22 +
-            pvdScore * 0.2 +
-            cmfScore * 0.16 +
-            efiScore * 0.12 +
-            obvScore * 0.05 +
-            rsScore * 0.03
+            atrMomScore * 0.19 +
+            ivpScore * 0.19 +
+            pvdScore * 0.18 +
+            cmfScore * 0.14 +
+            efiScore * 0.11 +
+            obvScore * 0.04 +
+            rsScore * 0.15
 
           return { date, score: Math.max(-100, Math.min(100, composite)) }
         })
@@ -12673,7 +12674,7 @@ export default function TradingViewChart({
       })
 
     return () => controller.abort()
-  }, [showBuySellIndicator, config.symbol, data])
+  }, [showBuySellIndicator, config.symbol, config.timeframe, data])
 
   // Chart interaction state
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 })
@@ -15430,6 +15431,12 @@ export default function TradingViewChart({
     const padLeft = 40
     const rightEdge = chartWidth - 80
 
+    // Clip all drawing to the panel bounds so the line never overflows right
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
+    ctx.clip()
+
     // Background
     ctx.fillStyle = 'rgba(0,0,0,0.85)'
     ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
@@ -15442,14 +15449,38 @@ export default function TradingViewChart({
     })
 
     const candleSpacing = chartWidth / visibleCandleCount
-    const midY = panelStartY + panelHeight / 2
-    const amplitude = (panelHeight / 2) * 0.75
 
-    // Subtle zone fills
+    // Dynamic scale: fit to visible data with 20% padding above and below
+    const validEntries = entries.filter((e) => e !== null)
+    const rawMax = validEntries.length > 0 ? Math.max(...validEntries.map((e) => e!.smoothed)) : 100
+    const rawMin =
+      validEntries.length > 0 ? Math.min(...validEntries.map((e) => e!.smoothed)) : -100
+    const rawRange = rawMax - rawMin || 1
+    const paddedMax = rawMax + rawRange * 0.2
+    const paddedMin = rawMin - rawRange * 0.2
+    const paddedRange = paddedMax - paddedMin
+    const toY = (value: number) => panelStartY + (panelHeight * (paddedMax - value)) / paddedRange
+    const midY = toY(0)
+
+    // ── Average high/low reference lines (last 252 bars of full bsData) ─────────
+    const lookback = Math.min(252, bsData.length)
+    const recent252 = bsData.slice(bsData.length - lookback)
+    const avg252High = recent252.reduce((sum, d) => Math.max(sum, d.smoothed), -Infinity)
+    const avg252Low = recent252.reduce((sum, d) => Math.min(sum, d.smoothed), Infinity)
+    // Use mean of top/bottom 10% as the "average high" and "average low"
+    const sorted = [...recent252].map((d) => d.smoothed).sort((a, b) => a - b)
+    const top10pct = sorted.slice(Math.floor(sorted.length * 0.9))
+    const bot10pct = sorted.slice(0, Math.ceil(sorted.length * 0.1))
+    const avgHighVal =
+      top10pct.length > 0 ? top10pct.reduce((a, b) => a + b, 0) / top10pct.length : avg252High
+    const avgLowVal =
+      bot10pct.length > 0 ? bot10pct.reduce((a, b) => a + b, 0) / bot10pct.length : avg252Low
+
+    // Subtle zone fills (green above zero, red below)
     ctx.fillStyle = 'rgba(34,197,94,0.06)'
-    ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, panelHeight / 2)
+    ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, Math.max(0, midY - panelStartY))
     ctx.fillStyle = 'rgba(239,68,68,0.06)'
-    ctx.fillRect(padLeft, midY, rightEdge - padLeft, panelHeight / 2)
+    ctx.fillRect(padLeft, midY, rightEdge - padLeft, Math.max(0, panelStartY + panelHeight - midY))
 
     // Zero line
     ctx.strokeStyle = 'rgba(255,255,255,0.2)'
@@ -15461,6 +15492,40 @@ export default function TradingViewChart({
     ctx.stroke()
     ctx.setLineDash([])
 
+    // Average high line (green dotted)
+    const avgHighY = toY(avgHighVal)
+    if (avgHighY >= panelStartY && avgHighY <= panelStartY + panelHeight) {
+      ctx.strokeStyle = 'rgba(34,197,94,0.75)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([6, 4])
+      ctx.beginPath()
+      ctx.moveTo(padLeft, avgHighY)
+      ctx.lineTo(rightEdge, avgHighY)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = 'bold 10px JetBrains Mono, monospace'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = 'rgba(34,197,94,0.85)'
+      ctx.fillText(`AVG HIGH  ${Math.round(avgHighVal)}`, padLeft + 6, avgHighY - 3)
+    }
+
+    // Average low line (red dotted)
+    const avgLowY = toY(avgLowVal)
+    if (avgLowY >= panelStartY && avgLowY <= panelStartY + panelHeight) {
+      ctx.strokeStyle = 'rgba(239,68,68,0.75)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([6, 4])
+      ctx.beginPath()
+      ctx.moveTo(padLeft, avgLowY)
+      ctx.lineTo(rightEdge, avgLowY)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = 'bold 10px JetBrains Mono, monospace'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = 'rgba(239,68,68,0.85)'
+      ctx.fillText(`AVG LOW  ${Math.round(avgLowVal)}`, padLeft + 6, avgLowY + 12)
+    }
+
     // ── Smoothed composite line — color-coded solid ─────────────────────────────
     for (let i = 1; i < entries.length; i++) {
       const prev = entries[i - 1]
@@ -15468,8 +15533,8 @@ export default function TradingViewChart({
       if (!prev || !curr) continue
       const x0 = padLeft + (i - 1) * candleSpacing + candleSpacing / 2
       const x1 = padLeft + i * candleSpacing + candleSpacing / 2
-      const y0 = midY - (prev.smoothed / 100) * amplitude
-      const y1 = midY - (curr.smoothed / 100) * amplitude
+      const y0 = toY(prev.smoothed)
+      const y1 = toY(curr.smoothed)
       const avg = (prev.smoothed + curr.smoothed) / 2
       ctx.strokeStyle = avg >= 15 ? '#00ff00' : avg <= -15 ? '#ff3232' : '#cccccc'
       ctx.lineWidth = 2
@@ -15479,6 +15544,9 @@ export default function TradingViewChart({
       ctx.stroke()
     }
 
+    // Restore clip so labels can draw outside the panel bounds
+    ctx.restore()
+
     // ── BUY / SHORT label at right edge ─────────────────────────────────────────
     const lastEntry = [...entries].reverse().find((e) => e !== null)
     if (lastEntry) {
@@ -15486,9 +15554,9 @@ export default function TradingViewChart({
       const label = isBullish ? 'BUY' : 'SHORT'
       const labelColor = isBullish ? '#00ff00' : '#ff3232'
       const labelX = rightEdge + 6
-      const labelY = midY - (lastEntry.smoothed / 100) * amplitude
+      const labelY = toY(lastEntry.smoothed)
       ctx.save()
-      ctx.font = 'bold 13px JetBrains Mono, monospace'
+      ctx.font = 'bold 17px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
       ctx.shadowColor = labelColor
       ctx.shadowBlur = 8
@@ -15498,19 +15566,19 @@ export default function TradingViewChart({
       ctx.restore()
     }
 
-    // ── Y-axis labels ────────────────────────────────────────────────────────────
+    // ── Y-axis labels (dynamic: top, zero, bottom) — 50% larger font ─────────
     const yAxisX = rightEdge + 4
-    ctx.font = 'bold 18px JetBrains Mono, monospace'
+    ctx.font = 'bold 20px JetBrains Mono, monospace'
     ctx.textAlign = 'left'
     ctx.globalAlpha = 1
     for (const [label, val] of [
-      ['100', 100],
+      [Math.round(rawMax).toString(), rawMax],
       ['0', 0],
-      ['-100', -100],
+      [Math.round(rawMin).toString(), rawMin],
     ] as [string, number][]) {
-      const ly = midY - (val / 100) * amplitude
+      const ly = toY(val)
       ctx.fillStyle = val > 0 ? '#00ff00' : val < 0 ? '#ff0000' : '#ffffff'
-      ctx.fillText(label, yAxisX, ly + 6)
+      ctx.fillText(label, yAxisX, ly + 4)
     }
 
     // ── Title with live score readout ────────────────────────────────────────────
