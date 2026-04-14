@@ -906,7 +906,10 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         const dayOfYear =
           Math.floor((currentDate.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
-        const currentDateX = padding.left + (dayOfYear / 365) * chartWidth
+        const chartCenter = 0.5
+        const baseX = dayOfYear / 365
+        const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
+        const currentDateX = padding.left + zoomedX * chartWidth
 
         ctx.strokeStyle = '#FF6600' // Bloomberg Terminal orange color for current date
         ctx.lineWidth = 2

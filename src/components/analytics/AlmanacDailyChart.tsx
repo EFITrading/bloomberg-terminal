@@ -1601,14 +1601,94 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '6px 12px',
-            background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-            borderBottom: '1px solid #1a1a1a',
+            gap: '5px',
+            padding: '6px 10px',
+            background: '#000000',
+            borderBottom: '1px solid #222',
             flexWrap: 'nowrap',
             overflowX: 'auto',
           }}
         >
+          <style>{`
+            .almanac-ctrl-btn {
+              padding: 0 13px;
+              height: 34px;
+              background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
+              color: #ffffff;
+              border: 1px solid #444444;
+              border-radius: 4px;
+              font-size: 11px;
+              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+              font-weight: 700;
+              letter-spacing: 0.6px;
+              cursor: pointer;
+              transition: border-color 0.15s, background 0.15s, color 0.15s;
+              white-space: nowrap;
+              outline: none;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            }
+            .almanac-ctrl-btn:hover { background: linear-gradient(180deg, #222 0%, #0a0a0a 60%); border-color: #666; }
+            .almanac-ctrl-btn.active-orange { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #ff6600; border-color: #ff6600; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+            .almanac-ctrl-btn.active-green  { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #00ff41; border-color: #00ff41; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+            .almanac-ctrl-btn.active-cyan   { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #00CED1; border-color: #00CED1; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+            .almanac-ctrl-select {
+              padding: 0 28px 0 11px;
+              height: 34px;
+              width: fit-content;
+              min-width: 0;
+              max-width: 180px;
+              background:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center,
+                linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
+              color: #ffffff;
+              border: 1px solid #444444;
+              border-radius: 4px;
+              font-size: 11px;
+              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+              font-weight: 700;
+              letter-spacing: 0.6px;
+              cursor: pointer;
+              outline: none;
+              appearance: none;
+              -webkit-appearance: none;
+              white-space: nowrap;
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            }
+            .almanac-ctrl-select:hover {
+              border-color: #666;
+              background:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center,
+                linear-gradient(180deg, #222222 0%, #0a0a0a 60%);
+            }
+            .almanac-ctrl-select.has-value {
+              border-color: #ff6600;
+              color: #ff6600;
+              background:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ff6600'/%3E%3C/svg%3E") no-repeat right 8px center,
+                linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
+            }
+            .almanac-ctrl-divider {
+              width: 1px; height: 22px; background: #333; flex-shrink: 0;
+            }
+            .almanac-ctrl-select option {
+              background: #111111;
+              color: #ffffff;
+              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+              font-weight: 700;
+              font-size: 11px;
+            }
+            .almanac-ctrl-select optgroup {
+              background: #0a0a0a;
+              color: #666666;
+              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+              font-weight: 700;
+              font-size: 10px;
+            }
+          `}</style>
+
           {/* Month Selector */}
           <select
             value={selectedMonth}
@@ -1617,19 +1697,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               setSelectedMonth(newMonth)
               onMonthChange?.(newMonth)
             }}
-            style={{
-              padding: '6px 10px',
-              background: '#000000',
-              color: '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '11px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              outline: 'none',
-              minWidth: '90px',
-            }}
+            className="almanac-ctrl-select"
           >
             {MONTH_NAMES.map((name, i) => (
               <option key={i} value={i}>
@@ -1638,105 +1706,45 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             ))}
           </select>
 
-          {/* Divider */}
-          <div style={{ width: '1px', height: '24px', background: '#333' }} />
+          <div className="almanac-ctrl-divider" />
 
           {/* View Buttons */}
           <button
             onClick={() => setActiveView('chart')}
-            style={{
-              padding: '6px 12px',
-              background: activeView === 'chart' ? '#ff6600' : '#000000',
-              color: activeView === 'chart' ? '#000' : '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.5px',
-            }}
+            className={`almanac-ctrl-btn${activeView === 'chart' ? ' active-orange' : ''}`}
           >
             CHART
           </button>
 
           <button
             onClick={() => setActiveView('calendar')}
-            style={{
-              padding: '6px 12px',
-              background: activeView === 'calendar' ? '#ff6600' : '#000000',
-              color: activeView === 'calendar' ? '#000' : '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.5px',
-            }}
+            className={`almanac-ctrl-btn${activeView === 'calendar' ? ' active-orange' : ''}`}
           >
             CALENDAR
           </button>
 
           <button
             onClick={() => setActiveView(activeView === 'table' ? 'chart' : 'table')}
-            style={{
-              padding: '6px 12px',
-              background: activeView === 'table' ? '#ff6600' : '#000000',
-              color: activeView === 'table' ? '#000' : '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.5px',
-            }}
+            className={`almanac-ctrl-btn${activeView === 'table' ? ' active-orange' : ''}`}
           >
-            Seasonality Table
+            SEASONALITY TABLE
           </button>
 
-          {/* Divider */}
-          <div style={{ width: '1px', height: '24px', background: '#333' }} />
+          <div className="almanac-ctrl-divider" />
 
           {/* Line Style Toggles */}
           <button
             onClick={() => setShowRecentYears(!showRecentYears)}
-            style={{
-              padding: '6px 12px',
-              background: showRecentYears ? '#00ff41' : '#000000',
-              color: showRecentYears ? '#000' : '#00ff41',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.5px',
-            }}
+            className={`almanac-ctrl-btn${showRecentYears ? ' active-green' : ''}`}
+            style={{ color: showRecentYears ? '#00ff41' : '#555' }}
           >
             SOLID
           </button>
 
           <button
             onClick={() => setShowPostElectionYears(!showPostElectionYears)}
-            style={{
-              padding: '6px 12px',
-              background: showPostElectionYears ? '#00CED1' : '#000000',
-              color: showPostElectionYears ? '#000' : '#00CED1',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '10px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.5px',
-            }}
+            className={`almanac-ctrl-btn${showPostElectionYears ? ' active-cyan' : ''}`}
+            style={{ color: showPostElectionYears ? '#00CED1' : '#555' }}
           >
             DASH
           </button>
@@ -1746,82 +1754,56 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              fontSize: '10px',
+              gap: '14px',
+              marginLeft: '6px',
+              marginRight: '6px',
+              fontSize: '11px',
               fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 700,
+              border: '1px solid #2a2a2a',
+              borderRadius: '2px',
+              padding: '5px 10px',
+              background: '#0a0a0a',
             }}
           >
             {isIndex ? (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: '#fff' }}>DIA</span>
-                  <div style={{ width: '20px', height: '2px', backgroundColor: '#FFFFFF' }} />
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '2px',
-                      background:
-                        'repeating-linear-gradient(90deg, #FFFFFF 0px, #FFFFFF 3px, transparent 3px, transparent 6px)',
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: '#00C853' }}>SPY</span>
-                  <div style={{ width: '20px', height: '2px', backgroundColor: '#00C853' }} />
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '2px',
-                      background:
-                        'repeating-linear-gradient(90deg, #00C853 0px, #00C853 3px, transparent 3px, transparent 6px)',
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: '#2196F3' }}>QQQ</span>
-                  <div style={{ width: '20px', height: '2px', backgroundColor: '#2196F3' }} />
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '2px',
-                      background:
-                        'repeating-linear-gradient(90deg, #2196F3 0px, #2196F3 3px, transparent 3px, transparent 6px)',
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: '#FF5722' }}>IWM</span>
-                  <div style={{ width: '20px', height: '2px', backgroundColor: '#FF5722' }} />
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '2px',
-                      background:
-                        'repeating-linear-gradient(90deg, #FF5722 0px, #FF5722 3px, transparent 3px, transparent 6px)',
-                    }}
-                  />
-                </div>
+                {[
+                  { label: 'DIA', solid: '#FFFFFF', dash: '#FFFFFF' },
+                  { label: 'SPY', solid: '#00C853', dash: '#00C853' },
+                  { label: 'QQQ', solid: '#2196F3', dash: '#2196F3' },
+                  { label: 'IWM', solid: '#FF5722', dash: '#FF5722' },
+                ].map(({ label, solid, dash }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: solid }}>{label}</span>
+                    <div style={{ width: '14px', height: '2px', backgroundColor: solid }} />
+                    <div
+                      style={{
+                        width: '14px',
+                        height: '2px',
+                        background: `repeating-linear-gradient(90deg,${dash} 0px,${dash} 3px,transparent 3px,transparent 6px)`,
+                      }}
+                    />
+                  </div>
+                ))}
               </>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ color: '#fff' }}>{symbol}</span>
-                <div style={{ width: '20px', height: '2px', backgroundColor: '#FFFFFF' }} />
+                <div style={{ width: '14px', height: '2px', backgroundColor: '#FFFFFF' }} />
                 <div
                   style={{
-                    width: '20px',
+                    width: '14px',
                     height: '2px',
                     background:
-                      'repeating-linear-gradient(90deg, #FFD700 0px, #FFD700 3px, transparent 3px, transparent 6px)',
+                      'repeating-linear-gradient(90deg,#FFD700 0px,#FFD700 3px,transparent 3px,transparent 6px)',
                   }}
                 />
               </div>
             )}
           </div>
 
-          {/* Divider */}
-          <div style={{ width: '1px', height: '24px', background: '#333' }} />
+          <div className="almanac-ctrl-divider" />
 
           {/* Events Dropdown */}
           <select
@@ -1838,31 +1820,18 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                 setEventPerformanceData([])
               }
             }}
-            style={{
-              padding: '6px 10px',
-              background: '#000000',
-              color: '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '11px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              outline: 'none',
-              width: 'auto',
-              maxWidth: '100px',
-            }}
+            className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`}
           >
-            <option value="">EVENTS</option>
+            <option value="">MARKET EVENTS ▼</option>
             <optgroup label="HOLIDAYS">
               <option value="thanksgiving">THANKSGIVING</option>
               <option value="christmas">CHRISTMAS</option>
-              <option value="newyear">NEWYEAR</option>
-              <option value="presidentsday">PRESIDENTSDAY</option>
-              <option value="mlkday">MLKDAY</option>
-              <option value="memorialday">MEMORIALDAY</option>
-              <option value="july4th">JULY4TH</option>
-              <option value="laborday">LABORDAY</option>
+              <option value="newyear">NEW YEAR</option>
+              <option value="presidentsday">PRESIDENTS DAY</option>
+              <option value="mlkday">MLK DAY</option>
+              <option value="memorialday">MEMORIAL DAY</option>
+              <option value="july4th">JULY 4TH</option>
+              <option value="laborday">LABOR DAY</option>
             </optgroup>
             <optgroup label="FOMC MEETINGS">
               <option value="fomc-march">FOMC MARCH</option>
@@ -1881,10 +1850,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               <option value="q2-earnings">Q2 EARNINGS</option>
               <option value="q3-earnings">Q3 EARNINGS</option>
               <option value="q4-earnings">Q4 EARNINGS</option>
-              <option value="yearendrally">YEARENDRALLY</option>
-              <option value="halloweenrally">HALLOWEENRALLY</option>
-              <option value="santarally">SANTARALLY</option>
-              <option value="monthlyopex">MONTHLYOPEX</option>
+              <option value="yearendrally">YEAR END RALLY</option>
+              <option value="halloweenrally">HALLOWEEN RALLY</option>
+              <option value="santarally">SANTA RALLY</option>
+              <option value="monthlyopex">MONTHLY OPEX</option>
             </optgroup>
           </select>
 
@@ -1898,44 +1867,83 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                 setSelectedPattern(patternLabel)
                 setShowPatternPerformance(true)
                 setShowEventPerformance(false)
-                calculatePatternPerformance(patternValue, patternLabel, symbol)
+                setPatternPerformanceData([])
+                // BOTH options — calculate cooldown + annual together
+                const bothMap: Record<string, [string, string, string, string]> = {
+                  '52week-high-both': [
+                    '52week-high-cooldown',
+                    '52W High (90d Cooldown)',
+                    '52week-high-annual',
+                    '52W High (Annual)',
+                  ],
+                  '52week-low-both': [
+                    '52week-low-cooldown',
+                    '52W Low (90d Cooldown)',
+                    '52week-low-annual',
+                    '52W Low (Annual)',
+                  ],
+                  'move-8-11-up-both': [
+                    'move-8-11-up-cooldown',
+                    '8-11% UP (90d Cooldown)',
+                    'move-8-11-up-annual',
+                    '8-11% UP (Annual)',
+                  ],
+                  'move-8-11-down-both': [
+                    'move-8-11-down-cooldown',
+                    '8-11% DOWN (90d Cooldown)',
+                    'move-8-11-down-annual',
+                    '8-11% DOWN (Annual)',
+                  ],
+                  'move-18-22-up-both': [
+                    'move-18-22-up-cooldown',
+                    '18-22% UP (90d Cooldown)',
+                    'move-18-22-up-annual',
+                    '18-22% UP (Annual)',
+                  ],
+                  'move-18-22-down-both': [
+                    'move-18-22-down-cooldown',
+                    '18-22% DOWN (90d Cooldown)',
+                    'move-18-22-down-annual',
+                    '18-22% DOWN (Annual)',
+                  ],
+                }
+                if (bothMap[patternValue]) {
+                  const [id1, lbl1, id2, lbl2] = bothMap[patternValue]
+                  calculatePatternPerformance(id1, lbl1, symbol)
+                  calculatePatternPerformance(id2, lbl2, symbol)
+                } else {
+                  calculatePatternPerformance(patternValue, patternLabel, symbol)
+                }
               } else {
                 setSelectedPattern(null)
                 setShowPatternPerformance(false)
                 setPatternPerformanceData([])
               }
             }}
-            style={{
-              padding: '6px 10px',
-              background: '#000000',
-              color: '#fff',
-              border: '1px solid #333333',
-              borderRadius: '2px',
-              fontSize: '11px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              outline: 'none',
-              width: 'auto',
-              maxWidth: '110px',
-            }}
+            className={`almanac-ctrl-select${selectedPattern ? ' has-value' : ''}`}
           >
-            <option value="">PATTERNS</option>
+            <option value="">MARKET PATTERNS ▼</option>
             <optgroup label="52-WEEK BREAKOUTS">
+              <option value="52week-high-both">52W High (BOTH)</option>
               <option value="52week-high-cooldown">52W High (90d Cooldown)</option>
               <option value="52week-high-annual">52W High (Annual)</option>
+              <option value="52week-low-both">52W Low (BOTH)</option>
               <option value="52week-low-cooldown">52W Low (90d Cooldown)</option>
               <option value="52week-low-annual">52W Low (Annual)</option>
             </optgroup>
             <optgroup label="8-11% MOVES">
+              <option value="move-8-11-up-both">8-11% UP (BOTH)</option>
               <option value="move-8-11-up-cooldown">8-11% UP (90d Cooldown)</option>
               <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
+              <option value="move-8-11-down-both">8-11% DOWN (BOTH)</option>
               <option value="move-8-11-down-cooldown">8-11% DOWN (90d Cooldown)</option>
               <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
             </optgroup>
             <optgroup label="18-22% MOVES">
+              <option value="move-18-22-up-both">18-22% UP (BOTH)</option>
               <option value="move-18-22-up-cooldown">18-22% UP (90d Cooldown)</option>
               <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
+              <option value="move-18-22-down-both">18-22% DOWN (BOTH)</option>
               <option value="move-18-22-down-cooldown">18-22% DOWN (90d Cooldown)</option>
               <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
             </optgroup>

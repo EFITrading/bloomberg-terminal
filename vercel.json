@@ -38,22 +38,14 @@
     "src/app/api/iv-history/route.ts": {
       "maxDuration": 300
     },
-    "src/app/api/spx-debug/route.ts": {
-      "maxDuration": 300
-    },
     "src/app/api/spx-fix/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/spx-test/route.ts": {
       "maxDuration": 300
     }
   },
   "installCommand": "npm install",
   "buildCommand": "npm run vercel-build",
   "devCommand": "npm run dev",
-  "regions": [
-    "iad1"
-  ],
+  "regions": ["iad1"],
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },

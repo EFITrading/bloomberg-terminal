@@ -1,6 +1,7 @@
 'use client'
 
 import AlmanacDailyChart from '@/components/analytics/AlmanacDailyChart'
+import HistoricalEventsResearch from '@/components/analytics/HistoricalEventsResearch'
 import SeasonalityChart from '@/components/analytics/SeasonalityChart'
 import SeasonaxLanding from '@/components/seasonax/SeasonaxLanding'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -29,8 +30,17 @@ export default function DataDriven() {
             <div style={{ minWidth: 0, width: '100%' }}>
               <SeasonalityChart autoStart={true} hideScreener={true} />
             </div>
-            <div style={{ minWidth: 0 }}>
-              <SeasonaxLanding />
+            <div
+              style={{
+                minWidth: 0,
+                marginTop: '-75px',
+                height: 'calc(94vh - 40px)',
+                overflow: 'hidden',
+                border: '1px solid #B8960C',
+                outline: '1px solid rgba(184,150,12,0.4)',
+              }}
+            >
+              <HistoricalEventsResearch />
             </div>
           </div>
         </div>

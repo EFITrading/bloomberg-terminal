@@ -8,7 +8,6 @@ import HVScreener from '@/components/HVScreener'
 import LeadershipScan from '@/components/LeadershipScan'
 import RRGScreener from '@/components/RRGScreener'
 import RSScreener from '@/components/RSScreener'
-import HistoricalEventsResearch from '@/components/analytics/HistoricalEventsResearch'
 import IVRRGAnalytics from '@/components/analytics/IVRRGAnalytics'
 import MarketCycleIndicator from '@/components/analytics/MarketCycleIndicator'
 import MarketHeatmap from '@/components/analytics/MarketHeatmap'
@@ -21,6 +20,10 @@ import '../terminal.css'
 import './analytics-tabs.css'
 
 const StraddleTownScreener = dynamic(() => import('@/components/analytics/StraddleTownScreener'), {
+  ssr: false,
+})
+
+const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScanner'), {
   ssr: false,
 })
 
@@ -100,16 +103,16 @@ export default function Analytics() {
             <MarketCycleIndicator />
           </div>
         )
-      case 'historical-events':
-        return (
-          <div key={id} style={panelStyle}>
-            <HistoricalEventsResearch />
-          </div>
-        )
       case 'straddle-town':
         return (
           <div key={id} style={{ ...panelStyle, minHeight: '900px' }}>
             <StraddleTownScreener />
+          </div>
+        )
+      case 'buy-sell-scanner':
+        return (
+          <div key={id} style={{ ...panelStyle, minHeight: '100vh' }}>
+            <BuySellScanner />
           </div>
         )
       default:
@@ -363,31 +366,6 @@ export default function Analytics() {
           />
         </svg>
       ),
-      'historical-events': (
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <rect
-            x="3"
-            y="4"
-            width="18"
-            height="16"
-            rx="2"
-            stroke="#60a5fa"
-            strokeWidth="1.5"
-            fill="none"
-            opacity="0.4"
-          />
-          <path d="M8 2L8 6 M16 2L16 6" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" />
-          <path d="M3 10L21 10" stroke="#60a5fa" strokeWidth="1.5" opacity="0.5" />
-          <rect x="7" y="13" width="3" height="3" rx="0.5" fill="#60a5fa" opacity="0.7" />
-          <rect x="12" y="13" width="3" height="3" rx="0.5" fill="#60a5fa" opacity="0.7" />
-        </svg>
-      ),
       'straddle-town': (
         <svg
           width="24"
@@ -415,6 +393,42 @@ export default function Analytics() {
           />
           <circle cx="6" cy="19" r="1.5" fill="#00FF88" opacity="0.8" />
           <circle cx="18" cy="19" r="1.5" fill="#FF4060" opacity="0.8" />
+        </svg>
+      ),
+      'buy-sell-scanner': (
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M4 18L10 10L14 14L20 6"
+            stroke="#00ff00"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="20" cy="6" r="2" fill="#00ff00" />
+          <path
+            d="M4 12L8 16L12 10L18 18"
+            stroke="#ff3232"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="3 2"
+          />
+          <circle cx="18" cy="18" r="2" fill="#ff3232" />
+          <line
+            x1="3"
+            y1="12"
+            x2="21"
+            y2="12"
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+          />
         </svg>
       ),
     }
@@ -605,8 +619,8 @@ export default function Analytics() {
           <TabButton id="heatmap" label="Heatmap" />
           <TabButton id="screeners" label="Screeners" />
           <TabButton id="market-cycle" label="Market Cycle" />
-          <TabButton id="historical-events" label="Historical Events" />
           <TabButton id="straddle-town" label="Straddle Town" />
+          <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}

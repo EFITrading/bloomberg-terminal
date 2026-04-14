@@ -370,16 +370,36 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const isInitialMount = useRef(true)
 
   useEffect(() => {
+    console.log('[SeasonalityChart] useEffect[selectedSymbol] fired:', {
+      selectedSymbol,
+      autoStart,
+      isInitialMount: isInitialMount.current,
+    })
     if (isInitialMount.current) {
       isInitialMount.current = false
       // Only auto-scan on mount when autoStart=true AND we have a symbol
       if (autoStart && selectedSymbol) {
+        console.log(
+          '[SeasonalityChart] autoStart: calling loadSeasonalAnalysis for',
+          selectedSymbol
+        )
         loadSeasonalAnalysis(selectedSymbol)
+      } else {
+        console.log(
+          '[SeasonalityChart] autoStart skipped — autoStart:',
+          autoStart,
+          'selectedSymbol:',
+          selectedSymbol
+        )
       }
       return
     }
     // Subsequent symbol changes: always scan if symbol is set
     if (selectedSymbol) {
+      console.log(
+        '[SeasonalityChart] symbol changed: calling loadSeasonalAnalysis for',
+        selectedSymbol
+      )
       loadSeasonalAnalysis(selectedSymbol)
     }
   }, [selectedSymbol])
@@ -470,11 +490,21 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
     yearsOverride?: number
   ) => {
+    console.log(
+      '[SeasonalityChart] loadElectionCycleAnalysis START — symbol:',
+      symbol,
+      'type:',
+      electionType
+    )
     setLoading(true)
     setError(null)
 
     try {
       const yearsToUse = yearsOverride ?? chartSettings.yearsOfData
+      console.log(
+        '[SeasonalityChart] calling analyzeElectionCycleSeasonality, yearsToUse:',
+        Math.min(yearsToUse, 20)
+      )
 
       const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
         symbol,
@@ -482,6 +512,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         Math.min(yearsToUse, 20) // Use the override or current setting
       )
 
+      console.log(
+        '[SeasonalityChart] electionResult:',
+        electionResult ? 'OK dailyData length: ' + electionResult?.dailyData?.length : 'null'
+      )
       if (electionResult) {
         setElectionData(electionResult)
       } else {
@@ -489,14 +523,22 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load election cycle data'
+      console.error('[SeasonalityChart] CATCH ERROR in loadElectionCycleAnalysis:', err)
       setError(errorMessage)
       console.error('Error loading election cycle data:', err)
     } finally {
+      console.log('[SeasonalityChart] loadElectionCycleAnalysis FINALLY — setting loading=false')
       setLoading(false)
     }
   }
 
   const loadSeasonalAnalysis = async (symbol: string, yearsOverride?: number) => {
+    console.log(
+      '[SeasonalityChart] loadSeasonalAnalysis START — symbol:',
+      symbol,
+      'yearsOverride:',
+      yearsOverride
+    )
     setLoading(true)
     setError(null)
 
@@ -508,9 +550,15 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       let tickerDetails
 
       if (cachedTicker) {
+        console.log('[SeasonalityChart] ticker details from CACHE')
         tickerDetails = cachedTicker
       } else {
+        console.log('[SeasonalityChart] fetching ticker details from API...')
         tickerDetails = await polygonService.getTickerDetails(symbol)
+        console.log(
+          '[SeasonalityChart] ticker details result:',
+          tickerDetails ? 'OK' : 'null/undefined'
+        )
         if (tickerDetails) {
           cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails)
         }
@@ -535,6 +583,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       )
 
       if (cachedHistorical) {
+        console.log(
+          '[SeasonalityChart] historical data from CACHE, results:',
+          cachedHistorical?.results?.length
+        )
         historicalResponse = cachedHistorical
 
         // For SPY comparison
@@ -543,9 +595,18 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr)
           )
           if (cachedSPY) {
+            console.log(
+              '[SeasonalityChart] SPY data from CACHE, results:',
+              cachedSPY?.results?.length
+            )
             spyResponse = cachedSPY
           } else {
+            console.log('[SeasonalityChart] fetching SPY data from API...')
             spyResponse = await polygonService.getHistoricalData('SPY', startDateStr, endDateStr)
+            console.log(
+              '[SeasonalityChart] SPY API response results:',
+              spyResponse?.results?.length
+            )
             if (spyResponse) {
               cache.set(
                 GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr),
@@ -560,19 +621,33 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       } else {
         // Fetch historical data - if symbol is SPY, only fetch SPY data once
         if (symbol.toUpperCase() === 'SPY') {
+          console.log('[SeasonalityChart] fetching SPY data from API...')
           // For SPY, fetch once and use it as both the ticker and comparison
           historicalResponse = await polygonService.getHistoricalData(
             symbol,
             startDateStr,
             endDateStr
           )
+          console.log(
+            '[SeasonalityChart] SPY API response results:',
+            historicalResponse?.results?.length
+          )
           spyResponse = historicalResponse // Use same data for SPY comparison calculations
         } else {
           // For other symbols, fetch both symbol and SPY for comparison
+          console.log('[SeasonalityChart] fetching', symbol, '+ SPY data from API...')
           ;[historicalResponse, spyResponse] = await Promise.all([
             polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
             polygonService.getHistoricalData('SPY', startDateStr, endDateStr),
           ])
+          console.log(
+            '[SeasonalityChart]',
+            symbol,
+            'API results:',
+            historicalResponse?.results?.length,
+            '| SPY API results:',
+            spyResponse?.results?.length
+          )
         }
 
         // Cache the results for next time
@@ -591,6 +666,17 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       }
 
       // Calculate actual years available from data
+      console.log(
+        '[SeasonalityChart] historicalResponse:',
+        historicalResponse
+          ? `results: ${historicalResponse.results?.length}`
+          : 'NULL/UNDEFINED \u26a0\ufe0f'
+      )
+      if (!historicalResponse) {
+        throw new Error(
+          'API returned no response for ' + symbol + ' \u2014 check Polygon API key or network'
+        )
+      }
       if (historicalResponse.results && historicalResponse.results.length > 0) {
         const firstDate = new Date(historicalResponse.results[0].t)
         const lastDate = new Date(
@@ -672,6 +758,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         actualYearsUsed
       )
 
+      console.log(
+        '[SeasonalityChart] processedData dailyData length:',
+        processedData?.dailyData?.length
+      )
       setSeasonalData(processedData)
 
       // Auto-apply pre-selected sweet spot / pain point
@@ -693,9 +783,11 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data'
+      console.error('[SeasonalityChart] CATCH ERROR in loadSeasonalAnalysis:', err)
       setError(errorMessage)
       console.error('Error loading seasonal data:', err)
     } finally {
+      console.log('[SeasonalityChart] loadSeasonalAnalysis FINALLY — setting loading=false')
       setLoading(false)
     }
   }
@@ -1451,7 +1543,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
   const memoizedScreener = useMemo(() => <MemoizedScreenerWrapper />, []) // Empty dependency array - only mount once
 
-  if (!seasonalData || !selectedSymbol) {
+  // Symbol set but still loading — show spinner
+  if (selectedSymbol && !seasonalData && loading) {
     return (
       <div className="seasonality-chart-container">
         <div
@@ -1464,15 +1557,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           }}
         >
           <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '16px',
-            }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}
           >
             <div
-              className="loading-spinner"
               style={{
                 width: '48px',
                 height: '48px',
@@ -1482,19 +1569,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                 animation: 'spin 1s linear infinite',
               }}
             ></div>
-            <style>{`
-                            @keyframes spin {
-                                0% { transform: rotate(0deg); }
-                                100% { transform: rotate(360deg); }
-                            }
-                        `}</style>
-            <p
-              style={{
-                color: '#888',
-                fontSize: '14px',
-                fontWeight: '500',
-              }}
-            >
+            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            <p style={{ color: '#888', fontSize: '14px', fontWeight: '500' }}>
               Loading seasonal data...
             </p>
           </div>
@@ -1859,7 +1935,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               {!hideMonthlyReturns && memoizedMonthlyChart}
             </div>
 
-            {/* Right column: Screener */}
+            {/* Right column: Screener when not hidden */}
             {!hideScreener && memoizedScreener}
           </div>
         </>
