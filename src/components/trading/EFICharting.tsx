@@ -115,15 +115,15 @@ interface RegimeAnalysis {
   defensiveGrowthSpread: number
   spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK'
   regime:
-    | 'STRONG DEFENSIVE'
-    | 'MODERATE DEFENSIVE'
-    | 'DEFENSIVE + VALUE'
-    | 'RISK ON'
-    | 'STRONG RISK ON'
-    | 'GROWTH + RISK ON'
-    | 'VALUE'
-    | 'MIXED'
-    | 'RISK OFF'
+  | 'STRONG DEFENSIVE'
+  | 'MODERATE DEFENSIVE'
+  | 'DEFENSIVE + VALUE'
+  | 'RISK ON'
+  | 'STRONG RISK ON'
+  | 'GROWTH + RISK ON'
+  | 'VALUE'
+  | 'MIXED'
+  | 'RISK OFF'
   confidence: number
   defensiveSectors: SectorAnalysis[]
   growthSectors: SectorAnalysis[]
@@ -265,24 +265,24 @@ interface PriceAlert {
   symbol: string
   price: number
   condition:
-    | 'above'
-    | 'below'
-    | 'crossesAbove'
-    | 'crossesBelow'
-    | 'closeAbove5m'
-    | 'closeAbove15m'
-    | 'closeAbove30m'
-    | 'closeAbove1h'
-    | 'closeAbove4h'
-    | 'closeAbove1d'
-    | 'closeBelow5m'
-    | 'closeBelow15m'
-    | 'closeBelow30m'
-    | 'closeBelow1h'
-    | 'closeBelow4h'
-    | 'closeBelow1d'
-    | 'staysInRange'
-    | 'breaksOutOfRange'
+  | 'above'
+  | 'below'
+  | 'crossesAbove'
+  | 'crossesBelow'
+  | 'closeAbove5m'
+  | 'closeAbove15m'
+  | 'closeAbove30m'
+  | 'closeAbove1h'
+  | 'closeAbove4h'
+  | 'closeAbove1d'
+  | 'closeBelow5m'
+  | 'closeBelow15m'
+  | 'closeBelow30m'
+  | 'closeBelow1h'
+  | 'closeBelow4h'
+  | 'closeBelow1d'
+  | 'staysInRange'
+  | 'breaksOutOfRange'
   message: string
   triggered: boolean
   createdAt: Date
@@ -749,11 +749,10 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
-                : 'text-[#868993] hover:text-white'
-            }`}
+            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === tab.id
+              ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
+              : 'text-[#868993] hover:text-white'
+              }`}
           >
             <span className="mr-1">{tab.icon}</span>
             {tab.label}
@@ -1076,11 +1075,10 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
                   <button
                     key={align.value}
                     onClick={() => updateText({ textAlign: align.value as any })}
-                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
-                      (selectedDrawing.richText?.textAlign || 'left') === align.value
-                        ? 'bg-[#2962ff] text-white'
-                        : 'bg-[#1e222d] text-[#868993] hover:text-white'
-                    }`}
+                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${(selectedDrawing.richText?.textAlign || 'left') === align.value
+                      ? 'bg-[#2962ff] text-white'
+                      : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                      }`}
                   >
                     {align.icon}
                   </button>
@@ -3477,6 +3475,7 @@ interface TradingViewChartProps {
   onTimeframeChange?: (timeframe: string) => void
   lwToolbarPosition?: 'top' | 'left'
   disableSidebarAutoScan?: boolean
+  initialShowBuySell?: boolean
 }
 
 // ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
@@ -3552,7 +3551,7 @@ export function TradePopupChart({
           stateRef.current = { offset: 0, barsVisible: Math.min(defaultBars, prices.length) }
         }
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setFetching(false))
   }, [symbol, timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4580,11 +4579,11 @@ function TradeDetailPopup({
                       transition: 'background 0.1s',
                     }}
                     onMouseEnter={(e) => {
-                      ;(e.currentTarget as HTMLDivElement).style.background =
+                      ; (e.currentTarget as HTMLDivElement).style.background =
                         'rgba(255,255,255,0.08)'
                     }}
                     onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLDivElement).style.background =
+                      ; (e.currentTarget as HTMLDivElement).style.background =
                         activeSymbol === peer.symbol ? 'rgba(255,255,255,0.1)' : '#000000'
                     }}
                   >
@@ -4649,10 +4648,10 @@ function TradeDetailPopup({
                 label: 'Expiry',
                 value: trade.expiration
                   ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      timeZone: 'UTC',
-                    })
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: 'UTC',
+                  })
                   : 'N/A',
                 color: '#ffffff',
               },
@@ -5023,6 +5022,7 @@ export default function TradingViewChart({
   onTimeframeChange,
   lwToolbarPosition = 'top',
   disableSidebarAutoScan = false,
+  initialShowBuySell = false,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
@@ -6417,7 +6417,7 @@ export default function TradingViewChart({
             const benchmarkPastIV =
               (benchmarkHistory![i - actualLookback]?.callIV +
                 benchmarkHistory![i - actualLookback]?.putIV) /
-                2 || 1
+              2 || 1
 
             // RS-Ratio: (Current IV / Benchmark IV)
             rsRatio = (currentIV / benchmarkIV) * 100
@@ -9215,7 +9215,7 @@ export default function TradingViewChart({
           returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
         )
 
-        allReturns.forEach((returns, idx) => {})
+        allReturns.forEach((returns, idx) => { })
 
         const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1]?.close : 0
 
@@ -9381,7 +9381,7 @@ export default function TradingViewChart({
   const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false)
 
   // BUY/SELL Indicator state
-  const [showBuySellIndicator, setShowBuySellIndicator] = useState(false)
+  const [showBuySellIndicator, setShowBuySellIndicator] = useState(initialShowBuySell)
   const [buySellData, setBuySellData] = useState<
     Array<{ date: string; score: number; smoothed: number; signal: number }>
   >([])
@@ -10939,10 +10939,10 @@ export default function TradingViewChart({
           )
           if (snapRes.ok) {
             const snapJson = await snapRes.json()
-            ;((snapJson.tickers as any[]) || []).forEach((t: any) => {
-              const p = t.day?.c || t.prevDay?.c
-              if (p) priceMap[t.ticker] = p
-            })
+              ; ((snapJson.tickers as any[]) || []).forEach((t: any) => {
+                const p = t.day?.c || t.prevDay?.c
+                if (p) priceMap[t.ticker] = p
+              })
           }
         } catch {
           /* ignore */
@@ -11058,10 +11058,10 @@ export default function TradingViewChart({
       )
       if (snapRes.ok) {
         const snapJson = await snapRes.json()
-        ;((snapJson.tickers as any[]) || []).forEach((t: any) => {
-          const p = t.day?.c || t.prevDay?.c
-          if (p) priceMap[t.ticker] = p
-        })
+          ; ((snapJson.tickers as any[]) || []).forEach((t: any) => {
+            const p = t.day?.c || t.prevDay?.c
+            if (p) priceMap[t.ticker] = p
+          })
       }
     } catch {
       /* ignore */
@@ -11394,7 +11394,7 @@ export default function TradingViewChart({
     fetchAllData()
 
     // No polling interval — WebSocket AM.* keeps prices live
-    return () => {}
+    return () => { }
   }, [])
 
   // Clear Tracking data when timeframe changes
@@ -11700,8 +11700,8 @@ export default function TradingViewChart({
                   const score = (hasIV ? 1000 : 0) - strikeDiff - distanceFromATM * 0.1
                   const currentBestScore = bestOption
                     ? ((bestOption as any).implied_volatility ? 1000 : 0) -
-                      Math.abs(bestOption.strike_price - targetStrike) -
-                      Math.abs(bestOption.strike_price - currentPrice) * 0.1
+                    Math.abs(bestOption.strike_price - targetStrike) -
+                    Math.abs(bestOption.strike_price - currentPrice) * 0.1
                     : -9999
 
                   if (!bestOption || score > currentBestScore) {
@@ -12145,15 +12145,15 @@ export default function TradingViewChart({
           const bestBullish =
             scoredBullish.length > 0
               ? scoredBullish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
+                curr.score > best.score ? curr : best
+              )
               : null
 
           const bestBearish =
             scoredBearish.length > 0
               ? scoredBearish.reduce((best: any, curr: any) =>
-                  curr.score > best.score ? curr : best
-                )
+                curr.score > best.score ? curr : best
+              )
               : null
 
           // Industry leaders (purple highlights)
@@ -12751,6 +12751,8 @@ export default function TradingViewChart({
     // Build the list by walking backwards from today, skipping weekends.
     const todayUtc = new Date()
     todayUtc.setUTCHours(0, 0, 0, 0)
+    const todayStr = todayUtc.toISOString().split('T')[0]
+    const SESSION_PREFIX = `poi_dp_${config.symbol}_`
     const daysToShow: string[] = []
     const cursor = new Date(todayUtc)
     while (daysToShow.length < 90) {
@@ -12760,6 +12762,17 @@ export default function TradingViewChart({
       daysToShow.unshift(cursor.toISOString().split('T')[0])
     }
     if (daysToShow.length === 0) return
+
+    // Pre-populate in-memory cache from sessionStorage — historical days are immutable.
+    // Today's partial day is excluded so live data always re-fetches.
+    for (const dk of daysToShow) {
+      if (dk !== todayStr && !(dk in darkPoolCacheRef.current)) {
+        try {
+          const raw = sessionStorage.getItem(SESSION_PREFIX + dk)
+          if (raw) darkPoolCacheRef.current[dk] = JSON.parse(raw)
+        } catch { /* quota or parse error */ }
+      }
+    }
 
     // Days not yet in cache need to be fetched; days already cached can be served immediately.
     const daysToFetch = daysToShow.filter((dk) => !(dk in darkPoolCacheRef.current))
@@ -12902,7 +12915,7 @@ export default function TradingViewChart({
       // Keep CONCURRENCY fetches in-flight at all times. A slow day (25 pages)
       // never blocks fast days (1 page) — workers just pull the next item from the queue.
       // Results stream into state progressively so bubbles appear as days finish.
-      const CONCURRENCY = 10
+      const CONCURRENCY = 35
       const queue = [...dayCandles]
       const total = dayCandles.length
       let done = 0
@@ -12913,6 +12926,10 @@ export default function TradingViewChart({
           const r = await fetchDayAll(candle)
           if (r && !aborted) {
             darkPoolCacheRef.current[r.dateKey] = r.result
+            // Persist to sessionStorage — skip today since it changes intraday
+            if (r.dateKey !== todayStr) {
+              try { sessionStorage.setItem(SESSION_PREFIX + r.dateKey, JSON.stringify(r.result)) } catch { /* quota */ }
+            }
             done++
             setDarkPoolProgress(Math.round((done / total) * 100))
             // Progressive render — push partial results to chart immediately
@@ -13536,14 +13553,14 @@ export default function TradingViewChart({
 
           // Prefetch other timeframes for current symbol
           otherTimeframes.forEach((tf) => {
-            cache.getOrFetch(sym, tf, () => fetchSymbolData(sym, tf)).catch(() => {})
+            cache.getOrFetch(sym, tf, () => fetchSymbolData(sym, tf)).catch(() => { })
           })
 
           // Prefetch current timeframe for related symbols
           relatedSymbols.slice(0, 2).forEach((relSym) => {
             cache
               .getOrFetch(relSym, timeframe, () => fetchSymbolData(relSym, timeframe))
-              .catch(() => {})
+              .catch(() => { })
           })
         }, 100)
       } catch (error) {
@@ -13751,9 +13768,9 @@ export default function TradingViewChart({
 
     // Enable crisp rendering for sharp lines and shapes
     ctx.imageSmoothingEnabled = false
-    ;(ctx as any).webkitImageSmoothingEnabled = false
-    ;(ctx as any).mozImageSmoothingEnabled = false
-    ;(ctx as any).msImageSmoothingEnabled = false
+      ; (ctx as any).webkitImageSmoothingEnabled = false
+      ; (ctx as any).mozImageSmoothingEnabled = false
+      ; (ctx as any).msImageSmoothingEnabled = false
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height)
@@ -14028,7 +14045,7 @@ export default function TradingViewChart({
   }, [renderOverlay])
 
   // Debug: Monitor drawings state changes
-  useEffect(() => {}, [drawings])
+  useEffect(() => { }, [drawings])
 
   // Keyboard shortcuts for TradingView-like functionality
   useEffect(() => {
@@ -14450,9 +14467,9 @@ export default function TradingViewChart({
 
     // Enable crisp rendering for sharp lines and shapes
     ctx.imageSmoothingEnabled = false
-    ;(ctx as any).webkitImageSmoothingEnabled = false
-    ;(ctx as any).mozImageSmoothingEnabled = false
-    ;(ctx as any).msImageSmoothingEnabled = false
+      ; (ctx as any).webkitImageSmoothingEnabled = false
+      ; (ctx as any).mozImageSmoothingEnabled = false
+      ; (ctx as any).msImageSmoothingEnabled = false
 
     // Clear canvas with pure black background (force override)
     ctx.fillStyle = '#000000'
@@ -14870,7 +14887,7 @@ export default function TradingViewChart({
       if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true) // Purple dashed
       if (isSeasonalEventActive) {
         if (seasonalEventData) {
-          seasonalEventData.forEach((pt, idx) => {})
+          seasonalEventData.forEach((pt, idx) => { })
         }
         drawSeasonalLine(seasonalEventData, '#00FF00', true, selectedSeasonalEvent || undefined) // Green dashed
       }
@@ -15332,10 +15349,10 @@ export default function TradingViewChart({
       visibleData,
       chartWidth,
       priceChartHeight +
-        actualFlowChartHeight +
-        actualEventPanelHeight +
-        actualIVPanelHeight +
-        actualBuySellPanelHeight,
+      actualFlowChartHeight +
+      actualEventPanelHeight +
+      actualIVPanelHeight +
+      actualBuySellPanelHeight,
       visibleCandleCount,
       width,
       volumeAreaHeight,
@@ -16558,17 +16575,17 @@ export default function TradingViewChart({
     ctx.lineWidth = 1
     ctx.font = '10px monospace'
     ctx.textAlign = 'right'
-    ;[30, 50, 70].forEach((level) => {
-      const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
-      ctx.beginPath()
-      ctx.moveTo(40, y)
-      ctx.lineTo(chartWidth - 40, y)
-      ctx.stroke()
+      ;[30, 50, 70].forEach((level) => {
+        const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
+        ctx.beginPath()
+        ctx.moveTo(40, y)
+        ctx.lineTo(chartWidth - 40, y)
+        ctx.stroke()
 
-      // Draw level labels
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
-      ctx.fillText(level.toString(), chartWidth - 45, y + 3)
-    })
+        // Draw level labels
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+        ctx.fillText(level.toString(), chartWidth - 45, y + 3)
+      })
 
     // Calculate visible data range
     const dataStartIndex = 14 // RSI needs 14 periods to calculate
@@ -18086,7 +18103,7 @@ export default function TradingViewChart({
         lastY: y,
         lastTimestamp: performance.now(),
       }
-      ;(e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
+        ; (e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
     },
     [
       drawings,
@@ -18230,15 +18247,15 @@ export default function TradingViewChart({
           visible: true,
           ohlc: closestCandle
             ? {
-                open: closestCandle.open,
-                high: closestCandle.high,
-                low: closestCandle.low,
-                close: closestCandle.close,
-                change: closestCandle.close - closestCandle.open,
-                changePercent:
-                  ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100,
-                volume: closestCandle.volume,
-              }
+              open: closestCandle.open,
+              high: closestCandle.high,
+              low: closestCandle.low,
+              close: closestCandle.close,
+              change: closestCandle.close - closestCandle.open,
+              changePercent:
+                ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100,
+              volume: closestCandle.volume,
+            }
             : undefined,
         })
       }
@@ -18446,7 +18463,7 @@ export default function TradingViewChart({
 
         try {
           if ((e as any).pointerId !== undefined) {
-            ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture((e as any).pointerId)
+            ; (e.currentTarget as HTMLCanvasElement).releasePointerCapture((e as any).pointerId)
           }
         } catch (err) {
           // Pointer capture not available, continue without it
@@ -18536,7 +18553,7 @@ export default function TradingViewChart({
 
           // PREVENT the editor from being closed immediately
           // Add a flag to prevent auto-closing for a few seconds
-          setTimeout(() => {}, 3000)
+          setTimeout(() => { }, 3000)
 
           return
         }
@@ -18780,8 +18797,8 @@ export default function TradingViewChart({
     const metadata: DrawingMetadata = {}
 
     switch (
-      toolType
-      // Pattern-specific metadata removed
+    toolType
+    // Pattern-specific metadata removed
     ) {
     }
 
@@ -19154,7 +19171,7 @@ export default function TradingViewChart({
     canvas.style.cursor = 'default'
   }
 
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {}
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => { }
 
   // Helper function to draw arrow heads
   const drawArrowHead = (
@@ -20222,13 +20239,12 @@ export default function TradingViewChart({
                           {/* Flow Score */}
                           <div className="hidden md:flex bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-0.5 items-center justify-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
                             <span
-                              className={`font-mono font-bold md:text-base text-[9px] ${
-                                (data.score ?? 0) >= 60
-                                  ? 'text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]'
-                                  : (data.score ?? 0) >= 40
-                                    ? 'text-yellow-400'
-                                    : 'text-red-400'
-                              }`}
+                              className={`font-mono font-bold md:text-base text-[9px] ${(data.score ?? 0) >= 60
+                                ? 'text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]'
+                                : (data.score ?? 0) >= 40
+                                  ? 'text-yellow-400'
+                                  : 'text-red-400'
+                                }`}
                             >
                               {data.score ?? '--'}
                             </span>
@@ -20275,11 +20291,10 @@ export default function TradingViewChart({
                       setTrackingTimeframe(tf)
                       setTrackingData({})
                     }}
-                    className={`px-3 py-1.5 md:px-5 md:py-2.5 text-xs md:text-sm font-bold rounded-md transition-all border ${
-                      trackingTimeframe === tf
-                        ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
-                        : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
-                    }`}
+                    className={`px-3 py-1.5 md:px-5 md:py-2.5 text-xs md:text-sm font-bold rounded-md transition-all border ${trackingTimeframe === tf
+                      ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
+                      : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
+                      }`}
                   >
                     {tf}
                   </button>
@@ -20425,8 +20440,8 @@ export default function TradingViewChart({
 
                                         const prevDayY = data.previousDayClose
                                           ? padding +
-                                            ((maxPrice - data.previousDayClose) / priceRange) *
-                                              chartHeight
+                                          ((maxPrice - data.previousDayClose) / priceRange) *
+                                          chartHeight
                                           : null
 
                                         // Only show shading for 1D timeframe (intraday data)
@@ -20589,14 +20604,14 @@ export default function TradingViewChart({
                                           const openPercent =
                                             marketOpenIndex >= 0
                                               ? (marketOpenIndex /
-                                                  (data.sparklineData.length - 1)) *
-                                                100
+                                                (data.sparklineData.length - 1)) *
+                                              100
                                               : 0
                                           const closePercent =
                                             marketCloseIndex >= 0
                                               ? (marketCloseIndex /
-                                                  (data.sparklineData.length - 1)) *
-                                                100
+                                                (data.sparklineData.length - 1)) *
+                                              100
                                               : 100
 
                                           return (
@@ -22298,10 +22313,10 @@ export default function TradingViewChart({
                                                 .filter(
                                                   (_, i) =>
                                                     i %
-                                                      Math.max(
-                                                        1,
-                                                        Math.floor(optionPremiumData.length / 20)
-                                                      ) ===
+                                                    Math.max(
+                                                      1,
+                                                      Math.floor(optionPremiumData.length / 20)
+                                                    ) ===
                                                     0
                                                 )
                                                 .map((d, i) => {
@@ -22314,12 +22329,12 @@ export default function TradingViewChart({
                                                   const x =
                                                     marginLeft +
                                                     (idx / (optionPremiumData.length - 1)) *
-                                                      plotWidth
+                                                    plotWidth
                                                   const y =
                                                     marginTop +
                                                     (plotHeight -
                                                       ((d.price - minPrice) / priceRange) *
-                                                        plotHeight)
+                                                      plotHeight)
                                                   return (
                                                     <circle
                                                       key={i}
@@ -22567,7 +22582,7 @@ export default function TradingViewChart({
                                                   marginTop +
                                                   (plotHeight -
                                                     ((stockData[i].price - minPrice) / priceRange) *
-                                                      plotHeight)
+                                                    plotHeight)
                                                 segmentPoints.push(`${x},${y}`)
                                               } else if (segmentPoints.length > 0) {
                                                 // End of market hours segment
@@ -22696,10 +22711,10 @@ export default function TradingViewChart({
                                                 .filter(
                                                   (_, i) =>
                                                     i %
-                                                      Math.max(
-                                                        1,
-                                                        Math.floor(stockData.length / 20)
-                                                      ) ===
+                                                    Math.max(
+                                                      1,
+                                                      Math.floor(stockData.length / 20)
+                                                    ) ===
                                                     0
                                                 )
                                                 .map((d, i) => {
@@ -22713,7 +22728,7 @@ export default function TradingViewChart({
                                                     marginTop +
                                                     (plotHeight -
                                                       ((d.price - minPrice) / priceRange) *
-                                                        plotHeight)
+                                                      plotHeight)
                                                   return (
                                                     <circle
                                                       key={i}
@@ -22869,7 +22884,7 @@ export default function TradingViewChart({
                                         const xScale = (i: number) =>
                                           margin.left +
                                           (i / Math.max(1, optionPremiumData.length - 1)) *
-                                            chartWidth
+                                          chartWidth
                                         const yScale = (price: number) =>
                                           margin.top +
                                           chartHeight -
@@ -22989,10 +23004,10 @@ export default function TradingViewChart({
                                               .filter(
                                                 (_, i) =>
                                                   i %
-                                                    Math.max(
-                                                      1,
-                                                      Math.floor(optionPremiumData.length / 30)
-                                                    ) ===
+                                                  Math.max(
+                                                    1,
+                                                    Math.floor(optionPremiumData.length / 30)
+                                                  ) ===
                                                   0
                                               )
                                               .map((d, i) => {
@@ -23347,10 +23362,10 @@ export default function TradingViewChart({
                                               .filter(
                                                 (_, i) =>
                                                   i %
-                                                    Math.max(
-                                                      1,
-                                                      Math.floor(stockData.length / 30)
-                                                    ) ===
+                                                  Math.max(
+                                                    1,
+                                                    Math.floor(stockData.length / 30)
+                                                  ) ===
                                                   0
                                               )
                                               .map((d, i) => {
@@ -23853,7 +23868,7 @@ export default function TradingViewChart({
                                               color: tabColor,
                                               fontSize:
                                                 typeof window !== 'undefined' &&
-                                                window.innerWidth <= 768
+                                                  window.innerWidth <= 768
                                                   ? '0.525rem'
                                                   : '0.75rem',
                                             }}
@@ -23870,7 +23885,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: tickerColor,
@@ -23889,7 +23904,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: '#00ff00',
@@ -23921,7 +23936,7 @@ export default function TradingViewChart({
                                                 1,
                                                 Math.ceil(
                                                   (expiryDate.getTime() - now.getTime()) /
-                                                    (1000 * 60 * 60 * 24)
+                                                  (1000 * 60 * 60 * 24)
                                                 )
                                               )
                                               const T = daysToExpiry / 365
@@ -24036,12 +24051,12 @@ export default function TradingViewChart({
                                       <span className="text-white">
                                         {trade.expiration
                                           ? new Date(
-                                              trade.expiration + 'T12:00:00'
-                                            ).toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              timeZone: 'UTC',
-                                            })
+                                            trade.expiration + 'T12:00:00'
+                                          ).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            timeZone: 'UTC',
+                                          })
                                           : ''}
                                       </span>
                                     </div>
@@ -24211,7 +24226,7 @@ export default function TradingViewChart({
                                               color: tabColor,
                                               fontSize:
                                                 typeof window !== 'undefined' &&
-                                                window.innerWidth <= 768
+                                                  window.innerWidth <= 768
                                                   ? '0.525rem'
                                                   : '0.75rem',
                                             }}
@@ -24228,7 +24243,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: tickerColor,
@@ -24248,7 +24263,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: '#ff0000',
@@ -24280,7 +24295,7 @@ export default function TradingViewChart({
                                                 1,
                                                 Math.ceil(
                                                   (expiryDate.getTime() - now.getTime()) /
-                                                    (1000 * 60 * 60 * 24)
+                                                  (1000 * 60 * 60 * 24)
                                                 )
                                               )
                                               const T = daysToExpiry / 365
@@ -24394,12 +24409,12 @@ export default function TradingViewChart({
                                       <span className="text-white">
                                         {trade.expiration
                                           ? new Date(
-                                              trade.expiration + 'T12:00:00'
-                                            ).toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              timeZone: 'UTC',
-                                            })
+                                            trade.expiration + 'T12:00:00'
+                                          ).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            timeZone: 'UTC',
+                                          })
                                           : ''}
                                       </span>
                                     </div>
@@ -24580,7 +24595,7 @@ export default function TradingViewChart({
                                               color: tabColor,
                                               fontSize:
                                                 typeof window !== 'undefined' &&
-                                                window.innerWidth <= 768
+                                                  window.innerWidth <= 768
                                                   ? '0.525rem'
                                                   : '0.75rem',
                                             }}
@@ -24595,7 +24610,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: tickerColor,
@@ -24612,7 +24627,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: '#00ff00',
@@ -24640,7 +24655,7 @@ export default function TradingViewChart({
                                                 1,
                                                 Math.ceil(
                                                   (expiryDate.getTime() - now.getTime()) /
-                                                    (1000 * 60 * 60 * 24)
+                                                  (1000 * 60 * 60 * 24)
                                                 )
                                               )
                                               const T = daysToExpiry / 365
@@ -24745,12 +24760,12 @@ export default function TradingViewChart({
                                       <span className="text-white">
                                         {trade.expiration
                                           ? new Date(
-                                              trade.expiration + 'T12:00:00'
-                                            ).toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              timeZone: 'UTC',
-                                            })
+                                            trade.expiration + 'T12:00:00'
+                                          ).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            timeZone: 'UTC',
+                                          })
                                           : ''}
                                       </span>
                                     </div>
@@ -24906,7 +24921,7 @@ export default function TradingViewChart({
                                               color: tabColor,
                                               fontSize:
                                                 typeof window !== 'undefined' &&
-                                                window.innerWidth <= 768
+                                                  window.innerWidth <= 768
                                                   ? '0.525rem'
                                                   : '0.75rem',
                                             }}
@@ -24921,7 +24936,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: tickerColor,
@@ -24939,7 +24954,7 @@ export default function TradingViewChart({
                                           style={{
                                             fontSize:
                                               typeof window !== 'undefined' &&
-                                              window.innerWidth <= 768
+                                                window.innerWidth <= 768
                                                 ? '1.05rem'
                                                 : '1.5rem',
                                             color: '#ff0000',
@@ -24967,7 +24982,7 @@ export default function TradingViewChart({
                                                 1,
                                                 Math.ceil(
                                                   (expiryDate.getTime() - now.getTime()) /
-                                                    (1000 * 60 * 60 * 24)
+                                                  (1000 * 60 * 60 * 24)
                                                 )
                                               )
                                               const T = daysToExpiry / 365
@@ -25072,12 +25087,12 @@ export default function TradingViewChart({
                                       <span className="text-white">
                                         {trade.expiration
                                           ? new Date(
-                                              trade.expiration + 'T12:00:00'
-                                            ).toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              timeZone: 'UTC',
-                                            })
+                                            trade.expiration + 'T12:00:00'
+                                          ).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            timeZone: 'UTC',
+                                          })
                                           : ''}
                                       </span>
                                     </div>
@@ -26468,13 +26483,12 @@ export default function TradingViewChart({
                                   }
                                 }
                               }}
-                              className={`btn-3d-carved ${
-                                (years === 20 && isSeasonal20YActive) ||
+                              className={`btn-3d-carved ${(years === 20 && isSeasonal20YActive) ||
                                 (years === 15 && isSeasonal15YActive) ||
                                 (years === 10 && isSeasonal10YActive)
-                                  ? 'active'
-                                  : ''
-                              }`}
+                                ? 'active'
+                                : ''
+                                }`}
                               style={{
                                 padding: '10px 16px',
                                 fontWeight: '700',
@@ -27801,59 +27815,59 @@ export default function TradingViewChart({
                         <div style={{ display: 'flex', gap: '6px' }}>
                           {rrgMode === 'price'
                             ? // Price mode: 10d, 31d, 87d
-                              [
-                                { value: 10, label: '10d' },
-                                { value: 31, label: '31d' },
-                                { value: 87, label: '87d' },
-                              ].map(({ value, label }) => (
-                                <button
-                                  key={value}
-                                  onClick={() => {
-                                    setRrgLookbackPeriod(value as 10 | 31 | 87)
-                                    if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    padding: '8px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    borderRadius: '4px',
-                                    border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                    background: 'transparent',
-                                    color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {label}
-                                </button>
-                              ))
+                            [
+                              { value: 10, label: '10d' },
+                              { value: 31, label: '31d' },
+                              { value: 87, label: '87d' },
+                            ].map(({ value, label }) => (
+                              <button
+                                key={value}
+                                onClick={() => {
+                                  setRrgLookbackPeriod(value as 10 | 31 | 87)
+                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  borderRadius: '4px',
+                                  border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                  background: 'transparent',
+                                  color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))
                             : // IV mode: 1mo, 4mo, 1yr
-                              [
-                                { value: 30, label: '1mo' },
-                                { value: 120, label: '4mo' },
-                                { value: 365, label: '1yr' },
-                              ].map(({ value, label }) => (
-                                <button
-                                  key={value}
-                                  onClick={() => {
-                                    setRrgIvLookbackPeriod(value as 30 | 120 | 365)
-                                    if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    padding: '8px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    borderRadius: '4px',
-                                    border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                    background: 'transparent',
-                                    color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {label}
-                                </button>
-                              ))}
+                            [
+                              { value: 30, label: '1mo' },
+                              { value: 120, label: '4mo' },
+                              { value: 365, label: '1yr' },
+                            ].map(({ value, label }) => (
+                              <button
+                                key={value}
+                                onClick={() => {
+                                  setRrgIvLookbackPeriod(value as 30 | 120 | 365)
+                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  borderRadius: '4px',
+                                  border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                  background: 'transparent',
+                                  color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
                         </div>
                       </div>
 
@@ -29014,21 +29028,19 @@ export default function TradingViewChart({
                 <div className="flex space-x-3">
                   <button
                     onClick={() => setConfig((prev) => ({ ...prev, theme: 'dark' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      config.theme === 'dark'
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                        : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                    }`}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                      }`}
                   >
                     🌙 Dark
                   </button>
                   <button
                     onClick={() => setConfig((prev) => ({ ...prev, theme: 'light' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      config.theme === 'light'
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                        : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                    }`}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                      }`}
                   >
                     ☀️ Light
                   </button>
@@ -29568,7 +29580,7 @@ export default function TradingViewChart({
                   setVisibleCandleCount={setVisibleCandleCount}
                   setManualPriceRange={setManualPriceRange}
                   setIsAutoScale={setIsAutoScale}
-                  setIsDragging={() => {}}
+                  setIsDragging={() => { }}
                   handleTimeframeChange={handleTimeframeChange}
                   handleMouseMove={handleMouseMove}
                   drawings={drawings}
@@ -32535,133 +32547,199 @@ export default function TradingViewChart({
                             {/* Hide on mobile when Month button is active */}
                             {(!seasonalShowMonthly ||
                               (typeof window !== 'undefined' && window.innerWidth > 768)) && (
-                              <div
-                                className="seasonality-monthly-row"
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  marginBottom: '16px',
-                                  padding: '6px 16px',
-                                  background:
-                                    'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
-                                  border: '1px solid rgba(255, 107, 0, 0.3)',
-                                  borderRadius: '4px',
-                                  boxShadow:
-                                    'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                                }}
-                              >
-                                {/* Sweet Spot Button - Mobile Only */}
-                                {typeof window !== 'undefined' && window.innerWidth <= 768 && (
-                                  <button
-                                    className="sweet-spot-btn-mobile"
-                                    onClick={() => {
-                                      const newState = !seasonalSweetSpotActive
-                                      setSeasonalSweetSpotActive(newState)
-
-                                      // Trigger sweet spot calculation in the chart below
-                                      const chartContainer = document.querySelector(
-                                        '.seasonality-custom-panel .seasonax-container'
-                                      )
-                                      if (chartContainer) {
-                                        const sweetSpotBtn = chartContainer.querySelector(
-                                          '.sweet-spot-btn'
-                                        ) as HTMLButtonElement
-                                        if (sweetSpotBtn) sweetSpotBtn.click()
-                                      }
-                                    }}
-                                    style={{
-                                      padding: '8px 12px',
-                                      background: seasonalSweetSpotActive
-                                        ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
-                                        : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
-                                      border: seasonalSweetSpotActive
-                                        ? '1px solid rgba(0, 255, 100, 0.8)'
-                                        : '1px solid rgba(0, 255, 100, 0.4)',
-                                      borderRadius: '3px',
-                                      color: '#00ff66',
-                                      fontSize: '10px',
-                                      fontWeight: '700',
-                                      textTransform: 'uppercase',
-                                      cursor: 'pointer',
-                                      letterSpacing: '0.5px',
-                                      transition: 'all 0.2s ease',
-                                      boxShadow: seasonalSweetSpotActive
-                                        ? '0 0 15px rgba(0, 255, 100, 0.4)'
-                                        : 'none',
-                                      flex: 1,
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      if (!seasonalSweetSpotActive) {
-                                        e.currentTarget.style.background =
-                                          'linear-gradient(135deg, #006d00 0%, #003600 100%)'
-                                        e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)'
-                                      }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      if (!seasonalSweetSpotActive) {
-                                        e.currentTarget.style.background =
-                                          'linear-gradient(135deg, #004d00 0%, #002600 100%)'
-                                        e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)'
-                                      }
-                                    }}
-                                  >
-                                    {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
-                                  </button>
-                                )}
-
-                                {/* Bullish 30-Day */}
                                 <div
-                                  className="bullish-30-day-mobile"
+                                  className="seasonality-monthly-row"
                                   style={{
-                                    padding: '6px 12px',
-                                    background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
-                                    border: '1px solid rgba(0, 255, 100, 0.4)',
-                                    borderRadius: '3px',
-                                    textAlign: 'center',
-                                    minWidth: '100px',
-                                    flex: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    marginBottom: '16px',
+                                    padding: '6px 16px',
+                                    background:
+                                      'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
+                                    border: '1px solid rgba(255, 107, 0, 0.3)',
+                                    borderRadius: '4px',
+                                    boxShadow:
+                                      'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
                                   }}
                                 >
-                                  <div
-                                    style={{
-                                      fontSize: '14px',
-                                      color: '#00ff66',
-                                      fontWeight: '700',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.5px',
-                                      marginBottom: '2px',
-                                    }}
-                                  >
-                                    BULLISH
-                                  </div>
-                                  <div
-                                    style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}
-                                  >
-                                    {seasonalBest30Day
-                                      ? seasonalBest30Day.period.replace(' - ', ' - ')
-                                      : 'Loading...'}
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontSize: '15px',
-                                      color: '#00ff66',
-                                      fontWeight: '700',
-                                      marginTop: '2px',
-                                    }}
-                                  >
-                                    {seasonalBest30Day
-                                      ? `+${seasonalBest30Day.return.toFixed(2)}%`
-                                      : '--'}
-                                  </div>
-                                </div>
+                                  {/* Sweet Spot Button - Mobile Only */}
+                                  {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                    <button
+                                      className="sweet-spot-btn-mobile"
+                                      onClick={() => {
+                                        const newState = !seasonalSweetSpotActive
+                                        setSeasonalSweetSpotActive(newState)
 
-                                {/* 12 Monthly Returns */}
-                                {seasonalMonthlyData &&
-                                  seasonalMonthlyData.map((monthData, i) => {
-                                    const ret = monthData.outperformance
-                                    const isPositive = ret > 0
-                                    const monthNames = [
+                                        // Trigger sweet spot calculation in the chart below
+                                        const chartContainer = document.querySelector(
+                                          '.seasonality-custom-panel .seasonax-container'
+                                        )
+                                        if (chartContainer) {
+                                          const sweetSpotBtn = chartContainer.querySelector(
+                                            '.sweet-spot-btn'
+                                          ) as HTMLButtonElement
+                                          if (sweetSpotBtn) sweetSpotBtn.click()
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '8px 12px',
+                                        background: seasonalSweetSpotActive
+                                          ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                          : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
+                                        border: seasonalSweetSpotActive
+                                          ? '1px solid rgba(0, 255, 100, 0.8)'
+                                          : '1px solid rgba(0, 255, 100, 0.4)',
+                                        borderRadius: '3px',
+                                        color: '#00ff66',
+                                        fontSize: '10px',
+                                        fontWeight: '700',
+                                        textTransform: 'uppercase',
+                                        cursor: 'pointer',
+                                        letterSpacing: '0.5px',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: seasonalSweetSpotActive
+                                          ? '0 0 15px rgba(0, 255, 100, 0.4)'
+                                          : 'none',
+                                        flex: 1,
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (!seasonalSweetSpotActive) {
+                                          e.currentTarget.style.background =
+                                            'linear-gradient(135deg, #006d00 0%, #003600 100%)'
+                                          e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)'
+                                        }
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (!seasonalSweetSpotActive) {
+                                          e.currentTarget.style.background =
+                                            'linear-gradient(135deg, #004d00 0%, #002600 100%)'
+                                          e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)'
+                                        }
+                                      }}
+                                    >
+                                      {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
+                                    </button>
+                                  )}
+
+                                  {/* Bullish 30-Day */}
+                                  <div
+                                    className="bullish-30-day-mobile"
+                                    style={{
+                                      padding: '6px 12px',
+                                      background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
+                                      border: '1px solid rgba(0, 255, 100, 0.4)',
+                                      borderRadius: '3px',
+                                      textAlign: 'center',
+                                      minWidth: '100px',
+                                      flex: 1,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: '14px',
+                                        color: '#00ff66',
+                                        fontWeight: '700',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.5px',
+                                        marginBottom: '2px',
+                                      }}
+                                    >
+                                      BULLISH
+                                    </div>
+                                    <div
+                                      style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}
+                                    >
+                                      {seasonalBest30Day
+                                        ? seasonalBest30Day.period.replace(' - ', ' - ')
+                                        : 'Loading...'}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: '15px',
+                                        color: '#00ff66',
+                                        fontWeight: '700',
+                                        marginTop: '2px',
+                                      }}
+                                    >
+                                      {seasonalBest30Day
+                                        ? `+${seasonalBest30Day.return.toFixed(2)}%`
+                                        : '--'}
+                                    </div>
+                                  </div>
+
+                                  {/* 12 Monthly Returns */}
+                                  {seasonalMonthlyData &&
+                                    seasonalMonthlyData.map((monthData, i) => {
+                                      const ret = monthData.outperformance
+                                      const isPositive = ret > 0
+                                      const monthNames = [
+                                        'JAN',
+                                        'FEB',
+                                        'MAR',
+                                        'APR',
+                                        'MAY',
+                                        'JUN',
+                                        'JUL',
+                                        'AUG',
+                                        'SEP',
+                                        'OCT',
+                                        'NOV',
+                                        'DEC',
+                                      ]
+                                      return (
+                                        <div
+                                          key={monthData.month}
+                                          className="monthly-return-box"
+                                          style={{
+                                            padding: '6px 8px',
+                                            background: '#0a0a0a',
+                                            border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
+                                            borderRadius: '3px',
+                                            textAlign: 'center',
+                                            minWidth: '60px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = '#1a1a1a'
+                                            e.currentTarget.style.borderColor = isPositive
+                                              ? 'rgba(0, 255, 100, 0.5)'
+                                              : 'rgba(255, 0, 0, 0.5)'
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = '#0a0a0a'
+                                            e.currentTarget.style.borderColor = isPositive
+                                              ? 'rgba(0, 255, 100, 0.3)'
+                                              : 'rgba(255, 0, 0, 0.3)'
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              fontSize: '11px',
+                                              color: '#ffffff',
+                                              fontWeight: '700',
+                                              marginBottom: '2px',
+                                              opacity: 1,
+                                            }}
+                                          >
+                                            {monthNames[i]}
+                                          </div>
+                                          <div
+                                            style={{
+                                              fontSize: '12px',
+                                              color: isPositive ? '#00ff66' : '#ff0044',
+                                              fontWeight: '700',
+                                            }}
+                                          >
+                                            {isPositive ? '+' : ''}
+                                            {ret.toFixed(2)}%
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  {!seasonalMonthlyData &&
+                                    [
                                       'JAN',
                                       'FEB',
                                       'MAR',
@@ -32674,218 +32752,152 @@ export default function TradingViewChart({
                                       'OCT',
                                       'NOV',
                                       'DEC',
-                                    ]
-                                    return (
+                                    ].map((month) => (
                                       <div
-                                        key={monthData.month}
+                                        key={month}
                                         className="monthly-return-box"
                                         style={{
                                           padding: '6px 8px',
                                           background: '#0a0a0a',
-                                          border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
+                                          border: '1px solid rgba(100, 100, 100, 0.3)',
                                           borderRadius: '3px',
                                           textAlign: 'center',
                                           minWidth: '60px',
-                                          cursor: 'pointer',
-                                          transition: 'all 0.2s ease',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = '#1a1a1a'
-                                          e.currentTarget.style.borderColor = isPositive
-                                            ? 'rgba(0, 255, 100, 0.5)'
-                                            : 'rgba(255, 0, 0, 0.5)'
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = '#0a0a0a'
-                                          e.currentTarget.style.borderColor = isPositive
-                                            ? 'rgba(0, 255, 100, 0.3)'
-                                            : 'rgba(255, 0, 0, 0.3)'
                                         }}
                                       >
                                         <div
                                           style={{
                                             fontSize: '11px',
-                                            color: '#ffffff',
+                                            color: '#666',
                                             fontWeight: '700',
                                             marginBottom: '2px',
-                                            opacity: 1,
                                           }}
                                         >
-                                          {monthNames[i]}
+                                          {month}
                                         </div>
                                         <div
                                           style={{
                                             fontSize: '12px',
-                                            color: isPositive ? '#00ff66' : '#ff0044',
+                                            color: '#666',
                                             fontWeight: '700',
                                           }}
                                         >
-                                          {isPositive ? '+' : ''}
-                                          {ret.toFixed(2)}%
+                                          --
                                         </div>
                                       </div>
-                                    )
-                                  })}
-                                {!seasonalMonthlyData &&
-                                  [
-                                    'JAN',
-                                    'FEB',
-                                    'MAR',
-                                    'APR',
-                                    'MAY',
-                                    'JUN',
-                                    'JUL',
-                                    'AUG',
-                                    'SEP',
-                                    'OCT',
-                                    'NOV',
-                                    'DEC',
-                                  ].map((month) => (
-                                    <div
-                                      key={month}
-                                      className="monthly-return-box"
-                                      style={{
-                                        padding: '6px 8px',
-                                        background: '#0a0a0a',
-                                        border: '1px solid rgba(100, 100, 100, 0.3)',
-                                        borderRadius: '3px',
-                                        textAlign: 'center',
-                                        minWidth: '60px',
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          fontSize: '11px',
-                                          color: '#666',
-                                          fontWeight: '700',
-                                          marginBottom: '2px',
-                                        }}
-                                      >
-                                        {month}
-                                      </div>
-                                      <div
-                                        style={{
-                                          fontSize: '12px',
-                                          color: '#666',
-                                          fontWeight: '700',
-                                        }}
-                                      >
-                                        --
-                                      </div>
-                                    </div>
-                                  ))}
+                                    ))}
 
-                                {/* Bearish 30-Day */}
-                                <div
-                                  className="bearish-30-day-mobile"
-                                  style={{
-                                    padding: '6px 12px',
-                                    background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
-                                    border: '1px solid rgba(255, 0, 0, 0.4)',
-                                    borderRadius: '3px',
-                                    textAlign: 'center',
-                                    minWidth: '100px',
-                                    flex: 1,
-                                  }}
-                                >
+                                  {/* Bearish 30-Day */}
                                   <div
+                                    className="bearish-30-day-mobile"
                                     style={{
-                                      fontSize: '14px',
-                                      color: '#ff0044',
-                                      fontWeight: '700',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.5px',
-                                      marginBottom: '2px',
-                                    }}
-                                  >
-                                    BEARISH
-                                  </div>
-                                  <div
-                                    style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}
-                                  >
-                                    {seasonalWorst30Day
-                                      ? seasonalWorst30Day.period.replace(' - ', ' - ')
-                                      : 'Loading...'}
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontSize: '15px',
-                                      color: '#ff0044',
-                                      fontWeight: '700',
-                                      marginTop: '2px',
-                                    }}
-                                  >
-                                    {seasonalWorst30Day
-                                      ? `${seasonalWorst30Day.return.toFixed(2)}%`
-                                      : '--'}
-                                  </div>
-                                </div>
-
-                                {/* Pain Point Button - Mobile Only */}
-                                {typeof window !== 'undefined' && window.innerWidth <= 768 && (
-                                  <button
-                                    className="pain-point-btn-mobile"
-                                    onClick={() => {
-                                      const newState = !seasonalPainPointActive
-                                      setSeasonalPainPointActive(newState)
-
-                                      // Trigger pain point calculation in the chart below
-                                      const chartContainer = document.querySelector(
-                                        '.seasonality-custom-panel .seasonax-container'
-                                      )
-                                      if (chartContainer) {
-                                        const painPointBtn = chartContainer.querySelector(
-                                          '.pain-point-btn'
-                                        ) as HTMLButtonElement
-                                        if (painPointBtn) painPointBtn.click()
-                                      }
-                                    }}
-                                    style={{
-                                      padding: '8px 12px',
-                                      background: seasonalPainPointActive
-                                        ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
-                                        : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
-                                      border: seasonalPainPointActive
-                                        ? '1px solid rgba(255, 0, 0, 0.8)'
-                                        : '1px solid rgba(255, 0, 0, 0.4)',
+                                      padding: '6px 12px',
+                                      background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
+                                      border: '1px solid rgba(255, 0, 0, 0.4)',
                                       borderRadius: '3px',
-                                      color: '#ff0044',
-                                      fontSize: '10px',
-                                      fontWeight: '700',
-                                      textTransform: 'uppercase',
-                                      cursor: 'pointer',
-                                      letterSpacing: '0.5px',
-                                      transition: 'all 0.2s ease',
-                                      boxShadow: seasonalPainPointActive
-                                        ? '0 0 15px rgba(255, 0, 0, 0.4)'
-                                        : 'none',
+                                      textAlign: 'center',
+                                      minWidth: '100px',
                                       flex: 1,
                                     }}
-                                    onMouseEnter={(e) => {
-                                      if (!seasonalPainPointActive) {
-                                        e.currentTarget.style.background =
-                                          'linear-gradient(135deg, #6d0000 0%, #360000 100%)'
-                                        e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)'
-                                      }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      if (!seasonalPainPointActive) {
-                                        e.currentTarget.style.background =
-                                          'linear-gradient(135deg, #4d0000 0%, #260000 100%)'
-                                        e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)'
-                                      }
-                                    }}
                                   >
-                                    {seasonalPainPointActive ? '✓ ' : ''}Pain Point
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                                    <div
+                                      style={{
+                                        fontSize: '14px',
+                                        color: '#ff0044',
+                                        fontWeight: '700',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.5px',
+                                        marginBottom: '2px',
+                                      }}
+                                    >
+                                      BEARISH
+                                    </div>
+                                    <div
+                                      style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}
+                                    >
+                                      {seasonalWorst30Day
+                                        ? seasonalWorst30Day.period.replace(' - ', ' - ')
+                                        : 'Loading...'}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: '15px',
+                                        color: '#ff0044',
+                                        fontWeight: '700',
+                                        marginTop: '2px',
+                                      }}
+                                    >
+                                      {seasonalWorst30Day
+                                        ? `${seasonalWorst30Day.return.toFixed(2)}%`
+                                        : '--'}
+                                    </div>
+                                  </div>
+
+                                  {/* Pain Point Button - Mobile Only */}
+                                  {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                    <button
+                                      className="pain-point-btn-mobile"
+                                      onClick={() => {
+                                        const newState = !seasonalPainPointActive
+                                        setSeasonalPainPointActive(newState)
+
+                                        // Trigger pain point calculation in the chart below
+                                        const chartContainer = document.querySelector(
+                                          '.seasonality-custom-panel .seasonax-container'
+                                        )
+                                        if (chartContainer) {
+                                          const painPointBtn = chartContainer.querySelector(
+                                            '.pain-point-btn'
+                                          ) as HTMLButtonElement
+                                          if (painPointBtn) painPointBtn.click()
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '8px 12px',
+                                        background: seasonalPainPointActive
+                                          ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                          : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
+                                        border: seasonalPainPointActive
+                                          ? '1px solid rgba(255, 0, 0, 0.8)'
+                                          : '1px solid rgba(255, 0, 0, 0.4)',
+                                        borderRadius: '3px',
+                                        color: '#ff0044',
+                                        fontSize: '10px',
+                                        fontWeight: '700',
+                                        textTransform: 'uppercase',
+                                        cursor: 'pointer',
+                                        letterSpacing: '0.5px',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: seasonalPainPointActive
+                                          ? '0 0 15px rgba(255, 0, 0, 0.4)'
+                                          : 'none',
+                                        flex: 1,
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (!seasonalPainPointActive) {
+                                          e.currentTarget.style.background =
+                                            'linear-gradient(135deg, #6d0000 0%, #360000 100%)'
+                                          e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)'
+                                        }
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (!seasonalPainPointActive) {
+                                          e.currentTarget.style.background =
+                                            'linear-gradient(135deg, #4d0000 0%, #260000 100%)'
+                                          e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)'
+                                        }
+                                      }}
+                                    >
+                                      {seasonalPainPointActive ? '✓ ' : ''}Pain Point
+                                    </button>
+                                  )}
+                                </div>
+                              )}
 
                             {/* Conditionally render either Monthly Chart or Seasonality Chart - MOBILE ONLY */}
                             {seasonalShowMonthly &&
-                            typeof window !== 'undefined' &&
-                            window.innerWidth <= 768 ? (
+                              typeof window !== 'undefined' &&
+                              window.innerWidth <= 768 ? (
                               <div
                                 className="seasonality-custom-panel"
                                 style={{
@@ -33312,11 +33324,10 @@ export default function TradingViewChart({
             {/* Magnet Mode Toggle */}
             <button
               onClick={() => setMagnetMode(!magnetMode)}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${
-                magnetMode
-                  ? 'bg-[#2962ff] text-white'
-                  : 'bg-[#1e222d] text-[#868993] hover:text-white'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${magnetMode
+                ? 'bg-[#2962ff] text-white'
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                }`}
               title="Magnet Mode - Snap to OHLC values"
             >
               ?? Magnet
@@ -33325,11 +33336,10 @@ export default function TradingViewChart({
             {/* Show Handles Toggle */}
             <button
               onClick={() => setShowDrawingHandles(!showDrawingHandles)}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${
-                showDrawingHandles
-                  ? 'bg-[#2962ff] text-white'
-                  : 'bg-[#1e222d] text-[#868993] hover:text-white'
-              }`}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${showDrawingHandles
+                ? 'bg-[#2962ff] text-white'
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                }`}
               title="Show/Hide Drawing Handles"
             >
               ?? Handles

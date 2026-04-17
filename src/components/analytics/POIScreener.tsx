@@ -110,8 +110,10 @@ function POIMiniChart({ candles, dpDays }: { candles: Candle[]; dpDays: DPDay[] 
 
   useEffect(() => {
     if (!containerRef.current) return
+    console.log('[POI] ResizeObserver init — clientW:', containerRef.current.clientWidth, 'clientH:', containerRef.current.clientHeight)
     const obs = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect
+      console.log('[POI] ResizeObserver fired — w:', rect?.width, 'h:', rect?.height)
       if (rect?.width > 0) setWidth(Math.floor(rect.width))
       if (rect?.height > 0) setHeight(Math.floor(rect.height))
     })
@@ -123,14 +125,22 @@ function POIMiniChart({ candles, dpDays }: { candles: Candle[]; dpDays: DPDay[] 
 
   // ── Draw function ─────────────────────────────────────────────────────────
   const draw = useCallback(() => {
+    console.log('[POI] draw() called — candles:', candles.length, 'dpDays:', dpDays.length, 'width:', width, 'height:', height, 'canvas:', !!canvasRef.current)
     const canvas = canvasRef.current
-    if (!canvas || candles.length === 0) return
+    if (!canvas || candles.length === 0) {
+      console.log('[POI] draw() early exit — canvas:', !!canvas, 'candles.length:', candles.length)
+      return
+    }
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) {
+      console.log('[POI] draw() early exit — no ctx')
+      return
+    }
 
     const PAD = { top: 14, right: 96, bottom: 42, left: 6 }
     const chartW = width - PAD.left - PAD.right
     const chartH = height - PAD.top - PAD.bottom
+    console.log('[POI] draw() — chartW:', chartW, 'chartH:', chartH)
 
     // Clamp view window
     const n = candles.length
@@ -466,6 +476,7 @@ function POIMiniChart({ candles, dpDays }: { candles: Candle[]; dpDays: DPDay[] 
 
   // Reset view when data/size changes, then draw
   useEffect(() => {
+    console.log('[POI] draw useEffect triggered — candles:', candles.length, 'width:', width, 'height:', height)
     viewRef.current = { startIdx: 0, visibleCount: Math.max(candles.length, 10) }
     draw()
   }, [candles, dpDays, width, height, draw])
@@ -575,7 +586,7 @@ function POIMiniChart({ candles, dpDays }: { candles: Candle[]; dpDays: DPDay[] 
     )
 
   return (
-    <div ref={containerRef} style={{ flex: 1, lineHeight: 0, position: 'relative', minHeight: 0 }}>
+    <div ref={containerRef} style={{ lineHeight: 0, position: 'relative', height: `${height}px` }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, display: 'block' }} />
     </div>
   )
@@ -746,11 +757,12 @@ function POITable({ poiLevels, currentPrice }: { poiLevels: POILevel[]; currentP
 
 // ─── Loading State ────────────────────────────────────────────────────────────
 function SymbolCard({ symbol, state }: { symbol: POISymbol; state: SymbolState }) {
-  const latestClose = state.candles[state.candles.length - 1]?.close ?? 0
+  const candles = state.candles ?? []
+  const latestClose = candles[candles.length - 1]?.close ?? 0
   const prevClose =
-    state.candles.length > 1 ? state.candles[state.candles.length - 2].close : latestClose
+    candles.length > 1 ? candles[candles.length - 2].close : latestClose
   const changePct = prevClose ? ((latestClose - prevClose) / prevClose) * 100 : 0
-  const totalDPFlow = state.dpDays.reduce((s, d) => s + d.totalNotional, 0)
+  const totalDPFlow = (state.dpDays ?? []).reduce((s, d) => s + d.totalNotional, 0)
 
   const accentColor = '#00E5FF'
 
@@ -958,7 +970,7 @@ function SymbolCard({ symbol, state }: { symbol: POISymbol; state: SymbolState }
       )}
 
       {/* Chart + table */}
-      {state.phase === 'done' && (
+      {state.phase === 'done' && (() => { console.log('[POI] SymbolCard rendering done state — symbol:', symbol, 'candles:', state.candles.length, 'dpDays:', state.dpDays.length); return true; })() && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {/* Legend dots above chart */}
           <div
@@ -1251,12 +1263,41 @@ export default function POIScreener({ externalTicker }: { externalTicker?: strin
         // Optimisations (result-neutral):
         //   • CONCURRENCY raised 10→20 — safe because symbols run sequentially (1×20×4=80 connections max)
         //   • Progress state only committed when percentage moves ≥5% — cuts React re-renders from ~90→~20
+        //   • sessionStorage cache per day: historical days are immutable, so serve from cache on repeat scans.
+        //     Today's partial day is never cached so live data always comes through.
+        const SESSION_PREFIX = `poi_dp_${symbol}_`
+        const todayKey = new Date().toISOString().split('T')[0]
+
+        const readCache = (dk: string): DPDay | null => {
+          if (dk === todayKey) return null // never cache today
+          try {
+            const raw = sessionStorage.getItem(SESSION_PREFIX + dk)
+            return raw ? (JSON.parse(raw) as DPDay) : null
+          } catch { return null }
+        }
+        const writeCache = (dk: string, day: DPDay) => {
+          if (dk === todayKey) return
+          try { sessionStorage.setItem(SESSION_PREFIX + dk, JSON.stringify(day)) } catch { /* quota */ }
+        }
+
         const dpCache: Record<string, DPDay> = {}
         const run = async () => {
-          const CONCURRENCY = 20
-          const queue = [...daysToShow]
+          const CONCURRENCY = 35
+
+          // Serve cached days instantly — only queue days that need a real fetch
+          const uncachedDays: string[] = []
+          for (const dk of daysToShow) {
+            const cached = readCache(dk)
+            if (cached) {
+              dpCache[dk] = cached
+            } else {
+              uncachedDays.push(dk)
+            }
+          }
+
+          const queue = [...uncachedDays]
           const total = daysToShow.length
-          let done = 0
+          let done = total - uncachedDays.length // cached days count as already done
           let lastReportedPct = -1
 
           const maybeReportProgress = () => {
@@ -1267,28 +1308,34 @@ export default function POIScreener({ externalTicker }: { externalTicker?: strin
             }
           }
 
+          // Immediately report progress for the cached days
+          maybeReportProgress()
+
           const worker = async () => {
             while (queue.length > 0 && !aborted) {
               const dk = queue.shift()!
               const r = await fetchDayAll(dk)
               if (r && !aborted) {
-                dpCache[r.dateKey] = {
+                const day: DPDay = {
                   date: r.dateKey,
                   top10: r.result.top10,
                   totalNotional: r.result.totalNotional,
                   topPrint: r.result.topPrint,
                 }
+                dpCache[r.dateKey] = day
+                writeCache(r.dateKey, day)
               }
               done++
               maybeReportProgress()
             }
           }
 
-          await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker))
+          await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, uncachedDays.length)) }, worker))
 
           if (!aborted) {
             const dpDays = Object.values(dpCache).sort((a, b) => a.date.localeCompare(b.date))
             const poiLevels = clusterPOI(dpDays)
+            console.log('[POI] fetch done — symbol:', symbol, 'candles:', candles.length, 'dpDays:', dpDays.length, 'poiLevels:', poiLevels.length)
             setSymbolState(symbol, { dpDays, poiLevels, phase: 'done', progress: 100 })
           }
         }
