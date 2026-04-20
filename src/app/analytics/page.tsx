@@ -12,6 +12,7 @@ import IVRRGAnalytics from '@/components/analytics/IVRRGAnalytics'
 import MarketCycleIndicator from '@/components/analytics/MarketCycleIndicator'
 import MarketHeatmap from '@/components/analytics/MarketHeatmap'
 import RRGAnalytics from '@/components/analytics/RRGAnalytics'
+import ResearchPanelV2 from '@/components/analytics/ResearchPanelV2'
 import ScreenersPanel from '@/components/analytics/ScreenersPanel'
 import PerformanceDashboard from '@/components/charts/PerformanceDashboard'
 import Footer from '@/components/terminal/Footer'
@@ -113,6 +114,12 @@ export default function Analytics() {
         return (
           <div key={id} style={{ ...panelStyle, minHeight: '100vh' }}>
             <BuySellScanner />
+          </div>
+        )
+      case 'research':
+        return (
+          <div key={id} style={{ ...panelStyle, overflow: 'hidden', height: 'calc(100vh - 127px)', display: 'flex', flexDirection: 'column' }}>
+            <ResearchPanelV2 />
           </div>
         )
       default:
@@ -621,6 +628,7 @@ export default function Analytics() {
           <TabButton id="market-cycle" label="Market Cycle" />
           <TabButton id="straddle-town" label="Straddle Town" />
           <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
+          <TabButton id="research" label="Research" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}

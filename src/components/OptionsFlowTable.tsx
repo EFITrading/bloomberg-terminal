@@ -2,7 +2,7 @@
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -722,7 +722,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           while (parsed.length < 10) parsed.push('')
           return parsed
         }
-      } catch {}
+      } catch { }
     }
     return empty10
   })
@@ -2212,24 +2212,25 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     if (trade.total_premium < 120000 || trade.total_premium > 220000) return false
 
-    // 4. SWEEP only
+    // 4. SWEEP or BLOCK only
 
-    if (trade.classification !== 'SWEEP' && trade.trade_type !== 'SWEEP') return false
+    const tradeClass = trade.classification || trade.trade_type || ''
+    if (!['SWEEP', 'BLOCK'].includes(tradeClass)) return false
 
     // 5. Contracts: 600-1300
 
     if (trade.trade_size < 600 || trade.trade_size > 1300) return false
 
-    // 6. Option price: $0.70-$2.00
+    // 6. Option price: $0.45-$3.70
 
-    if (trade.premium_per_contract < 0.7 || trade.premium_per_contract > 2.0) return false
+    if (trade.premium_per_contract < 0.45 || trade.premium_per_contract > 3.70) return false
 
-    // 7. Grades: C-, C, C+, B-, B, B+, A-, A, A+ only
+    // 7. Grades: B+, A-, A, A+ only (no grade lower than B+)
 
     if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
       const gradeData = calculatePositioningGrade(trade, comboTradeMap)
 
-      const validGrades = ['C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+']
+      const validGrades = ['B+', 'A-', 'A', 'A+']
 
       if (!validGrades.includes(gradeData.grade)) return false
     }
@@ -3099,16 +3100,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
         const normalizedTicker = (trade.underlying_ticker || '').replace(/\./g, '')
         const opTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-        console.log(
-          `[EFI-TABLE] grade ${trade.underlying_ticker} ${trade.type} $${trade.strike} exp=${trade.expiry}` +
-            ` | fill=${(trade as any).fill_style} | dte=${trade.days_to_expiry} | entryPx=${trade.premium_per_contract}` +
-            ` | curOptPx=${currentOptionPrices[opTicker] ?? 'N/A'} | curStkPx=${currentPrices[trade.underlying_ticker] ?? 'N/A'}` +
-            ` | stdDev=${historicalStdDevs.get(trade.underlying_ticker) ?? 'N/A'}` +
-            ` | rs=${relativeStrengthData.get(trade.underlying_ticker) ?? 'N/A'}` +
-            ` | vol=${trade.volume ?? 'N/A'} | oi=${trade.open_interest ?? 'N/A'}` +
-            ` | combo=${comboTradeMap.get(`${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${(trade as any).fill_style}`) ?? false}` +
-            ` → grade=${result.grade} score=${result.score} [${result.breakdown.replace(/\n/g, ' | ')}]`
-        )
+
       }
     })
 
@@ -3203,7 +3195,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             [key]: { golden, purple, atmIV, goldenExpiry, purpleExpiry },
           }))
         })
-        .catch(() => {})
+        .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paginatedData, notableFilterActive, efiHighlightsActive])
@@ -3252,6 +3244,369 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Use useRef to track previous flows length to avoid unnecessary re-renders
 
   const prevTrackedFlowsLength = React.useRef(trackedFlows.length)
+
+  // Ref for screenshot capture
+  const captureRef = useRef<HTMLDivElement>(null)
+
+  // Download page as a clean canvas-drawn image
+  const handleDownloadImage = () => {
+    try {
+      const allTrades = filteredAndSortedData
+      if (!allTrades || allTrades.length === 0) return
+
+      const PAGE_SIZE = 15
+      const dpr = 2
+      const ROW_H = 44
+      const HEADER_H = 64
+      const TITLE_H = 53
+      const FOOTER_H = 34
+      const PAD = 14
+
+      // columns — grade col appended only when EFI active
+      const baseCols = [
+        { label: 'TIME', w: 118 },
+        { label: 'SYMBOL', w: 80 },
+        { label: 'C/P', w: 54 },
+        { label: 'STRIKE', w: 72 },
+        { label: 'SIZE', w: 185 },
+        { label: 'PREMIUM', w: 90 },
+        { label: 'EXPIRY', w: 112 },
+        { label: 'SPOT >> CURRENT', w: 200 },
+        { label: 'TYPE', w: 110 },
+      ]
+      const gradeCol = { label: 'POSITION', w: 100 }
+      const targetsCol = { label: 'TARGETS', w: 140 }
+      const dealerCol = { label: 'DEALER', w: 170 }
+      let cols = [...baseCols]
+      if (efiHighlightsActive) cols = [...cols, gradeCol]
+      if (notableFilterActive) cols = [...cols, targetsCol, dealerCol]
+
+      const totalW = PAD + cols.reduce((s, c) => s + c.w + 6, 0) + PAD
+      const dateStr = new Date().toISOString().split('T')[0]
+
+      const fillColor = (fs: string) => {
+        if (fs === 'A' || fs === 'AA') return '#00ff88'
+        if (fs === 'B' || fs === 'BB') return '#ff4444'
+        return '#aaaaaa'
+      }
+      const typeColor = (v: string) => {
+        if (v === 'SWEEP') return '#ffee00'
+        if (v === 'BLOCK') return '#00e5ff'
+        if (v === 'MULTI-LEG') return '#cc44ff'
+        return '#ffffff'
+      }
+      const gradeColor = (g: string) => {
+        if (g.startsWith('A')) return '#00ff00'
+        if (g.startsWith('B')) return '#84cc16'
+        if (g.startsWith('C')) return '#fbbf24'
+        if (g.startsWith('D')) return '#3b82f6'
+        return '#ff0000'
+      }
+
+      const totalPages = Math.ceil(allTrades.length / PAGE_SIZE)
+
+      for (let page = 0; page < 1; page++) {
+        const trades = allTrades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+        const totalH = TITLE_H + HEADER_H + trades.length * ROW_H + FOOTER_H
+
+        const canvas = document.createElement('canvas')
+        canvas.width = totalW * dpr
+        canvas.height = totalH * dpr
+        const ctx = canvas.getContext('2d')!
+        ctx.scale(dpr, dpr)
+
+        // ── Background ──
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(0, 0, totalW, totalH)
+
+        // ── Title bar ──
+        ctx.fillStyle = '#080808'
+        ctx.fillRect(0, 0, totalW, TITLE_H)
+        // orange bottom border
+        ctx.strokeStyle = '#ff8500'
+        ctx.lineWidth = 2
+        ctx.beginPath(); ctx.moveTo(0, TITLE_H); ctx.lineTo(totalW, TITLE_H); ctx.stroke()
+        ctx.fillStyle = '#ff8500'
+        ctx.font = 'bold 21px "Courier New", monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('⬡ EFI OPTIONS FLOW', PAD, TITLE_H / 2)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = '15px "Courier New", monospace'
+        ctx.textAlign = 'right'
+        ctx.fillText(
+          new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) +
+          (totalPages > 1 ? `   ${page + 1}/${totalPages}  •  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
+          totalW - PAD, TITLE_H / 2
+        )
+
+        // ── Header (glossy black) ──
+        const hY = TITLE_H
+        // Base black fill
+        ctx.fillStyle = '#050505'
+        ctx.fillRect(0, hY, totalW, HEADER_H)
+        // Glossy gradient overlay
+        const headerGloss = ctx.createLinearGradient(0, hY, 0, hY + HEADER_H)
+        headerGloss.addColorStop(0, 'rgba(255,255,255,0.10)')
+        headerGloss.addColorStop(0.45, 'rgba(255,255,255,0.04)')
+        headerGloss.addColorStop(0.5, 'rgba(0,0,0,0)')
+        headerGloss.addColorStop(1, 'rgba(0,0,0,0.25)')
+        ctx.fillStyle = headerGloss
+        ctx.fillRect(0, hY, totalW, HEADER_H)
+        // Subtle top highlight line
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(0, hY + 1); ctx.lineTo(totalW, hY + 1); ctx.stroke()
+        // Orange bottom border
+        ctx.strokeStyle = '#ff8500'
+        ctx.lineWidth = 2
+        ctx.beginPath(); ctx.moveTo(0, hY + HEADER_H); ctx.lineTo(totalW, hY + HEADER_H); ctx.stroke()
+
+        let hx = PAD
+        cols.forEach((col) => {
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 15px "Courier New", monospace'
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'middle'
+          // Text shadow effect (draw twice with offset)
+          ctx.font = 'bold 15px "Courier New", monospace'
+          ctx.fillStyle = 'rgba(0,0,0,0.8)'
+          ctx.fillText(col.label, hx + 1, hY + HEADER_H / 2 + 1)
+          ctx.fillStyle = '#ff8500'
+          ctx.fillText(col.label, hx, hY + HEADER_H / 2)
+          hx += col.w + 6
+        })
+
+        // ── Rows ──
+        trades.forEach((trade, i) => {
+          const rY = TITLE_H + HEADER_H + i * ROW_H
+          ctx.fillStyle = i % 2 === 0 ? '#050505' : '#0c0c0c'
+          ctx.fillRect(0, rY, totalW, ROW_H)
+          ctx.strokeStyle = '#1c1c1c'
+          ctx.lineWidth = 0.5
+          ctx.beginPath(); ctx.moveTo(0, rY + ROW_H); ctx.lineTo(totalW, rY + ROW_H); ctx.stroke()
+
+          const mid = rY + ROW_H / 2
+          const fs = (trade as any).fill_style || ''
+          const tradeTypeRaw = (trade.classification || trade.trade_type || '').toUpperCase()
+          const curPx = currentPrices[trade.underlying_ticker] ?? trade.current_price ?? 0
+
+          ctx.textBaseline = 'middle'
+          ctx.font = '15px "Courier New", monospace'
+
+          let rx = PAD
+
+          // TIME
+          ctx.fillStyle = '#ffffff'
+          ctx.textAlign = 'left'
+          ctx.fillText(new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), rx, mid)
+          rx += cols[0].w + 6
+
+          // SYMBOL — orange ticker style matching the UI
+          ctx.fillStyle = '#ff8500'
+          ctx.font = 'bold 15px "Courier New", monospace'
+          ctx.fillText(trade.underlying_ticker, rx, mid)
+          ctx.font = '15px "Courier New", monospace'
+          rx += cols[1].w + 6
+
+          // C/P
+          ctx.fillStyle = trade.type === 'call' ? '#00ff88' : '#ff3333'
+          ctx.font = 'bold 16px "Courier New", monospace'
+          ctx.fillText(trade.type.toUpperCase(), rx, mid)
+          ctx.font = '15px "Courier New", monospace'
+          rx += cols[2].w + 6
+
+          // STRIKE
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(`$${trade.strike}`, rx, mid)
+          rx += cols[3].w + 6
+
+          // SIZE — "1,234 @ 3.40 A"
+          const sizeStr = trade.trade_size.toLocaleString()
+          const priceStr = trade.premium_per_contract.toFixed(2)
+          ctx.fillStyle = '#00ccff'
+          ctx.fillText(sizeStr, rx, mid)
+          const sw = ctx.measureText(sizeStr).width
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(' @ ', rx + sw, mid)
+          const atW = ctx.measureText(' @ ').width
+          ctx.fillStyle = '#ffdd00'
+          ctx.fillText(priceStr, rx + sw + atW, mid)
+          if (fs && fs !== 'N/A') {
+            const prW = ctx.measureText(priceStr).width
+            ctx.fillStyle = fillColor(fs)
+            ctx.font = 'bold 14px "Courier New", monospace'
+            ctx.fillText(fs, rx + sw + atW + prW + 4, mid)
+            ctx.font = '15px "Courier New", monospace'
+          }
+          rx += cols[4].w + 6
+
+          // PREMIUM
+          ctx.fillStyle = '#00ff88'
+          ctx.font = 'bold 16px "Courier New", monospace'
+          ctx.fillText(`$${(trade.total_premium / 1000).toFixed(0)}K`, rx, mid)
+          ctx.font = '15px "Courier New", monospace'
+          rx += cols[5].w + 6
+
+          // EXPIRY
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(trade.expiry, rx, mid)
+          rx += cols[6].w + 6
+
+          // SPOT >> CURRENT
+          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '—'}`
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(spotStr, rx, mid)
+          const spW = ctx.measureText(spotStr).width
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(' >> ', rx + spW, mid)
+          const arrW = ctx.measureText(' >> ').width
+          const curStr = curPx ? `$${curPx.toFixed(2)}` : '—'
+          ctx.fillStyle = curPx > trade.spot_price ? '#00ff88' : '#ff3333'
+          ctx.font = 'bold 15px "Courier New", monospace'
+          ctx.fillText(curStr, rx + spW + arrW, mid)
+          ctx.font = '15px "Courier New", monospace'
+          rx += cols[7].w + 6
+
+          // TYPE
+          ctx.fillStyle = typeColor(tradeTypeRaw)
+          ctx.font = 'bold 14px "Courier New", monospace'
+          ctx.fillText(tradeTypeRaw, rx, mid)
+          ctx.font = '15px "Courier New", monospace'
+          rx += cols[8].w + 6
+
+          // POSITION / GRADE (only when EFI active)
+          if (efiHighlightsActive) {
+            const gradeData = calculatePositioningGrade(trade, comboTradeMap)
+            if (gradeData && gradeData.grade !== 'N/A') {
+              const { grade } = gradeData
+              const gColor = gradeColor(grade)
+              const expiryShort = trade.expiry.replace(/-/g, '').slice(2)
+              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+              const normalizedTk = trade.underlying_ticker.replace(/[^A-Z]/g, '')
+              const optionKey = `O:${normalizedTk}${expiryShort}${optionType}${strikeFormatted}`
+              const curOptPx = currentOptionPrices[optionKey] ?? null
+              const isSoldToOpen = (trade as any).fill_style === 'B' || (trade as any).fill_style === 'BB'
+              let pctStr = ''
+              if (curOptPx && trade.premium_per_contract) {
+                const raw = ((curOptPx - trade.premium_per_contract) / trade.premium_per_contract) * 100
+                const pct = isSoldToOpen ? -raw : raw
+                pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
+              }
+              ctx.fillStyle = gColor
+              ctx.font = 'italic 20px Impact, Georgia, serif'
+              ctx.textAlign = 'left'
+              ctx.fillText(grade, rx, mid - (pctStr ? 8 : 0))
+              if (pctStr) {
+                const pctColor = pctStr.startsWith('+') ? '#00ff88' : '#ff3333'
+                ctx.fillStyle = pctColor
+                ctx.font = 'bold 14px "Courier New", monospace'
+                ctx.fillText(pctStr, rx, mid + 9)
+              }
+              ctx.font = '15px "Courier New", monospace'
+            } else {
+              ctx.fillStyle = '#ffffff'
+              ctx.font = '15px "Courier New", monospace'
+              ctx.textAlign = 'left'
+              ctx.fillText('—', rx, mid)
+            }
+            rx += gradeCol.w + 6
+          }
+
+          // TARGETS (only when notable active)
+          if (notableFilterActive) {
+            const isCall = trade.type === 'call'
+            const isSoldToOpen = (trade as any).fill_style === 'B' || (trade as any).fill_style === 'BB'
+            const targetIsUpside = (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
+            const cachedIV = dealerZoneCache[trade.underlying_ticker]?.atmIV
+            const sigma = cachedIV && cachedIV > 0
+              ? cachedIV
+              : (trade.implied_volatility && trade.implied_volatility > 0 ? trade.implied_volatility : 0)
+            const t1 = sigma > 0 ? bsStrikeForProb(trade.spot_price, sigma, trade.days_to_expiry, 80, targetIsUpside) : null
+            const t2 = sigma > 0 ? bsStrikeForProb(trade.spot_price, sigma, trade.days_to_expiry, 90, targetIsUpside) : null
+            ctx.font = '15px "Courier New", monospace'
+            ctx.textAlign = 'left'
+            if (t1 && t2) {
+              ctx.fillStyle = '#00ff88'
+              ctx.font = 'bold 12px "Courier New", monospace'
+              ctx.fillText('T1', rx, mid - 8)
+              ctx.fillStyle = '#ffffff'
+              ctx.font = 'bold 15px "Courier New", monospace'
+              ctx.fillText(`$${t1.toFixed(2)}`, rx + 22, mid - 8)
+              ctx.fillStyle = '#ff8800'
+              ctx.font = 'bold 12px "Courier New", monospace'
+              ctx.fillText('T2', rx, mid + 8)
+              ctx.fillStyle = '#ffffff'
+              ctx.font = 'bold 15px "Courier New", monospace'
+              ctx.fillText(`$${t2.toFixed(2)}`, rx + 22, mid + 8)
+            } else {
+              ctx.fillStyle = '#ffffff'
+              ctx.font = '15px "Courier New", monospace'
+              ctx.fillText('—', rx, mid)
+            }
+            rx += targetsCol.w + 6
+          }
+
+          // DEALER (only when notable active)
+          if (notableFilterActive) {
+            const zones = dealerZoneCache[trade.underlying_ticker]
+            ctx.textAlign = 'left'
+            if (zones) {
+              // Build combined price+expiry strings so no measureText font mismatch
+              const magnetVal = zones.golden != null
+                ? `$${zones.golden}${zones.goldenExpiry ? '  ' + zones.goldenExpiry.slice(5).replace('-', '/') : ''}`
+                : '—'
+              const pivotVal = zones.purple != null
+                ? `$${zones.purple}${zones.purpleExpiry ? '  ' + zones.purpleExpiry.slice(5).replace('-', '/') : ''}`
+                : '—'
+              ctx.font = 'bold 11px "Courier New", monospace'
+              ctx.fillStyle = '#FFD700'
+              ctx.fillText('MAGNET', rx, mid - 8)
+              ctx.font = 'bold 14px "Courier New", monospace'
+              ctx.fillText(magnetVal, rx + 60, mid - 8)
+              ctx.font = 'bold 11px "Courier New", monospace'
+              ctx.fillStyle = '#a855f7'
+              ctx.fillText('PIVOT', rx, mid + 8)
+              ctx.font = 'bold 14px "Courier New", monospace'
+              ctx.fillText(pivotVal, rx + 60, mid + 8)
+            } else {
+              ctx.fillStyle = '#ffffff'
+              ctx.font = '15px "Courier New", monospace'
+              ctx.fillText('—', rx, mid)
+            }
+          }
+        })
+
+        // ── Footer ──
+        const fY = TITLE_H + HEADER_H + trades.length * ROW_H
+        ctx.fillStyle = '#080808'
+        ctx.fillRect(0, fY, totalW, FOOTER_H)
+        ctx.strokeStyle = '#ff8500'
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(0, fY); ctx.lineTo(totalW, fY); ctx.stroke()
+        ctx.fillStyle = '#ffffff'
+        ctx.font = '14px "Courier New", monospace'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('EFI TRADING  •  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
+
+        // ── Download ──
+        const dataUrl = canvas.toDataURL('image/png')
+        const link = document.createElement('a')
+        link.download = totalPages > 1
+          ? `options-flow-${dateStr}-${page + 1}of${totalPages}.png`
+          : `options-flow-${dateStr}.png`
+        link.href = dataUrl
+        link.style.display = 'none'
+        document.body.appendChild(link)
+        link.click()
+        setTimeout(() => document.body.removeChild(link), 100)
+      }
+    } catch (err) {
+      console.error('[Download] Error:', err)
+    }
+  }
 
   useEffect(() => {
     // Clean up expired flows and only fetch if flows exist
@@ -5407,12 +5762,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                               cursor: 'pointer',
                             }}
                             onMouseEnter={(e) => {
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
+                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
+                                ; (e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
                             }}
                             onMouseLeave={(e) => {
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#555'
+                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
+                                ; (e.currentTarget as HTMLButtonElement).style.color = '#555'
                             }}
                           >
                             DEL
@@ -5429,6 +5784,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       )}
 
       <div
+        ref={captureRef}
         className={`bg-black flex flex-col ${isFlowTrackingOpen ? 'md:flex hidden' : 'flex'}`}
         style={{
           minHeight: showFlowTrackingInline ? 'auto' : '100vh',
@@ -5706,11 +6062,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                     disabled={loading}
-                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${
-                      loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '40px',
 
@@ -5904,11 +6259,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <button
                   onClick={handleSaveFlow}
                   disabled={savingFlow || !data || data.length === 0}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
-                    savingFlow || !data || data.length === 0
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                  }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${savingFlow || !data || data.length === 0
+                    ? 'cursor-not-allowed opacity-40'
+                    : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                   style={{
                     height: '40px',
 
@@ -5998,14 +6352,46 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* History Button */}
 
+                {/* Download as Image Button */}
+
+                <button
+                  onClick={handleDownloadImage}
+                  className="hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    height: '40px',
+                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: '2px solid #22c55e',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                  }}
+                  title="Download page as image"
+                >
+                  <svg
+                    className="w-3 h-3 text-green-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  <span style={{ color: '#22c55e' }}>IMG</span>
+                </button>
+
                 <button
                   onClick={loadFlowHistory}
                   disabled={loadingHistory}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${
-                    loadingHistory
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                  }`}
+                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${loadingHistory
+                    ? 'cursor-not-allowed opacity-40'
+                    : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
                   style={{
                     height: '40px',
 
@@ -6757,83 +7143,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{ width: '1px', height: '48px', background: '#2a2a2a' }}
                 ></div>
 
-                {/* Premium SCAN Button */}
-
-                {!useDropdowns && (
-                  <button
-                    onClick={() => {
-                      if (inputTicker.trim()) {
-                        const ticker = inputTicker.trim()
-
-                        onTickerChange(ticker)
-
-                        onRefresh?.(ticker)
-                      }
-                    }}
-                    disabled={!inputTicker.trim() || loading}
-                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${
-                      !inputTicker.trim() || loading
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
-                    style={{
-                      height: '48px',
-
-                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                      border: '2px solid #ff8500',
-
-                      borderRadius: '4px',
-
-                      fontSize: '15px',
-
-                      letterSpacing: '2px',
-
-                      fontWeight: '900',
-
-                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
-                      position: 'relative',
-
-                      overflow: 'hidden',
-
-                      color: '#ff8500',
-
-                      outline: 'none',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!loading && inputTicker.trim()) {
-                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
-
-                        e.currentTarget.style.border = '2px solid #ffaa00'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!loading && inputTicker.trim()) {
-                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
-
-                        e.currentTarget.style.border = '2px solid #ff8500'
-                      }
-                    }}
-                  >
-                    <svg
-                      className="w-5 h-5 text-orange-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      strokeWidth={3.5}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      />
-                    </svg>
-
-                    <span>SCAN</span>
-                  </button>
-                )}
-
                 {/* Premium EFI Highlights Toggle */}
 
                 <button
@@ -6987,11 +7296,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => onRefresh?.()}
                       disabled={loading}
-                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -7079,11 +7387,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={onClearData}
                       disabled={loading}
-                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -7141,11 +7448,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                       disabled={loading}
-                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${
-                        loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
+                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
                       style={{
                         height: '48px',
 
@@ -7269,11 +7575,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
-                      savingFlow || !data || data.length === 0
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '48px',
 
@@ -7363,14 +7668,46 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   {/* History Button - Desktop Only */}
 
+                  {/* Download as Image Button - Desktop Only */}
+
+                  <button
+                    onClick={handleDownloadImage}
+                    className="hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      height: '48px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: '2px solid #22c55e',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                    }}
+                    title="Download page as image"
+                  >
+                    <svg
+                      className="w-5 h-5 text-green-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                    <span style={{ color: '#22c55e' }}>IMG</span>
+                  </button>
+
                   <button
                     onClick={loadFlowHistory}
                     disabled={loadingHistory}
-                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
-                      loadingHistory
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${loadingHistory
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
                     style={{
                       height: '48px',
 
@@ -7611,11 +7948,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <button
                               key={pageNum}
                               onClick={() => setCurrentPage(pageNum)}
-                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
-                                currentPage === pageNum
-                                  ? 'bg-orange-500 text-black border-orange-500 font-bold'
-                                  : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
-                              }`}
+                              className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${currentPage === pageNum
+                                ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                                : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
+                                }`}
                             >
                               {pageNum}
                             </button>
@@ -7844,16 +8180,16 @@ Stock Reaction: ${scores.stockReaction}/15`
                             cursor: isNotablePick ? 'pointer' : 'default',
                             ...(isNotablePick
                               ? {
-                                  outline: '3px solid #FFD700',
+                                outline: '3px solid #FFD700',
 
-                                  outlineOffset: '-3px',
-                                }
+                                outlineOffset: '-3px',
+                              }
                               : {}),
 
                             ...(isEfiHighlight
                               ? isBullishEfi
                                 ? {
-                                    background: `
+                                  background: `
 
                               radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
 
@@ -7897,15 +8233,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    borderLeft: '5px solid #00ff00',
+                                  borderLeft: '5px solid #00ff00',
 
-                                    borderRight: '5px solid #00ff00',
+                                  borderRight: '5px solid #00ff00',
 
-                                    borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                                  borderTop: '2px solid rgba(0, 255, 0, 0.2)',
 
-                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                    boxShadow: `
+                                  boxShadow: `
 
                               inset 0 4px 16px rgba(0, 255, 0, 0.2),
 
@@ -7927,18 +8263,18 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    position: 'relative' as const,
+                                  position: 'relative' as const,
 
-                                    transform: 'translateZ(0)',
+                                  transform: 'translateZ(0)',
 
-                                    backdropFilter: 'blur(0.5px)',
+                                  backdropFilter: 'blur(0.5px)',
 
-                                    WebkitBackdropFilter: 'blur(0.5px)',
+                                  WebkitBackdropFilter: 'blur(0.5px)',
 
-                                    isolation: 'isolate' as const,
-                                  }
+                                  isolation: 'isolate' as const,
+                                }
                                 : {
-                                    background: `
+                                  background: `
 
                               radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
 
@@ -7982,15 +8318,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    borderLeft: '5px solid #ff0000',
+                                  borderLeft: '5px solid #ff0000',
 
-                                    borderRight: '5px solid #ff0000',
+                                  borderRight: '5px solid #ff0000',
 
-                                    borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                                  borderTop: '2px solid rgba(255, 0, 0, 0.2)',
 
-                                    borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
 
-                                    boxShadow: `
+                                  boxShadow: `
 
                               inset 0 4px 16px rgba(255, 0, 0, 0.2),
 
@@ -8012,19 +8348,19 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             `,
 
-                                    position: 'relative' as const,
+                                  position: 'relative' as const,
 
-                                    transform: 'translateZ(0)',
+                                  transform: 'translateZ(0)',
 
-                                    backdropFilter: 'blur(0.5px)',
+                                  backdropFilter: 'blur(0.5px)',
 
-                                    WebkitBackdropFilter: 'blur(0.5px)',
+                                  WebkitBackdropFilter: 'blur(0.5px)',
 
-                                    isolation: 'isolate' as const,
-                                  }
+                                  isolation: 'isolate' as const,
+                                }
                               : {
-                                  backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
-                                }),
+                                backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
+                              }),
 
                             position: 'relative' as const,
 
@@ -8038,11 +8374,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${
-                                    selectedTickerFilter === trade.underlying_ticker
-                                      ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                      : ''
-                                  }`}
+                                  className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
+                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                    : ''
+                                    }`}
                                 >
                                   {trade.underlying_ticker}
                                 </button>
@@ -8094,11 +8429,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
-                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
-                                  selectedTickerFilter === trade.underlying_ticker
-                                    ? 'ring-2 ring-orange-500 bg-gray-800/50'
-                                    : ''
-                                }`}
+                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker
+                                  ? 'ring-2 ring-orange-500 bg-gray-800/50'
+                                  : ''
+                                  }`}
                                 style={
                                   isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}
                                 }
@@ -8181,17 +8515,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                 {(trade as any).fill_style && (
                                   <span
-                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${
-                                      (trade as any).fill_style === 'A'
-                                        ? 'text-green-400 bg-green-400/20 border border-green-400/40'
-                                        : (trade as any).fill_style === 'AA'
-                                          ? 'text-green-300 bg-green-300/20 border border-green-300/40'
-                                          : (trade as any).fill_style === 'B'
-                                            ? 'text-red-400 bg-red-400/20 border border-red-400/40'
-                                            : (trade as any).fill_style === 'BB'
-                                              ? 'text-red-300 bg-red-300/20 border border-red-300/40'
-                                              : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
-                                    }`}
+                                    className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${(trade as any).fill_style === 'A'
+                                      ? 'text-green-400 bg-green-400/20 border border-green-400/40'
+                                      : (trade as any).fill_style === 'AA'
+                                        ? 'text-green-300 bg-green-300/20 border border-green-300/40'
+                                        : (trade as any).fill_style === 'B'
+                                          ? 'text-red-400 bg-red-400/20 border border-red-400/40'
+                                          : (trade as any).fill_style === 'BB'
+                                            ? 'text-red-300 bg-red-300/20 border border-red-300/40'
+                                            : 'text-gray-500 bg-gray-500/20 border border-gray-500/40'
+                                      }`}
                                   >
                                     {(trade as any).fill_style}
                                   </span>
@@ -8238,17 +8571,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                   {(trade as any).fill_style && (
                                     <span
-                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
-                                        (trade as any).fill_style === 'A'
-                                          ? 'text-green-400 bg-green-400/10 border border-green-400/30'
-                                          : (trade as any).fill_style === 'AA'
-                                            ? 'text-green-300 bg-green-300/10 border border-green-300/30'
-                                            : (trade as any).fill_style === 'B'
-                                              ? 'text-red-400 bg-red-400/10 border border-red-400/30'
-                                              : (trade as any).fill_style === 'BB'
-                                                ? 'text-red-300 bg-red-300/10 border border-red-300/30'
-                                                : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
-                                      }`}
+                                      className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A'
+                                        ? 'text-green-400 bg-green-400/10 border border-green-400/30'
+                                        : (trade as any).fill_style === 'AA'
+                                          ? 'text-green-300 bg-green-300/10 border border-green-300/30'
+                                          : (trade as any).fill_style === 'B'
+                                            ? 'text-red-400 bg-red-400/10 border border-red-400/30'
+                                            : (trade as any).fill_style === 'BB'
+                                              ? 'text-red-300 bg-red-300/10 border border-red-300/30'
+                                              : 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                        }`}
                                       style={{ fontSize: '12px' }}
                                     >
                                       <span
@@ -8344,7 +8676,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                           <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
                             {typeof trade.volume === 'number' &&
-                            typeof trade.open_interest === 'number' ? (
+                              typeof trade.open_interest === 'number' ? (
                               <div className="flex items-center justify-center gap-1">
                                 <span
                                   className="text-cyan-400 font-bold"
@@ -8402,22 +8734,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const t1 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                      trade.spot_price,
-                                      sigma,
-                                      trade.days_to_expiry,
-                                      80,
-                                      targetIsUpside
-                                    )
+                                    trade.spot_price,
+                                    sigma,
+                                    trade.days_to_expiry,
+                                    80,
+                                    targetIsUpside
+                                  )
                                   : null
                               const t2 =
                                 sigma > 0
                                   ? bsStrikeForProb(
-                                      trade.spot_price,
-                                      sigma,
-                                      trade.days_to_expiry,
-                                      90,
-                                      targetIsUpside
-                                    )
+                                    trade.spot_price,
+                                    sigma,
+                                    trade.days_to_expiry,
+                                    90,
+                                    targetIsUpside
+                                  )
                                   : null
                               return (
                                 <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
@@ -9422,22 +9754,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                             const t1m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma2,
-                                    trade.days_to_expiry,
-                                    80,
-                                    targetUp2
-                                  )
+                                  trade.spot_price,
+                                  sigma2,
+                                  trade.days_to_expiry,
+                                  80,
+                                  targetUp2
+                                )
                                 : null
                             const t2m =
                               sigma2 > 0
                                 ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma2,
-                                    trade.days_to_expiry,
-                                    90,
-                                    targetUp2
-                                  )
+                                  trade.spot_price,
+                                  sigma2,
+                                  trade.days_to_expiry,
+                                  90,
+                                  targetUp2
+                                )
                                 : null
                             const zones2 = dealerZoneCache[trade.underlying_ticker]
                             const dirBg = targetUp2 ? 'rgba(0,180,60,0.22)' : 'rgba(200,30,30,0.22)'
@@ -10371,7 +10703,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                  chartWidth
+                                chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -10398,35 +10730,35 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const shadingRects =
                                 stockTimeframe === '1D'
                                   ? chartData.map((point, i) => {
-                                      const x =
-                                        padding.left + (i / (chartData.length - 1)) * chartWidth
+                                    const x =
+                                      padding.left + (i / (chartData.length - 1)) * chartWidth
 
-                                      const nextX =
-                                        i < chartData.length - 1
-                                          ? padding.left +
-                                            ((i + 1) / (chartData.length - 1)) * chartWidth
-                                          : padding.left + chartWidth
+                                    const nextX =
+                                      i < chartData.length - 1
+                                        ? padding.left +
+                                        ((i + 1) / (chartData.length - 1)) * chartWidth
+                                        : padding.left + chartWidth
 
-                                      const rectWidth = nextX - x
+                                    const rectWidth = nextX - x
 
-                                      const isMarket = isMarketHours(point.timestamp)
+                                    const isMarket = isMarketHours(point.timestamp)
 
-                                      if (!isMarket) {
-                                        return (
-                                          <rect
-                                            key={`shade-${i}`}
-                                            x={x}
-                                            y={padding.top}
-                                            width={rectWidth}
-                                            height={chartHeight}
-                                            fill="#555555"
-                                            opacity="0.15"
-                                          />
-                                        )
-                                      }
+                                    if (!isMarket) {
+                                      return (
+                                        <rect
+                                          key={`shade-${i}`}
+                                          x={x}
+                                          y={padding.top}
+                                          width={rectWidth}
+                                          height={chartHeight}
+                                          fill="#555555"
+                                          opacity="0.15"
+                                        />
+                                      )
+                                    }
 
-                                      return null
-                                    })
+                                    return null
+                                  })
                                   : []
 
                               // Y-axis labels
@@ -10518,11 +10850,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1D'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1D'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1D'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1D
                                       </button>
@@ -10541,11 +10872,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1W'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1W'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1W'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1W
                                       </button>
@@ -10564,11 +10894,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                             '1M'
                                           )
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          stockTimeframe === '1M'
-                                            ? 'bg-orange-500 text-black'
-                                            : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1M'
+                                          ? 'bg-orange-500 text-black'
+                                          : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1M
                                       </button>
@@ -10780,7 +11109,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 padding.left +
                                 ((tradeTimestamp - firstTimestamp) /
                                   (lastTimestamp - firstTimestamp)) *
-                                  chartWidth
+                                chartWidth
 
                               const tradeLineColor = '#9b59b6'
 
@@ -10875,11 +11204,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1D')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1D'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1D'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1D
                                       </button>
@@ -10894,11 +11222,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1W')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1W'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1W'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1W
                                       </button>
@@ -10913,11 +11240,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                           fetchOptionPremiumDataForFlow(flowId, flow, '1M')
                                         }}
-                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
-                                          optionTimeframe === '1M'
-                                            ? 'bg-cyan-500 text-black'
-                                            : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1M'
+                                          ? 'bg-cyan-500 text-black'
+                                          : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                          }`}
                                       >
                                         1M
                                       </button>

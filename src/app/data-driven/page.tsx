@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import AlmanacDailyChart from '@/components/analytics/AlmanacDailyChart'
 import HistoricalEventsResearch from '@/components/analytics/HistoricalEventsResearch'
 import SeasonalityChart from '@/components/analytics/SeasonalityChart'
@@ -12,9 +13,19 @@ import '../seasonality.css'
 import '../seasonax.css'
 
 export default function DataDriven() {
+  useEffect(() => {
+    const prevBody = document.body.style.overflow
+    const prevHtml = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevBody
+      document.documentElement.style.overflow = prevHtml
+    }
+  }, [])
+
   return (
     <>
-      <style>{`html, body { overflow: hidden !important; }`}</style>
       <div className="data-driven-container" style={{ minHeight: 'auto' }}>
         {/* Desktop view - shows all components side by side */}
         <div className="desktop-view">
