@@ -6618,6 +6618,7 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
+  const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
   const watchlistSavedScrollRef = useRef<number>(0)
@@ -13358,6 +13359,14 @@ export default function TradingViewChart({
     if (e.key === 'Enter') {
       handleSearch(searchQuery)
     }
+  }
+
+  // Returns YYYY-MM-DD in local timezone (avoids UTC rollover causing future dates at night)
+  const toLocalDateStr = (d: Date): string => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
 
   const fetchData = useCallback(
@@ -30251,10 +30260,12 @@ export default function TradingViewChart({
                       ? 'fit-content'
                       : activeSidebarPanel === 'flow'
                         ? '1500px'
-                        : '1200px',
-                  top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : '180px',
+                        : activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
+                          ? 'calc(100vw - 108px)'
+                          : '1200px',
+                  top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
                   bottom:
-                    typeof window !== 'undefined' && window.innerWidth <= 768 ? '0px' : '16px',
+                    typeof window !== 'undefined' && window.innerWidth <= 768 ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
                 }}
                 data-sidebar-panel={activeSidebarPanel}
               >
@@ -30322,7 +30333,7 @@ export default function TradingViewChart({
                     />
                   )}
                   {activeSidebarPanel === 'news' && (
-                    <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} />
+                    <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} />
                   )}
                   {activeSidebarPanel === 'screeners' && (
                     <div className="h-full flex flex-col bg-black text-white relative">

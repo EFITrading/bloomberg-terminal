@@ -95,6 +95,7 @@ function PCMiniChart({
   const totalPts = data?.ratios.length ?? 0
   const [zoomStart, setZoomStart] = useState(0)
   const [zoomEnd, setZoomEnd] = useState(totalPts - 1)
+  const userZoomedRef = useRef(false)
   const svgRef = useRef<SVGSVGElement>(null)
   const [crosshair, setCrosshair] = useState<{ x: number; y: number; idx: number } | null>(null)
   // All mutable interaction state lives in refs — no stale closures
@@ -110,9 +111,19 @@ function PCMiniChart({
 
   useEffect(() => {
     const len = data?.ratios.length ?? 0
-    setZoomStart(0)
-    setZoomEnd(Math.max(0, len - 1))
+    // Only auto-reset zoom when the symbol changes or data arrives for the first time.
+    // If the user has manually zoomed, preserve their view during silent refreshes.
+    if (!userZoomedRef.current) {
+      setZoomStart(0)
+      setZoomEnd(Math.max(0, len - 1))
+    } else {
+      // Clamp existing zoom to new data bounds
+      setZoomEnd((prev) => Math.min(prev, Math.max(0, len - 1)))
+    }
   }, [data?.ratios.length, sym])
+
+  // Reset userZoomed when symbol changes so new symbol starts full-view
+  useEffect(() => { userZoomedRef.current = false }, [sym])
 
   // Attach native events once on mount so wheel can be { passive: false }
   useEffect(() => {
@@ -127,6 +138,7 @@ function PCMiniChart({
       if (tot < 3 || span < 1) return
       const delta = Math.sign(e.deltaY)
       const step = Math.max(1, Math.round(span * 0.1))
+      userZoomedRef.current = true
       if (delta > 0) {
         // zoom out
         setZoomStart(Math.max(0, visS - step))
@@ -1056,8 +1068,12 @@ export default function PutCallRatioChart({
     _mc.fetchedAt = Date.now()
     _mc.fetching = true
 
-    setChartData({})
-    setLoading(Object.fromEntries(ALL_SYMBOLS.map((s) => [s, true])))
+    // On a force refresh, keep existing chart data visible (no flicker/zoom reset);
+    // only clear & show loading on a fresh range change.
+    if (!force) {
+      setChartData({})
+      setLoading(Object.fromEntries(ALL_SYMBOLS.map((s) => [s, true])))
+    }
 
     ALL_SYMBOLS.forEach((sym) => {
       fetch(`/api/historical-pc-ratio?symbol=${sym}&range=${r}`)

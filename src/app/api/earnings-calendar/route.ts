@@ -3,11 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 interface NasdaqRow {
   symbol: string
   name: string
-  marketTime: string
-  eps_forecast: string
+  time: string
+  epsForecast: string
   noOfEsts: string
   lastYearRptDt: string
-  lastYearsEps: string
+  lastYearEPS: string
 }
 
 interface EarningsEvent {
@@ -63,7 +63,7 @@ async function fetchNasdaqEarnings(dateStr: string): Promise<NasdaqRow[]> {
         Referer: 'https://www.nasdaq.com/market-activity/earnings',
         Origin: 'https://www.nasdaq.com',
       },
-      next: { revalidate: 3600 },
+      cache: 'no-store',
     })
     if (!res.ok) return []
     const data = await res.json()
@@ -110,7 +110,11 @@ export async function GET(request: NextRequest) {
         const name = (row.name ?? '').trim()
         if (!sym || sym === '-' || !name || name === '-') continue
 
-        const timing = row.marketTime === 'time-after-hours' ? 'Post-Market' : 'Pre-Market'
+        const rawTime = (row.time ?? '').toLowerCase()
+        const timing =
+          rawTime === 'time-pre-market' ? 'Pre-Market' :
+            rawTime === 'time-after-hours' ? 'Post-Market' :
+              'Post-Market' // default unknown → after-hours (statistical majority)
         const estimates = parseInt(row.noOfEsts) || 0
         const importance: 'high' | 'medium' = estimates >= 5 ? 'high' : 'medium'
 
@@ -126,8 +130,8 @@ export async function GET(request: NextRequest) {
           type: 'earnings',
         }
 
-        const forecast = parseEps(row.eps_forecast)
-        const prior = parseEps(row.lastYearsEps)
+        const forecast = parseEps(row.epsForecast)
+        const prior = parseEps(row.lastYearEPS)
         if (forecast) ev.forecast = forecast
         if (prior) ev.prior = prior
 
@@ -140,7 +144,7 @@ export async function GET(request: NextRequest) {
     { success: true, events, year, month, count: events.length },
     {
       headers: {
-        'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600',
+        'Cache-Control': 'no-store, no-cache',
       },
     }
   )

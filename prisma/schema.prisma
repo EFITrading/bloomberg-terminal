@@ -28,3 +28,12 @@ model Flow {
   @@index([date])
   @@index([createdAt])
 }
+
+model PortfolioData {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  data      String   // JSON: { trades, alerts, notes, cashBalance, equityHistory }
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}

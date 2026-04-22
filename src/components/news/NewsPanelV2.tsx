@@ -108,6 +108,7 @@ interface TrendingTopic {
 interface NewsTabProps {
   symbol?: string
   onClose?: () => void
+  onTabChange?: (tab: 'breaking' | 'feed' | 'movers' | 'calendar') => void
 }
 
 // ─── Economic Calendar Data ───────────────────────────────────────────────────
@@ -133,14 +134,53 @@ interface CalendarEvent {
 // ─── Company Logo (Polygon branding API — same as MarketHeatmap) ──────────────
 
 const _logoCache: Record<string, string | null> = {}
-const _logoFetching: Record<string, true> = {}
+const _logoCallbacks: Record<string, Array<(url: string | null) => void>> = {}
+let _logoActiveCount = 0
+const LOGO_MAX_CONCURRENT = 3
 
-const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string }> = ({
+function _processLogoQueue(apiKey: string) {
+  const pending = Object.keys(_logoCallbacks).filter((t) => _logoCache[t] === undefined)
+  while (_logoActiveCount < LOGO_MAX_CONCURRENT && pending.length > 0) {
+    const ticker = pending.shift()!
+    if (_logoCache[ticker] !== undefined) {
+      // already resolved while waiting
+      const cbs = _logoCallbacks[ticker] ?? []
+      delete _logoCallbacks[ticker]
+      cbs.forEach((cb) => cb(_logoCache[ticker]))
+      continue
+    }
+    _logoActiveCount++
+    fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${apiKey}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const url = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
+        _logoCache[ticker] = url
+        const cbs = _logoCallbacks[ticker] ?? []
+        delete _logoCallbacks[ticker]
+        cbs.forEach((cb) => cb(url))
+      })
+      .catch(() => {
+        _logoCache[ticker] = null
+        const cbs = _logoCallbacks[ticker] ?? []
+        delete _logoCallbacks[ticker]
+        cbs.forEach((cb) => cb(null))
+      })
+      .finally(() => {
+        _logoActiveCount--
+        _processLogoQueue(apiKey)
+      })
+  }
+}
+
+const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string; fluid?: boolean }> = ({
   ticker,
   size = 28,
   className = '',
+  fluid = false,
 }) => {
-  const [logoUrl, setLogoUrl] = React.useState<string | null>(_logoCache[ticker] ?? null)
+  const [logoUrl, setLogoUrl] = React.useState<string | null>(
+    _logoCache[ticker] !== undefined ? _logoCache[ticker] : null
+  )
   const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   React.useEffect(() => {
@@ -149,19 +189,17 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string 
       setLogoUrl(_logoCache[ticker])
       return
     }
-    if (_logoFetching[ticker]) return
-    _logoFetching[ticker] = true
-    fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        const url = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
-        _logoCache[ticker] = url
-        setLogoUrl(url)
-      })
-      .catch(() => {
-        _logoCache[ticker] = null
-      })
+    // Enqueue this ticker
+    if (!_logoCallbacks[ticker]) {
+      _logoCallbacks[ticker] = []
+    }
+    _logoCallbacks[ticker].push((url) => setLogoUrl(url))
+    _processLogoQueue(POLYGON_KEY)
   }, [ticker, POLYGON_KEY])
+
+  const fluidStyle: React.CSSProperties = fluid
+    ? { width: '100%', height: '100%', aspectRatio: '1 / 1' }
+    : { width: size, height: size }
 
   if (!logoUrl) {
     const palette = [
@@ -182,10 +220,9 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string 
       <span
         className={`inline-flex items-center justify-center rounded font-black text-white leading-none shrink-0 ${className}`}
         style={{
-          width: size,
-          height: size,
+          ...fluidStyle,
           background: color,
-          fontSize: Math.max(7, Math.floor(size * 0.34)),
+          fontSize: fluid ? '0.7em' : Math.max(7, Math.floor(size * 0.34)),
         }}
       >
         {ticker.slice(0, 4)}
@@ -196,10 +233,9 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string 
     <img
       src={`${logoUrl}?apiKey=${POLYGON_KEY}`}
       alt={ticker}
-      width={size}
-      height={size}
+      {...(!fluid && { width: size, height: size })}
       className={`rounded object-contain shrink-0 ${className}`}
-      style={{ background: 'rgba(255,255,255,0.06)', padding: '2px' }}
+      style={{ ...fluidStyle, background: 'rgba(255,255,255,0.06)', padding: '2px' }}
       onError={() => {
         _logoCache[ticker] = null
         setLogoUrl(null)
@@ -401,7 +437,7 @@ function typeIcon(type: CalendarEvent['type']) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
+const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange }) => {
   const [articles, setArticles] = useState<NewsArticle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -422,6 +458,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
     return { year: now.getFullYear(), month: now.getMonth() }
   })
   const [calViewMode, setCalViewMode] = useState<'monthly' | 'weekly'>('monthly')
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   const [liveCalEvents, setLiveCalEvents] = useState<CalendarEvent[]>(STATIC_CAL_EVENTS)
   const [calEventsLoading, setCalEventsLoading] = useState(false)
   const [calWeekOf, setCalWeekOf] = useState<Date>(() => {
@@ -652,7 +689,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
       GDP: { event: 'GDP Report', importance: 'critical', time: '8:30 AM' },
     }
     Promise.all([
-      fetch(`/api/earnings-calendar?year=${year}&month=${month}`)
+      fetch(`/api/earnings-calendar?year=${year}&month=${month}`, { cache: 'no-store' })
         .then((r) => r.json())
         .catch(() => ({ success: false, events: [] })),
       fetch(`/api/fred-calendar?year=${year}&month=${month}`)
@@ -660,6 +697,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
         .catch(() => ({ success: false, events: {} })),
     ])
       .then(([earningsData, fredData]) => {
+        console.log('[CAL DEBUG] raw earningsData:', earningsData)
+        console.log('[CAL DEBUG] total events from API:', earningsData?.events?.length)
+        const postEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Post-Market')
+        const preEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Pre-Market')
+        console.log('[CAL DEBUG] Pre-Market count:', preEvents?.length, '| Post-Market count:', postEvents?.length)
+        console.log('[CAL DEBUG] sample Post-Market events:', postEvents?.slice(0, 3))
+        console.log('[CAL DEBUG] unique time values:', [...new Set(earningsData?.events?.map((e: CalendarEvent) => e.time))])
         const incoming: CalendarEvent[] = []
         if (earningsData.success && Array.isArray(earningsData.events)) {
           incoming.push(...earningsData.events)
@@ -668,21 +712,21 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
           Object.entries(fredData.events as Record<string, string[]>).forEach(
             ([dateStr, names]) => {
               const [yyyy, mm, dd] = dateStr.split('-').map(Number)
-              ;(names as string[]).forEach((name) => {
-                const mapped = FRED_MAP[name]
-                if (!mapped) return
-                incoming.push({
-                  date: `${MONTH_SHORT[mm - 1]} ${dd}`,
-                  dayNum: dd,
-                  month: mm - 1,
-                  year: yyyy,
-                  time: mapped.time,
-                  event: mapped.event,
-                  importance: mapped.importance,
-                  country: 'US',
-                  type: 'economic',
+                ; (names as string[]).forEach((name) => {
+                  const mapped = FRED_MAP[name]
+                  if (!mapped) return
+                  incoming.push({
+                    date: `${MONTH_SHORT[mm - 1]} ${dd}`,
+                    dayNum: dd,
+                    month: mm - 1,
+                    year: yyyy,
+                    time: mapped.time,
+                    event: mapped.event,
+                    importance: mapped.importance,
+                    country: 'US',
+                    type: 'economic',
+                  })
                 })
-              })
             }
           )
         }
@@ -739,24 +783,24 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
   const sentStyle = (s: string) =>
     s === 'positive'
       ? {
-          cls: 'text-emerald-400',
-          border: 'border-l-emerald-500',
-          bg: 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-400',
-          label: '▲ BULL',
-        }
+        cls: 'text-emerald-400',
+        border: 'border-l-emerald-500',
+        bg: 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-400',
+        label: '▲ BULL',
+      }
       : s === 'negative'
         ? {
-            cls: 'text-red-400',
-            border: 'border-l-red-500',
-            bg: 'bg-red-500/10 border border-red-500/40 text-red-400',
-            label: '▼ BEAR',
-          }
+          cls: 'text-red-400',
+          border: 'border-l-red-500',
+          bg: 'bg-red-500/10 border border-red-500/40 text-red-400',
+          label: '▼ BEAR',
+        }
         : {
-            cls: 'text-amber-300',
-            border: 'border-l-amber-500',
-            bg: 'bg-amber-500/10 border border-amber-500/40 text-amber-300',
-            label: '◆ NEUTRAL',
-          }
+          cls: 'text-amber-300',
+          border: 'border-l-amber-500',
+          bg: 'bg-amber-500/10 border border-amber-500/40 text-amber-300',
+          label: '◆ NEUTRAL',
+        }
 
   // ══════════════════════════════════════════════════════════════════════════
   // LOADING / ERROR
@@ -1091,11 +1135,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
           // Exact time from published_utc
           const pubTime = article.published_utc
             ? new Date(article.published_utc).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-                timeZone: 'America/Los_Angeles',
-              })
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'America/Los_Angeles',
+            })
             : article.time_ago
 
           return (
@@ -1116,9 +1160,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                     {article.tickers.slice(0, 4).map((t) => (
                       <span
                         key={t}
-                        className={`text-lg font-black tracking-widest ${
-                          isPos ? 'text-emerald-400' : isNeg ? 'text-red-400' : 'text-orange-400'
-                        }`}
+                        className={`text-lg font-black tracking-widest ${isPos ? 'text-emerald-400' : isNeg ? 'text-red-400' : 'text-orange-400'
+                          }`}
                       >
                         {t}
                       </span>
@@ -1258,11 +1301,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
 
           const timeStr = article.published_utc
             ? new Date(article.published_utc).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-                timeZone: 'America/Los_Angeles',
-              })
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'America/Los_Angeles',
+            })
             : article.time_ago
 
           // ── Tracking-tab-style sparkline chart (matches EFICharting exactly) ──
@@ -1531,7 +1574,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
 
     // ── WEEKLY VIEW ────────────────────────────────────────────────────────────
     const renderWeekly = () => {
-      const DAY_SHORT = ['MON', 'TUE', 'WED', 'THU', 'FRI']
+      const DAY_FULL = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
       return (
         <div className="flex flex-col flex-1">
           <div style={{ height: '20px' }} />
@@ -1544,115 +1587,71 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
               const postEvs = getWeekEarnings(day, 'Post-Market')
               const isToday = day.toDateString() === today.toDateString()
               return (
-                <div key={i} className={`flex flex-col ${isToday ? 'bg-orange-500/[0.04]' : ''}`}>
+                <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`}>
                   {/* Day header */}
                   <div
-                    className={`px-2 py-4 border-b border-white/[0.07] text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
+                    className={`px-2 py-3 border-b border-white/[0.07] text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
                   >
-                    <div
-                      className={`text-[10px] font-black tracking-widest uppercase mb-0.5 ${isToday ? 'text-orange-400' : 'text-white/30'}`}
-                    >
-                      {DAY_SHORT[i]}
-                    </div>
-                    <div
-                      className={`text-3xl font-black leading-none ${isToday ? 'text-orange-400' : 'text-white/80'}`}
-                    >
-                      {day.getDate()}
-                    </div>
-                    <div
-                      className={`text-[10px] font-bold mt-1 ${isToday ? 'text-orange-300' : 'text-white/25'}`}
-                    >
-                      {MONTH_SHORT[day.getMonth()]}
+                    <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
+                      {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
                     </div>
                   </div>
 
-                  {/* Before Open */}
-                  <div className="flex flex-col">
-                    <div
-                      className="px-2 py-1.5 flex items-center gap-1 border-b border-white/[0.04] shrink-0"
-                      style={{
-                        background:
-                          'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)',
-                      }}
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                      <span className="text-[9px] font-black tracking-widest text-amber-300 uppercase">
-                        Before Open
-                      </span>
-                    </div>
-                    <div className="px-2 py-3 grid grid-cols-2 gap-x-1 gap-y-3 min-h-[160px]">
-                      {preEvs.length === 0 ? (
-                        <span className="text-xs text-white/15 font-bold italic self-start mt-1 col-span-2">
-                          —
-                        </span>
-                      ) : (
-                        preEvs.map((ev, ei) => {
-                          const ticker = extractTicker(ev.event)
-                          if (!ticker) return null
-                          return (
-                            <div
-                              key={ei}
-                              className="flex flex-col items-center gap-1 group cursor-default"
-                            >
-                              <div className="relative flex justify-center">
-                                <CompanyLogo ticker={ticker} size={60} />
-                                <span className="absolute -top-9 left-1/2 -translate-x-1/2 bg-black/95 border border-white/20 text-white text-xs font-black px-2 py-1 rounded pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap shadow-xl">
-                                  {ticker}
-                                </span>
-                              </div>
-                              <span className="text-[10px] font-black text-white tracking-wider">
-                                {ticker}
-                              </span>
-                            </div>
-                          )
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-white/[0.06] shrink-0" />
-
-                  {/* After Close */}
+                  {/* Pre-Market | After-Hours side-by-side: 1 col pre + 2 col after */}
                   <div className="flex flex-col flex-1">
-                    <div
-                      className="px-2 py-1.5 flex items-center gap-1 border-b border-white/[0.04] shrink-0"
-                      style={{
-                        background:
-                          'linear-gradient(90deg,rgba(99,102,241,0.10) 0%,transparent 100%)',
-                      }}
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                      <span className="text-[9px] font-black tracking-widest text-indigo-300 uppercase">
-                        After Close
-                      </span>
+                    {/* Section headers */}
+                    <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <div
+                        className="px-2 py-1.5 flex items-center gap-1"
+                        style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        <span className="text-[15px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
+                      </div>
+                      <div
+                        className="px-2 py-1.5 flex items-center gap-1"
+                        style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                        <span className="text-[15px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
+                      </div>
                     </div>
-                    <div className="px-2 py-3 grid grid-cols-2 gap-x-1 gap-y-3">
-                      {postEvs.length === 0 ? (
-                        <span className="text-xs text-white/15 font-bold italic self-start mt-1 col-span-2">
-                          —
-                        </span>
-                      ) : (
-                        postEvs.map((ev, ei) => {
-                          const ticker = extractTicker(ev.event)
-                          if (!ticker) return null
-                          return (
-                            <div
-                              key={ei}
-                              className="flex flex-col items-center gap-1 group cursor-default"
-                            >
-                              <div className="relative flex justify-center">
-                                <CompanyLogo ticker={ticker} size={60} />
-                                <span className="absolute -top-9 left-1/2 -translate-x-1/2 bg-black/95 border border-white/20 text-white text-xs font-black px-2 py-1 rounded pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap shadow-xl">
-                                  {ticker}
-                                </span>
+                    {/* Logo grid: pre + after side by side */}
+                    <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
+                      {/* Pre-Market logos — 2 columns */}
+                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                        {preEvs.length === 0 ? (
+                          <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
+                        ) : (
+                          preEvs.map((ev, ei) => {
+                            const ticker = extractTicker(ev.event)
+                            if (!ticker) return null
+                            return (
+                              <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
+                                <CompanyLogo ticker={ticker} size={72} />
+                                <span className="text-[11px] font-black text-white">{ticker}</span>
                               </div>
-                              <span className="text-[10px] font-black text-white tracking-wider">
-                                {ticker}
-                              </span>
-                            </div>
-                          )
-                        })
-                      )}
+                            )
+                          })
+                        )}
+                      </div>
+                      {/* After-Hours logos — 4 columns */}
+                      <div className="grid grid-cols-4 gap-1.5 p-2 content-start">
+                        {postEvs.length === 0 ? (
+                          <span className="text-xs text-white/15 font-bold italic mt-1 col-span-4">—</span>
+                        ) : (
+                          postEvs.map((ev, ei) => {
+                            const ticker = extractTicker(ev.event)
+                            if (!ticker) return null
+                            return (
+                              <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
+                                <CompanyLogo ticker={ticker} size={72} />
+                                <span className="text-[11px] font-black text-white">{ticker}</span>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1666,12 +1665,12 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
     // ── MONTHLY VIEW ───────────────────────────────────────────────────────────
     const renderMonthly = () => (
       <div className="flex-1">
-        {/* Day-of-week headers */}
-        <div className="grid grid-cols-7 border-b border-white/[0.06]">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+        {/* Day-of-week headers (Mon–Fri only) */}
+        <div className="grid grid-cols-5 border-b-2 border-[#1a2744]">
+          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d) => (
             <div
               key={d}
-              className="py-3 text-center text-xs font-black text-white/30 uppercase tracking-widest bg-[#060606]"
+              className="py-3 text-center text-xs font-black text-white uppercase tracking-widest bg-[#060606]"
             >
               {d}
             </div>
@@ -1679,13 +1678,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
         </div>
 
         {weeks.map((wk, wi) => (
-          <div key={wi} className="grid grid-cols-7 border-b border-white/[0.04]">
-            {wk.map((day, di) => {
+          <div key={wi} className="grid grid-cols-5 border-b-2 border-[#1a2744]">
+            {wk.slice(1, 6).map((day, di) => {
               if (!day)
                 return (
                   <div
                     key={di}
-                    className="bg-[#030303] border-r border-white/[0.03] min-h-[180px]"
+                    className="bg-[#030303] border-r-2 border-[#1a2744] min-h-[200px]"
                   />
                 )
               const dayEvs = monthEventMap[day] ?? []
@@ -1698,15 +1697,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                 <div
                   key={di}
                   onClick={() => setSelectedCalDate(isSelected ? null : day)}
-                  className={`relative border-r border-white/[0.04] min-h-[180px] p-2 cursor-pointer transition-all ${
-                    isSelected
-                      ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/50'
-                      : isToday
-                        ? 'bg-orange-500/5'
-                        : dayEvs.length > 0
-                          ? 'hover:bg-white/[0.02]'
-                          : 'hover:bg-white/[0.01]'
-                  }`}
+                  className={`relative border-r-2 border-[#1a2744] min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col ${isSelected
+                    ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/50'
+                    : isToday
+                      ? 'bg-orange-500/5'
+                      : dayEvs.length > 0
+                        ? 'hover:bg-white/[0.02]'
+                        : 'hover:bg-white/[0.01]'
+                    }`}
                 >
                   {/* Day number */}
                   <div className="mb-2">
@@ -1733,27 +1731,82 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                     </div>
                   ))}
 
-                  {/* Earnings logos */}
-                  {calView === 'earnings' && earningEvs.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-1">
-                      {earningEvs.slice(0, 12).map((ev, ei) => {
-                        const ticker = extractTicker(ev.event)
-                        return ticker ? (
-                          <div key={ei} className="relative group">
-                            <CompanyLogo ticker={ticker} size={40} />
-                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-black/95 border border-white/20 text-white text-[10px] font-black px-1.5 py-0.5 rounded pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap shadow-xl">
-                              {ticker}
-                            </span>
+                  {/* Earnings logos — split by Pre/Post Market, sorted by importance */}
+                  {calView === 'earnings' && earningEvs.length > 0 && (() => {
+                    const importanceOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+                    const sortByImportance = (evs: typeof earningEvs) =>
+                      [...evs].sort((a, b) => (importanceOrder[a.importance] ?? 9) - (importanceOrder[b.importance] ?? 9))
+                    const preEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Pre-Market'))
+                    const postEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Post-Market'))
+                    console.log(`[CAL DEBUG] day=${day} earningEvs=${earningEvs.length} preEvs=${preEvs.length} postEvs=${postEvs.length}`, earningEvs.map(e => e.time))
+
+                    // Layout: 6-col grid per row — col 1-2 = pre-market, col 3-6 = post-market
+                    const PRE_COLS = 2
+                    const POST_COLS = 4
+                    const FIXED_ROWS = 2
+
+                    const renderCell = (ev: typeof earningEvs[0] | undefined, key: string, accent?: string) => {
+                      if (!ev) return <div key={key} style={{ aspectRatio: '1 / 1' }} />
+                      const ticker = extractTicker(ev.event)
+                      if (!ticker) return <div key={key} style={{ aspectRatio: '1 / 1' }} />
+                      return (
+                        <div key={key} className="relative" style={{ aspectRatio: '1 / 1' }}>
+                          <CompanyLogo ticker={ticker} fluid />
+                          {accent && (
+                            <div className="absolute top-0 left-0 w-1 h-full" style={{ background: accent, opacity: 0.7 }} />
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', padding: '1px 0' }}>
+                            <span className="text-white font-black leading-none truncate px-0.5" style={{ fontSize: '12px' }}>{ticker}</span>
                           </div>
-                        ) : null
-                      })}
-                      {earningEvs.length > 12 && (
-                        <span className="text-[10px] font-black text-white/30 self-center">
-                          +{earningEvs.length - 12}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                        </div>
+                      )
+                    }
+
+                    const preOverflow = preEvs.length - FIXED_ROWS * PRE_COLS
+                    const postOverflow = postEvs.length - FIXED_ROWS * POST_COLS
+
+                    return (
+                      <div className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
+                        {/* Column headers */}
+                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(6, 1fr)`, gap: '2px', marginBottom: '2px' }}>
+                          <div className="col-span-2 flex items-center gap-1">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            <span className="font-black uppercase" style={{ fontSize: '13px', letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)', color: '#fbbf24' }}>Pre-Market</span>
+                          </div>
+                          <div className="col-span-4 flex items-center gap-1">
+                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                            <span className="font-black uppercase" style={{ fontSize: '13px', letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)', color: '#22d3ee' }}>After-Hours</span>
+                          </div>
+                        </div>
+                        {/* Unified grid */}
+                        <div className="flex-1" style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(6, 1fr)`,
+                          gridTemplateRows: `repeat(${FIXED_ROWS}, 1fr)`,
+                          gap: '2px',
+                        }}>
+                          {Array.from({ length: FIXED_ROWS }, (_, r) => (
+                            <>
+                              {/* Pre cols 1-2 */}
+                              {Array.from({ length: PRE_COLS }, (_, c) =>
+                                renderCell(preEvs[r * PRE_COLS + c], `pre-${r}-${c}`, '#f59e0b')
+                              )}
+                              {/* Post cols 3-6 */}
+                              {Array.from({ length: POST_COLS }, (_, c) =>
+                                renderCell(postEvs[r * POST_COLS + c], `post-${r}-${c}`, '#6366f1')
+                              )}
+                            </>
+                          ))}
+                        </div>
+                        {(preOverflow > 0 || postOverflow > 0) && (
+                          <div className="flex gap-2 text-[9px] font-black pl-0.5 pt-0.5">
+                            {preOverflow > 0 && <span className="text-amber-400/60">+{preOverflow} pre</span>}
+                            {postOverflow > 0 && <span className="text-indigo-400/60">+{postOverflow} post</span>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* Non-earnings economic/fed events */}
                   {calView !== 'earnings' &&
@@ -1762,17 +1815,16 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                       return (
                         <div
                           key={ei}
-                          className={`text-[10px] font-black px-1 py-0.5 rounded mb-0.5 truncate border ${
-                            isHol
-                              ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
-                              : ev.importance === 'critical'
-                                ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                                : ev.importance === 'high'
-                                  ? 'bg-orange-500/15 text-orange-300 border-orange-500/25'
-                                  : ev.type === 'fed'
-                                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25'
-                                    : 'bg-white/5 text-white/50 border-white/10'
-                          }`}
+                          className={`text-[10px] font-black px-1 py-0.5 rounded mb-0.5 truncate border ${isHol
+                            ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+                            : ev.importance === 'critical'
+                              ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                              : ev.importance === 'high'
+                                ? 'bg-orange-500/15 text-orange-300 border-orange-500/25'
+                                : ev.type === 'fed'
+                                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25'
+                                  : 'bg-white/5 text-white/50 border-white/10'
+                            }`}
                         >
                           {ev.event.split(' ').slice(0, 2).join(' ')}
                         </div>
@@ -1793,7 +1845,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
 
     return (
       <div className="flex flex-col" style={{ minHeight: '100%' }}>
-        <div style={{ height: '20px' }} />
 
         {/* ── HEADER ── */}
         <div className="px-5 pt-5 pb-4 border-b border-white/[0.06] bg-[#080808] sticky top-0 z-10">
@@ -1801,6 +1852,53 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
             {/* Left toggles */}
             <div className="flex items-center gap-3 flex-wrap">
+              {/* Importance filter dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowFilterDropdown((v) => !v)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all"
+                  style={{ background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)' }}
+                >
+                  <span>SHOW</span>
+                  <div className="flex items-center gap-1">
+                    {(['critical', 'high', 'medium', 'low'] as const).filter(id => calImportanceFilter.has(id)).map(id => (
+                      <div key={id} className={`w-2 h-2 rounded-full ${{ critical: 'bg-red-500', high: 'bg-orange-400', medium: 'bg-amber-400', low: 'bg-white/30' }[id]}`} />
+                    ))}
+                  </div>
+                  <svg className={`w-3.5 h-3.5 transition-transform ${showFilterDropdown ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+                {showFilterDropdown && (
+                  <div
+                    className="absolute left-0 top-full mt-2 z-50 rounded-xl border border-white/10 p-2 flex flex-col gap-1 min-w-[160px]"
+                    style={{ background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}
+                  >
+                    {[
+                      { id: 'critical', label: 'Critical', color: 'text-red-400', dot: 'bg-red-500' },
+                      { id: 'high', label: 'High', color: 'text-orange-300', dot: 'bg-orange-400' },
+                      { id: 'medium', label: 'Medium', color: 'text-amber-300', dot: 'bg-amber-400' },
+                      { id: 'low', label: 'Low', color: 'text-white/40', dot: 'bg-white/30' },
+                    ].map(({ id, label, color, dot }) => (
+                      <button
+                        key={id}
+                        onClick={() => toggleCalImp(id)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5 transition-all w-full"
+                      >
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all shrink-0 ${calImportanceFilter.has(id) ? 'border-orange-500 bg-orange-500' : 'border-white/20'
+                          }`}>
+                          {calImportanceFilter.has(id) && (
+                            <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 12 12">
+                              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+                        <span className={`text-sm font-black ${color}`}>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Monthly / Weekly */}
               <div
                 className="flex items-center bg-[#0a0a0a] rounded-2xl p-1.5 border border-white/10 gap-1.5"
@@ -1815,21 +1913,20 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                   <button
                     key={id}
                     onClick={() => setCalViewMode(id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${
-                      calViewMode === id
-                        ? 'text-orange-400 border border-orange-500/60'
-                        : 'text-white border border-transparent hover:text-orange-300'
-                    }`}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${calViewMode === id
+                      ? 'text-orange-400 border border-orange-500/60'
+                      : 'text-white border border-transparent hover:text-orange-300'
+                      }`}
                     style={
                       calViewMode === id
                         ? {
-                            background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-                            boxShadow:
-                              '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(249,115,22,0.15)',
-                          }
+                          background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
+                          boxShadow:
+                            '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(249,115,22,0.15)',
+                        }
                         : {
-                            background: 'transparent',
-                          }
+                          background: 'transparent',
+                        }
                     }
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -1852,21 +1949,20 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                   <button
                     key={id}
                     onClick={() => setCalView(id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${
-                      calView === id
-                        ? 'text-orange-400 border border-orange-500/60'
-                        : 'text-white border border-transparent hover:text-orange-300'
-                    }`}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${calView === id
+                      ? 'text-orange-400 border border-orange-500/60'
+                      : 'text-white border border-transparent hover:text-orange-300'
+                      }`}
                     style={
                       calView === id
                         ? {
-                            background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-                            boxShadow:
-                              '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(249,115,22,0.15)',
-                          }
+                          background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
+                          boxShadow:
+                            '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(249,115,22,0.15)',
+                        }
                         : {
-                            background: 'transparent',
-                          }
+                          background: 'transparent',
+                        }
                     }
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -1949,46 +2045,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
             </div>
           </div>
 
-          {/* Row 2: Importance filters */}
-          <div className="flex items-center gap-5">
-            <span className="text-xs font-black text-white/30 uppercase tracking-widest">
-              Show:
-            </span>
-            {[
-              { id: 'critical', label: 'Critical', color: 'text-red-400', dot: 'bg-red-500' },
-              { id: 'high', label: 'High', color: 'text-orange-300', dot: 'bg-orange-400' },
-              { id: 'medium', label: 'Medium', color: 'text-amber-300', dot: 'bg-amber-400' },
-              { id: 'low', label: 'Low', color: 'text-white/40', dot: 'bg-white/30' },
-            ].map(({ id, label, color, dot }) => (
-              <button
-                key={id}
-                onClick={() => toggleCalImp(id)}
-                className="flex items-center gap-2 cursor-pointer"
-              >
-                <div
-                  className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                    calImportanceFilter.has(id)
-                      ? 'border-orange-500 bg-orange-500'
-                      : 'border-white/20 hover:border-white/40'
-                  }`}
-                >
-                  {calImportanceFilter.has(id) && (
-                    <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 12 12">
-                      <path
-                        d="M2 6l3 3 5-5"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </div>
-                <div className={`w-2.5 h-2.5 rounded-full ${dot}`} />
-                <span className={`text-sm font-black ${color}`}>{label}</span>
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* ── CONTENT ── */}
@@ -2016,38 +2072,35 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                 {selectedDayEvents.map((ev, idx) => (
                   <div
                     key={idx}
-                    className={`flex items-start gap-4 px-6 py-4 ${
-                      ev.type === 'holiday'
-                        ? 'border-l-4 border-l-yellow-400 bg-yellow-950/20'
-                        : ev.importance === 'critical'
-                          ? 'border-l-4 border-l-red-500'
-                          : ev.importance === 'high'
-                            ? 'border-l-4 border-l-orange-400'
-                            : ''
-                    }`}
+                    className={`flex items-start gap-4 px-6 py-4 ${ev.type === 'holiday'
+                      ? 'border-l-4 border-l-yellow-400 bg-yellow-950/20'
+                      : ev.importance === 'critical'
+                        ? 'border-l-4 border-l-red-500'
+                        : ev.importance === 'high'
+                          ? 'border-l-4 border-l-orange-400'
+                          : ''
+                      }`}
                   >
                     {typeIcon(ev.type)}
                     <div className="flex-1 min-w-0">
                       <p
-                        className={`font-black text-lg leading-tight ${
-                          ev.type === 'holiday'
-                            ? 'text-yellow-300'
-                            : ev.importance === 'critical'
-                              ? 'text-white'
-                              : 'text-white/90'
-                        }`}
+                        className={`font-black text-lg leading-tight ${ev.type === 'holiday'
+                          ? 'text-yellow-300'
+                          : ev.importance === 'critical'
+                            ? 'text-white'
+                            : 'text-white/90'
+                          }`}
                       >
                         {ev.event}
                       </p>
                       <div className="flex items-center gap-4 mt-2 flex-wrap">
                         <span
-                          className={`text-sm font-black ${
-                            ev.importance === 'critical'
-                              ? 'text-red-300'
-                              : ev.importance === 'high'
-                                ? 'text-orange-300'
-                                : 'text-white/50'
-                          }`}
+                          className={`text-sm font-black ${ev.importance === 'critical'
+                            ? 'text-red-300'
+                            : ev.importance === 'high'
+                              ? 'text-orange-300'
+                              : 'text-white/50'
+                            }`}
                         >
                           {ev.time}
                         </span>
@@ -2152,88 +2205,87 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
         </div>
       </div>
 
-      {/* SEARCH BAR — single row: input + time + sentiment + refresh + X */}
-      <div className="px-5 py-4 border-b border-white/[0.07] bg-[#090909] shrink-0">
-        <form onSubmit={handleSearch} className="flex items-center gap-3">
-          <div className="flex-1 flex items-center bg-[#0e0e0e] border-2 border-white/10 rounded-xl focus-within:border-orange-500 transition-all overflow-hidden">
-            <TbSearch className="w-5 h-5 text-orange-400 ml-4 shrink-0" />
-            <input
-              type="text"
-              value={searchTicker}
-              onChange={(e) => setSearchTicker(e.target.value)}
-              placeholder="Search ticker, keyword, sector… e.g. AAPL, tariffs, Energy"
-              className="flex-1 px-3 py-4 bg-transparent text-white placeholder-white/25 focus:outline-none font-mono text-base tracking-wider"
-            />
-            {searchTicker && (
+      {/* SEARCH BAR — hidden on calendar tab */}
+      {activeTab !== 'calendar' && (
+        <div className="px-5 py-4 border-b border-white/[0.07] bg-[#090909] shrink-0">
+          <form onSubmit={handleSearch} className="flex items-center gap-3">
+            <div className="flex-1 flex items-center bg-[#0e0e0e] border-2 border-white/10 rounded-xl focus-within:border-orange-500 transition-all overflow-hidden">
+              <TbSearch className="w-5 h-5 text-orange-400 ml-4 shrink-0" />
+              <input
+                type="text"
+                value={searchTicker}
+                onChange={(e) => setSearchTicker(e.target.value)}
+                placeholder="Search ticker, keyword, sector… e.g. AAPL, tariffs, Energy"
+                className="flex-1 px-3 py-4 bg-transparent text-white placeholder-white/25 focus:outline-none font-mono text-base tracking-wider"
+              />
+              {searchTicker && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTicker('')}
+                  className="mr-2 text-white/30 hover:text-white transition-colors p-1.5"
+                >
+                  <TbX className="w-4 h-4" />
+                </button>
+              )}
               <button
-                type="button"
-                onClick={() => setSearchTicker('')}
-                className="mr-2 text-white/30 hover:text-white transition-colors p-1.5"
+                type="submit"
+                className="mr-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-black font-black text-sm rounded-lg transition-all uppercase tracking-widest shrink-0"
               >
-                <TbX className="w-4 h-4" />
+                GO
               </button>
+            </div>
+
+            {articles.length > 0 && (
+              <span className="text-xs text-white/25 font-bold shrink-0 whitespace-nowrap">
+                {lastRefresh.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </span>
             )}
-            <button
-              type="submit"
-              className="mr-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-black font-black text-sm rounded-lg transition-all uppercase tracking-widest shrink-0"
-            >
-              GO
-            </button>
-          </div>
 
-          {articles.length > 0 && (
-            <span className="text-xs text-white/25 font-bold shrink-0 whitespace-nowrap">
-              {lastRefresh.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
-
-          {marketSentiment && (
-            <div
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-black uppercase tracking-widest shrink-0 ${
-                marketSentiment.overall_sentiment === 'bullish'
+            {marketSentiment && (
+              <div
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-black uppercase tracking-widest shrink-0 ${marketSentiment.overall_sentiment === 'bullish'
                   ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
                   : marketSentiment.overall_sentiment === 'bearish'
                     ? 'bg-red-500/10 border-red-500/40 text-red-400'
                     : 'bg-amber-500/10 border-amber-500/40 text-amber-300'
-              }`}
-            >
-              {marketSentiment.overall_sentiment === 'bullish' ? (
-                <TbTrendingUp className="w-4 h-4" />
-              ) : marketSentiment.overall_sentiment === 'bearish' ? (
-                <TbTrendingDown className="w-4 h-4" />
-              ) : (
-                <TbTarget className="w-4 h-4" />
-              )}
-              {marketSentiment.overall_sentiment.toUpperCase()}
-            </div>
-          )}
+                  }`}
+              >
+                {marketSentiment.overall_sentiment === 'bullish' ? (
+                  <TbTrendingUp className="w-4 h-4" />
+                ) : marketSentiment.overall_sentiment === 'bearish' ? (
+                  <TbTrendingDown className="w-4 h-4" />
+                ) : (
+                  <TbTarget className="w-4 h-4" />
+                )}
+                {marketSentiment.overall_sentiment.toUpperCase()}
+              </div>
+            )}
 
-          <button
-            type="button"
-            onClick={() => fetchNews(searchTicker)}
-            className="flex items-center justify-center w-11 h-11 bg-[#111] hover:bg-[#1a1a1a] rounded-xl border border-white/10 hover:border-orange-500/50 transition-all group shrink-0"
-            title="Refresh feed"
-          >
-            <TbRefresh
-              className={`w-5 h-5 text-white/50 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`}
-            />
-          </button>
-
-          {onClose && (
             <button
               type="button"
-              onClick={onClose}
-              aria-label="Close panel"
-              className="flex items-center justify-center w-11 h-11 rounded-xl border border-red-700/60 text-red-400 hover:text-white hover:border-red-500 transition-all shrink-0 active:scale-95"
-              style={{ background: 'linear-gradient(145deg,#7f1d1d,#450a0a)' }}
+              onClick={() => fetchNews(searchTicker)}
+              className="flex items-center justify-center w-11 h-11 bg-[#111] hover:bg-[#1a1a1a] rounded-xl border border-white/10 hover:border-orange-500/50 transition-all group shrink-0"
+              title="Refresh feed"
             >
-              <TbX className="w-5 h-5" />
+              <TbRefresh
+                className={`w-5 h-5 text-white/50 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`}
+              />
             </button>
-          )}
-        </form>
-      </div>
 
-      {/* TAB BAR */}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close panel"
+                className="flex items-center justify-center w-11 h-11 rounded-xl border border-red-700/60 text-red-400 hover:text-white hover:border-red-500 transition-all shrink-0 active:scale-95"
+                style={{ background: 'linear-gradient(145deg,#7f1d1d,#450a0a)' }}
+              >
+                <TbX className="w-5 h-5" />
+              </button>
+            )}
+          </form>
+        </div>
+      )}      {/* TAB BAR */}
       <div className="flex border-b border-white/[0.07] bg-[#0a0a0a] shrink-0">
         {tabs.map(({ id, label, icon: Icon }) => {
           const isActive = activeTab === id
@@ -2242,24 +2294,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
               key={id}
               onClick={() => {
                 setActiveTab(id)
+                onTabChange?.(id)
                 savedScrollPos.current = 0
               }}
-              className={`flex-1 flex items-center justify-center gap-3 py-4 text-xl font-black tracking-widest uppercase transition-all relative ${
-                isActive
-                  ? 'bg-black text-orange-500'
-                  : 'text-white hover:text-orange-300 hover:bg-[#111]'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-3 py-4 text-xl font-black tracking-widest uppercase transition-all relative ${isActive
+                ? 'bg-black text-orange-500'
+                : 'text-white hover:text-orange-300 hover:bg-[#111]'
+                }`}
             >
               <Icon
-                className={`w-6 h-6 shrink-0 ${
-                  isActive
-                    ? id === 'breaking'
-                      ? 'text-orange-500'
-                      : 'text-orange-500'
-                    : id === 'breaking'
-                      ? 'text-red-400'
-                      : 'text-white'
-                }`}
+                className={`w-6 h-6 shrink-0 ${isActive
+                  ? id === 'breaking'
+                    ? 'text-orange-500'
+                    : 'text-orange-500'
+                  : id === 'breaking'
+                    ? 'text-red-400'
+                    : 'text-white'
+                  }`}
               />
               <span className="hidden sm:inline">{label}</span>
               {isActive && (

@@ -72,9 +72,16 @@ export async function DELETE(
     // Normalize to midnight UTC to match saved dates
     dateObj.setUTCHours(0, 0, 0, 0);
 
-    await prisma.flow.delete({
+    const result = await prisma.flow.deleteMany({
       where: { date: dateObj.toISOString() },
     });
+
+    if (result.count === 0) {
+      return NextResponse.json(
+        { error: 'Flow not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

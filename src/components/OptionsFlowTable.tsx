@@ -2492,15 +2492,18 @@ Stock Reaction: ${scores.stockReaction}/15`
       setSaveErrorMsg('')
 
       const today = new Date().toISOString().split('T')[0]
+      console.log('[SaveFlow] Starting save for date:', today, '| trades count:', data?.length)
 
       // Compress payload client-side to avoid 413 Payload Too Large
       const dataString = JSON.stringify({ date: today, data })
       const encoded = new TextEncoder().encode(dataString)
+      console.log('[SaveFlow] Payload size (uncompressed):', (encoded.length / 1024 / 1024).toFixed(2), 'MB')
       const cs = new CompressionStream('gzip')
       const writer = cs.writable.getWriter()
       writer.write(encoded)
       writer.close()
       const compressedBuffer = await new Response(cs.readable).arrayBuffer()
+      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB — sending to /api/flows/save')
 
       const response = await fetch('/api/flows/save', {
         method: 'POST',
@@ -2508,15 +2511,19 @@ Stock Reaction: ${scores.stockReaction}/15`
         body: compressedBuffer,
       })
 
+      console.log('[SaveFlow] Response status:', response.status, response.statusText)
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
+        console.error('[SaveFlow] Error response body:', errData)
         throw new Error(errData.error || `HTTP ${response.status}`)
       }
 
+      const result = await response.json()
+      console.log('[SaveFlow] Success:', result)
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
-      console.error('Error saving flow:', error)
+      console.error('[SaveFlow] Caught error:', error)
       setSaveErrorMsg(error instanceof Error ? error.message : 'Unknown error')
       setSaveStatus('error')
       setTimeout(() => setSaveStatus('idle'), 4000)

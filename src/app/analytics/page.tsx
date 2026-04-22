@@ -106,13 +106,13 @@ export default function Analytics() {
         )
       case 'straddle-town':
         return (
-          <div key={id} style={{ ...panelStyle, minHeight: '900px' }}>
+          <div key={id} style={{ ...panelStyle, height: 'calc(100vh - 127px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <StraddleTownScreener />
           </div>
         )
       case 'buy-sell-scanner':
         return (
-          <div key={id} style={{ ...panelStyle, minHeight: '100vh' }}>
+          <div key={id} style={{ ...panelStyle, overflow: 'visible', minHeight: '100vh' }}>
             <BuySellScanner />
           </div>
         )
@@ -555,12 +555,13 @@ export default function Analytics() {
           padding-top: 0 !important;
         }
       `}</style>
+
       <div
         style={{
           display: 'flex',
-          minHeight: '100vh',
+          height: '100vh',
+          overflow: 'hidden',
           background: '#000000',
-          overflowX: 'hidden',
         }}
       >
         {/* Left Sidebar with Tabs - Fixed Position */}
@@ -644,6 +645,8 @@ export default function Analytics() {
             alignContent: 'start',
             marginLeft: '200px',
             minWidth: 0,
+            overflowY: 'auto',
+            height: '100%',
           }}
         >
           {activePanels.map((id) => renderPanel(id))}
