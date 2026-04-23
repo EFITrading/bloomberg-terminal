@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
+import * as XLSX from 'xlsx'
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -647,6 +648,10 @@ interface OptionsFlowTableProps {
   showFlowTrackingInline?: boolean
 
   isSidebarPanel?: boolean
+
+  historicalDays?: string
+
+  onHistoricalDaysChange?: (days: string) => void
 }
 
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
@@ -681,6 +686,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   showFlowTrackingInline = false,
 
   isSidebarPanel = false,
+
+  historicalDays = '1D',
+
+  onHistoricalDaysChange,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade'>(
     'trade_timestamp'
@@ -2580,6 +2589,50 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
   }
 
+  // Download flow as Excel
+  const handleDownloadFlowExcel = async (date: string, dateLabel: string) => {
+    try {
+      const response = await fetch(`/api/flows/${date}`)
+      if (!response.ok) throw new Error('Failed to fetch flow data')
+      const flowData = await response.json()
+      const trades: OptionsFlowData[] = flowData.data || []
+
+      const rows = trades.map((t) => ({
+        Date: date,
+        Time: t.trade_timestamp ? new Date(t.trade_timestamp).toLocaleTimeString('en-US', { hour12: false }) : '',
+        Ticker: t.underlying_ticker || t.ticker,
+        Strike: t.strike,
+        Expiry: t.expiry,
+        Type: t.type?.toUpperCase(),
+        Moneyness: t.moneyness,
+        'Trade Type': t.trade_type,
+        'Trade Size': t.trade_size,
+        'Premium/Contract': t.premium_per_contract,
+        'Total Premium': t.total_premium,
+        'Spot Price': t.spot_price,
+        'Days to Expiry': t.days_to_expiry,
+        Exchange: t.exchange_name,
+        'Fill Style': t.fill_style || '',
+        Volume: t.volume ?? '',
+        'Open Interest': t.open_interest ?? '',
+        'Vol/OI': t.vol_oi_ratio ?? '',
+        IV: t.implied_volatility ? (t.implied_volatility * 100).toFixed(2) + '%' : '',
+        Delta: t.delta ?? '',
+        Gamma: t.gamma ?? '',
+        Theta: t.theta ?? '',
+        Vega: t.vega ?? '',
+      }))
+
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Options Flow')
+      XLSX.writeFile(wb, `options-flow-${date}.xlsx`)
+    } catch (error) {
+      console.error('[DownloadExcel] Error:', error)
+      alert('Failed to download Excel file')
+    }
+  }
+
   // Delete flow by date
 
   const handleDeleteFlow = async (date: string) => {
@@ -3706,37 +3759,36 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   const formatTime = (timestamp: string) => {
-    // Show execution time in 12-hour format with AM/PM (PST)
-
     const date = new Date(timestamp)
-
-    return date.toLocaleTimeString('en-US', {
-      hour12: true, // 12-hour format with AM/PM
-
-      hour: 'numeric', // No leading zero (9 AM instead of 09 AM)
-
-      minute: '2-digit', // Always show minutes with leading zero
-
-      timeZone: 'America/Los_Angeles', // Ensure PST timezone
+    const timeStr = date.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/Los_Angeles',
     })
+    if (historicalDays !== '1D') {
+      const m = date.toLocaleString('en-US', { month: 'numeric', timeZone: 'America/Los_Angeles' })
+      const d = date.toLocaleString('en-US', { day: 'numeric', timeZone: 'America/Los_Angeles' })
+      return `${m}/${d} ${timeStr}`
+    }
+    return timeStr
   }
 
   const formatTimeWithSeconds = (timestamp: string) => {
-    // Show execution time with seconds for desktop view
-
     const date = new Date(timestamp)
-
-    return date.toLocaleTimeString('en-US', {
+    const timeStr = date.toLocaleTimeString('en-US', {
       hour12: true,
-
       hour: 'numeric',
-
       minute: '2-digit',
-
       second: '2-digit',
-
       timeZone: 'America/Los_Angeles',
     })
+    if (historicalDays !== '1D') {
+      const m = date.toLocaleString('en-US', { month: 'numeric', timeZone: 'America/Los_Angeles' })
+      const d = date.toLocaleString('en-US', { day: 'numeric', timeZone: 'America/Los_Angeles' })
+      return `${m}/${d} ${timeStr}`
+    }
+    return timeStr
   }
 
   const formatDate = (dateString: string) => {
@@ -3749,24 +3801,85 @@ Stock Reaction: ${scores.stockReaction}/15`
     return `${month}/${day}/${year}`
   }
 
-  const getTradeTypeColor = (tradeType: string) => {
-    const colors = {
-      BLOCK:
-        'bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold shadow-lg border border-blue-500',
+  const getTradeTypeColor = (tradeType: string): { className: string; style: React.CSSProperties } => {
+    const base = 'trade-type-badge inline-block font-bold'
 
-      SWEEP:
-        'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold shadow-lg border border-yellow-400',
-
-      'MULTI-LEG':
-        'bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold shadow-lg border border-purple-500',
-
-      MINI: 'bg-gradient-to-r from-green-600 to-green-700 text-white font-bold shadow-lg border border-green-500',
+    const glossyBlack: React.CSSProperties = {
+      backgroundColor: '#000000',
+      backgroundImage: 'linear-gradient(180deg, #1e1e1e 0%, #000000 50%, #111111 100%)',
     }
 
-    return (
-      colors[tradeType as keyof typeof colors] ||
-      'bg-gradient-to-r from-gray-600 to-gray-700 text-white font-bold shadow-lg border border-gray-500'
-    )
+    const glossyOverlay = 'inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8)'
+
+    if (tradeType === 'SWEEP') {
+      return {
+        className: base,
+        style: {
+          ...glossyBlack,
+          color: '#FFD700',
+          border: '1px solid rgba(255,215,0,0.6)',
+          boxShadow: glossyOverlay,
+          borderRadius: '9999px',
+          letterSpacing: '0.05em',
+        },
+      }
+    }
+
+    if (tradeType === 'BLOCK') {
+      return {
+        className: base,
+        style: {
+          ...glossyBlack,
+          color: '#00e5ff',
+          border: '1px solid rgba(0,229,255,0.5)',
+          boxShadow: glossyOverlay,
+          borderRadius: '9999px',
+          letterSpacing: '0.05em',
+        },
+      }
+    }
+
+    if (tradeType === 'MULTI-LEG') {
+      return {
+        className: base,
+        style: {
+          backgroundColor: '#1e0a3c',
+          backgroundImage: 'linear-gradient(180deg, #3b1d6e 0%, #1e0a3c 50%, #2d1555 100%)',
+          color: '#d8b4fe',
+          border: '1px solid rgba(168,85,247,0.5)',
+          boxShadow: glossyOverlay,
+          borderRadius: '9999px',
+          letterSpacing: '0.05em',
+        },
+      }
+    }
+
+    if (tradeType === 'MINI') {
+      return {
+        className: base,
+        style: {
+          backgroundColor: '#052e16',
+          backgroundImage: 'linear-gradient(180deg, #14532d 0%, #052e16 50%, #0f3d22 100%)',
+          color: '#86efac',
+          border: '1px solid rgba(134,239,172,0.4)',
+          boxShadow: glossyOverlay,
+          borderRadius: '9999px',
+          letterSpacing: '0.05em',
+        },
+      }
+    }
+
+    return {
+      className: base,
+      style: {
+        ...glossyBlack,
+        color: '#9ca3af',
+        border: '1px solid rgba(156,163,175,0.4)',
+        boxShadow: glossyOverlay,
+        borderRadius: '9999px',
+        letterSpacing: '0.05em',
+      },
+    }
   }
 
   const getCallPutColor = (type: string) => {
@@ -5712,6 +5825,25 @@ Stock Reaction: ${scores.stockReaction}/15`
                         {/* Right: actions */}
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                           <button
+                            onClick={() => handleDownloadFlowExcel(flow.date, dateLabel)}
+                            title="Download as Excel"
+                            style={{
+                              background: 'rgba(0,229,100,0.12)',
+                              color: '#00e564',
+                              border: '1px solid rgba(0,229,100,0.35)',
+                              padding: '6px 12px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              letterSpacing: '1.5px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                            }}
+                          >
+                            ↓ XLS
+                          </button>
+                          <button
                             onClick={() => handleLoadFlow(flow.date)}
                             disabled={loadingFlowDate === flow.date}
                             style={{
@@ -6561,6 +6693,51 @@ Stock Reaction: ${scores.stockReaction}/15`
                     maxLength={20}
                   />
                 </div>
+
+                {/* Historical Days Dropdown */}
+                {onHistoricalDaysChange && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: '#555', textTransform: 'uppercase', fontFamily: '"JetBrains Mono",monospace', paddingLeft: 2 }}>
+                      HIST DAYS
+                    </span>
+                    <select
+                      value={historicalDays}
+                      onChange={(e) => onHistoricalDaysChange(e.target.value)}
+                      style={{
+                        height: 36,
+                        padding: '0 10px',
+                        background: historicalDays !== '1D' ? 'rgba(255,133,0,0.12)' : '#0a0a0a',
+                        border: `1px solid ${historicalDays !== '1D' ? '#ff8500' : '#2a2a2a'}`,
+                        color: historicalDays !== '1D' ? '#ff8500' : '#888',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        fontFamily: '"JetBrains Mono",monospace',
+                        cursor: 'pointer',
+                        borderRadius: 3,
+                        outline: 'none',
+                        minWidth: 90,
+                      }}
+                    >
+                      <option value="1D">TODAY</option>
+                      <option value="2">2 DAYS</option>
+                      <option value="3">3 DAYS</option>
+                      <option value="4">4 DAYS</option>
+                      <option value="5">5 DAYS</option>
+                      <option value="7">7 DAYS</option>
+                      <option value="10">10 DAYS</option>
+                      <option value="14">14 DAYS</option>
+                      <option value="20">20 DAYS</option>
+                      <option value="30">30 DAYS</option>
+                      <option value="45">45 DAYS</option>
+                      <option value="60">60 DAYS</option>
+                      <option value="90">90 DAYS</option>
+                      <option value="126">126 DAYS</option>
+                      <option value="189">189 DAYS</option>
+                      <option value="252">252 DAYS</option>
+                    </select>
+                  </div>
+                )}
 
                 {/* Scan Shortcuts */}
 
@@ -8185,185 +8362,16 @@ Stock Reaction: ${scores.stockReaction}/15`
                           }}
                           style={{
                             cursor: isNotablePick ? 'pointer' : 'default',
-                            ...(isNotablePick
-                              ? {
-                                outline: '3px solid #FFD700',
-
-                                outlineOffset: '-3px',
-                              }
-                              : {}),
 
                             ...(isEfiHighlight
                               ? isBullishEfi
                                 ? {
-                                  background: `
-
-                              radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
-
-                              radial-gradient(ellipse at bottom right, rgba(0, 255, 0, 0.03) 0%, transparent 50%),
-
-                              linear-gradient(to bottom, 
-
-                                rgba(0, 255, 0, 0.04) 0%, 
-
-                                rgba(0, 255, 0, 0.02) 5%,
-
-                                transparent 15%, 
-
-                                transparent 85%, 
-
-                                rgba(0, 0, 0, 0.7) 95%,
-
-                                rgba(0, 0, 0, 0.9) 100%
-
-                              ),
-
-                              linear-gradient(135deg, 
-
-                                #000803 0%, 
-
-                                #000f08 15%, 
-
-                                #000602 30%,
-
-                                #000a06 45%,
-
-                                #000703 60%, 
-
-                                #000804 75%,
-
-                                #000a06 90%,
-
-                                #000602 100%
-
-                              )
-
-                            `,
-
-                                  borderLeft: '5px solid #00ff00',
-
-                                  borderRight: '5px solid #00ff00',
-
-                                  borderTop: '2px solid rgba(0, 255, 0, 0.2)',
-
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
-
-                                  boxShadow: `
-
-                              inset 0 4px 16px rgba(0, 255, 0, 0.2),
-
-                              inset 0 -4px 16px rgba(0, 0, 0, 0.8),
-
-                              inset 5px 0 12px rgba(0, 255, 0, 0.15),
-
-                              inset -5px 0 12px rgba(0, 255, 0, 0.15),
-
-                              inset 0 1px 2px rgba(0, 255, 0, 0.05),
-
-                              0 0 20px rgba(0, 255, 0, 0.3),
-
-                              0 0 10px rgba(0, 255, 0, 0.2),
-
-                              0 6px 20px rgba(0, 0, 0, 0.95),
-
-                              0 2px 8px rgba(0, 255, 0, 0.25)
-
-                            `,
-
-                                  position: 'relative' as const,
-
-                                  transform: 'translateZ(0)',
-
-                                  backdropFilter: 'blur(0.5px)',
-
-                                  WebkitBackdropFilter: 'blur(0.5px)',
-
-                                  isolation: 'isolate' as const,
+                                  background: `linear-gradient(to right, rgba(0, 255, 0, 0.04), transparent 40%)`,
+                                  borderLeft: '3px solid rgba(0, 255, 0, 0.5)',
                                 }
                                 : {
-                                  background: `
-
-                              radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
-
-                              radial-gradient(ellipse at bottom right, rgba(255, 0, 0, 0.03) 0%, transparent 50%),
-
-                              linear-gradient(to bottom, 
-
-                                rgba(255, 0, 0, 0.04) 0%, 
-
-                                rgba(255, 0, 0, 0.02) 5%,
-
-                                transparent 15%, 
-
-                                transparent 85%, 
-
-                                rgba(0, 0, 0, 0.7) 95%,
-
-                                rgba(0, 0, 0, 0.9) 100%
-
-                              ),
-
-                              linear-gradient(135deg, 
-
-                                #080300 0%, 
-
-                                #0f0400 15%, 
-
-                                #060200 30%,
-
-                                #0a0300 45%,
-
-                                #070200 60%, 
-
-                                #080300 75%,
-
-                                #0a0300 90%,
-
-                                #060200 100%
-
-                              )
-
-                            `,
-
-                                  borderLeft: '5px solid #ff0000',
-
-                                  borderRight: '5px solid #ff0000',
-
-                                  borderTop: '2px solid rgba(255, 0, 0, 0.2)',
-
-                                  borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
-
-                                  boxShadow: `
-
-                              inset 0 4px 16px rgba(255, 0, 0, 0.2),
-
-                              inset 0 -4px 16px rgba(0, 0, 0, 0.8),
-
-                              inset 5px 0 12px rgba(255, 0, 0, 0.15),
-
-                              inset -5px 0 12px rgba(255, 0, 0, 0.15),
-
-                              inset 0 1px 2px rgba(255, 0, 0, 0.05),
-
-                              0 0 20px rgba(255, 0, 0, 0.3),
-
-                              0 0 10px rgba(255, 0, 0, 0.2),
-
-                              0 6px 20px rgba(0, 0, 0, 0.95),
-
-                              0 2px 8px rgba(255, 0, 0, 0.25)
-
-                            `,
-
-                                  position: 'relative' as const,
-
-                                  transform: 'translateZ(0)',
-
-                                  backdropFilter: 'blur(0.5px)',
-
-                                  WebkitBackdropFilter: 'blur(0.5px)',
-
-                                  isolation: 'isolate' as const,
+                                  background: `linear-gradient(to right, rgba(255, 0, 0, 0.04), transparent 40%)`,
+                                  borderLeft: '3px solid rgba(255, 0, 0, 0.5)',
                                 }
                               : {
                                 backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
@@ -8623,7 +8631,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                               </div>
 
                               <span
-                                className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
+                                className={`${getTradeTypeColor(trade.classification || trade.trade_type).className} px-3 py-1 text-xs`}
+                                style={getTradeTypeColor(trade.classification || trade.trade_type).style}
                               >
                                 {trade.classification || trade.trade_type}
                               </span>
@@ -8712,7 +8721,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                           <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
                             <span
-                              className={`trade-type-badge inline-block px-4 py-2 rounded-full text-xs md:text-lg font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}
+                              className={`${getTradeTypeColor(trade.classification || trade.trade_type).className} px-4 py-2 text-xs md:text-lg`}
+                              style={getTradeTypeColor(trade.classification || trade.trade_type).style}
                             >
                               {(trade.classification || trade.trade_type) === 'MULTI-LEG'
                                 ? 'ML'

@@ -397,6 +397,8 @@ export default function OptionsFlowPage() {
   } | null>(null)
   const [streamError, setStreamError] = useState<string>('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
+  // Historical scan: '1D' = today only, '2'–'20' = N trading days back
+  const [historicalDays, setHistoricalDays] = useState<string>('1D')
 
   // Live options flow fetch
   const fetchOptionsFlowStreaming = async (tickerOverride?: string) => {
@@ -529,9 +531,10 @@ export default function OptionsFlowPage() {
       }
 
       // Single-ticker / MAG7 / ETF scan ─────────────────────────────────────
-      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`)
+      const tfParam = historicalDays !== '1D' ? `&timeframe=${historicalDays}` : ''
+      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}${tfParam}`)
 
-      eventSource.onopen = () => {}
+      eventSource.onopen = () => { }
 
       // Timeout: if no 'complete' or 'error' within 5 min, something stalled
       const stallTimeout = setTimeout(
@@ -806,6 +809,8 @@ export default function OptionsFlowPage() {
           streamingStatus={streamingStatus}
           streamingProgress={streamingProgress}
           streamError={streamError}
+          historicalDays={historicalDays}
+          onHistoricalDaysChange={setHistoricalDays}
         />
       </div>
     </div>

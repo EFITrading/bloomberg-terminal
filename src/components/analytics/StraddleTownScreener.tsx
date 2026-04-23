@@ -1495,29 +1495,32 @@ function StraddleChart({
   events,
   dpDays,
   poiLevels,
+  forceHeight,
 }: {
   candles: Bar[]
   events: ContraEvent[]
   dpDays: DPDay[]
   poiLevels: POILevel[]
+  forceHeight?: number
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const crosshairRef = useRef<{ cx: number; cy: number } | null>(null)
   const viewRef = useRef({ startIdx: 0, visibleCount: Math.max(candles.length, 10) })
   const [width, setWidth] = useState(900)
-  const [height, setHeight] = useState(749)
+  const [height, setHeight] = useState(forceHeight ?? 749)
 
   useEffect(() => {
+    if (forceHeight) setHeight(forceHeight)
     if (!containerRef.current) return
     const obs = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect
       if (rect?.width > 0) setWidth(Math.floor(rect.width))
-      if (rect?.height > 0) setHeight(Math.floor(rect.height))
+      if (!forceHeight && rect?.height > 0) setHeight(Math.floor(rect.height))
     })
     obs.observe(containerRef.current)
     if (containerRef.current.clientWidth > 0) setWidth(containerRef.current.clientWidth)
-    if (containerRef.current.clientHeight > 0) setHeight(containerRef.current.clientHeight)
+    if (!forceHeight && containerRef.current.clientHeight > 0) setHeight(containerRef.current.clientHeight)
     return () => obs.disconnect()
   }, [])
 
@@ -1595,7 +1598,7 @@ function StraddleChart({
       ctx.stroke()
       const label = gp >= 1000 ? gp.toFixed(0) : gp >= 100 ? gp.toFixed(1) : gp.toFixed(2)
       ctx.fillStyle = '#ffffff'
-      ctx.font = '800 17px "JetBrains Mono",monospace'
+      ctx.font = '800 24px "JetBrains Mono",monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
       ctx.fillText(label, width - PAD.right + 8, gy)
@@ -1607,6 +1610,14 @@ function StraddleChart({
     ctx.beginPath()
     ctx.moveTo(width - PAD.right + 0.5, PAD.top)
     ctx.lineTo(width - PAD.right + 0.5, PAD.top + chartH)
+    ctx.stroke()
+
+    // X-axis border
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(PAD.left, PAD.top + chartH + 0.5)
+    ctx.lineTo(width - PAD.right, PAD.top + chartH + 0.5)
     ctx.stroke()
 
     // ── POI level horizontal lines removed (bubbles only) ──────────────────────────
@@ -1656,8 +1667,8 @@ function StraddleChart({
     // Current price label (no horizontal line)
     if (startIdx + visibleCount >= n) {
       const py = Math.round(pyFn(candles[n - 1].close)) + 0.5
-      ctx.fillStyle = '#ffffff'
-      ctx.font = '800 17px "JetBrains Mono",monospace'
+      ctx.fillStyle = '#FF8C00'
+      ctx.font = '900 24px "JetBrains Mono",monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
       ctx.fillText(candles[n - 1].close.toFixed(2), width - PAD.right + 8, py)
@@ -1831,7 +1842,7 @@ function StraddleChart({
       vc - 1,
     ].filter((v, i, a) => a.indexOf(v) === i && v < vc)
     ctx.fillStyle = '#ffffff'
-    ctx.font = '700 14px "JetBrains Mono",monospace'
+    ctx.font = '700 24px "JetBrains Mono",monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     for (const i of xIdxs) ctx.fillText(fmtDate(vis[i].date), cxFn(i), height - PAD.bottom + 6)
@@ -1880,76 +1891,70 @@ function StraddleChart({
     draw()
   }, [draw])
 
-  // Wheel zoom
+  // Wheel zoom + drag (right-anchored, matches BuySellScanner)
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || candles.length === 0) return
+    const PAD_L = height < 300 ? 4 : 8
+    const PAD_R = height < 300 ? 60 : 142
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
       const n = candles.length
-      let { startIdx, visibleCount } = viewRef.current
-      const delta = e.deltaY > 0 ? 1 : -1
-      const step = Math.max(1, Math.floor(visibleCount * 0.1))
-      const newVisibleCount = Math.max(10, Math.min(n, visibleCount + delta * step))
+      const { visibleCount } = viewRef.current
+      const factor = e.deltaY > 0 ? 1.12 : 0.89
+      let newVC = Math.round(visibleCount * factor)
+      newVC = Math.max(5, Math.min(n, newVC))
+      const maxStart = Math.max(0, n - newVC)
+      viewRef.current = { startIdx: maxStart, visibleCount: newVC }
+      draw()
+    }
 
-      // Anchor zoom to mouse cursor position within the chart
+    let isDragging = false
+    let dragStartX = 0
+    let dragStartIdx = 0
+
+    const handlePointerDown = (e: PointerEvent) => {
+      canvas.setPointerCapture(e.pointerId)
+      isDragging = true
+      dragStartX = e.clientX
+      dragStartIdx = viewRef.current.startIdx
+      canvas.style.cursor = 'grabbing'
+    }
+
+    const handlePointerMove = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const padLeft = height < 300 ? 4 : 8
-      const padRight = height < 300 ? 60 : 142
-      const chartW = width - padLeft - padRight
-      // Fraction across the chart [0..1] where mouse is
-      const frac = Math.max(0, Math.min(1, (mouseX - padLeft) / chartW))
-      // Which absolute candle index is under the cursor before zoom
-      const anchorAbsIdx = startIdx + frac * visibleCount
-      // After zoom, keep that candle under the cursor
-      const newStartIdx = Math.round(anchorAbsIdx - frac * newVisibleCount)
-
-      viewRef.current = {
-        startIdx: Math.max(0, Math.min(n - newVisibleCount, newStartIdx)),
-        visibleCount: newVisibleCount,
+      crosshairRef.current = { cx: e.clientX - rect.left, cy: e.clientY - rect.top }
+      if (isDragging) {
+        const { visibleCount } = viewRef.current
+        const chartW = canvas.offsetWidth - PAD_L - PAD_R
+        const delta = Math.round((dragStartX - e.clientX) * (visibleCount / chartW))
+        const maxStart = Math.max(0, candles.length - visibleCount)
+        const newStart = Math.max(0, Math.min(maxStart, dragStartIdx + delta))
+        viewRef.current = { ...viewRef.current, startIdx: newStart }
       }
       draw()
     }
+
+    const handlePointerUp = () => { isDragging = false; canvas.style.cursor = 'grab' }
+    const handlePointerLeave = () => { crosshairRef.current = null; draw() }
+
+    canvas.style.cursor = 'grab'
     canvas.addEventListener('wheel', handleWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', handleWheel)
+    canvas.addEventListener('pointerdown', handlePointerDown)
+    canvas.addEventListener('pointermove', handlePointerMove)
+    canvas.addEventListener('pointerup', handlePointerUp)
+    canvas.addEventListener('pointercancel', handlePointerUp)
+    canvas.addEventListener('pointerleave', handlePointerLeave)
+    return () => {
+      canvas.removeEventListener('wheel', handleWheel)
+      canvas.removeEventListener('pointerdown', handlePointerDown)
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerup', handlePointerUp)
+      canvas.removeEventListener('pointercancel', handlePointerUp)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+    }
   }, [candles.length, width, height, draw])
-
-  // Drag + crosshair
-  const dragRef = useRef<{ x: number; startIdx: number } | null>(null)
-
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    dragRef.current = { x: e.clientX, startIdx: viewRef.current.startIdx }
-      ; (e.target as HTMLElement).setPointerCapture(e.pointerId)
-  }, [])
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      const rect = canvasRef.current?.getBoundingClientRect()
-      if (rect) crosshairRef.current = { cx: e.clientX - rect.left, cy: e.clientY - rect.top }
-      if (!dragRef.current) {
-        draw()
-        return
-      }
-      const { visibleCount } = viewRef.current
-      const chartW2 = width - 8 - 110
-      const candleSpacing = (chartW2 - 36) / Math.max(1, visibleCount)
-      const delta = Math.round((dragRef.current.x - e.clientX) / candleSpacing)
-      const newStart = Math.max(
-        0,
-        Math.min(candles.length - visibleCount, dragRef.current.startIdx + delta)
-      )
-      viewRef.current.startIdx = newStart
-      draw()
-    },
-    [candles.length, width, draw]
-  )
-
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null
-    crosshairRef.current = null
-    draw()
-  }, [draw])
 
   return (
     <div ref={containerRef} style={{ flex: 1, width: '100%', position: 'relative', minHeight: 0 }}>
@@ -1960,13 +1965,9 @@ function StraddleChart({
           top: 0,
           left: 0,
           display: 'block',
-          cursor: 'crosshair',
+          cursor: 'grab',
           userSelect: 'none',
         }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
       />
       {/* Legend */}
       <div
@@ -2627,6 +2628,11 @@ export default function StraddleTownScreener() {
 
   // ── Detail view state (when user clicks a row) ─────────────────────────────
   const [selected, setSelected] = useState<ScanResult | null>(null)
+  const [selectedFromTickerSearch, setSelectedFromTickerSearch] = useState(false)
+
+  // ── Individual ticker search ───────────────────────────────────────────────
+  const [tickerSearch, setTickerSearch] = useState('')
+  const [tickerScanning, setTickerScanning] = useState(false)
 
   const addResult = useCallback((r: ScanResult) => {
     setResults((prev) => {
@@ -2872,6 +2878,62 @@ export default function StraddleTownScreener() {
     }
   }, [API_KEY])
 
+  // ── Individual ticker scan ─────────────────────────────────────────────────
+  const runTickerScan = useCallback(async () => {
+    const sym = tickerSearch.trim().toUpperCase()
+    if (!sym || tickerScanning) return
+    setTickerScanning(true)
+    setSelected(null)
+    try {
+      const ac = new AbortController()
+      const bars = await fetchOHLCV(sym, API_KEY, ac.signal)
+      if (!bars || bars.length < 120) {
+        setTickerScanning(false)
+        return
+      }
+      const allEvts = scanHistory(bars)
+      // Individual scan — show all events, no recency filter
+      const lastNDates = new Set(bars.slice(-SCAN_TRADING_DAYS).map((b) => b.date))
+      const recentEvts = allEvts.filter((e) => lastNDates.has(e.date))
+
+      const daysToScan = bars.slice(-252).map((b) => b.date)
+      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal)
+      // Individual scan — show all POI clusters, no recency filter
+      const allPOI = clusterPOI(dpResults)
+      const hasPOI = allPOI.length > 0
+      const latestEvt = recentEvts[recentEvts.length - 1]
+      const compressionPct = latestEvt?.compressionPct ?? 0
+      const setupActive = recentEvts.length > 0 && hasPOI
+      const bubbleTier = getTopPOIBubbleTier(dpResults, allPOI[0] ?? null)
+      const isThur = new Date().getDay() === 4
+      const minDays = compressionPct >= 65 && !isThur ? 0 : compressionPct >= 65 ? 8 : compressionPct >= 50 ? 7 : (bubbleTier !== 'gray' ? 0 : 21)
+      const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
+      const trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
+
+      const result: ScanResult = {
+        symbol: sym,
+        currentPrice: bars[bars.length - 1].close,
+        compressionPct,
+        squeezeOn: latestEvt?.squeezeOn ?? false,
+        hasPOI,
+        topPOI: allPOI[0] ?? null,
+        setupActive,
+        bars,
+        allEvents: allEvts,
+        recentEvents: recentEvts,
+        dpDays: dpResults,
+        poiLevels: allPOI,
+        trade,
+      }
+      addResult(result)
+      setSelected(result)
+      setSelectedFromTickerSearch(true)
+      setPhase('done')
+    } finally {
+      setTickerScanning(false)
+    }
+  }, [tickerSearch, tickerScanning, API_KEY, addResult])
+
   // ── If a row is selected, show detail view ─────────────────────────────────
   const DetailView = () => {
     if (!selected) return null
@@ -2938,12 +3000,13 @@ export default function StraddleTownScreener() {
         </div>
 
         {/* Chart */}
-        <div style={{ height: 749, position: 'relative', flexShrink: 0 }}>
+        <div style={{ height: selectedFromTickerSearch ? 1300 : 749, position: 'relative', flexShrink: 0 }}>
           <StraddleChart
             candles={r.bars.slice(-CHART_VISIBLE_DAYS)}
             events={r.allEvents}
             dpDays={r.dpDays}
             poiLevels={r.poiLevels}
+            forceHeight={selectedFromTickerSearch ? 1300 : undefined}
           />
         </div>
 
@@ -3068,29 +3131,7 @@ export default function StraddleTownScreener() {
               NOT FINANCIAL ADVICE
             </div>
           </>
-        ) : (
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 6,
-              padding: '28px 20px',
-              textAlign: 'center',
-            }}
-          >
-            <div
-              style={{
-                ...mono,
-                fontSize: 13,
-                fontWeight: 700,
-                color: 'rgba(255,255,255,0.35)',
-                letterSpacing: '2px',
-              }}
-            >
-              CONTRACTION ONLY — NO POI IN SCAN WINDOW
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
     )
   }
@@ -3215,6 +3256,48 @@ export default function StraddleTownScreener() {
 
         {/* Action buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          {/* Individual ticker search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 4, background: '#080a0d', overflow: 'hidden' }}>
+            <input
+              value={tickerSearch}
+              onChange={e => setTickerSearch(e.target.value.toUpperCase())}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); runTickerScan() } }}
+              placeholder="TICKER"
+              maxLength={8}
+              style={{
+                ...mono,
+                fontSize: 13,
+                fontWeight: 900,
+                letterSpacing: 2,
+                color: '#ffffff',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                padding: '8px 12px',
+                width: 90,
+                textTransform: 'uppercase',
+              }}
+            />
+            <button
+              onClick={runTickerScan}
+              disabled={tickerScanning}
+              style={{
+                ...mono,
+                fontSize: 11,
+                fontWeight: 900,
+                letterSpacing: 2,
+                padding: '8px 14px',
+                cursor: tickerScanning ? 'not-allowed' : 'pointer',
+                background: tickerScanning ? 'rgba(255,255,255,0.04)' : 'rgba(255,140,0,0.18)',
+                border: 'none',
+                borderLeft: '1px solid rgba(255,140,0,0.3)',
+                color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FF8C00',
+                textTransform: 'uppercase',
+              }}
+            >
+              {tickerScanning ? '…' : '▶ SCAN'}
+            </button>
+          </div>
           {phase === 'idle' || phase === 'error' ? (
             <button
               onClick={run}
@@ -3313,7 +3396,7 @@ export default function StraddleTownScreener() {
       )}
 
       {/* ── Idle splash ──────────────────────────────────────────────────── */}
-      {phase === 'idle' && (
+      {phase === 'idle' && !tickerScanning && (
         <div
           style={{
             flex: 1,
@@ -3419,7 +3502,7 @@ export default function StraddleTownScreener() {
                 }
                 return true
               })}
-              onSelect={setSelected}
+              onSelect={r => { setSelected(r); setSelectedFromTickerSearch(false) }}
               onScanPOI={scanPoiForSymbol}
               poiLoadingSet={poiLoadingSet}
             />
@@ -3429,8 +3512,51 @@ export default function StraddleTownScreener() {
 
       {selected && <DetailView />}
 
+      {/* ── Individual ticker loading ─────────────────────────────────────── */}
+      {tickerScanning && !selected && (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          paddingTop: '12%',
+          gap: 28,
+        }}>
+          {/* Spinner ring */}
+          <div style={{ position: 'relative', width: 64, height: 64 }}>
+            <div style={{
+              position: 'absolute', inset: 0,
+              borderRadius: '50%',
+              border: '3px solid rgba(255,140,0,0.12)',
+            }} />
+            <div style={{
+              position: 'absolute', inset: 0,
+              borderRadius: '50%',
+              border: '3px solid transparent',
+              borderTopColor: '#FF8C00',
+              animation: 'stSpin 0.9s linear infinite',
+            }} />
+            <div style={{
+              position: 'absolute', inset: 10,
+              borderRadius: '50%',
+              border: '2px solid transparent',
+              borderTopColor: 'rgba(255,45,107,0.7)',
+              animation: 'stSpin 1.4s linear infinite reverse',
+            }} />
+          </div>
+          <div style={{ ...mono, fontSize: 26, fontWeight: 900, color: '#FFFFFF', letterSpacing: '6px' }}>
+            SCANNING {tickerSearch.trim().toUpperCase()}
+          </div>
+          <div style={{ ...mono, fontSize: 20, color: 'rgba(255,255,255,0.35)', letterSpacing: '3px' }}>
+            FETCHING OHLCV · DARK POOL · POI
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+        @keyframes stSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
       `}</style>
     </div>
   )

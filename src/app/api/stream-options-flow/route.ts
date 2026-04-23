@@ -46,14 +46,13 @@ interface ProcessedTrade {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const ticker = searchParams.get('ticker')
-  const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W'
+  const timeframe = searchParams.get('timeframe') || '1D'
+  const isMultiDay = timeframe !== '1D'
   // Chunked ALL scan: browser sends offset+limit to stay within Vercel's 300s limit
   const chunkOffset = parseInt(searchParams.get('offset') || '0', 10)
   const chunkLimit = parseInt(searchParams.get('limit') || '50', 10)
 
-  console.log(
-    `[ROUTE] ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`
-  )
+
 
   const polygonApiKey = process.env.POLYGON_API_KEY
 
@@ -143,10 +142,7 @@ export async function GET(request: NextRequest) {
 
       try {
         const scanType = ticker || 'MARKET-WIDE'
-        console.log(`[STREAM] STREAMING OPTIONS FLOW: Starting ${scanType} scan`)
-        console.log(
-          `[INFO] Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`
-        )
+
 
         // Send initial status with connection confirmation
         sendData({
@@ -176,8 +172,6 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        console.log('[INFO] Starting parallel flow scan...')
-
         let finalTrades: any[] = []
         // Chunked ALL scan metadata (set inside 1D branch if applicable)
         let isLastChunk = true
@@ -195,9 +189,9 @@ export async function GET(request: NextRequest) {
 
           let tickersToScan: string[] = ticker
             ? ticker
-                .split(',')
-                .map((t: string) => t.trim().toUpperCase())
-                .filter(Boolean)
+              .split(',')
+              .map((t: string) => t.trim().toUpperCase())
+              .filter(Boolean)
             : []
 
           // Chunked ALL scan: slice the symbol list to stay within Vercel's 300s limit
@@ -270,7 +264,6 @@ export async function GET(request: NextRequest) {
           }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
-          console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`)
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
             timeframe,

@@ -292,7 +292,7 @@ export class OptionsFlowService {
     try {
       // Use the parallel processor for real scanning
       console.log(
-        `[PARALLEL] PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers`
+        `[PARALLEL] PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers for date=${dateRange?.currentDate ?? 'NONE'} start=${dateRange?.startTimestamp} end=${dateRange?.endTimestamp}`
       )
 
       const allTrades = await parallelProcessor.processTickersInParallel(
@@ -340,13 +340,13 @@ export class OptionsFlowService {
     }
   }
 
-  // Multi-day flow scanning (3D, 1W)
+  // Multi-day flow scanning (3D, 1W, or custom N days)
   async fetchMultiDayFlow(
     ticker?: string,
-    timeframe: '3D' | '1W' = '3D',
+    timeframe: '3D' | '1W' | string = '3D',
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
   ): Promise<ProcessedTrade[]> {
-    const numDays = timeframe === '3D' ? 3 : 5
+    const numDays = timeframe === '3D' ? 3 : timeframe === '1W' ? 5 : Math.max(1, Math.min(parseInt(timeframe) || 3, 252))
     const tradingDays = this.getLastNTradingDays(numDays)
 
     onProgress?.(
@@ -378,7 +378,7 @@ export class OptionsFlowService {
         const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange)
         // Tag every trade with the trading date for chart grouping
         trades.forEach((t) => {
-          ;(t as any).trading_date = date
+          ; (t as any).trading_date = date
         })
         onProgress?.([], `[Day ${date}] ${trades.length} trades found`)
         return trades
@@ -388,12 +388,14 @@ export class OptionsFlowService {
     const allTrades = dayResults.flat()
     onProgress?.(
       [],
-      `[MULTIDAY] All ${numDays} days complete: ${allTrades.length} trades. Classifying...`
+      `[MULTIDAY] All ${numDays} days complete: ${allTrades.length} trades. Filtering...`
     )
 
-    // Classify (sweep/block/mini detection across all days) and filter
-    const classifiedTrades = this.classifyAllTrades(allTrades)
-    const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker)
+    // Trades are already classified per-day by fetchLiveOptionsFlowUltraFast.
+    // Running classifyAllTrades again would destroy SWEEP classifications because
+    // already-bundled sweep trades have a single exchange value and get re-classified as BLOCK/MINI.
+    // filterAndClassifyTrades skips re-classification when all trades already have trade_type set.
+    const filteredTrades = this.filterAndClassifyTrades(allTrades, ticker)
 
     onProgress?.([], `[OK] Filtered: ${filteredTrades.length} trades passed all criteria`)
     return filteredTrades
@@ -562,23 +564,9 @@ export class OptionsFlowService {
     console.log(
       `[MULTI] FETCHING ${marketStatus} OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'NO TICKER SPECIFIED'}`
     )
-    console.log(`[DEBUG] DEBUG: Received ticker parameter: "${ticker}" (type: ${typeof ticker})`)
-    console.log(
-      `[DEBUG] Using date: ${currentDate} (${isLive ? 'Market Open' : 'Market Closed - Historical Data'})`
-    )
-    console.log(
-      `[TIME] Time range: ${marketOpenTime} PST -> ${currentTime} PST (${isLive ? 'LIVE UPDATE' : 'HISTORICAL'})`
-    )
 
     // Determine which tickers to scan
     let tickersToScan: string[]
-
-    console.log(`[CHECK] DEBUG: Checking ticker conditions...`)
-    console.log(`[CHECK] DEBUG: !ticker = ${!ticker}`)
-    console.log(`[CHECK] DEBUG: ticker.toLowerCase() = "${ticker?.toLowerCase()}"`)
-    console.log(
-      `[CHECK] DEBUG: ticker.toLowerCase() === 'all' = ${ticker?.toLowerCase() === 'all'}`
-    )
 
     if (ticker && ticker.toLowerCase() === 'all') {
       // FORCE USE OF 1000 STOCKS - NO UNIVERSAL TICKER
@@ -601,8 +589,7 @@ export class OptionsFlowService {
       console.log(`[MULTI] SCANNING SINGLE TICKER: ${ticker ? ticker.toUpperCase() : 'NONE'}`)
     }
 
-    console.log(`[CHECK] DEBUG: Final tickersToScan.length = ${tickersToScan.length}`)
-    console.log(`[CHECK] DEBUG: First 10 tickers: ${tickersToScan.slice(0, 10).join(', ')}`)
+
     if (tickersToScan.length === 1) {
       console.log(
         `[WARN] WARNING: Only scanning 1 ticker: ${tickersToScan[0]} - this suggests the 'ALL' logic failed`
@@ -917,9 +904,6 @@ export class OptionsFlowService {
 
     // Skip classification if trades are already classified (have trade_type)
     const alreadyClassified = filtered.every((t) => t.trade_type !== undefined)
-    console.log(
-      `[CHECK] Classification check: ${filtered.length} trades, alreadyClassified=${alreadyClassified}`
-    )
 
     if (!alreadyClassified) {
       console.log(
@@ -988,15 +972,10 @@ export class OptionsFlowService {
   // YOUR SPECIFICATION: 3-SECOND WINDOW SWEEP DETECTION: Bundle trades executed within 3-second windows across exchanges
   private detectSweeps(trades: ProcessedTrade[]): ProcessedTrade[] {
     console.log(`[SWEEP] 3-SECOND WINDOW SWEEP DETECTION: Processing ${trades.length} trades...`)
-    console.log(`[CHECK] DEBUG detectSweeps: Sample input trade:`, trades[0])
 
     // CRITICAL: Preserve MULTI-LEG classifications - don't reprocess them
     const multiLegTrades = trades.filter((t) => t.trade_type === 'MULTI-LEG')
     const unclassifiedTrades = trades.filter((t) => t.trade_type !== 'MULTI-LEG')
-
-    console.log(
-      `[CHECK] Preserving ${multiLegTrades.length} MULTI-LEG trades, processing ${unclassifiedTrades.length} remaining trades`
-    )
 
     // Sort trades by timestamp
     unclassifiedTrades.sort((a, b) => a.sip_timestamp - b.sip_timestamp)
@@ -1027,22 +1006,6 @@ export class OptionsFlowService {
       const totalPremium = tradesInGroup.reduce((sum, t) => sum + t.total_premium, 0)
       const exchanges = [...new Set(tradesInGroup.map((t) => t.exchange))]
       const representativeTrade = tradesInGroup[0]
-
-      // Debug: Show 3-second window grouping for significant trades
-      if (tradesInGroup.length > 1 && totalPremium >= 50000) {
-        const time = new Date(representativeTrade.sip_timestamp / 1000000).toLocaleTimeString()
-        console.log(
-          `\n[CHECK] 3-SECOND WINDOW GROUP: ${tradesInGroup.length} trades within 3-second window at ~${time}:`
-        )
-        console.log(
-          `   ${representativeTrade.ticker} $${representativeTrade.strike} ${representativeTrade.type.toUpperCase()}S - Total: ${totalContracts} contracts, $${totalPremium.toLocaleString()}`
-        )
-        tradesInGroup.forEach((trade, idx) => {
-          console.log(
-            `     ${idx + 1}. ${trade.trade_size} contracts @$${trade.premium_per_contract.toFixed(2)} [${trade.exchange}]`
-          )
-        })
-      }
 
       // YOUR EXACT LOGIC: Classify based on exchange count
       if (exchanges.length >= 2) {
@@ -1130,26 +1093,7 @@ export class OptionsFlowService {
       exactTimeGroups.get(groupKey)!.push(trade)
     }
 
-    console.log(`[CHECK] Created ${exactTimeGroups.size} time-based groups`)
 
-    // Log groups with multiple trades
-    let groupsWithMultiple = 0
-    exactTimeGroups.forEach((groupTrades, groupKey) => {
-      if (groupTrades.length >= 2) {
-        groupsWithMultiple++
-        const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0)
-        console.log(
-          `[CHECK] Group [${groupKey}]: ${groupTrades.length} trades, $${totalPremium.toFixed(0)} total`
-        )
-        groupTrades.forEach((t, i) => {
-          console.log(
-            `    ${i + 1}. ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)}`
-          )
-        })
-      }
-    })
-
-    console.log(`[CHECK] Found ${groupsWithMultiple} groups with 2+ trades`)
 
     let multiLegCount = 0
     const processedTrades: ProcessedTrade[] = []
@@ -1162,20 +1106,7 @@ export class OptionsFlowService {
         continue
       }
 
-      // DEBUG: Log all candidate groups with 2+ trades
-      if (groupTrades.length >= 2) {
-        const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0)
-        if (totalPremium >= 25000) {
-          console.log(
-            `[CHECK] Multi-leg candidate: ${groupTrades[0].underlying_ticker} - ${groupTrades.length} legs, $${totalPremium.toFixed(0)} premium`
-          )
-          groupTrades.forEach((t, i) => {
-            console.log(
-              `   Leg ${i + 1}: ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)} = $${t.total_premium.toFixed(0)}`
-            )
-          })
-        }
-      }
+
 
       // Check for multi-leg patterns
       const isMultiLeg = this.analyzeMultiLegPattern(groupTrades)
@@ -1265,8 +1196,8 @@ export class OptionsFlowService {
     if (isMultiLeg) {
       console.log(
         `   [OK] Multi-leg PASSED: ${trades.length} legs (<=4), ` +
-          `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
-          `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
+        `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
+        `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`
       )
     }
 
@@ -1731,7 +1662,7 @@ export class OptionsFlowService {
           ),
           days_to_expiry: Math.ceil(
             (new Date(contract.details.expiration_date).getTime() - Date.now()) /
-              (1000 * 60 * 60 * 24)
+            (1000 * 60 * 60 * 24)
           ),
         }
 
@@ -1829,7 +1760,7 @@ export class OptionsFlowService {
                   moneyness: 'OTM' as const,
                   days_to_expiry: Math.ceil(
                     (new Date(contract.expiration_date).getTime() - now.getTime()) /
-                      (1000 * 60 * 60 * 24)
+                    (1000 * 60 * 60 * 24)
                   ),
                 }
 
@@ -1964,15 +1895,7 @@ export class OptionsFlowService {
 
       const currentPrice = await this.getCurrentStockPrice(ticker)
 
-      // DEBUG: Check expiration dates in contracts
-      const expirationDates = [...new Set(contracts.map((c: any) => c.expiration_date))]
-      console.log(`[DEBUG] Expiration dates found: ${expirationDates.join(', ')}`)
 
-      // DEBUG: Show first few contract tickers
-      console.log(
-        `[MULTI] Sample contract tickers:`,
-        contracts.slice(0, 5).map((c: any) => c.ticker)
-      )
 
       // Filter contracts by volume and 5% ITM rule BEFORE processing
       const filteredContracts = await this.filterContractsByVolumeAndITM(contracts, currentPrice)
@@ -2342,8 +2265,6 @@ export class OptionsFlowService {
       return []
     }
 
-    console.log(`[CHECK] DEBUG: Sample trade structure:`, allTrades[0])
-
     // Deduplicate trades using a unique identifier to prevent infinite loops
     const seenTrades = new Set<string>()
     const uniqueTrades: any[] = []
@@ -2358,22 +2279,14 @@ export class OptionsFlowService {
       }
     }
 
-    console.log(
-      `[CHECK] After deduplication: ${uniqueTrades.length} unique trades (removed ${allTrades.length - uniqueTrades.length} duplicates)`
-    )
-
     // Convert raw trades to proper format first
     const convertedTrades = uniqueTrades.map((trade) => {
       // If already a ProcessedTrade with classification, don't reprocess
       if (trade.trade_timestamp instanceof Date && trade.trade_type !== undefined) {
-        console.log(`[SKIP] Trade already classified: ${trade.ticker} - ${trade.trade_type}`)
         return trade as ProcessedTrade
       }
 
       // Convert worker trade to ProcessedTrade format
-      console.log(
-        `[PROC] Converting worker trade: ${trade.ticker || trade.option_ticker} - $${trade.total_premium}`
-      )
       return {
         ticker: trade.ticker || trade.option_ticker,
         underlying_ticker: trade.underlying_ticker,
@@ -2397,14 +2310,12 @@ export class OptionsFlowService {
     })
 
     // Step 1: Detect multi-leg trades (must be done FIRST before sweeps bundle them)
-    console.log(`[CHECK] Step 1: Detecting multi-leg strategies...`)
     const withMultiLeg = this.detectMultiLegTrades(convertedTrades)
     console.log(
       `[INFO] Found ${withMultiLeg.filter((t) => t.trade_type === 'MULTI-LEG').length} MULTI-LEG trades`
     )
 
     // Step 2: Detect sweeps (cross-exchange patterns) on remaining trades
-    console.log(`[CHECK] Step 2: Detecting sweeps across exchanges...`)
     const sweeps = this.detectSweeps(withMultiLeg)
     console.log(
       `[INFO] Found ${sweeps.filter((t) => t.trade_type === 'SWEEP').length} SWEEP trades`
@@ -2420,7 +2331,6 @@ export class OptionsFlowService {
     })
 
     // Step 4: Classify remaining trades as BLOCK or MINI
-    console.log(`[CHECK] Step 3: Classifying remaining trades as BLOCK/MINI...`)
     const remainingTrades = sweeps.filter((trade) => {
       const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`
       return !classifiedKeys.has(key)
@@ -2446,14 +2356,6 @@ export class OptionsFlowService {
 
     // Combine all classified trades
     const allClassified = [...sweeps, ...classifiedRemaining]
-
-    // Debug: Check final trade types
-    console.log(`[CHECK] FINAL DEBUG: Sample classified trades:`)
-    allClassified.slice(0, 3).forEach((trade, i) => {
-      console.log(
-        `   ${i + 1}. ${trade.ticker} - Type: '${trade.trade_type}' - Premium: $${trade.total_premium}`
-      )
-    })
 
     return allClassified.sort((a, b) => b.total_premium - a.total_premium)
   }
@@ -3100,19 +3002,7 @@ export class OptionsFlowService {
 
       console.log(`[OK] ${ticker}: Processed ${batchTrades.length} FULLY ENRICHED trades`)
 
-      // Debug: Log first enriched trade to verify data structure
-      if (batchTrades.length > 0) {
-        console.log(`[CHECK] Sample enriched trade from ${ticker}:`, {
-          ticker: batchTrades[0].ticker,
-          spot_price: batchTrades[0].spot_price,
-          volume: batchTrades[0].volume,
-          open_interest: batchTrades[0].open_interest,
-          current_price: batchTrades[0].current_price,
-          fill_style: batchTrades[0].fill_style,
-          classification: batchTrades[0].classification,
-          delta: batchTrades[0].delta,
-        })
-      }
+
 
       return batchTrades
     } catch (error) {

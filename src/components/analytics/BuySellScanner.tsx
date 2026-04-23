@@ -647,10 +647,36 @@ export default function BuySellScanner() {
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
-  const [buyResults, setBuyResults] = useState<ScanResult[]>([])
-  const [sellResults, setSellResults] = useState<ScanResult[]>([])
   const [confluenceBuyResults, setConfluenceBuyResults] = useState<ConfluenceResult[]>([])
   const [confluenceSellResults, setConfluenceSellResults] = useState<ConfluenceResult[]>([])
+  const [earningsMap, setEarningsMap] = useState<Map<string, { date: string; time: string }>>(new Map())
+
+  // ── Fetch earnings calendar (current + next month) on mount ───────────────
+  useEffect(() => {
+    const now = new Date()
+    const months = [
+      { year: now.getFullYear(), month: now.getMonth() },
+      { year: now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear(), month: (now.getMonth() + 1) % 12 },
+    ]
+    Promise.all(months.map(({ year, month }) =>
+      fetch(`/api/earnings-calendar?year=${year}&month=${month}`).then(r => r.json()).catch(() => ({ success: false }))
+    )).then(results => {
+      const map = new Map<string, { date: string; time: string }>()
+      for (const data of results) {
+        if (!data.success || !Array.isArray(data.events)) continue
+        for (const ev of data.events) {
+          const match = ev.event?.match(/\(([^)]+)\)/)
+          if (!match) continue
+          const sym = match[1].trim().toUpperCase()
+          if (!map.has(sym)) {
+            const timing = ev.time === 'Pre-Market' ? 'Pre-Market' : 'After-Hours'
+            map.set(sym, { date: ev.date, time: timing })
+          }
+        }
+      }
+      setEarningsMap(map)
+    })
+  }, [])
   const [portfolioOpen, setPortfolioOpen] = useState(false)
   const portfolioRef = useRef<PortfolioRef>(null)
   const [tickerSearch, setTickerSearch] = useState('')
@@ -667,10 +693,6 @@ export default function BuySellScanner() {
   }, [])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [filterView, setFilterView] = useState<'both' | 'buy' | 'sell'>('both')
-  const [thresholdYears, setThresholdYears] = useState<1 | 3 | 5 | 10>(3)
-  const thresholdYearsRef = useRef<1 | 3 | 5 | 10>(3)
-  const [scanMode, setScanMode] = useState<'standard' | 'confluence'>('standard')
-  const scanModeRef = useRef<'standard' | 'confluence'>('standard')
   const abortRef = useRef(false)
   // ── Persist TF selection per-symbol so it survives result updates ──
   const confluenceTfSelectionRef = useRef<Map<string, 1 | 5 | 10>>(new Map())
@@ -680,30 +702,22 @@ export default function BuySellScanner() {
 
   // Clear stale results when the threshold period or mode changes \u2014 user must rescan
   useEffect(() => {
-    setBuyResults([])
-    setSellResults([])
     setConfluenceBuyResults([])
     setConfluenceSellResults([])
     setLastScanTime(null)
-  }, [thresholdYears, scanMode])
+  }, [])
 
   const runScan = useCallback(async () => {
     if (scanning) return
     setScanning(true)
-    thresholdYearsRef.current = thresholdYears
-    scanModeRef.current = scanMode
     abortRef.current = false
-    setBuyResults([])
-    setSellResults([])
     setConfluenceBuyResults([])
     setConfluenceSellResults([])
     setProgress(0)
 
     const today = new Date().toISOString().split('T')[0]
-    const isConfluence = scanModeRef.current === 'confluence'
-    const yrs = thresholdYearsRef.current
-    const daysBack = isConfluence ? 5600 : yrs === 1 ? 450 : yrs === 3 ? 1200 : 5600
-    const barLimit = isConfluence ? 4000 : yrs === 1 ? 400 : yrs === 3 ? 900 : 4000
+    const daysBack = 5600
+    const barLimit = 4000
     const from = new Date(Date.now() - daysBack * 86400_000).toISOString().split('T')[0]
 
     // Pre-fetch SPY
@@ -755,95 +769,70 @@ export default function BuySellScanner() {
               t: b.t,
             }))
 
-            if (isConfluence) {
-              // Run all 3 timeframes and look for ≥2 agreeing
-              // Only include a timeframe if the ticker has enough history for it
-              const MIN_BARS: Record<1 | 5 | 10, number> = { 1: 300, 5: 1260, 10: 2520 }
-              const tfs: Array<1 | 5 | 10> = [1, 5, 10]
-              const tfResults = tfs.map((tf) => {
-                const r = bars.length >= MIN_BARS[tf] ? buildResult(sym, bars, spyBars, tf) : null
-                return { tf, result: r }
+            // Run all 3 timeframes and look for ≥2 agreeing
+            // Only include a timeframe if the ticker has enough history for it
+            const MIN_BARS: Record<1 | 5 | 10, number> = { 1: 300, 5: 1260, 10: 2520 }
+            const tfs: Array<1 | 5 | 10> = [1, 5, 10]
+            const tfResults = tfs.map((tf) => {
+              const r = bars.length >= MIN_BARS[tf] ? buildResult(sym, bars, spyBars, tf) : null
+              return { tf, result: r }
+            })
+            const hits = tfResults
+              .filter((x) => x.result !== null)
+              .map((x) => ({ tf: x.tf, signal: x.result!.signal }))
+
+            const buyHits = hits.filter((h) => h.signal === 'BUY')
+            const sellHits = hits.filter((h) => h.signal === 'SELL')
+            const dominant = buyHits.length >= 2 ? 'BUY' : sellHits.length >= 2 ? 'SELL' : null
+            if (!dominant) return
+
+            const dominantHits = dominant === 'BUY' ? buyHits : sellHits
+            if (dominantHits.length < 2) return
+
+            // Use the 3yr result for chart display (most balanced), fall back to any
+            const allTfResults: Partial<Record<1 | 5 | 10, ScanResult>> = {}
+            tfResults.forEach((x) => { if (x.result) allTfResults[x.tf] = x.result })
+            const chartResult =
+              allTfResults[5] ??
+              allTfResults[1] ??
+              allTfResults[10]!
+            if (!chartResult) return
+
+            const currentPrice = bars[bars.length - 1].c
+            const prevPrice = bars[bars.length - 2]?.c || currentPrice
+            const priceChangePct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0
+
+            // 3-5 week expiry for confluence trades (21 day min → next Friday ≥ 21 days out)
+            const confluenceTrade = buildBSTrade(dominant, currentPrice, bars, 21)
+
+            // Seasonality filter: require ≥5 years of data (1260 bars) for reliable results
+            if (bars.length < 1260) return
+            const seasonality = computeSeasonality(bars, spyBars, dominant)
+            if (!seasonality.seasonallyConfirmed) return
+
+            const cr: ConfluenceResult = {
+              symbol: sym,
+              signal: dominant,
+              hitCount: dominantHits.length as 2 | 3,
+              hits: dominantHits,
+              currentPrice,
+              priceChangePct,
+              chartResult,
+              allTfResults,
+              trade: confluenceTrade,
+              seasonality,
+            }
+            barsCacheRef.current.set(sym, bars)
+            if (dominant === 'BUY') {
+              setConfluenceBuyResults((prev) => {
+                const filtered = prev.filter((r) => r.symbol !== sym)
+                return [...filtered, cr].sort((a, b) => b.hitCount - a.hitCount || b.chartResult.score - a.chartResult.score)
               })
-              const hits = tfResults
-                .filter((x) => x.result !== null)
-                .map((x) => ({ tf: x.tf, signal: x.result!.signal }))
-
-              const buyHits = hits.filter((h) => h.signal === 'BUY')
-              const sellHits = hits.filter((h) => h.signal === 'SELL')
-              const dominant = buyHits.length >= 2 ? 'BUY' : sellHits.length >= 2 ? 'SELL' : null
-              if (!dominant) return
-
-              const dominantHits = dominant === 'BUY' ? buyHits : sellHits
-              if (dominantHits.length < 2) return
-
-              // Use the 3yr result for chart display (most balanced), fall back to any
-              const allTfResults: Partial<Record<1 | 5 | 10, ScanResult>> = {}
-              tfResults.forEach((x) => { if (x.result) allTfResults[x.tf] = x.result })
-              const chartResult =
-                allTfResults[5] ??
-                allTfResults[1] ??
-                allTfResults[10]!
-              if (!chartResult) return
-
-              const currentPrice = bars[bars.length - 1].c
-              const prevPrice = bars[bars.length - 2]?.c || currentPrice
-              const priceChangePct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0
-
-              // 3-5 week expiry for confluence trades (21 day min → next Friday ≥ 21 days out)
-              const confluenceTrade = buildBSTrade(dominant, currentPrice, bars, 21)
-
-              // Seasonality filter: require ≥5 years of data (1260 bars) for reliable results
-              if (bars.length < 1260) return
-              const seasonality = computeSeasonality(bars, spyBars, dominant)
-              if (!seasonality.seasonallyConfirmed) return
-
-              const cr: ConfluenceResult = {
-                symbol: sym,
-                signal: dominant,
-                hitCount: dominantHits.length as 2 | 3,
-                hits: dominantHits,
-                currentPrice,
-                priceChangePct,
-                chartResult,
-                allTfResults,
-                trade: confluenceTrade,
-                seasonality,
-              }
-              barsCacheRef.current.set(sym, bars)
-              if (dominant === 'BUY') {
-                setConfluenceBuyResults((prev) => {
-                  const filtered = prev.filter((r) => r.symbol !== sym)
-                  return [...filtered, cr].sort((a, b) => b.hitCount - a.hitCount || b.chartResult.score - a.chartResult.score)
-                })
-              } else {
-                setConfluenceSellResults((prev) => {
-                  const filtered = prev.filter((r) => r.symbol !== sym)
-                  return [...filtered, cr].sort((a, b) => b.hitCount - a.hitCount || a.chartResult.score - b.chartResult.score)
-                })
-              }
             } else {
-              const result = buildResult(sym, bars, spyBars, thresholdYearsRef.current)
-              if (!result) return
-
-              // Seasonality filter: require ≥5 years of data (1260 bars) for reliable results
-              if (bars.length < 1260) return
-              const seasonality = computeSeasonality(bars, spyBars, result.signal)
-              if (!seasonality.seasonallyConfirmed) return
-              result.seasonality = seasonality
-
-              // cache bars for instant modal display
-              barsCacheRef.current.set(sym, bars)
-              if (result.signal === 'BUY') {
-                setBuyResults((prev) => {
-                  const filtered = prev.filter((r) => r.symbol !== sym)
-                  return [...filtered, result].sort((a, b) => b.score - a.score)
-                })
-              } else {
-                setSellResults((prev) => {
-                  const filtered = prev.filter((r) => r.symbol !== sym)
-                  return [...filtered, result].sort((a, b) => a.score - b.score)
-                })
-              }
+              setConfluenceSellResults((prev) => {
+                const filtered = prev.filter((r) => r.symbol !== sym)
+                return [...filtered, cr].sort((a, b) => b.hitCount - a.hitCount || a.chartResult.score - b.chartResult.score)
+              })
             }
           } catch {
             // skip failed symbol
@@ -863,7 +852,7 @@ export default function BuySellScanner() {
     setScanning(false)
     setProgressLabel('')
     setLastScanTime(new Date())
-  }, [scanning, scanMode])
+  }, [scanning])
 
   const stopScan = () => {
     abortRef.current = true
@@ -876,19 +865,15 @@ export default function BuySellScanner() {
     console.log(`[TickerScan] START sym=${sym} tickerScanning=${tickerScanning} scanning=${scanning}`)
     if (!sym || tickerScanning || scanning) { console.log('[TickerScan] BLOCKED early exit'); return }
     setTickerScanning(true)
-    setBuyResults([])
-    setSellResults([])
     setConfluenceBuyResults([])
     setConfluenceSellResults([])
     setLastScanTime(null)
     try {
       const today = new Date().toISOString().split('T')[0]
-      const isConfluence = scanModeRef.current === 'confluence'
-      const yrs = thresholdYearsRef.current
-      const daysBack = isConfluence ? 5600 : yrs === 1 ? 450 : yrs === 3 ? 1200 : 5600
-      const barLimit = isConfluence ? 4000 : yrs === 1 ? 400 : yrs === 3 ? 900 : 4000
+      const daysBack = 5600
+      const barLimit = 4000
       const from = new Date(Date.now() - daysBack * 86400_000).toISOString().split('T')[0]
-      console.log(`[TickerScan] mode=${isConfluence ? 'confluence' : 'standard'} yrs=${yrs} from=${from} to=${today} barLimit=${barLimit}`)
+      console.log(`[TickerScan] mode=confluence from=${from} to=${today} barLimit=${barLimit}`)
 
       // Fetch SPY + ticker in parallel
       let spyBars: Bar[] = spyCacheRef.current
@@ -917,55 +902,34 @@ export default function BuySellScanner() {
       barsCacheRef.current.set(sym, bars)
       console.log(`[TickerScan] bars loaded: ${bars.length}`)
 
-      if (isConfluence) {
-        console.log('[TickerScan] Running CONFLUENCE mode…')
-        const MIN_BARS: Record<1 | 5 | 10, number> = { 1: 300, 5: 1260, 10: 2520 }
-        const tfs: Array<1 | 5 | 10> = [1, 5, 10]
-        const tfResults = tfs.map((tf) => {
-          const r = bars.length >= MIN_BARS[tf] ? buildResult(sym, bars, spyBars, tf) : null
-          console.log(`[TickerScan] TF=${tf}yr bars=${bars.length} minBars=${MIN_BARS[tf]} result=${r ? r.signal : 'null'}`)
-          return { tf, result: r }
-        })
-        const hits = tfResults.filter((x) => x.result !== null).map((x) => ({ tf: x.tf, signal: x.result!.signal }))
-        const buyHits = hits.filter((h) => h.signal === 'BUY')
-        const sellHits = hits.filter((h) => h.signal === 'SELL')
-        const dominant = buyHits.length >= 2 ? 'BUY' : sellHits.length >= 2 ? 'SELL' : null
-        console.log(`[TickerScan] confluence hits=${hits.length} buyHits=${buyHits.length} sellHits=${sellHits.length} dominant=${dominant}`)
-        if (dominant) {
-          const dominantHits = dominant === 'BUY' ? buyHits : sellHits
-          const allTfResults: Partial<Record<1 | 5 | 10, ScanResult>> = {}
-          tfResults.forEach((x) => { if (x.result) allTfResults[x.tf] = x.result })
-          const chartResult = allTfResults[5] ?? allTfResults[1] ?? allTfResults[10]!
-          if (chartResult) {
-            const currentPrice = bars[bars.length - 1].c
-            const prevPrice = bars[bars.length - 2]?.c || currentPrice
-            const priceChangePct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0
-            const confluenceTrade = buildBSTrade(dominant, currentPrice, bars, 21)
-            const seasonality = bars.length >= 1260 ? computeSeasonality(bars, spyBars, dominant) : { seasonallyConfirmed: true, sweetSpot: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, painPoint: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, best30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, worst30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, inSweetSpot: false, inPainPoint: false, in30dBullish: false, in30dBearish: false } satisfies SeasonalityInfo
-            const cr: ConfluenceResult = { symbol: sym, signal: dominant, hitCount: dominantHits.length as 2 | 3, hits: dominantHits, currentPrice, priceChangePct, chartResult, allTfResults, trade: confluenceTrade, seasonality }
-            console.log(`[TickerScan] Setting confluence result: ${dominant}`)
-            if (dominant === 'BUY') setConfluenceBuyResults([cr])
-            else setConfluenceSellResults([cr])
-          }
-        }
-      } else {
-        console.log('[TickerScan] Running STANDARD mode…')
-        const strictResult = buildResult(sym, bars, spyBars, thresholdYearsRef.current)
-        console.log(`[TickerScan] strict buildResult => ${strictResult ? strictResult.signal : 'null'}`)
-        let result = strictResult
-        if (!result) {
-          const looseResult = buildResult(sym, bars, spyBars, thresholdYearsRef.current, 60)
-          console.log(`[TickerScan] loose buildResult (60-bar lookback, 252-bar threshold) => ${looseResult ? looseResult.signal : 'null'}`)
-          result = looseResult
-        }
-        if (result) {
-          const seasonality = bars.length >= 1260 ? computeSeasonality(bars, spyBars, result.signal) : { seasonallyConfirmed: true, sweetSpot: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, painPoint: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, best30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, worst30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, inSweetSpot: false, inPainPoint: false, in30dBullish: false, in30dBearish: false } satisfies SeasonalityInfo
-          result.seasonality = seasonality
-          console.log(`[TickerScan] RESULT signal=${result.signal} score=${result.score} setting state`)
-          if (result.signal === 'BUY') setBuyResults([result])
-          else setSellResults([result])
-        } else {
-          console.log('[TickerScan] NO RESULT after both strict + loose — no signal found')
+      console.log('[TickerScan] Running CONFLUENCE mode…')
+      const MIN_BARS: Record<1 | 5 | 10, number> = { 1: 300, 5: 1260, 10: 2520 }
+      const tfs: Array<1 | 5 | 10> = [1, 5, 10]
+      const tfResults = tfs.map((tf) => {
+        const r = bars.length >= MIN_BARS[tf] ? buildResult(sym, bars, spyBars, tf) : null
+        console.log(`[TickerScan] TF=${tf}yr bars=${bars.length} minBars=${MIN_BARS[tf]} result=${r ? r.signal : 'null'}`)
+        return { tf, result: r }
+      })
+      const hits = tfResults.filter((x) => x.result !== null).map((x) => ({ tf: x.tf, signal: x.result!.signal }))
+      const buyHits = hits.filter((h) => h.signal === 'BUY')
+      const sellHits = hits.filter((h) => h.signal === 'SELL')
+      const dominant = buyHits.length >= 2 ? 'BUY' : sellHits.length >= 2 ? 'SELL' : null
+      console.log(`[TickerScan] confluence hits=${hits.length} buyHits=${buyHits.length} sellHits=${sellHits.length} dominant=${dominant}`)
+      if (dominant) {
+        const dominantHits = dominant === 'BUY' ? buyHits : sellHits
+        const allTfResults: Partial<Record<1 | 5 | 10, ScanResult>> = {}
+        tfResults.forEach((x) => { if (x.result) allTfResults[x.tf] = x.result })
+        const chartResult = allTfResults[5] ?? allTfResults[1] ?? allTfResults[10]!
+        if (chartResult) {
+          const currentPrice = bars[bars.length - 1].c
+          const prevPrice = bars[bars.length - 2]?.c || currentPrice
+          const priceChangePct = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0
+          const confluenceTrade = buildBSTrade(dominant, currentPrice, bars, 21)
+          const seasonality = bars.length >= 1260 ? computeSeasonality(bars, spyBars, dominant) : { seasonallyConfirmed: true, sweetSpot: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, painPoint: { period: '', totalReturn: 0, startDay: 0, endDay: 0 }, best30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, worst30Day: { period: '', return: 0, startDay: 0, endDay: 0 }, inSweetSpot: false, inPainPoint: false, in30dBullish: false, in30dBearish: false } satisfies SeasonalityInfo
+          const cr: ConfluenceResult = { symbol: sym, signal: dominant, hitCount: dominantHits.length as 2 | 3, hits: dominantHits, currentPrice, priceChangePct, chartResult, allTfResults, trade: confluenceTrade, seasonality }
+          console.log(`[TickerScan] Setting confluence result: ${dominant}`)
+          if (dominant === 'BUY') setConfluenceBuyResults([cr])
+          else setConfluenceSellResults([cr])
         }
       }
       setLastScanTime(new Date())
@@ -974,17 +938,13 @@ export default function BuySellScanner() {
     }
     setTickerScanning(false)
     console.log('[TickerScan] DONE')
-  }, [tickerSearch, tickerScanning, scanning, scanMode])
+  }, [tickerSearch, tickerScanning, scanning])
 
-  const totalFound = scanMode === 'confluence'
-    ? confluenceBuyResults.length + confluenceSellResults.length
-    : buyResults.length + sellResults.length
+  const totalFound = confluenceBuyResults.length + confluenceSellResults.length
 
   // Determine which results to show based on filter
-  const visibleBuy = filterView !== 'sell' ? buyResults : []
-  const visibleSell = filterView !== 'buy' ? sellResults : []
-  const visibleConfBuy = filterView !== 'sell' ? confluenceBuyResults : []
-  const visibleConfSell = filterView !== 'buy' ? confluenceSellResults : []
+  const visibleBuy = filterView !== 'sell' ? confluenceBuyResults : []
+  const visibleSell = filterView !== 'buy' ? confluenceSellResults : []
 
   return (
     <div
@@ -1039,57 +999,6 @@ export default function BuySellScanner() {
             </div>
           </div>
 
-          {/* Threshold average selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '1.5px', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase' }}>Avg Period:</span>
-            {([1, 3, 10] as const).map((y) => (
-              <button
-                key={y}
-                onClick={() => { setScanMode('standard'); setThresholdYears(y) }}
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: 13,
-                  fontWeight: 900,
-                  letterSpacing: '1px',
-                  padding: '6px 16px',
-                  cursor: 'pointer',
-                  borderRadius: 4,
-                  textTransform: 'uppercase',
-                  background: scanMode === 'standard' && thresholdYears === y
-                    ? 'linear-gradient(135deg, #ff8500 0%, #cc6a00 100%)'
-                    : 'rgba(255,255,255,0.06)',
-                  border: scanMode === 'standard' && thresholdYears === y
-                    ? '2px solid #ff8500'
-                    : '2px solid rgba(255,255,255,0.12)',
-                  color: scanMode === 'standard' && thresholdYears === y ? '#000' : 'rgba(255,255,255,0.6)',
-                }}
-              >
-                {y}Y
-              </button>
-            ))}
-            <button
-              onClick={() => setScanMode('confluence')}
-              style={{
-                fontFamily: 'inherit',
-                fontSize: 13,
-                fontWeight: 900,
-                letterSpacing: '1px',
-                padding: '6px 16px',
-                cursor: 'pointer',
-                borderRadius: 4,
-                textTransform: 'uppercase',
-                background: scanMode === 'confluence'
-                  ? 'linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)'
-                  : 'rgba(255,255,255,0.06)',
-                border: scanMode === 'confluence'
-                  ? '2px solid #a855f7'
-                  : '2px solid rgba(255,255,255,0.12)',
-                color: scanMode === 'confluence' ? '#fff' : 'rgba(255,255,255,0.6)',
-              }}
-            >
-              CONFLUENCE
-            </button>
-          </div>
 
           {/* Scan / Stop button */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1265,11 +1174,11 @@ export default function BuySellScanner() {
               }}
             >
               <span>
-                <span style={{ color: '#00ff00' }}>{scanMode === 'confluence' ? confluenceBuyResults.length : buyResults.length}</span>
+                <span style={{ color: '#00ff00' }}>{confluenceBuyResults.length}</span>
                 <span style={{ color: '#ffffff' }}> BUY</span>
               </span>
               <span>
-                <span style={{ color: '#ff3232' }}>{scanMode === 'confluence' ? confluenceSellResults.length : sellResults.length}</span>
+                <span style={{ color: '#ff3232' }}>{confluenceSellResults.length}</span>
                 <span style={{ color: '#ffffff' }}> SELL</span>
               </span>
             </div>
@@ -1302,7 +1211,7 @@ export default function BuySellScanner() {
               color: '#00ff00',
             }}
           >
-            {scanMode === 'confluence' ? confluenceBuyResults.length : buyResults.length} BUY
+            {confluenceBuyResults.length} BUY
           </div>
           <div
             style={{
@@ -1315,7 +1224,7 @@ export default function BuySellScanner() {
               color: '#ff3232',
             }}
           >
-            {scanMode === 'confluence' ? confluenceSellResults.length : sellResults.length} SELL
+            {confluenceSellResults.length} SELL
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
@@ -1491,15 +1400,12 @@ export default function BuySellScanner() {
                   letterSpacing: '2px',
                 }}
               >
-                {scanMode === 'confluence' ? visibleConfBuy.length : visibleBuy.length}
+                {visibleBuy.length}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-              {scanMode === 'confluence'
-                ? visibleConfBuy.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)
-                : visibleBuy.map((r) => <TradeCard key={r.symbol} result={r} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.score, label: r.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)
-              }
-              {(scanMode === 'confluence' ? visibleConfBuy.length : visibleBuy.length) === 0 && (
+              {visibleBuy.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} earnings={earningsMap.get(r.symbol)} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)}
+              {visibleBuy.length === 0 && (
                 <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 700, letterSpacing: '1px', padding: '20px 0' }}>NO BUY SIGNALS</div>
               )}
             </div>
@@ -1533,15 +1439,12 @@ export default function BuySellScanner() {
                   letterSpacing: '2px',
                 }}
               >
-                {scanMode === 'confluence' ? visibleConfSell.length : visibleSell.length}
+                {visibleSell.length}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-              {scanMode === 'confluence'
-                ? visibleConfSell.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)
-                : visibleSell.map((r) => <TradeCard key={r.symbol} result={r} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.score, label: r.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)
-              }
-              {(scanMode === 'confluence' ? visibleConfSell.length : visibleSell.length) === 0 && (
+              {visibleSell.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} earnings={earningsMap.get(r.symbol)} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)}
+              {visibleSell.length === 0 && (
                 <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 700, letterSpacing: '1px', padding: '20px 0' }}>NO SELL SIGNALS</div>
               )}
             </div>
@@ -1561,7 +1464,7 @@ export default function BuySellScanner() {
 }
 
 // ─── Confluence Card ──────────────────────────────────────────────────────────
-function ConfluenceCard({ result, tfSelectionMap, onAddToPortfolio }: { result: ConfluenceResult; tfSelectionMap: Map<string, 1 | 5 | 10>; onAddToPortfolio?: () => void }) {
+function ConfluenceCard({ result, tfSelectionMap, earnings, onAddToPortfolio }: { result: ConfluenceResult; tfSelectionMap: Map<string, 1 | 5 | 10>; earnings?: { date: string; time: string }; onAddToPortfolio?: () => void }) {
   const [adding, setAdding] = useState(false)
   const [liveAsk, setLiveAsk] = useState<number | null | 'loading'>('loading')
   const isBuy = result.signal === 'BUY'
@@ -1599,6 +1502,22 @@ function ConfluenceCard({ result, tfSelectionMap, onAddToPortfolio }: { result: 
           ${result.currentPrice.toFixed(2)}
           <span style={{ fontSize: 12, marginLeft: 4 }}>({result.priceChangePct >= 0 ? '+' : ''}{result.priceChangePct.toFixed(2)}%)</span>
         </span>
+        {earnings && (
+          <span style={{
+            fontFamily: '"JetBrains Mono",monospace',
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '1px',
+            color: '#FFD700',
+            background: 'rgba(255,215,0,0.1)',
+            border: '1px solid rgba(255,215,0,0.35)',
+            borderRadius: 3,
+            padding: '2px 7px',
+            whiteSpace: 'nowrap',
+          }}>
+            ⚡ Earnings {earnings.date} · {earnings.time}
+          </span>
+        )}
         {/* TF switcher buttons removed */}
         <span style={{
           marginLeft: 'auto',
@@ -2057,17 +1976,13 @@ function BuySellMiniChart({
       e.preventDefault()
       const n = bars.length
       const FUTURE = 0
-      const { startIdx, visibleCount } = viewRef.current
+      const { visibleCount } = viewRef.current
       const factor = e.deltaY > 0 ? 1.12 : 0.89
       let newVC = Math.round(visibleCount * factor)
       newVC = Math.max(FUTURE + 5, Math.min(n + FUTURE, newVC))
-      const rect = canvas.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const chartW = canvas.offsetWidth - PAD_L - PAD_R
-      const frac = Math.max(0, Math.min(1, (mouseX - PAD_L) / chartW))
-      let newStart = Math.round(startIdx + frac * visibleCount - frac * newVC)
-      newStart = Math.max(0, Math.min(Math.max(0, n + FUTURE - newVC), newStart))
-      viewRef.current = { startIdx: newStart, visibleCount: newVC }
+      // Always anchor zoom to the right edge (most recent bar stays visible)
+      const maxStart = Math.max(0, n + FUTURE - newVC)
+      viewRef.current = { startIdx: maxStart, visibleCount: newVC }
       draw()
     }
 
@@ -2799,11 +2714,8 @@ function BuySellIndicatorModal({
       const count = end - start
       const factor = e.deltaY > 0 ? 1.12 : 0.88
       const newCount = Math.max(20, Math.min(all.length, Math.round(count * factor)))
-      const cW = canvas.offsetWidth - PL - PR
-      const rect = canvas.getBoundingClientRect()
-      const pct = cW > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left - PL) / cW)) : 0.5
-      const focusIdx = start + pct * count
-      const newStart = Math.max(0, Math.min(all.length - newCount, Math.round(focusIdx - pct * newCount)))
+      // Always anchor zoom to the right edge (most recent bar stays visible)
+      const newStart = Math.max(0, all.length - newCount)
       viewRef.current = { start: newStart, end: Math.min(newStart + newCount, all.length) }
       draw()
     }
