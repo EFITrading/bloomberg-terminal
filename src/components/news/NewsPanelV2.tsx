@@ -172,6 +172,47 @@ function _processLogoQueue(apiKey: string) {
   }
 }
 
+// ── Black-Scholes helpers (same as EFICharting) ──────────────────────────────
+const _erf = (x: number): number => {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+  const sign = x >= 0 ? 1 : -1
+  x = Math.abs(x)
+  const t = 1.0 / (1.0 + p * x)
+  const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+  return sign * y
+}
+const _normalCDF = (x: number): number => 0.5 * (1 + _erf(x / Math.sqrt(2)))
+const _d2 = (S: number, K: number, r: number, sigma: number, T: number): number => {
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+  return d1 - sigma * Math.sqrt(T)
+}
+const _copCall = (S: number, K: number, r: number, sigma: number, T: number): number =>
+  (1 - _normalCDF(_d2(S, K, r, sigma, T))) * 100
+const _copPut = (S: number, K: number, r: number, sigma: number, T: number): number =>
+  _normalCDF(_d2(S, K, r, sigma, T)) * 100
+const _findStrike = (S: number, r: number, sigma: number, T: number, target: number, isCall: boolean): number => {
+  if (isCall) {
+    let lo = S + 0.01, hi = S * 1.5
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = _copCall(S, mid, r, sigma, T)
+      if (Math.abs(p - target) < 0.1) return mid
+      if (p < target) lo = mid; else hi = mid
+    }
+    return (lo + hi) / 2
+  } else {
+    let lo = S * 0.5, hi = S - 0.01
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = _copPut(S, mid, r, sigma, T)
+      if (Math.abs(p - target) < 0.1) return mid
+      if (p < target) hi = mid; else lo = mid
+    }
+    return (lo + hi) / 2
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string; fluid?: boolean }> = ({
   ticker,
   size = 28,
@@ -463,13 +504,28 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const [calEventsLoading, setCalEventsLoading] = useState(false)
   const [calWeekOf, setCalWeekOf] = useState<Date>(() => {
     const d = new Date()
-    const day = d.getDay()
+    // Convert to PST to decide week
+    const pstStr = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+    const pst = new Date(pstStr)
+    const day = pst.getDay() // 0=Sun … 6=Sat
+    const hour = pst.getHours()
+    // Friday (5) after 2AM PST → jump to next week
+    const isFridayAfter2AM = day === 5 && hour >= 2
+    const isSat = day === 6
+    const extraDays = (isFridayAfter2AM || isSat) ? 7 : 0
     const monday = new Date(d)
-    monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+    monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1) + extraDays)
     monday.setHours(0, 0, 0, 0)
     return monday
   })
   const [selectedCalDate, setSelectedCalDate] = useState<number | null>(null)
+  const [weeklySubView, setWeeklySubView] = useState<'logos' | 'implied'>('logos')
+  const [impliedMoves, setImpliedMoves] = useState<Record<string, number>>({})
+  const [impliedModalDay, setImpliedModalDay] = useState<Date | null>(null)
+  const impliedFetchedRef = useRef<Set<string>>(new Set())
+  const impliedQueueRef = useRef<Array<{ ticker: string; date: Date }>>([])
+  const impliedProcessingRef = useRef(false)
+  const impliedScheduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [clock, setClock] = useState('')
   const [moverCharts, setMoverCharts] = useState<
     Record<string, { price: number; timestamp: number; etMinutes: number }[]>
@@ -482,6 +538,164 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const historicalFetchedRef = useRef(false)
 
   const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+
+  // ── Implied Move: exact ChainPanel getProbabilityStrikes logic ──────────────
+  const fetchImpliedMove = useCallback(async (ticker: string, earningsDate: Date) => {
+    const key = `${ticker}-${earningsDate.toISOString().split('T')[0]}`
+    if (impliedFetchedRef.current.has(key)) return
+    impliedFetchedRef.current.add(key)
+    if (!POLYGON_KEY) return
+    try {
+      // Friday of the earnings week
+      const base = new Date(earningsDate)
+      const baseDay = base.getDay()
+      const fridayOffset = baseDay === 0 ? 5 : 5 - baseDay
+      base.setDate(base.getDate() + (fridayOffset < 0 ? fridayOffset + 7 : fridayOffset))
+      const fridayStr = base.toISOString().split('T')[0]
+
+      // 1. Get current stock price
+      const priceRes = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_KEY}`
+      )
+      if (!priceRes.ok) { console.warn(`[IV] ${ticker} price HTTP ${priceRes.status}`); return }
+      const priceData = await priceRes.json()
+      const stockPrice: number =
+        priceData?.ticker?.day?.c ||
+        priceData?.ticker?.lastTrade?.p ||
+        priceData?.ticker?.prevDay?.c
+      if (!stockPrice || stockPrice <= 0) { console.warn(`[IV] ${ticker} no valid price`); return }
+
+      // 2. Get contracts for the Friday expiry (with fallback) — same as ChainPanel fetchOptionsChain
+      const contractsRes = await fetch(
+        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${fridayStr}&limit=500&apikey=${POLYGON_KEY}`
+      )
+      if (!contractsRes.ok) { console.warn(`[IV] ${ticker} contracts HTTP ${contractsRes.status}`); return }
+      const contractsData = await contractsRes.json()
+      const results: any[] = contractsData?.results ?? []
+
+      let usedExpiry = fridayStr
+      if (results.length === 0) {
+        const refRes = await fetch(
+          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${fridayStr}&limit=50&apikey=${POLYGON_KEY}`
+        )
+        if (!refRes.ok) { console.warn(`[IV] ${ticker} fallback ref HTTP ${refRes.status}`); return }
+        const refData = await refRes.json()
+        if (!refData?.results?.length) { console.warn(`[IV] ${ticker} no expirations found`); return }
+        usedExpiry = refData.results[0].expiration_date
+        const fallbackRes = await fetch(
+          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${usedExpiry}&limit=500&apikey=${POLYGON_KEY}`
+        )
+        if (!fallbackRes.ok) { console.warn(`[IV] ${ticker} fallback contracts HTTP ${fallbackRes.status}`); return }
+        const fallbackData = await fallbackRes.json()
+        if (!fallbackData?.results?.length) { console.warn(`[IV] ${ticker} no contracts for fallback expiry ${usedExpiry}`); return }
+        results.push(...fallbackData.results)
+      }
+
+      // 3. Separate calls and puts, build allStrikes — same as ChainPanel
+      const callOptions: any[] = results.filter((c: any) => c.contract_type === 'call')
+      const putOptions: any[] = results.filter((c: any) => c.contract_type === 'put')
+      const allStrikes: number[] = [...new Set([...callOptions, ...putOptions].map((o: any) => o.strike_price as number))].sort((a, b) => a - b)
+
+      // 4. Filter ATM options within 5% of price — exact ChainPanel condition
+      const atmOptions: any[] = [...callOptions, ...putOptions].filter((opt: any) => {
+        const pctDiff = Math.abs((opt.strike_price - stockPrice) / stockPrice)
+        return pctDiff < 0.05
+      })
+      if (atmOptions.length === 0) { console.warn(`[IV] ${ticker} no ATM options within 5%`); return }
+
+      // 5. Fetch IV for all ATM options in small batches (ChainPanel fetches each individually)
+      const IV_BATCH = 5
+      const ivMap: Record<string, number> = {}
+      for (let i = 0; i < atmOptions.length; i += IV_BATCH) {
+        const batch = atmOptions.slice(i, i + IV_BATCH)
+        await Promise.all(batch.map(async (opt: any) => {
+          try {
+            const snap = await fetch(
+              `https://api.polygon.io/v3/snapshot/options/${ticker}/${opt.ticker}?apikey=${POLYGON_KEY}`
+            )
+            const snapData = await snap.json()
+            const iv: number = snapData?.results?.implied_volatility ?? 0
+            ivMap[opt.ticker] = iv
+          } catch {
+            ivMap[opt.ticker] = 0
+          }
+        }))
+        if (i + IV_BATCH < atmOptions.length) await new Promise(r => setTimeout(r, 200))
+      }
+
+      // 6. Average IV of options that have valid IV > 0 — exact ChainPanel getProbabilityStrikes
+      const validIVs = atmOptions.map((o: any) => ivMap[o.ticker] ?? 0).filter(iv => iv > 0)
+      if (validIVs.length === 0) { console.warn(`[IV] ${ticker} no options returned valid IV`); return }
+      const avgIV = validIVs.reduce((s: number, v: number) => s + v, 0) / validIVs.length
+      if (avgIV < 0.01 || avgIV > 5) { console.warn(`[IV] ${ticker} avgIV out of range: ${avgIV}`); return }
+
+      // 7. DTE from actual used expiry — exact ChainPanel daysToExpiry calc
+      const expiryDate = new Date(usedExpiry)
+      const now = new Date()
+      const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+      const T = daysToExpiry / 365
+      const r = 0.0387
+
+      // 8. Theoretical 80% COP strikes — exact ChainPanel findStrikeForProbability
+      const call80Theoretical = _findStrike(stockPrice, r, avgIV, T, 80, true)
+      const put80Theoretical = _findStrike(stockPrice, r, avgIV, T, 80, false)
+
+      // 9. Snap to nearest actual strike — exact ChainPanel findClosestStrike
+      const findClosestStrike = (theoretical: number) =>
+        allStrikes.reduce((prev, curr) =>
+          Math.abs(curr - theoretical) < Math.abs(prev - theoretical) ? curr : prev
+          , allStrikes[0])
+
+      const call80 = findClosestStrike(call80Theoretical)
+      const put80 = findClosestStrike(put80Theoretical)
+      // one-sided implied move: how far price moves to each 80% strike (averaged)
+      const pct = ((call80 - put80) / stockPrice) * 100 / 2
+
+      console.group(`[IV] ${ticker}`)
+      console.log(`  expiry         : ${usedExpiry}${usedExpiry !== fridayStr ? ` (target was ${fridayStr})` : ''}`)
+      console.log(`  price          : $${stockPrice}`)
+      console.log(`  ATM options    : ${atmOptions.length} within 5%, ${validIVs.length} with valid IV`)
+      console.log(`  avgIV          : ${(avgIV * 100).toFixed(1)}%`)
+      console.log(`  DTE            : ${daysToExpiry}d  (T = ${T.toFixed(4)})`)
+      console.log(`  80% call       : $${call80Theoretical.toFixed(2)} → snapped $${call80}`)
+      console.log(`  80% put        : $${put80Theoretical.toFixed(2)} → snapped $${put80}`)
+      console.log(`  implied move   : (${call80} - ${put80}) / ${stockPrice} = ${pct.toFixed(2)}%`)
+      console.groupEnd()
+
+      setImpliedMoves((prev) => ({ ...prev, [ticker]: pct }))
+    } catch (e) {
+      console.error(`[IV] ${ticker} error:`, e)
+    }
+  }, [POLYGON_KEY])
+
+  const BATCH_SIZE = 3
+  const BATCH_DELAY_MS = 700
+
+  const processBatchQueue = useCallback(async () => {
+    if (impliedProcessingRef.current) return
+    impliedProcessingRef.current = true
+    while (impliedQueueRef.current.length > 0) {
+      const batch: Array<{ ticker: string; date: Date }> = []
+      while (batch.length < BATCH_SIZE && impliedQueueRef.current.length > 0) {
+        const item = impliedQueueRef.current.shift()!
+        const key = `${item.ticker}-${item.date.toISOString().split('T')[0]}`
+        if (!impliedFetchedRef.current.has(key)) batch.push(item)
+      }
+      if (batch.length === 0) break
+      await Promise.all(batch.map(({ ticker, date }) => fetchImpliedMove(ticker, date)))
+      if (impliedQueueRef.current.length > 0) {
+        await new Promise<void>((r) => setTimeout(r, BATCH_DELAY_MS))
+      }
+    }
+    impliedProcessingRef.current = false
+  }, [fetchImpliedMove])
+
+  const scheduleImpliedProcessing = useCallback(() => {
+    if (impliedScheduleTimerRef.current) clearTimeout(impliedScheduleTimerRef.current)
+    impliedScheduleTimerRef.current = setTimeout(() => {
+      void processBatchQueue()
+    }, 50)
+  }, [processBatchQueue])
 
   const fetchMoverChart = useCallback(
     async (ticker: string) => {
@@ -651,14 +865,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     return () => clearInterval(id)
   }, [fetchNews, searchTicker])
 
-  // ── Trigger historical breaking news when breaking tab is active ─────────
+  // ── Auto-scan historical breaking news on mount ─────────────────────────
   useEffect(() => {
-    if (activeTab === 'breaking') fetchHistoricalBreaking()
-  }, [activeTab, fetchHistoricalBreaking])
+    fetchHistoricalBreaking()
+  }, [fetchHistoricalBreaking])
 
-  // ── Trigger chart fetches when movers tab is active ───────────────────────
+  // ── Auto-scan mover charts whenever articles load ─────────────────────────
   useEffect(() => {
-    if (activeTab !== 'movers' || articles.length === 0) return
+    if (articles.length === 0) return
     const byTicker: Record<string, NewsArticle> = {}
     articles
       .filter((a) => a.tickers.length > 0)
@@ -669,15 +883,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         })
       })
     const tickers = Object.keys(byTicker).slice(0, 20)
-    console.log(`[MoverChart] tab active, tickers to fetch: ${tickers.join(', ')}`)
     tickers.forEach((t) => fetchMoverChart(t))
-  }, [activeTab, articles, fetchMoverChart])
+  }, [articles, fetchMoverChart])
 
   // ── Live calendar data — earnings from Nasdaq API, economic from FRED ────────
-  useEffect(() => {
-    if (activeTab !== 'calendar') return
+  // Auto-scans on mount and whenever calMonth changes (no tab-guard needed)
+  const fetchCalendarData = useCallback(async (year: number, month: number) => {
     setCalEventsLoading(true)
-    const { year, month } = calMonth
     const FRED_MAP: Record<
       string,
       { event: string; importance: CalendarEvent['importance']; time: string }
@@ -688,65 +900,113 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       'Retail Sales': { event: 'Retail Sales', importance: 'high', time: '8:30 AM' },
       GDP: { event: 'GDP Report', importance: 'critical', time: '8:30 AM' },
     }
-    Promise.all([
-      fetch(`/api/earnings-calendar?year=${year}&month=${month}`, { cache: 'no-store' })
-        .then((r) => r.json())
-        .catch(() => ({ success: false, events: [] })),
-      fetch(`/api/fred-calendar?year=${year}&month=${month}`)
-        .then((r) => r.json())
-        .catch(() => ({ success: false, events: {} })),
-    ])
-      .then(([earningsData, fredData]) => {
-        console.log('[CAL DEBUG] raw earningsData:', earningsData)
-        console.log('[CAL DEBUG] total events from API:', earningsData?.events?.length)
-        const postEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Post-Market')
-        const preEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Pre-Market')
-        console.log('[CAL DEBUG] Pre-Market count:', preEvents?.length, '| Post-Market count:', postEvents?.length)
-        console.log('[CAL DEBUG] sample Post-Market events:', postEvents?.slice(0, 3))
-        console.log('[CAL DEBUG] unique time values:', [...new Set(earningsData?.events?.map((e: CalendarEvent) => e.time))])
-        const incoming: CalendarEvent[] = []
-        if (earningsData.success && Array.isArray(earningsData.events)) {
-          incoming.push(...earningsData.events)
-        }
-        if (fredData.success && fredData.events) {
-          Object.entries(fredData.events as Record<string, string[]>).forEach(
-            ([dateStr, names]) => {
-              const [yyyy, mm, dd] = dateStr.split('-').map(Number)
-                ; (names as string[]).forEach((name) => {
-                  const mapped = FRED_MAP[name]
-                  if (!mapped) return
-                  incoming.push({
-                    date: `${MONTH_SHORT[mm - 1]} ${dd}`,
-                    dayNum: dd,
-                    month: mm - 1,
-                    year: yyyy,
-                    time: mapped.time,
-                    event: mapped.event,
-                    importance: mapped.importance,
-                    country: 'US',
-                    type: 'economic',
-                  })
+    try {
+      const [earningsData, fredData] = await Promise.all([
+        fetch(`/api/earnings-calendar?year=${year}&month=${month}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .catch(() => ({ success: false, events: [] })),
+        fetch(`/api/fred-calendar?year=${year}&month=${month}`)
+          .then((r) => r.json())
+          .catch(() => ({ success: false, events: {} })),
+      ])
+      console.log('[CAL DEBUG] raw earningsData:', earningsData)
+      console.log('[CAL DEBUG] total events from API:', earningsData?.events?.length)
+      const postEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Post-Market')
+      const preEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Pre-Market')
+      console.log('[CAL DEBUG] Pre-Market count:', preEvents?.length, '| Post-Market count:', postEvents?.length)
+      console.log('[CAL DEBUG] sample Post-Market events:', postEvents?.slice(0, 3))
+      console.log('[CAL DEBUG] unique time values:', [...new Set(earningsData?.events?.map((e: CalendarEvent) => e.time))])
+      const incoming: CalendarEvent[] = []
+      if (earningsData.success && Array.isArray(earningsData.events)) {
+        incoming.push(...earningsData.events)
+      }
+      if (fredData.success && fredData.events) {
+        Object.entries(fredData.events as Record<string, string[]>).forEach(
+          ([dateStr, names]) => {
+            const [yyyy, mm, dd] = dateStr.split('-').map(Number)
+              ; (names as string[]).forEach((name) => {
+                const mapped = FRED_MAP[name]
+                if (!mapped) return
+                incoming.push({
+                  date: `${MONTH_SHORT[mm - 1]} ${dd}`,
+                  dayNum: dd,
+                  month: mm - 1,
+                  year: yyyy,
+                  time: mapped.time,
+                  event: mapped.event,
+                  importance: mapped.importance,
+                  country: 'US',
+                  type: 'economic',
                 })
-            }
-          )
-        }
-        if (incoming.length > 0) {
-          setLiveCalEvents((prev) => [
-            ...prev.filter(
-              (ev) =>
-                !(
-                  ev.year === year &&
-                  ev.month === month &&
-                  (ev.type === 'earnings' || ev.type === 'economic')
-                )
-            ),
-            ...incoming,
-          ])
-        }
-        setCalEventsLoading(false)
+              })
+          }
+        )
+      }
+      if (incoming.length > 0) {
+        setLiveCalEvents((prev) => [
+          ...prev.filter(
+            (ev) =>
+              !(
+                ev.year === year &&
+                ev.month === month &&
+                (ev.type === 'earnings' || ev.type === 'economic')
+              )
+          ),
+          ...incoming,
+        ])
+      }
+    } catch {
+      // silent
+    } finally {
+      setCalEventsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchCalendarData(calMonth.year, calMonth.month)
+  }, [fetchCalendarData, calMonth])
+
+  // Auto-refresh calendar every 30 minutes
+  useEffect(() => {
+    const id = setInterval(() => fetchCalendarData(calMonth.year, calMonth.month), 30 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetchCalendarData, calMonth])
+
+  // ── Auto-queue implied vol for the current week's earnings on mount / data change ──
+  useEffect(() => {
+    if (liveCalEvents.length === 0) return
+    const extractT = (event: string): string => event.match(/\(([A-Z]{1,5})\)/)?.[1] ?? ''
+    const weekDays: Date[] = Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(calWeekOf)
+      d.setDate(calWeekOf.getDate() + i)
+      return d
+    })
+    const MCAP_RANK: Record<string, number> = {
+      MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9,
+      LLY: 10, JPM: 11, V: 12, UNH: 13, XOM: 14, MA: 15, COST: 16, HD: 17, PG: 18, JNJ: 19,
+      NFLX: 20, AMD: 21, CRM: 22, BAC: 23, WMT: 24, ORCL: 25, ABBV: 26, MRK: 27, ADBE: 28,
+      NOW: 29, QCOM: 30, MU: 31, AMAT: 32, TXN: 33, GS: 34, MS: 35, PYPL: 36, PANW: 37,
+      SNOW: 38, PLTR: 39, UBER: 40, SHOP: 41, ABNB: 42, COIN: 43,
+    }
+    const mcapSort = (a: string, b: string) => (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
+    weekDays.forEach((day) => {
+      const dayEvs = liveCalEvents.filter(
+        (ev) =>
+          ev.type === 'earnings' &&
+          ev.year === day.getFullYear() &&
+          ev.month === day.getMonth() &&
+          ev.dayNum === day.getDate()
+      )
+      const tickers = dayEvs
+        .map((ev) => extractT(ev.event))
+        .filter(Boolean)
+      tickers.sort(mcapSort)
+      tickers.slice(0, 6).forEach((t) => {
+        impliedQueueRef.current.push({ ticker: t, date: day })
       })
-      .catch(() => setCalEventsLoading(false))
-  }, [activeTab, calMonth])
+    })
+    scheduleImpliedProcessing()
+  }, [liveCalEvents, calWeekOf, scheduleImpliedProcessing])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1484,7 +1744,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               style={{
                 background: rowBg,
                 boxShadow: rowGlow,
-                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                borderBottom: '2px solid #d4af37',
               }}
             >
               {/* Ticker + time */}
@@ -1554,6 +1814,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       d.setDate(d.getDate() + delta * 7)
       setCalWeekOf(d)
       setCalMonth({ year: d.getFullYear(), month: d.getMonth() })
+      // Reset implied move cache so new week is re-scanned
+      impliedFetchedRef.current = new Set()
+      impliedQueueRef.current = []
+      impliedProcessingRef.current = false
+      setImpliedMoves({})
     }
 
     const weekDays: Date[] = Array.from({ length: 5 }, (_, i) => {
@@ -1575,22 +1840,327 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     // ── WEEKLY VIEW ────────────────────────────────────────────────────────────
     const renderWeekly = () => {
       const DAY_FULL = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
+
+      // Market-cap priority order — highest first; unknown tickers rank last
+      const MCAP_RANK: Record<string, number> = {
+        MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9, BRK: 10,
+        LLY: 11, JPM: 12, V: 13, UNH: 14, XOM: 15, MA: 16, COST: 17, HD: 18, PG: 19, JNJ: 20,
+        NFLX: 21, AMD: 22, CRM: 23, BAC: 24, WMT: 25, ORCL: 26, CVX: 27, ABBV: 28, KO: 29, MRK: 30,
+        ADBE: 31, NOW: 32, ACN: 33, INTC: 34, IBM: 35, QCOM: 36, MU: 37, AMAT: 38, TXN: 39, LRCX: 40,
+        GE: 41, CAT: 42, GS: 43, MS: 44, BLK: 45, PYPL: 46, PANW: 47, SNOW: 48, PLTR: 49, UBER: 50,
+        SHOP: 51, ABNB: 52, COIN: 53, HOOD: 54, RIVN: 55, LCID: 56, NIO: 57, BABA: 58, JD: 59, PDD: 60,
+      }
+      const mcapSort = (a: string, b: string) =>
+        (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
+      const MAX_VISIBLE = 6
+
+      // Queue only the top MAX_VISIBLE tickers per day (by market cap) on initial load
+      if (weeklySubView === 'implied') {
+        weekDays.forEach((day) => {
+          const allEvs = [
+            ...getWeekEarnings(day, 'Pre-Market'),
+            ...getWeekEarnings(day, 'Post-Market'),
+          ]
+          const tickers = allEvs
+            .map((ev) => extractTicker(ev.event))
+            .filter(Boolean)
+          tickers.sort(mcapSort)
+          tickers.slice(0, MAX_VISIBLE).forEach((t) => {
+            impliedQueueRef.current.push({ ticker: t, date: day })
+          })
+        })
+        scheduleImpliedProcessing()
+      }
+
+      // ── IMPLIED MOVE chart view ──────────────────────────────────────────────
+      if (weeklySubView === 'implied') {
+        const LOGO_PX = 82
+
+        // Build per-day data sorted by market cap, capped at MAX_VISIBLE rows
+        const dayData = weekDays.map((day, dayIdx) => {
+          const preEvs = getWeekEarnings(day, 'Pre-Market')
+          const postEvs = getWeekEarnings(day, 'Post-Market')
+          const allEvs = [...preEvs, ...postEvs]
+          const allTickers = allEvs.map(ev => extractTicker(ev.event)).filter(Boolean)
+          allTickers.sort(mcapSort)
+          const topTickers = allTickers.slice(0, MAX_VISIBLE)
+          const hiddenTotal = Math.max(0, allTickers.length - MAX_VISIBLE)
+          const isToday = day.toDateString() === today.toDateString()
+          const pendingCount = topTickers.filter(t => impliedMoves[t] === undefined).length
+          const rows = topTickers
+            .filter(t => impliedMoves[t] !== undefined && impliedMoves[t] > 0)
+            .map(t => ({
+              ticker: t,
+              pct: impliedMoves[t],
+              isPre: preEvs.some(ev => extractTicker(ev.event) === t),
+            }))
+          return { day, dayIdx, allEvs, allTickers, topTickers, hiddenTotal, isToday, pendingCount, rows }
+        })
+
+        // Y-axis scale: floor to just below lowest loaded %, ceiling = highest + 10% of highest
+        const allLoadedPcts = dayData.flatMap(d => d.rows.map(r => r.pct))
+        const Y_MIN = allLoadedPcts.length > 0 ? Math.max(0, Math.floor(Math.min(...allLoadedPcts) - 2)) : 0
+        const _yRaw = allLoadedPcts.length > 0 ? Math.max(...allLoadedPcts) : 30
+        const Y_MAX = allLoadedPcts.length > 0 ? _yRaw * 1.1 : 30
+        const toFrac = (pct: number) => (Math.max(Y_MIN, Math.min(Y_MAX, pct)) - Y_MIN) / (Y_MAX - Y_MIN)
+        const tickStep = Math.max(1, Math.ceil((Y_MAX - Y_MIN) / 8))
+        const yLabels: number[] = []
+        for (let v = Y_MIN; v <= Y_MAX; v += tickStep) yLabels.push(v)
+
+        // ── Full-day modal ───────────────────────────────────────────────────
+        const modalDayIndex = impliedModalDay ? weekDays.findIndex(d => d.toDateString() === impliedModalDay.toDateString()) : -1
+        const modalOverlay = impliedModalDay && modalDayIndex >= 0 ? (() => {
+          const mDay = impliedModalDay
+          const mIdx = modalDayIndex
+          const mPre = getWeekEarnings(mDay, 'Pre-Market')
+          const mPost = getWeekEarnings(mDay, 'Post-Market')
+          const mAll = [...mPre, ...mPost]
+          const mItems: { ticker: string; pct: number; isPre: boolean }[] = []
+          mAll.forEach((ev) => {
+            const t = extractTicker(ev.event)
+            if (!t) return
+            const pct = impliedMoves[t]
+            if (pct !== undefined && pct > 0) mItems.push({ ticker: t, pct, isPre: mPre.includes(ev) })
+          })
+          mItems.sort((a, b) => mcapSort(a.ticker, b.ticker))
+
+          const mAllLoaded = mItems.map(x => x.pct)
+          const mMin = mAllLoaded.length > 0 ? Math.max(0, Math.floor(Math.min(...mAllLoaded) - 2)) : 0
+          const _mRaw = mAllLoaded.length > 0 ? Math.max(...mAllLoaded) : 30
+          const mMax = mAllLoaded.length > 0 ? _mRaw * 1.1 : 30
+          const mToFrac = (p: number) => (Math.max(mMin, Math.min(mMax, p)) - mMin) / (mMax - mMin)
+          const mTickStep = Math.max(1, Math.ceil((mMax - mMin) / 8))
+          const mLabels: number[] = []
+          for (let v = mMin; v <= mMax; v += mTickStep) mLabels.push(v)
+
+          const MODAL_LOGO = 98
+          const M_BUCKET_STEP = 2.0
+          const M_LOGO_CELL = MODAL_LOGO + 8
+          const buckets2: Record<number, number> = {}
+          const mSpread: { ticker: string; pct: number; isPre: boolean; xOffset: number; labelSide: 'above' | 'below' | 'left' | 'right' }[] = mItems.map(({ ticker, pct, isPre }) => {
+            const bucket = Math.round(pct / M_BUCKET_STEP)
+            const slot = buckets2[bucket] ?? 0
+            buckets2[bucket] = slot + 1
+            const xOffset = (slot % 2 === 0 ? -1 : 1) * Math.ceil(slot / 2) * (M_LOGO_CELL + 16)
+            return { ticker, pct, isPre, xOffset, labelSide: 'below' as 'above' | 'below' | 'left' | 'right' }
+          })
+          mSpread.forEach((item) => {
+            if (item.xOffset < 0) {
+              item.labelSide = 'left'
+            } else if (item.xOffset > 0) {
+              item.labelSide = 'right'
+            } else {
+              const hasBelowNeighbor = mSpread.some(o => o !== item && o.pct < item.pct && (item.pct - o.pct) < M_BUCKET_STEP * 2)
+              item.labelSide = hasBelowNeighbor ? 'above' : 'below'
+            }
+          })
+
+          const mIsToday = mDay.toDateString() === today.toDateString()
+          return (
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onClick={() => setImpliedModalDay(null)}
+            >
+              <div
+                style={{ width: '90vw', height: '85vh', background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal header */}
+                <div style={{ padding: '14px 20px', borderBottom: '2px solid #d4af37', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: mIsToday ? 'rgba(249,115,22,0.1)' : '#111' }}>
+                  <div>
+                    <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: '0.1em', color: mIsToday ? '#fb923c' : '#fff' }}>
+                      {DAY_FULL[mIdx]} {MONTH_SHORT[mDay.getMonth()]} {mDay.getDate()} — ALL IMPLIED MOVES
+                    </span>
+                    <span style={{ marginLeft: 12, fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 700 }}>{mItems.length} tickers loaded</span>
+                  </div>
+                  <button
+                    onClick={() => setImpliedModalDay(null)}
+                    style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 6, color: '#fff', width: 28, height: 28, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >✕</button>
+                </div>
+                {/* Modal chart */}
+                <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+                  {/* Y-axis */}
+                  <div style={{ width: 48, flexShrink: 0, position: 'relative', borderRight: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                    {mLabels.map((v) => (
+                      <div key={v} style={{ position: 'absolute', bottom: `calc(${mToFrac(v) * 100}% - 8px)`, right: 4 }}>
+                        <span style={{ fontSize: 15, color: '#fff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Chart area — paddingBottom reserves room near bottom axis label */}
+                  <div style={{ flex: 1, position: 'relative', paddingBottom: 24, paddingTop: 40, overflow: 'hidden' }}>
+                    {mLabels.map((v) => (
+                      <div key={v} style={{ position: 'absolute', left: 0, right: 0, bottom: `${mToFrac(v) * 100}%`, borderTop: '1px solid rgba(212,175,55,0.35)' }} />
+                    ))}
+                    {mSpread.map(({ ticker, pct, isPre, xOffset, labelSide }) => {
+                      const isHoriz = labelSide === 'left' || labelSide === 'right'
+                      const logoEl = (
+                        <div style={{ borderRadius: 6, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.7)' : 'rgba(0,174,239,0.7)'}` }}>
+                          <CompanyLogo ticker={ticker} size={MODAL_LOGO} />
+                        </div>
+                      )
+                      const labelEl = (
+                        <span style={{ fontSize: 18, fontWeight: 900, color: '#fff', fontFamily: 'var(--font-geist-mono, monospace)', background: 'rgba(0,0,0,0.75)', padding: '1px 3px', borderRadius: 2, whiteSpace: 'nowrap' }}>{ticker}</span>
+                      )
+                      return (
+                        <div
+                          key={ticker}
+                          style={{ position: 'absolute', bottom: `${mToFrac(pct) * 100}%`, left: '50%', transform: `translateX(calc(-50% + ${xOffset}px))`, display: 'flex', flexDirection: labelSide === 'above' ? 'column-reverse' : labelSide === 'left' ? 'row-reverse' : labelSide === 'right' ? 'row' : 'column', alignItems: 'center', gap: isHoriz ? 4 : 2 }}
+                        >
+                          {logoEl}
+                          {labelEl}
+                        </div>
+                      )
+                    })}
+                    {mItems.length === 0 && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>No data loaded yet</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })() : null
+
+        return (
+          <>
+            {modalOverlay}
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+              {/* Day headers row — fixed, never scrolls */}
+              <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(5, 1fr)', flexShrink: 0, background: '#080808', borderBottom: '2px solid #d4af37' }}>
+                <div /> {/* Y-axis spacer */}
+                {dayData.map(({ day, dayIdx, isToday, allTickers, hiddenTotal, pendingCount }) => (
+                  <div
+                    key={dayIdx}
+                    style={{ padding: '10px 8px', textAlign: 'center', borderRight: dayIdx < 4 ? '2px solid #d4af37' : 'none', background: isToday ? 'rgba(249,115,22,0.1)' : 'transparent' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: isToday ? '#fb923c' : '#ffffff' }}>
+                        {DAY_FULL[dayIdx]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
+                      </span>
+                      {allTickers.length > MAX_VISIBLE && (
+                        <button
+                          onClick={() => {
+                            setImpliedModalDay(day)
+                            allTickers.slice(MAX_VISIBLE).forEach((t) => {
+                              impliedQueueRef.current.push({ ticker: t, date: day })
+                            })
+                            scheduleImpliedProcessing()
+                          }}
+                          style={{ background: 'rgba(139,92,246,0.25)', border: '1px solid rgba(139,92,246,0.6)', borderRadius: 5, color: '#a78bfa', fontSize: 10, fontWeight: 900, padding: '1px 6px', cursor: 'pointer', lineHeight: '16px', whiteSpace: 'nowrap' }}
+                        >
+                          +{hiddenTotal}
+                        </button>
+                      )}
+                    </div>
+                    {pendingCount > 0 && (
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 700, marginTop: 2 }}>loading {pendingCount}…</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* Y-axis + 5-day scatter chart */}
+              <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                {/* Y-axis */}
+                <div style={{ width: 44, flexShrink: 0, position: 'relative', borderRight: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                  {yLabels.map((v) => (
+                    <div key={v} style={{ position: 'absolute', bottom: `${toFrac(v) * 100}%`, right: 4, transform: 'translateY(50%)' }}>
+                      <span style={{ fontSize: 15, color: '#ffffff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
+                    </div>
+                  ))}
+                </div>
+                {/* 5 day columns */}
+                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+                  {dayData.map(({ day, dayIdx, rows, isToday, allEvs }) => {
+                    // spread logos - wider bucket prevents vertical overlap
+                    const LOGO_CELL = LOGO_PX + 8
+                    const BUCKET_STEP = 2.0
+                    const spread: { ticker: string; pct: number; isPre: boolean; xOffset: number; labelSide: 'above' | 'below' | 'left' | 'right' }[] = []
+                    const buckets: Record<number, number> = {}
+                    rows.forEach(({ ticker, pct, isPre }) => {
+                      const bucket = Math.round(pct / BUCKET_STEP)
+                      const slot = buckets[bucket] ?? 0
+                      buckets[bucket] = slot + 1
+                      spread.push({ ticker, pct, isPre, xOffset: (slot % 2 === 0 ? -1 : 1) * Math.ceil(slot / 2) * (LOGO_CELL + 16), labelSide: 'below' })
+                    })
+                    spread.forEach((item) => {
+                      if (item.xOffset < 0) {
+                        item.labelSide = 'left'
+                      } else if (item.xOffset > 0) {
+                        item.labelSide = 'right'
+                      } else {
+                        const hasBelowNeighbor = spread.some(o => o !== item && o.pct < item.pct && (item.pct - o.pct) < BUCKET_STEP * 2)
+                        item.labelSide = hasBelowNeighbor ? 'above' : 'below'
+                      }
+                    })
+                    return (
+                      <div
+                        key={dayIdx}
+                        style={{ position: 'relative', borderRight: dayIdx < 4 ? '2px solid #d4af37' : 'none', background: isToday ? 'rgba(249,115,22,0.03)' : 'transparent' }}
+                      >
+                        {/* grid lines */}
+                        {yLabels.map((v) => (
+                          <div key={v} style={{ position: 'absolute', left: 0, right: 0, bottom: `${toFrac(v) * 100}%`, borderTop: '1px solid rgba(212,175,55,0.35)' }} />
+                        ))}
+                        {/* logos at Y position */}
+                        {spread.map(({ ticker, pct, isPre, xOffset, labelSide }) => {
+                          const isHoriz = labelSide === 'left' || labelSide === 'right'
+                          const logoEl = (
+                            <div style={{ borderRadius: 6, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.7)' : 'rgba(0,174,239,0.7)'}` }}>
+                              <CompanyLogo ticker={ticker} size={LOGO_PX} />
+                            </div>
+                          )
+                          const labelEl = (
+                            <span style={{ fontSize: 16, fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-geist-mono, monospace)', background: 'rgba(0,0,0,0.75)', padding: '1px 3px', borderRadius: 2, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                              {ticker}
+                            </span>
+                          )
+                          return (
+                            <div
+                              key={ticker}
+                              style={{ position: 'absolute', bottom: `${toFrac(pct) * 100}%`, left: '50%', transform: `translateX(calc(-50% + ${xOffset}px)) translateY(50%)`, display: 'flex', flexDirection: labelSide === 'above' ? 'column-reverse' : labelSide === 'left' ? 'row-reverse' : labelSide === 'right' ? 'row' : 'column', alignItems: 'center', gap: isHoriz ? 3 : 2 }}
+                            >
+                              {logoEl}
+                              {labelEl}
+                            </div>
+                          )
+                        })}
+                        {allEvs.length === 0 && (
+                          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ color: 'rgba(255,255,255,0.1)', fontSize: 12, fontWeight: 700 }}>—</span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </>
+        )
+      }
+
+      // ── LOGOS view (original, unchanged) ────────────────────────────────────
       return (
         <div className="flex flex-col flex-1">
           <div style={{ height: '20px' }} />
           <div
-            className="flex-1 grid grid-cols-5 divide-x divide-white/[0.06]"
-            style={{ minHeight: '580px' }}
+            className="flex-1 grid grid-cols-5"
+            style={{ minHeight: '580px', borderLeft: '2px solid #d4af37' }}
           >
             {weekDays.map((day, i) => {
               const preEvs = getWeekEarnings(day, 'Pre-Market')
               const postEvs = getWeekEarnings(day, 'Post-Market')
               const isToday = day.toDateString() === today.toDateString()
               return (
-                <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`}>
+                <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
                   {/* Day header */}
                   <div
-                    className={`px-2 py-3 border-b border-white/[0.07] text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
+                    className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
+                    style={{ borderBottom: '2px solid #d4af37' }}
                   >
                     <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
                       {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
@@ -1600,10 +2170,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   {/* Pre-Market | After-Hours side-by-side: 1 col pre + 2 col after */}
                   <div className="flex flex-col flex-1">
                     {/* Section headers */}
-                    <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '2px solid #d4af37' }}>
                       <div
                         className="px-2 py-1.5 flex items-center gap-1"
-                        style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+                        style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}
                       >
                         <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                         <span className="text-[15px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
@@ -1619,7 +2189,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     {/* Logo grid: pre + after side by side */}
                     <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
                       {/* Pre-Market logos — 2 columns */}
-                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '2px solid #d4af37' }}>
                         {preEvs.length === 0 ? (
                           <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
                         ) : (
@@ -1665,8 +2235,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     // ── MONTHLY VIEW ───────────────────────────────────────────────────────────
     const renderMonthly = () => (
       <div className="flex-1">
-        {/* Day-of-week headers (Mon–Fri only) */}
-        <div className="grid grid-cols-5 border-b-2 border-[#1a2744]">
+        <div className="grid grid-cols-5" style={{ borderBottom: '2px solid #d4af37' }}>
           {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d) => (
             <div
               key={d}
@@ -1678,13 +2247,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         </div>
 
         {weeks.map((wk, wi) => (
-          <div key={wi} className="grid grid-cols-5 border-b-2 border-[#1a2744]">
+          <div key={wi} className="grid grid-cols-5" style={{ borderBottom: '2px solid #d4af37' }}>
             {wk.slice(1, 6).map((day, di) => {
               if (!day)
                 return (
                   <div
                     key={di}
-                    className="bg-[#030303] border-r-2 border-[#1a2744] min-h-[200px]"
+                    className="bg-[#030303] min-h-[200px]"
+                    style={{ borderRight: '2px solid #d4af37' }}
                   />
                 )
               const dayEvs = monthEventMap[day] ?? []
@@ -1697,7 +2267,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 <div
                   key={di}
                   onClick={() => setSelectedCalDate(isSelected ? null : day)}
-                  className={`relative border-r-2 border-[#1a2744] min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col ${isSelected
+                  style={{ borderRight: '2px solid #d4af37' }}
+                  className={`relative min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col ${isSelected
                     ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/50'
                     : isToday
                       ? 'bg-orange-500/5'
@@ -1934,6 +2505,64 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   </button>
                 ))}
               </div>
+
+              {/* LOGOS / IMPLIED MOVE sub-view toggle — only in weekly mode */}
+              {calViewMode === 'weekly' && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex items-center bg-[#0a0a0a] rounded-2xl p-1.5 border border-white/10 gap-1.5"
+                    style={{ boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04)' }}
+                  >
+                    {([
+                      { id: 'logos' as const, label: 'LOGOS' },
+                      { id: 'implied' as const, label: 'IMPLIED MOVE' },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => setWeeklySubView(id)}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${weeklySubView === id
+                          ? 'text-purple-400 border border-purple-500/60'
+                          : 'text-white border border-transparent hover:text-purple-300'
+                          }`}
+                        style={weeklySubView === id
+                          ? {
+                            background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(168,85,247,0.15)',
+                          }
+                          : { background: 'transparent' }
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Week prev/next navigation — only shown in implied sub-view */}
+                  {weeklySubView === 'implied' && (
+                    <div
+                      className="flex items-center bg-[#0a0a0a] rounded-2xl p-1.5 border border-white/10 gap-1"
+                      style={{ boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04)' }}
+                    >
+                      <button
+                        onClick={() => shiftWeek(-1)}
+                        className="w-8 h-8 flex items-center justify-center rounded-xl text-white hover:text-purple-300 transition-all border border-transparent hover:border-purple-500/40"
+                        title="Previous week"
+                      >
+                        <TbChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-purple-300 font-black text-xs tracking-widest px-2 whitespace-nowrap">
+                        {MONTH_SHORT[calWeekOf.getMonth()]} {calWeekOf.getDate()} – {MONTH_SHORT[new Date(calWeekOf.getTime() + 4 * 86400000).getMonth()]} {new Date(calWeekOf.getTime() + 4 * 86400000).getDate()}
+                      </span>
+                      <button
+                        onClick={() => shiftWeek(1)}
+                        className="w-8 h-8 flex items-center justify-center rounded-xl text-white hover:text-purple-300 transition-all border border-transparent hover:border-purple-500/40"
+                        title="Next week"
+                      >
+                        <TbChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Earnings / Economic */}
               <div

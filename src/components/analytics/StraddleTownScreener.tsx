@@ -1352,7 +1352,8 @@ async function scanDPDays(
   symbol: string,
   apiKey: string,
   onProgress: (pct: number) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  maxConcurrency = 35
 ): Promise<DPDay[]> {
   let aborted = false
   signal.addEventListener('abort', () => {
@@ -1360,7 +1361,7 @@ async function scanDPDays(
   })
 
   // Global semaphore: caps total in-flight Polygon requests across all workers + pagination
-  const MAX_INFLIGHT = 20
+  const MAX_INFLIGHT = 10
   let _inflight = 0
   const _waiting: Array<() => void> = []
   const _acquire = (): Promise<void> => new Promise(resolve => {
@@ -1372,30 +1373,36 @@ async function scanDPDays(
     if (_waiting.length) _waiting.shift()!()
   }
 
-  const fetchWindow = async (url: string): Promise<RawTrade[]> => {
-    const trades: RawTrade[] = []
+  // ── Streaming fetch: processes each page as it arrives, keeps only top-50 DP
+  // prints per window by notional. Raw trade objects are NEVER accumulated —
+  // memory is bounded at O(50) per window instead of O(pages × 50 000).
+  const fetchWindowStreaming = async (url: string): Promise<{ prints: DPPrint[]; windowNotional: number }> => {
+    let top: DPPrint[] = []
+    let windowNotional = 0
     let nextUrl: string | null = url
-    let page = 0
     while (nextUrl && !aborted) {
       let res: Response
       await _acquire()
-      try {
-        res = await fetch(nextUrl)
-      } catch (err) {
-        _release()
-        break
-      }
+      try { res = await fetch(nextUrl) } catch { _release(); break }
       _release()
-      if (!res.ok) {
-        await res.text().catch(() => { })
-        break
-      }
+      if (!res.ok) { await res.text().catch(() => { }); break }
       const json = await res.json()
-      for (const t of json.results || []) trades.push(t)
+      // Process each trade inline — never push to a large accumulator
+      for (const t of (json.results || []) as RawTrade[]) {
+        const notional = t.size * t.price
+        const isDarkPool = DARK_POOL_EXCHANGES.has(t.exchange)
+        if (isDarkPool || notional >= LIT_BLOCK_MIN_NOTIONAL) {
+          windowNotional += notional
+          top.push({ price: t.price, size: t.size, ts: Math.floor(t.sip_timestamp / 1_000_000) })
+        }
+      }
+      // Trim to top-50 by notional after every page — never grows unbounded
+      if (top.length > 50) {
+        top = top.sort((a, b) => b.size * b.price - a.size * a.price).slice(0, 50)
+      }
       nextUrl = json.next_url ? json.next_url + `&apiKey=${apiKey}` : null
-      page++
     }
-    return trades
+    return { prints: top, windowNotional }
   }
 
   const SESSION_PREFIX = `poi_dp_${symbol}_`
@@ -1421,7 +1428,7 @@ async function scanDPDays(
     else uncachedDates.push(dk)
   }
 
-  const CONCURRENCY = 35
+  const CONCURRENCY = maxConcurrency
   const queue = [...uncachedDates]
   const total = dates.length
   let done = total - uncachedDates.length
@@ -1450,22 +1457,20 @@ async function scanDPDays(
       return `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&order=asc&apiKey=${apiKey}`
     })
     try {
-      const winResults = await Promise.all(windowUrls.map(fetchWindow))
-      const allTrades: RawTrade[] = ([] as RawTrade[]).concat(...winResults)
-      const dpTrades = allTrades.filter(
-        (t) =>
-          DARK_POOL_EXCHANGES.has(t.exchange) ||
-          (!DARK_POOL_EXCHANGES.has(t.exchange) && t.size * t.price >= LIT_BLOCK_MIN_NOTIONAL)
-      )
-      if (dpTrades.length > 0) {
-        const totalNotional = dpTrades.reduce((s, t) => s + t.size * t.price, 0)
-        const sorted = [...dpTrades].sort((a, b) => b.size * b.price - a.size * a.price)
-        const raw0 = sorted[0]
+      const winResults = await Promise.all(windowUrls.map(fetchWindowStreaming))
+      // Merge top-50 from every window, rerank, then take final top-10
+      const allPrints = winResults
+        .flatMap(w => w.prints)
+        .sort((a, b) => b.size * b.price - a.size * a.price)
+      // Sum true total notional (tracked per-window across ALL qualified trades)
+      const totalNotional = winResults.reduce((s, w) => s + w.windowNotional, 0)
+      if (allPrints.length > 0) {
+        const top10 = allPrints.slice(0, 10)
         return {
           date: dateKey,
-          top10: sorted.slice(0, 10).map((t) => ({ price: t.price, size: t.size, ts: Math.floor(t.sip_timestamp / 1_000_000) })),
+          top10,
           totalNotional,
-          topPrint: { price: raw0.price, size: raw0.size, ts: Math.floor(raw0.sip_timestamp / 1_000_000) },
+          topPrint: top10[0],
         }
       }
     } catch { /* skip failed day */ }
@@ -2897,7 +2902,8 @@ export default function StraddleTownScreener() {
       const recentEvts = allEvts.filter((e) => lastNDates.has(e.date))
 
       const daysToScan = bars.slice(-252).map((b) => b.date)
-      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal)
+      // Use low concurrency (6) for individual scan — 252 days but streaming, avoids OOM
+      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal, 6)
       // Individual scan — show all POI clusters, no recency filter
       const allPOI = clusterPOI(dpResults)
       const hasPOI = allPOI.length > 0

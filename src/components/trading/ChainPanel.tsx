@@ -110,13 +110,7 @@ function ChainPanel({
   const [searchInput, setSearchInput] = useState(initialSymbol)
 
   const [showCalculator, setShowCalculator] = useState(false)
-  const [brokerMode, setBrokerMode] = useState<'tos' | 'robinhood'>('tos')
-  const [rbAction, setRbAction] = useState<'buy' | 'sell'>('buy')
-  const [rbSide, setRbSide] = useState<'call' | 'put'>('call')
-  const [rbExpandedStrike, setRbExpandedStrike] = useState<number | null>(null)
-  const [rbLegs, setRbLegs] = useState<
-    Array<{ strike: number; side: 'call' | 'put'; action: 'buy' | 'sell'; mark: number }>
-  >([])
+
 
   const [expirationDates, setExpirationDates] = useState<string[]>([])
 
@@ -891,8 +885,6 @@ function ChainPanel({
         .map((o) => o.strike_price)
     ),
   ].sort((a, b) => a - b)
-
-  const rbStrikes = [...allStrikes].sort((a, b) => b - a)
 
   // Find the closest strike to current stock price
 
@@ -1828,25 +1820,7 @@ function ChainPanel({
                     Calculator
                   </button>
 
-                  {/* View Mode Dropdown */}
-                  <select
-                    value={brokerMode}
-                    onChange={(e) => setBrokerMode(e.target.value as 'tos' | 'robinhood')}
-                    className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none cursor-pointer appearance-none"
-                    style={{
-                      background: '#161616',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                      color: '#22c55e',
-                    }}
-                  >
-                    <option value="tos" style={{ background: '#161616', color: '#fff' }}>
-                      TOS
-                    </option>
-                    <option value="robinhood" style={{ background: '#161616', color: '#fff' }}>
-                      Robinhood
-                    </option>
-                  </select>
+
                 </div>
 
                 {/* Right: Action Buttons */}
@@ -1854,9 +1828,8 @@ function ChainPanel({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowWatchlist(!showWatchlist)}
-                    className={`px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 ${
-                      showWatchlist ? 'scale-105' : 'hover:scale-105'
-                    }`}
+                    className={`px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 ${showWatchlist ? 'scale-105' : 'hover:scale-105'
+                      }`}
                     style={{
                       background: showWatchlist ? 'rgba(245,158,11,0.12)' : '#161616',
                       border: showWatchlist
@@ -1918,7 +1891,7 @@ function ChainPanel({
 
             {/* Column Headers */}
 
-            {!showWatchlist && brokerMode === 'tos' && (
+            {!showWatchlist && (
               <div
                 className="grid grid-cols-[1fr_auto_1fr] gap-0 text-sm font-black tracking-[0.1em] uppercase"
                 style={{
@@ -2125,9 +2098,8 @@ function ChainPanel({
                                 onDragOver={handleDragOver}
                                 onDrop={(e) => handleDrop(e, item.id, 'call')}
                                 onDragEnd={handleDragEnd}
-                                className={`p-3 rounded-lg relative overflow-hidden transition-all hover:scale-[1.02] mb-4 cursor-move ${
-                                  draggedItem === item.id ? 'opacity-50 scale-95' : ''
-                                }`}
+                                className={`p-3 rounded-lg relative overflow-hidden transition-all hover:scale-[1.02] mb-4 cursor-move ${draggedItem === item.id ? 'opacity-50 scale-95' : ''
+                                  }`}
                                 style={{
                                   background:
                                     'linear-gradient(135deg, rgba(6, 78, 59, 0.25) 0%, rgba(4, 120, 87, 0.2) 50%, rgba(6, 78, 59, 0.25) 100%)',
@@ -2264,7 +2236,7 @@ function ChainPanel({
 
                                     <span className="text-blue-400 font-bold font-mono text-base">
                                       {typeof item.implied_volatility === 'number' &&
-                                      item.implied_volatility > 0
+                                        item.implied_volatility > 0
                                         ? (item.implied_volatility * 100).toFixed(0) + '%'
                                         : '—'}
                                     </span>
@@ -2314,9 +2286,8 @@ function ChainPanel({
                                 onDragOver={handleDragOver}
                                 onDrop={(e) => handleDrop(e, item.id, 'put')}
                                 onDragEnd={handleDragEnd}
-                                className={`p-3 rounded-lg relative overflow-hidden transition-all hover:scale-[1.02] mb-4 cursor-move ${
-                                  draggedItem === item.id ? 'opacity-50 scale-95' : ''
-                                }`}
+                                className={`p-3 rounded-lg relative overflow-hidden transition-all hover:scale-[1.02] mb-4 cursor-move ${draggedItem === item.id ? 'opacity-50 scale-95' : ''
+                                  }`}
                                 style={{
                                   background:
                                     'linear-gradient(135deg, rgba(127, 29, 29, 0.25) 0%, rgba(185, 28, 28, 0.2) 50%, rgba(127, 29, 29, 0.25) 100%)',
@@ -2453,7 +2424,7 @@ function ChainPanel({
 
                                     <span className="text-blue-400 font-bold font-mono text-base">
                                       {typeof item.implied_volatility === 'number' &&
-                                      item.implied_volatility > 0
+                                        item.implied_volatility > 0
                                         ? (item.implied_volatility * 100).toFixed(0) + '%'
                                         : '—'}
                                     </span>
@@ -2472,1026 +2443,6 @@ function ChainPanel({
                     </div>
                   </div>
                 )}
-              </div>
-            ) : brokerMode === 'robinhood' ? (
-              /* ===== ROBINHOOD VIEW ===== */
-              <div
-                style={{
-                  background: '#000000',
-                  display: 'flex',
-                  flexDirection: 'row',
-                  height: '100%',
-                }}
-              >
-                <div
-                  style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-                >
-                  {/* RH Sticky Header */}
-                  <div style={{ flexShrink: 0, background: '#000000', zIndex: 10 }}>
-                    {/* RH Sub-header */}
-                    <div
-                      style={{
-                        padding: '14px 24px',
-                        borderBottom: '1px solid #1c1c1c',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        flexWrap: 'nowrap',
-                      }}
-                    >
-                      <p
-                        style={{
-                          fontSize: '1.3rem',
-                          fontWeight: 700,
-                          margin: 0,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {symbol} {rbAction} {rbSide === 'call' ? 'Call' : 'Put'}
-                      </p>
-                      <div
-                        style={{
-                          display: 'flex',
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                          border: '1px solid #333',
-                        }}
-                      >
-                        <button
-                          onClick={() => setRbAction('buy')}
-                          style={{
-                            padding: '8px 20px',
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            background: rbAction === 'buy' ? '#00c805' : '#111',
-                            color: rbAction === 'buy' ? '#000' : '#fff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Buy
-                        </button>
-                        <button
-                          onClick={() => setRbAction('sell')}
-                          style={{
-                            padding: '8px 20px',
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            background: rbAction === 'sell' ? '#00c805' : '#111',
-                            color: rbAction === 'sell' ? '#000' : '#fff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Sell
-                        </button>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                          border: '1px solid #333',
-                        }}
-                      >
-                        <button
-                          onClick={() => setRbSide('call')}
-                          style={{
-                            padding: '8px 20px',
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            background: rbSide === 'call' ? '#00c805' : '#111',
-                            color: rbSide === 'call' ? '#000' : '#fff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Call
-                        </button>
-                        <button
-                          onClick={() => setRbSide('put')}
-                          style={{
-                            padding: '8px 20px',
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            background: rbSide === 'put' ? '#ff3b3b' : '#111',
-                            color: rbSide === 'put' ? '#fff' : '#fff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Put
-                        </button>
-                      </div>
-                      <div style={{ position: 'relative' }}>
-                        <select
-                          value={selectedExpiration}
-                          onChange={(e) => setSelectedExpiration(e.target.value)}
-                          style={{
-                            WebkitAppearance: 'none',
-                            padding: '8px 40px 8px 14px',
-                            background: '#111',
-                            border: '1px solid #333',
-                            borderRadius: '8px',
-                            color: '#fff',
-                            fontSize: '18px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            outline: 'none',
-                          }}
-                        >
-                          {expirationDates.map((date) => {
-                            const parts = date.split('-')
-                            const months = [
-                              'January',
-                              'February',
-                              'March',
-                              'April',
-                              'May',
-                              'June',
-                              'July',
-                              'August',
-                              'September',
-                              'October',
-                              'November',
-                              'December',
-                            ]
-                            const monthName = months[parseInt(parts[1] || '1') - 1] || ''
-                            const day = parseInt(parts[2] || '1')
-                            const dte = Math.ceil(
-                              (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                            )
-                            return (
-                              <option key={date} value={date} style={{ background: '#111' }}>
-                                Expiring {monthName} {day} ({dte}d)
-                              </option>
-                            )
-                          })}
-                        </select>
-                        <div
-                          style={{
-                            position: 'absolute',
-                            right: '12px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            pointerEvents: 'none',
-                          }}
-                        >
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="#999"
-                            strokeWidth="2"
-                          >
-                            <path d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                    {/* Column Headers */}
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '130px 1fr 1fr 1fr 1fr 180px',
-                        padding: '10px 24px',
-                        borderBottom: '1px solid #1c1c1c',
-                        color: '#ffffff',
-                        fontSize: '20px',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <span>Strike price</span>
-                      <span>Breakeven</span>
-                      <span>{rbAction === 'sell' ? 'Chance of profit' : 'To breakeven'}</span>
-                      <span>% Change</span>
-                      <span>Change</span>
-                      <span style={{ textAlign: 'right' }}>Price</span>
-                    </div>
-                  </div>
-                  {/* end sticky header */}
-                  {/* Scrollable Rows */}
-                  <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {/* Rows */}
-                    {rbStrikes.map((strike, idx) => {
-                      const rbOption =
-                        rbSide === 'call'
-                          ? callOptions.find((c) => c.strike_price === strike)
-                          : putOptions.find((p) => p.strike_price === strike)
-                      const rbMark = ((rbOption?.bid || 0) + (rbOption?.ask || 0)) / 2
-                      const rbBreakeven = rbSide === 'call' ? strike + rbMark : strike - rbMark
-                      const rbToBreakeven =
-                        stockPrice > 0 && rbMark > 0
-                          ? ((rbBreakeven - stockPrice) / stockPrice) * 100
-                          : null
-                      const rbChangeDollar =
-                        rbMark > 0 && rbOption?.previous_close && rbOption.previous_close > 0
-                          ? rbMark - rbOption.previous_close
-                          : null
-                      const rbIV = rbOption?.implied_volatility || 0
-                      const rbDTE = selectedExpiration
-                        ? Math.max(
-                            1,
-                            Math.ceil(
-                              (new Date(selectedExpiration).getTime() - Date.now()) /
-                                (1000 * 60 * 60 * 24)
-                            )
-                          )
-                        : 30
-                      const rbT = rbDTE / 365
-                      const rbCOP =
-                        rbAction === 'sell' && rbIV > 0 && stockPrice > 0
-                          ? rbSide === 'call'
-                            ? chanceOfProfitSellCall(stockPrice, strike, 0.0387, rbIV, rbT)
-                            : chanceOfProfitSellPut(stockPrice, strike, 0.0387, rbIV, rbT)
-                          : null
-                      const rbIsExpanded = rbExpandedStrike === strike
-                      const rbPrevStrike = idx > 0 ? rbStrikes[idx - 1] : undefined
-                      const rbShowShareLine =
-                        rbPrevStrike !== undefined &&
-                        rbPrevStrike > stockPrice &&
-                        strike <= stockPrice
-                      const expiryShort = selectedExpiration
-                        ? `${parseInt(selectedExpiration.split('-')[1] || '0')}/${parseInt(selectedExpiration.split('-')[2] || '0')}`
-                        : ''
-                      return (
-                        <React.Fragment key={strike}>
-                          {rbShowShareLine && (
-                            <div
-                              style={{
-                                position: 'relative',
-                                height: '44px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  left: 0,
-                                  right: 0,
-                                  top: '50%',
-                                  height: '1.5px',
-                                  background: stockDayChange < 0 ? '#ff3b3b' : '#00c805',
-                                }}
-                              />
-                              <span
-                                style={{
-                                  position: 'relative',
-                                  zIndex: 1,
-                                  background: stockDayChange < 0 ? '#ff3b3b' : '#00c805',
-                                  color: '#000',
-                                  fontSize: '20px',
-                                  fontWeight: 800,
-                                  borderRadius: '20px',
-                                  padding: '5px 18px',
-                                }}
-                              >
-                                Share price: ${stockPrice.toFixed(2)}
-                              </span>
-                            </div>
-                          )}
-                          <div
-                            onClick={() => setRbExpandedStrike(rbIsExpanded ? null : strike)}
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: '130px 1fr 1fr 1fr 1fr 180px',
-                              padding: '14px 24px',
-                              borderBottom: '1px solid #1c1c1c',
-                              cursor: 'pointer',
-                              alignItems: 'center',
-                              background: rbIsExpanded ? '#0a0a0a' : 'transparent',
-                            }}
-                          >
-                            <span style={{ fontSize: '21px', fontWeight: 600 }}>
-                              ${strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(2)}
-                            </span>
-                            <span style={{ fontSize: '21px' }}>
-                              {rbMark > 0 ? `$${rbBreakeven.toFixed(2)}` : '—'}
-                            </span>
-                            <span style={{ fontSize: '21px' }}>
-                              {rbAction === 'sell'
-                                ? rbCOP !== null
-                                  ? `${rbCOP.toFixed(2)}%`
-                                  : '—'
-                                : rbToBreakeven !== null
-                                  ? `${rbToBreakeven >= 0 ? '+' : ''}${rbToBreakeven.toFixed(2)}%`
-                                  : '—'}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: '21px',
-                                color:
-                                  rbOption?.change_percent !== undefined &&
-                                  rbOption.change_percent !== 0
-                                    ? rbOption.change_percent < 0
-                                      ? '#ff3b3b'
-                                      : '#00c805'
-                                    : '#888',
-                              }}
-                            >
-                              {rbOption?.change_percent !== undefined &&
-                              rbOption.change_percent !== 0
-                                ? `${rbOption.change_percent >= 0 ? '+' : ''}${rbOption.change_percent.toFixed(2)}%`
-                                : '—'}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: '21px',
-                                color:
-                                  rbChangeDollar !== null
-                                    ? rbChangeDollar < 0
-                                      ? '#ff3b3b'
-                                      : '#00c805'
-                                    : '#888',
-                              }}
-                            >
-                              {rbChangeDollar !== null
-                                ? `${rbChangeDollar >= 0 ? '+' : '-'}$${Math.abs(rbChangeDollar).toFixed(2)}`
-                                : '—'}
-                            </span>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'flex-end',
-                                gap: '6px',
-                                alignItems: 'center',
-                              }}
-                            >
-                              {(() => {
-                                const isLegAdded = rbLegs.some(
-                                  (l) =>
-                                    l.strike === strike &&
-                                    l.side === rbSide &&
-                                    l.action === rbAction
-                                )
-                                const boxColor =
-                                  rbOption?.change_percent != null && rbOption.change_percent < 0
-                                    ? '#ff3b3b'
-                                    : rbOption?.change_percent != null &&
-                                        rbOption.change_percent > 0
-                                      ? '#00c805'
-                                      : '#f97316'
-                                return (
-                                  <div
-                                    style={{
-                                      display: 'flex',
-                                      border: `1.5px solid ${boxColor}`,
-                                      borderRadius: '6px',
-                                      overflow: 'hidden',
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        padding: '6px 12px',
-                                        color: boxColor,
-                                        fontSize: '20px',
-                                        fontWeight: 700,
-                                        borderRight: `1.5px solid ${boxColor}`,
-                                      }}
-                                    >
-                                      {rbMark > 0 ? `$${rbMark.toFixed(2)}` : '—'}
-                                    </span>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (rbMark > 0) {
-                                          setRbLegs((prev) => {
-                                            const exists = prev.some(
-                                              (l) =>
-                                                l.strike === strike &&
-                                                l.side === rbSide &&
-                                                l.action === rbAction
-                                            )
-                                            if (exists)
-                                              return prev.filter(
-                                                (l) =>
-                                                  !(
-                                                    l.strike === strike &&
-                                                    l.side === rbSide &&
-                                                    l.action === rbAction
-                                                  )
-                                              )
-                                            return [
-                                              ...prev,
-                                              {
-                                                strike,
-                                                side: rbSide,
-                                                action: rbAction,
-                                                mark: rbMark,
-                                              },
-                                            ]
-                                          })
-                                        }
-                                      }}
-                                      style={{
-                                        padding: '6px 10px',
-                                        color: isLegAdded ? '#000' : boxColor,
-                                        fontSize: '23px',
-                                        fontWeight: 700,
-                                        background: isLegAdded ? boxColor : 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        lineHeight: 1,
-                                      }}
-                                    >
-                                      {isLegAdded ? '✓' : '+'}
-                                    </button>
-                                  </div>
-                                )
-                              })()}
-                            </div>
-                          </div>
-                          {rbIsExpanded && rbOption && (
-                            <div
-                              style={{
-                                padding: '20px 24px 16px',
-                                background: '#060606',
-                                borderBottom: '1px solid #1c1c1c',
-                              }}
-                            >
-                              <p
-                                style={{ fontSize: '21px', fontWeight: 700, marginBottom: '18px' }}
-                              >
-                                {symbol} ${strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(2)}{' '}
-                                {rbSide === 'call' ? 'Call' : 'Put'} {expiryShort}
-                              </p>
-                              <div
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: 'repeat(5, 1fr)',
-                                  gap: '12px 16px',
-                                  marginBottom: '6px',
-                                }}
-                              >
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Bid
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.bid != null ? `$${rbOption.bid.toFixed(2)}` : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Mark
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbMark > 0 ? `$${rbMark.toFixed(2)}` : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    High
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.high != null && rbOption.high > 0
-                                      ? `$${rbOption.high.toFixed(2)}`
-                                      : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Last trade
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.last_price != null && rbOption.last_price > 0
-                                      ? `$${rbOption.last_price.toFixed(2)}`
-                                      : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Volume
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.volume != null
-                                      ? rbOption.volume.toLocaleString()
-                                      : '—'}
-                                  </p>
-                                </div>
-                              </div>
-                              <div
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: 'repeat(5, 1fr)',
-                                  gap: '12px 16px',
-                                  marginBottom: '20px',
-                                }}
-                              >
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Ask
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.ask != null ? `$${rbOption.ask.toFixed(2)}` : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Previous close
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.previous_close != null && rbOption.previous_close > 0
-                                      ? `$${rbOption.previous_close.toFixed(2)}`
-                                      : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Low
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.low != null && rbOption.low > 0
-                                      ? `$${rbOption.low.toFixed(2)}`
-                                      : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Implied volatility
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.implied_volatility && rbOption.implied_volatility > 0
-                                      ? `${(rbOption.implied_volatility * 100).toFixed(2)}%`
-                                      : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Open interest
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.open_interest != null
-                                      ? rbOption.open_interest.toLocaleString()
-                                      : '—'}
-                                  </p>
-                                </div>
-                              </div>
-                              <p
-                                style={{ fontSize: '19px', fontWeight: 700, marginBottom: '12px' }}
-                              >
-                                The Greeks
-                              </p>
-                              <div
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: 'repeat(5, 1fr)',
-                                  gap: '12px 16px',
-                                  marginBottom: '18px',
-                                }}
-                              >
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Delta
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.delta != null ? rbOption.delta.toFixed(4) : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Gamma
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.gamma != null ? rbOption.gamma.toFixed(4) : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Theta
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.theta != null ? rbOption.theta.toFixed(4) : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Vega
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>
-                                    {rbOption.vega != null ? rbOption.vega.toFixed(4) : '—'}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p
-                                    style={{
-                                      fontSize: '17px',
-                                      fontWeight: 700,
-                                      marginBottom: '4px',
-                                    }}
-                                  >
-                                    Rho
-                                  </p>
-                                  <p style={{ fontSize: '18px', color: '#ccc' }}>—</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => addToWatchlist(rbOption)}
-                                style={{
-                                  color: '#f97316',
-                                  fontSize: '18px',
-                                  fontWeight: 700,
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  padding: 0,
-                                }}
-                              >
-                                Add to Watchlist
-                              </button>
-                            </div>
-                          )}
-                        </React.Fragment>
-                      )
-                    })}
-                  </div>
-                  {/* end scrollable rows */}
-                </div>
-                {/* end chain column */}
-                {/* RH Legs Side Panel */}
-                {rbLegs.length > 0 &&
-                  (() => {
-                    const computePnL = (S: number) =>
-                      rbLegs.reduce((total, leg) => {
-                        const intrinsic =
-                          leg.side === 'call'
-                            ? Math.max(S - leg.strike, 0)
-                            : Math.max(leg.strike - S, 0)
-                        const pnl =
-                          leg.action === 'buy'
-                            ? (intrinsic - leg.mark) * 100
-                            : (leg.mark - intrinsic) * 100
-                        return total + pnl
-                      }, 0)
-                    const netPremium =
-                      rbLegs.reduce(
-                        (t, leg) => t + (leg.action === 'buy' ? leg.mark : -leg.mark),
-                        0
-                      ) * 100
-                    const allStrk = rbLegs.map((l) => l.strike)
-                    const maxStrk = Math.max(...allStrk)
-                    const testPrices = [
-                      0,
-                      ...allStrk.flatMap((s) => [s - 0.01, s, s + 0.01]),
-                      maxStrk * 2,
-                    ]
-                    const pnlVals = testPrices.map(computePnL)
-                    const maxProfit = Math.max(...pnlVals)
-                    const maxLoss = Math.min(...pnlVals)
-                    const netCallExp = rbLegs.reduce(
-                      (t, l) => t + (l.side === 'call' ? (l.action === 'buy' ? 1 : -1) : 0),
-                      0
-                    )
-                    const unlimitedProfit = netCallExp > 0
-                    const unlimitedLoss = netCallExp < 0
-                    const bePoints: number[] = []
-                    const sMin = Math.max(0, Math.min(...allStrk) * 0.5)
-                    const sMax = maxStrk * 2
-                    for (let i = 0; i < 999; i++) {
-                      const s1 = sMin + ((sMax - sMin) * i) / 999
-                      const s2 = sMin + ((sMax - sMin) * (i + 1)) / 999
-                      const p1 = computePnL(s1)
-                      const p2 = computePnL(s2)
-                      if (p1 * p2 < 0) {
-                        const be = s1 + ((s2 - s1) * Math.abs(p1)) / (Math.abs(p1) + Math.abs(p2))
-                        if (bePoints.every((b) => Math.abs(b - be) > 1))
-                          bePoints.push(parseFloat(be.toFixed(2)))
-                      }
-                    }
-                    return (
-                      <div
-                        style={{
-                          width: '320px',
-                          borderLeft: '1px solid #1c1c1c',
-                          background: '#060606',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <div
-                          style={{
-                            padding: '16px 20px',
-                            borderBottom: '1px solid #1c1c1c',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <p
-                            style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#fff' }}
-                          >
-                            Order Review
-                          </p>
-                          <button
-                            onClick={() => setRbLegs([])}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#fff',
-                              fontSize: '28px',
-                              cursor: 'pointer',
-                              lineHeight: 1,
-                              padding: '0 4px',
-                            }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                        <div
-                          style={{
-                            padding: '16px 20px',
-                            borderBottom: '1px solid #1c1c1c',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '14px',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {rbLegs.map((leg, i) => {
-                            const expiryParts = selectedExpiration
-                              ? selectedExpiration.split('-')
-                              : []
-                            const expiryShortP =
-                              expiryParts.length === 3
-                                ? `${parseInt(expiryParts[1] || '0')}/${parseInt(expiryParts[2] || '0')}`
-                                : ''
-                            return (
-                              <div
-                                key={i}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                }}
-                              >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                  <span
-                                    style={{
-                                      fontSize: '15px',
-                                      fontWeight: 800,
-                                      color: leg.action === 'buy' ? '#00c805' : '#ff3b3b',
-                                      background:
-                                        leg.action === 'buy'
-                                          ? 'rgba(0,200,5,0.15)'
-                                          : 'rgba(255,59,59,0.15)',
-                                      padding: '3px 8px',
-                                      borderRadius: '6px',
-                                      minWidth: '44px',
-                                      textAlign: 'center',
-                                    }}
-                                  >
-                                    {leg.action.toUpperCase()}
-                                  </span>
-                                  <div>
-                                    <p
-                                      style={{
-                                        margin: 0,
-                                        fontSize: '18px',
-                                        fontWeight: 700,
-                                        color: '#fff',
-                                      }}
-                                    >
-                                      $
-                                      {leg.strike % 1 === 0
-                                        ? leg.strike.toFixed(0)
-                                        : leg.strike.toFixed(2)}{' '}
-                                      {leg.side === 'call' ? 'Call' : 'Put'}
-                                    </p>
-                                    <p style={{ margin: 0, fontSize: '14px', color: '#fff' }}>
-                                      {symbol} · Exp {expiryShortP} · Mark ${leg.mark.toFixed(2)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() =>
-                                    setRbLegs((prev) => prev.filter((_, j) => j !== i))
-                                  }
-                                  style={{
-                                    background: 'none',
-                                    border: '1px solid #333',
-                                    borderRadius: '6px',
-                                    color: '#fff',
-                                    fontSize: '20px',
-                                    cursor: 'pointer',
-                                    padding: '1px 9px',
-                                    lineHeight: 1,
-                                  }}
-                                >
-                                  −
-                                </button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                          <p
-                            style={{
-                              fontSize: '19px',
-                              fontWeight: 700,
-                              marginBottom: '18px',
-                              color: '#fff',
-                            }}
-                          >
-                            Risk / Reward
-                          </p>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                borderBottom: '1px solid #1c1c1c',
-                                paddingBottom: '16px',
-                              }}
-                            >
-                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
-                                {netPremium >= 0 ? 'Net Debit' : 'Net Credit'}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: '19px',
-                                  fontWeight: 800,
-                                  color: netPremium >= 0 ? '#ff3b3b' : '#00c805',
-                                }}
-                              >
-                                {netPremium >= 0 ? '-' : '+'}${Math.abs(netPremium).toFixed(2)}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
-                                Max Profit
-                              </span>
-                              <span style={{ fontSize: '19px', fontWeight: 800, color: '#00c805' }}>
-                                {unlimitedProfit ? 'Unlimited' : `+$${maxProfit.toFixed(2)}`}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
-                                Max Loss
-                              </span>
-                              <span style={{ fontSize: '19px', fontWeight: 800, color: '#ff3b3b' }}>
-                                {unlimitedLoss ? 'Unlimited' : `-$${Math.abs(maxLoss).toFixed(2)}`}
-                              </span>
-                            </div>
-                            {bePoints.length > 0 && (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'flex-start',
-                                }}
-                              >
-                                <span style={{ fontSize: '17px', color: '#fff', fontWeight: 600 }}>
-                                  Breakeven{bePoints.length > 1 ? 's' : ''}
-                                </span>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'flex-end',
-                                    gap: '4px',
-                                  }}
-                                >
-                                  {bePoints.map((be, i) => (
-                                    <span
-                                      key={i}
-                                      style={{ fontSize: '19px', fontWeight: 700, color: '#fff' }}
-                                    >
-                                      ${be.toFixed(2)}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            padding: '16px 20px',
-                            borderTop: '1px solid #1c1c1c',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <button
-                            style={{
-                              width: '100%',
-                              padding: '16px',
-                              background: '#00c805',
-                              color: '#000',
-                              fontSize: '19px',
-                              fontWeight: 800,
-                              border: 'none',
-                              borderRadius: '10px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Review Order ({rbLegs.length} leg{rbLegs.length > 1 ? 's' : ''})
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
               </div>
             ) : (
               <div className="divide-y divide-gray-900/50">
@@ -3554,8 +2505,8 @@ function ChainPanel({
                                   onClick={() =>
                                     isInWatchlist(call.ticker)
                                       ? removeFromWatchlist(
-                                          watchlist.find((w) => w.ticker === call.ticker)?.id || ''
-                                        )
+                                        watchlist.find((w) => w.ticker === call.ticker)?.id || ''
+                                      )
                                       : addToWatchlist(call)
                                   }
                                   className="text-white hover:text-orange-400 transition-colors"
@@ -3614,9 +2565,8 @@ function ChainPanel({
                           <div className="text-right font-mono text-lg">
                             {call?.change_percent !== undefined && call.change_percent !== 0 ? (
                               <span
-                                className={`font-bold ${
-                                  call.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
-                                }`}
+                                className={`font-bold ${call.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
+                                  }`}
                               >
                                 {call.change_percent >= 0 ? '+' : ''}
                                 {call.change_percent.toFixed(1)}%
@@ -3631,11 +2581,10 @@ function ChainPanel({
                           <div className="text-right font-mono text-lg">
                             {call?.ask && stockPrice > 0 ? (
                               <span
-                                className={`${
-                                  ((strike + call.ask - stockPrice) / stockPrice) * 100 > 0
+                                className={`${((strike + call.ask - stockPrice) / stockPrice) * 100 > 0
                                     ? 'text-red-500'
                                     : 'text-green-500'
-                                }`}
+                                  }`}
                               >
                                 {(((strike + call.ask - stockPrice) / stockPrice) * 100).toFixed(1)}
                                 %
@@ -3676,19 +2625,19 @@ function ChainPanel({
                           background: atm
                             ? 'rgba(245,158,11,0.15)'
                             : getProbabilityType(strike).type === '80call' ||
-                                getProbabilityType(strike).type === '80put'
+                              getProbabilityType(strike).type === '80put'
                               ? 'rgba(34,197,94,0.06)'
                               : getProbabilityType(strike).type === '90call' ||
-                                  getProbabilityType(strike).type === '90put'
+                                getProbabilityType(strike).type === '90put'
                                 ? 'rgba(34,197,94,0.04)'
                                 : 'transparent',
                           color: atm
                             ? '#f59e0b'
                             : getProbabilityType(strike).type === '80call' ||
-                                getProbabilityType(strike).type === '80put'
+                              getProbabilityType(strike).type === '80put'
                               ? '#22c55e'
                               : getProbabilityType(strike).type === '90call' ||
-                                  getProbabilityType(strike).type === '90put'
+                                getProbabilityType(strike).type === '90put'
                                 ? '#86efac'
                                 : '#ffffff',
                           outline: atm ? '1px solid rgba(245,158,11,0.4)' : 'none',
@@ -3744,11 +2693,10 @@ function ChainPanel({
                           <div className="text-left font-mono text-lg">
                             {put?.ask && stockPrice > 0 ? (
                               <span
-                                className={`${
-                                  ((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0
+                                className={`${((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0
                                     ? 'text-red-500'
                                     : 'text-green-500'
-                                }`}
+                                  }`}
                               >
                                 {(((stockPrice - (strike - put.ask)) / stockPrice) * 100).toFixed(
                                   1
@@ -3765,9 +2713,8 @@ function ChainPanel({
                           <div className="text-left font-mono text-lg">
                             {put?.change_percent !== undefined && put.change_percent !== 0 ? (
                               <span
-                                className={`font-bold ${
-                                  put.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
-                                }`}
+                                className={`font-bold ${put.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
+                                  }`}
                               >
                                 {put.change_percent >= 0 ? '+' : ''}
                                 {put.change_percent.toFixed(1)}%
@@ -3830,8 +2777,8 @@ function ChainPanel({
                                   onClick={() =>
                                     isInWatchlist(put.ticker)
                                       ? removeFromWatchlist(
-                                          watchlist.find((w) => w.ticker === put.ticker)?.id || ''
-                                        )
+                                        watchlist.find((w) => w.ticker === put.ticker)?.id || ''
+                                      )
                                       : addToWatchlist(put)
                                   }
                                   className="text-white hover:text-orange-400 transition-colors"
@@ -3985,10 +2932,10 @@ function ChainPanel({
               const atmStrike =
                 heatMapStrikes.length > 0
                   ? heatMapStrikes.reduce((prev, curr) =>
-                      Math.abs(curr - currentStockPrice) < Math.abs(prev - currentStockPrice)
-                        ? curr
-                        : prev
-                    )
+                    Math.abs(curr - currentStockPrice) < Math.abs(prev - currentStockPrice)
+                      ? curr
+                      : prev
+                  )
                   : currentStockPrice
 
               const riskFreeRate = 0.0408
@@ -4045,26 +2992,25 @@ function ChainPanel({
                       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-gradient-to-b from-gray-900 via-black to-gray-950 rounded-xl p-2 border-2 border-gray-700 shadow-[inset_0_2px_8px_rgba(255,255,255,0.1),0_8px_24px_rgba(0,0,0,0.8)]">
                         <button
                           onClick={() => setCalculatorView('table')}
-                          className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${
-                            calculatorView === 'table'
+                          className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'table'
                               ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
                               : 'text-white/90 hover:text-white hover:bg-gray-800/30'
-                          }`}
+                            }`}
                           style={
                             calculatorView === 'table'
                               ? {
-                                  background:
-                                    'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
+                                background:
+                                  'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
 
-                                  WebkitBackgroundClip: 'text',
+                                WebkitBackgroundClip: 'text',
 
-                                  WebkitTextFillColor: 'transparent',
+                                WebkitTextFillColor: 'transparent',
 
-                                  backgroundImage:
-                                    'linear-gradient(to bottom, #f97316, #ea580c, #f97316)',
+                                backgroundImage:
+                                  'linear-gradient(to bottom, #f97316, #ea580c, #f97316)',
 
-                                  textShadow: 'none',
-                                }
+                                textShadow: 'none',
+                              }
                               : {}
                           }
                         >
@@ -4073,26 +3019,25 @@ function ChainPanel({
 
                         <button
                           onClick={() => setCalculatorView('line')}
-                          className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${
-                            calculatorView === 'line'
+                          className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'line'
                               ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
                               : 'text-white/90 hover:text-white hover:bg-gray-800/30'
-                          }`}
+                            }`}
                           style={
                             calculatorView === 'line'
                               ? {
-                                  background:
-                                    'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
+                                background:
+                                  'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
 
-                                  WebkitBackgroundClip: 'text',
+                                WebkitBackgroundClip: 'text',
 
-                                  WebkitTextFillColor: 'transparent',
+                                WebkitTextFillColor: 'transparent',
 
-                                  backgroundImage:
-                                    'linear-gradient(to bottom, #f97316, #ea580c, #f97316)',
+                                backgroundImage:
+                                  'linear-gradient(to bottom, #f97316, #ea580c, #f97316)',
 
-                                  textShadow: 'none',
-                                }
+                                textShadow: 'none',
+                              }
                               : {}
                           }
                         >
@@ -4196,11 +3141,10 @@ function ChainPanel({
                                           className={isATM ? 'ring-2 ring-yellow-400' : ''}
                                         >
                                           <td
-                                            className={`h-12 border border-gray-600 text-center font-medium text-lg ${
-                                              isATM
+                                            className={`h-12 border border-gray-600 text-center font-medium text-lg ${isATM
                                                 ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
                                                 : 'bg-black text-white'
-                                            }`}
+                                              }`}
                                           >
                                             ${strike.toFixed(2)} {isATM && '🎯'}
                                           </td>
@@ -4229,8 +3173,8 @@ function ChainPanel({
                                             const percentPnL =
                                               item.entryPrice > 0
                                                 ? ((theoreticalValue - item.entryPrice) /
-                                                    item.entryPrice) *
-                                                  100
+                                                  item.entryPrice) *
+                                                100
                                                 : 0
 
                                             const cellColor = getPLColor(percentPnL)
@@ -4380,7 +3324,7 @@ function ChainPanel({
                               padding.top +
                               plotHeight -
                               ((pnlPercent - paddedMinPnL) / (paddedMaxPnL - paddedMinPnL)) *
-                                plotHeight
+                              plotHeight
                             )
                           }
 
@@ -4743,7 +3687,7 @@ function ChainPanel({
                                             cx={
                                               padding.left +
                                               ((simulatedStockPrice - priceMin) / priceRange) *
-                                                plotWidth
+                                              plotWidth
                                             }
                                             cy={chartHeight - padding.bottom + 40}
                                             r="8"
@@ -4759,7 +3703,7 @@ function ChainPanel({
                                             x={
                                               padding.left +
                                               ((simulatedStockPrice - priceMin) / priceRange) *
-                                                plotWidth -
+                                              plotWidth -
                                               35
                                             }
                                             y={chartHeight - padding.bottom + 50}
@@ -4773,7 +3717,7 @@ function ChainPanel({
                                             x={
                                               padding.left +
                                               ((simulatedStockPrice - priceMin) / priceRange) *
-                                                plotWidth
+                                              plotWidth
                                             }
                                             y={chartHeight - padding.bottom + 64}
                                             fill="white"

@@ -5026,12 +5026,14 @@ export default function TradingViewChart({
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
-  // Prefetch composite history immediately; PC ratio delayed 30s so the server
-  // contract/bar caches are warm (avoids cold-start timeout on first load)
+  // Prefetch PC ratio with 30s delay so server bar caches are warm; composite
+  // history is deferred until after the watchlist fetch completes to avoid
+  // simultaneous request storms on mount.
   useEffect(() => {
-    if (disableSidebarAutoScan) return // analysis-suite: skip composite history + PC ratio prefetch
-    prefetchCompositeHistory()
-    const t = setTimeout(() => prefetchPCRatioData('1D'), 30_000)
+    if (disableSidebarAutoScan) return // analysis-suite: skip PC ratio prefetch
+    const t = setTimeout(() => {
+      prefetchPCRatioData('1D')
+    }, 30_000)
     return () => clearTimeout(t)
   }, [])
 
@@ -8760,72 +8762,11 @@ export default function TradingViewChart({
     }
   }, [regimeDataCache])
 
-  // Prefetch ALL regime tabs in parallel when panel opens
-  useEffect(() => {
-    if (disableSidebarAutoScan) return // analysis-suite: skip regime scan
-    if (
-      activeSidebarPanel === 'markets' &&
-      !allRegimesLoaded &&
-      Object.keys(regimeDataCache).length === 0
-    ) {
-      const fetchAllRegimes = async () => {
-        setIsLoadingRegimes(true)
-        setRegimeLoadingStage('Loading all regimes in parallel...')
-
-        const tabConfigs = [
-          { tab: 'life', days: 5 },
-          { tab: 'momentum', days: 80 },
-        ]
-
-        const results = await Promise.allSettled(
-          tabConfigs.map(({ tab, days }) =>
-            IndustryAnalysisService.analyzeTimeframe(
-              days,
-              tab.charAt(0).toUpperCase() + tab.slice(1)
-            )
-              .then((data) => ({ tab, data }))
-              .catch((err) => ({ tab, data: null, error: err }))
-          )
-        )
-
-        const newCache: { [key: string]: TimeframeAnalysis } = {}
-        results.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.data) {
-            // Store TimeframeAnalysis directly
-            newCache[result.value.tab] = result.value.data
-            const bullish =
-              result.value.data.industries?.filter((i: any) => i.trend === 'bullish').length || 0
-            const bearish =
-              result.value.data.industries?.filter((i: any) => i.trend === 'bearish').length || 0
-          }
-        })
-
-        setRegimeDataCache(newCache)
-
-        // Build full MarketRegimeData with ALL timeframes
-        const fullData: any = {
-          life: newCache['life'] || null,
-          momentum: newCache['momentum'] || null,
-        }
-        setMarketRegimeData(fullData as MarketRegimeData)
-
-        setAllRegimesLoaded(true)
-        setIsLoadingRegimes(false)
-        setLastRegimeUpdate(Date.now())
-      }
-
-      fetchAllRegimes()
-    }
-  }, [activeSidebarPanel, allRegimesLoaded, regimeDataCache, regimesTab])
-
   // Load Market Regimes after watchlist completes (background prefetch)
   useEffect(() => {
     if (disableSidebarAutoScan) return // trading-lens: no background regime scan
     if (watchlistLoading) return // Wait for watchlist to populate first
-    if (allRegimesLoaded || Object.keys(regimeDataCache).length > 0) {
-      return // Already loaded
-    }
-
+    if (allRegimesLoaded || Object.keys(regimeDataCache).length > 0) return // Already loaded
     const fetchAllRegimes = async () => {
       setIsLoadingRegimes(true)
 
@@ -10182,6 +10123,7 @@ export default function TradingViewChart({
       return
     } // analysis-suite: skip full market scan
     const fetchRealMarketData = async (isInitialLoad = false) => {
+
       if (isInitialLoad) {
         setWatchlistLoading(true)
       }
@@ -10559,23 +10501,23 @@ export default function TradingViewChart({
               let performance = 'Neutral'
               let performanceColor = 'text-white'
 
-              // Performance based on relative strength to SPY (green = outperforming, red = underperforming)
-              if (relative21d > 0) {
+              // Performance based on relative strength to SPY (tiered thresholds)
+              if (relative21d > 2) {
                 performance = 'KING'
                 performanceColor = 'text-yellow-400 drop-shadow-[0_0_8px_rgba(255,215,0,0.8)]'
-              } else if (relative21d < 0) {
+              } else if (relative21d < -2) {
                 performance = 'Fallen'
                 performanceColor = 'text-orange-600 drop-shadow-[0_0_8px_rgba(255,165,0,0.8)]'
-              } else if (relative13d > 0) {
+              } else if (relative13d > 1) {
                 performance = 'Leader'
                 performanceColor = 'text-green-400 drop-shadow-[0_0_8px_rgba(34,197,94,0.8)]'
-              } else if (relative13d < 0) {
+              } else if (relative13d < -1) {
                 performance = 'Laggard'
                 performanceColor = 'text-red-400 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]'
-              } else if (relative5d > 0) {
+              } else if (relative5d > 0.5) {
                 performance = 'Strong'
                 performanceColor = 'text-green-400'
-              } else if (relative5d < 0) {
+              } else if (relative5d < -0.5) {
                 performance = 'Weak'
                 performanceColor = 'text-red-400'
               } else if (relative1d > 0) {
@@ -10832,13 +10774,14 @@ export default function TradingViewChart({
         // Always set loading to false after data processing
         if (isInitialLoad) {
           setWatchlistLoading(false)
+          // Composite history prefetch deferred to here so it doesn't race the
+          // 200+ symbol watchlist fetch that runs at mount
+          if (!disableSidebarAutoScan) prefetchCompositeHistory()
         }
       } catch (error) {
-        console.error('? Error in market data fetching:', error)
+        console.error('Error in market data fetching:', error)
         setWatchlistData({})
-        if (isInitialLoad) {
-          setWatchlistLoading(false)
-        }
+        if (isInitialLoad) setWatchlistLoading(false)
       }
     }
 
@@ -30251,18 +30194,23 @@ export default function TradingViewChart({
           {typeof window !== 'undefined' &&
             createPortal(
               <div
-                className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
+                className={`fixed left-0 md:left-[100px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
                 style={{
                   zIndex: 9999,
                   display: activeSidebarPanel ? 'block' : 'none',
+                  width:
+                    activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
+                      ? 'calc(100vw - 100px)'
+                      : '100%',
                   maxWidth:
                     activeSidebarPanel === 'liquid'
                       ? 'fit-content'
                       : activeSidebarPanel === 'flow'
                         ? '1500px'
                         : activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
-                          ? 'calc(100vw - 108px)'
+                          ? 'calc(100vw - 100px)'
                           : '1200px',
+                  transition: 'max-width 0.3s ease, width 0.3s ease',
                   top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
                   bottom:
                     typeof window !== 'undefined' && window.innerWidth <= 768 ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
@@ -30332,9 +30280,15 @@ export default function TradingViewChart({
                       setActiveSidebarPanel={setActiveSidebarPanel}
                     />
                   )}
-                  {activeSidebarPanel === 'news' && (
+                  {/* Always mounted so NewsPanel auto-scans (breaking news, calendar, implied vol, movers) in background */}
+                  <div
+                    style={{
+                      display: activeSidebarPanel === 'news' ? 'block' : 'none',
+                      height: '100%',
+                    }}
+                  >
                     <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} />
-                  )}
+                  </div>
                   {activeSidebarPanel === 'screeners' && (
                     <div className="h-full flex flex-col bg-black text-white relative">
                       {/* Close button */}
