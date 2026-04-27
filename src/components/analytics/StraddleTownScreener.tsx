@@ -8,7 +8,8 @@ import { TOP_1800_SYMBOLS } from '@/lib/Top1000Symbols'
 const CONTRACTION_THRESHOLD = 40 // only show strong contractions — skip anything below 40%
 const MIN_AVG_HV = 1.5            // lowered from 3.0 — allow lower-vol names
 const SCAN_TRADING_DAYS = 2       // only contractions within the past 2 trading days
-const DP_LOOKBACK_DAYS = 90       // trading days of dark pool data for POI detection
+const DP_LOOKBACK_DAYS = 90       // trading days of dark pool data for POI detection (full scan / Mag8)
+const TICKER_LOOKBACK_DAYS = 252  // trading days for single-ticker contraction + DP scan
 const CHART_VISIBLE_DAYS = 60 // candles shown in chart
 const FETCH_CAL_DAYS = 500 // calendar days to fetch (for avgHV lookback)
 const DARK_POOL_EXCHANGES = new Set([4, 6, 16, 201, 202, 203])
@@ -101,6 +102,7 @@ interface ScanResult {
   hasPOI: boolean
   topPOI: POILevel | null
   setupActive: boolean
+  setupTier: 'extreme' | 'strong' | 'moderate' | null
   bars: Bar[]
   allEvents: ContraEvent[]
   recentEvents: ContraEvent[]
@@ -210,24 +212,47 @@ async function fetchNearestRealExpiry(
 }
 
 // Determines bubble tier of the top POI based on which rank-position
-// the highest-notional DP day near that POI falls in the sorted DP list.
+// Rank a recent POI cluster by its position in the full 90-day sorted cluster list.
+// Gold = cluster is the #1 most-notional level over 90 days.
+// Blue = #2. Gray = anything lower.
 function getTopPOIBubbleTier(
-  dpDays: DPDay[],
-  topPOI: POILevel | null,
+  allPOI: POILevel[],
+  topRecentPOI: POILevel | null,
 ): 'gold' | 'blue' | 'gray' {
-  if (!topPOI || !dpDays.length) return 'gray'
-  const sorted = [...dpDays]
-    .filter(d => d?.totalNotional > 0 && d?.topPrint)
-    .sort((a, b) => b.totalNotional - a.totalNotional)
-  const thr = topPOI.price * 0.0075
-  for (let i = 0; i < sorted.length; i++) {
-    if (Math.abs(sorted[i].topPrint.price - topPOI.price) <= thr) {
-      if (i === 0) return 'gold'
-      if (i === 1) return 'blue'
-      return 'gray'
-    }
-  }
+  if (!topRecentPOI || !allPOI.length) return 'gray'
+  const thr = topRecentPOI.price * 0.0075
+  const idx = allPOI.findIndex(p => Math.abs(p.price - topRecentPOI.price) <= thr)
+  if (idx === 0) return 'gold'
+  if (idx === 1) return 'blue'
   return 'gray'
+}
+
+// Uses the same top-3 DP days by notional as the chart bubbles (amber=rank0, blue=rank1, silver=rank2).
+// daysDiff = triggerDate - dpDayDate (positive = POI before contraction, negative = after)
+//   extreme  = amber bubble (rank 0): -2 ≤ daysDiff ≤ 3
+//   strong   = blue  bubble (rank 1): -2 ≤ daysDiff ≤ 2
+//   moderate = gray  bubble (rank 2):  -1 ≤ daysDiff ≤ 1
+function computeSetupTier(
+  dpDays: DPDay[],
+  triggerDate: string,
+): { setupTier: 'extreme' | 'strong' | 'moderate' | null; activePOI: POILevel | null } {
+  const top3 = [...dpDays]
+    .filter(d => d.totalNotional > 0 && d.topPrint)
+    .sort((a, b) => b.totalNotional - a.totalNotional)
+    .slice(0, 3)
+  for (let rank = 0; rank < top3.length; rank++) {
+    const day = top3[rank]
+    const diff = (new Date(triggerDate).getTime() - new Date(day.date).getTime()) / 86_400_000
+    const inWindow = rank === 0 ? diff >= -2 && diff <= 3
+      : rank === 1 ? diff >= -2 && diff <= 2
+        : diff >= -1 && diff <= 1
+    if (!inWindow) continue
+    const activePOI: POILevel = { price: day.topPrint.price, totalNotional: day.totalNotional, printCount: 1, dates: [day.date] }
+    if (rank === 0) return { setupTier: 'extreme', activePOI }
+    if (rank === 1) return { setupTier: 'strong', activePOI }
+    return { setupTier: 'moderate', activePOI }
+  }
+  return { setupTier: null, activePOI: null }
 }
 
 // ── Contraction Logic — matching ConsolidationHistoryScreener.tsx exactly ─────
@@ -300,15 +325,20 @@ function detectContraction(bars: Bar[]): { qualifies: boolean; compressionPct: n
     if (compressionPct <= CONTRACTION_THRESHOLD) _dbg.compLow++
     else if (!notTrending) _dbg.trending++
     else if (!curBarTight) _dbg.notTight++
-    // log first 3 near-misses so we can see real numbers
-    if (_dbg.sampled < 3) {
-      _dbg.sampled++
-      console.log(`[ST-DC] FAIL sample[${_dbg.sampled}] avgHV=${avgHV.toFixed(2)} rangePercent=${rangePercent.toFixed(2)} compressionPct=${compressionPct.toFixed(1)} (need>${CONTRACTION_THRESHOLD}) notTrending=${notTrending} curBarTight=${curBarTight} | netMove/range=${currentRange > 0 ? (netMove / currentRange).toFixed(2) : 'N/A'} curBarRange=${(curBar.high - curBar.low).toFixed(2)} avgBarRange=${avgBarRange.toFixed(2)}`)
-    }
   } else {
     _dbg.pass++
   }
   return { qualifies, compressionPct }
+}
+
+// ── Bubble notional label formatter ──────────────────────────────────────────
+function fmtBubbleNotional(n: number): string {
+  const B = 1_000_000_000
+  const v = n / B
+  if (v < 1) return v.toFixed(2) + 'X'          // e.g. 0.12X
+  if (v < 10) return v.toFixed(2) + 'Y'          // e.g. 1.32Y
+  if (v < 100) return v.toFixed(2) + 'Z'          // e.g. 32.12Z
+  return Math.round(v) + 'Z'                       // e.g. 420Z
 }
 
 function scanHistory(allBars: Bar[]): ContraEvent[] {
@@ -384,15 +414,6 @@ function buildStraddleTrade(
   // ── IV debug ──────────────────────────────────────────────────────────────
   const rawIV = calcAnnualIV(allBars)
   const iv = Math.max(0.05, rawIV)
-  const ivCloses = allBars.slice(-21).map(b => b.close)
-  const ivRets = ivCloses.slice(1).map((c, i) => Math.log(c / ivCloses[i]))
-  const ivMean = ivRets.reduce((s, r) => s + r, 0) / ivRets.length
-  const ivVariance = ivRets.reduce((s, r) => s + (r - ivMean) ** 2, 0) / (ivRets.length - 1)
-  console.log(
-    `[ST:iv] ${sym} bars=${allBars.length} last21closes=[${ivCloses.slice(0, 3).map(c => c.toFixed(2)).join(',')}...${ivCloses.slice(-1)[0].toFixed(2)}]` +
-    ` dailyVariance=${ivVariance.toFixed(6)} dailyVol=${(Math.sqrt(ivVariance) * 100).toFixed(3)}%` +
-    ` rawIV=${(rawIV * 100).toFixed(2)}% clampedIV=${(iv * 100).toFixed(2)}%`
-  )
 
   // ── Expiry selection ───────────────────────────────────────────────────────
   // Extreme (65%+): this week's Friday; if today is Thursday → following Friday
@@ -412,19 +433,14 @@ function buildStraddleTrade(
   } else {
     expiration = poiIsRecent ? fridayMinDaysOut(0) : fridayMinDaysOut(21)
   }
-  console.log(`[ST:expiry] ${sym} bubbleTier=${bubbleTier} compressionPct=${compressionPct.toFixed(1)}% → expiration=${expiration}`)
 
   const today = new Date()
   const expD = new Date(expiration)
   const dteFull = (expD.getTime() - today.getTime()) / 86_400_000
   const dte = Math.max(1, Math.ceil(dteFull))
   const T = dte / 365
-  console.log(
-    `[ST:expiry] ${sym} today=${today.toISOString().split('T')[0]} expiry=${expiration}` +
-    ` dteFull=${dteFull.toFixed(2)} dteCeil=${dte} T=${T.toFixed(6)}`
-  )
 
-  // ── Strike search debug ───────────────────────────────────────────────────
+  // ── Strike search ───────────────────────────────────────────────────────────
   const callStrikeRaw = findStrike80(currentPrice, RISK_FREE_RATE, iv, T, true)
   const putStrikeRaw = findStrike80(currentPrice, RISK_FREE_RATE, iv, T, false)
   const callStrike = Math.round(callStrikeRaw)
@@ -436,31 +452,11 @@ function buildStraddleTrade(
   const d2Put = d1Put - iv * Math.sqrt(T)
   const callProb20 = (1 - nCDF(d2Call)) * 100  // prob call expires ITM
   const putProb20 = nCDF(-d2Put) * 100          // prob put expires ITM
-  console.log(
-    `[ST:strikes] ${sym} S=${currentPrice.toFixed(2)}` +
-    ` | callK_raw=${callStrikeRaw.toFixed(3)} callK=${callStrike} d1=${d1Call.toFixed(3)} d2=${d2Call.toFixed(3)} pITM=${callProb20.toFixed(1)}% (want~20%)` +
-    ` | putK_raw=${putStrikeRaw.toFixed(3)} putK=${putStrike} d1=${d1Put.toFixed(3)} d2=${d2Put.toFixed(3)} pITM=${putProb20.toFixed(1)}% (want~20%)` +
-    (callProb20 < 5 || callProb20 > 40 ? ` ⚠️ callK prob way off` : '') +
-    (putProb20 < 5 || putProb20 > 40 ? ` ⚠️ putK prob way off` : '')
-  )
 
-  // ── Premium debug ─────────────────────────────────────────────────────────
+  // ── Premium ───────────────────────────────────────────────────────────────
   const callEntry = bsPrice(currentPrice, callStrike, T, RISK_FREE_RATE, iv, true)
   const putEntry = bsPrice(currentPrice, putStrike, T, RISK_FREE_RATE, iv, false)
-  // d1/d2 for premium calculation
-  const d1CP = (Math.log(currentPrice / callStrike) + (RISK_FREE_RATE + 0.5 * iv * iv) * T) / (iv * Math.sqrt(T))
-  const d2CP = d1CP - iv * Math.sqrt(T)
-  const d1PP = (Math.log(currentPrice / putStrike) + (RISK_FREE_RATE + 0.5 * iv * iv) * T) / (iv * Math.sqrt(T))
-  const d2PP = d1PP - iv * Math.sqrt(T)
-  console.log(
-    `[ST:premium] ${sym}` +
-    ` | CALL: S=${currentPrice.toFixed(2)} K=${callStrike} T=${T.toFixed(4)} IV=${(iv * 100).toFixed(1)}% r=${RISK_FREE_RATE}` +
-    ` d1=${d1CP.toFixed(3)} d2=${d2CP.toFixed(3)} N(d1)=${nCDF(d1CP).toFixed(4)} N(d2)=${nCDF(d2CP).toFixed(4)} prem=$${callEntry.toFixed(3)}` +
-    (callEntry < 0.01 ? ' ⚠️ NEAR-ZERO' : '') +
-    ` | PUT: K=${putStrike}` +
-    ` d1=${d1PP.toFixed(3)} d2=${d2PP.toFixed(3)} N(-d2)=${nCDF(-d2PP).toFixed(4)} N(-d1)=${nCDF(-d1PP).toFixed(4)} prem=$${putEntry.toFixed(3)}` +
-    (putEntry < 0.01 ? ' ⚠️ NEAR-ZERO' : '')
-  )
+  void callProb20; void putProb20
 
   const expMove1SD = currentPrice * iv * Math.sqrt(T)
   const expMove15SD = expMove1SD * 1.5
@@ -498,6 +494,11 @@ function buildStraddleTrade(
     upperBE: callStrike + callEntry + putEntry,
     lowerBE: putStrike - (callEntry + putEntry),
   }
+}
+
+// ── Terminal logger — POSTs to /api/log so output appears in the Next.js dev terminal ──
+function tlog(msg: string) {
+  fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg }) }).catch(() => { })
 }
 
 // ── Format Helpers ─────────────────────────────────────────────────────────────
@@ -1314,15 +1315,17 @@ async function fetchTopSymbols(
 async function fetchOHLCV(
   symbol: string,
   apiKey: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  calDays: number = FETCH_CAL_DAYS,
+  limit: number = 1000
 ): Promise<Bar[] | null> {
   try {
     const toDate = new Date().toISOString().split('T')[0]
     const from = new Date()
-    from.setDate(from.getDate() - FETCH_CAL_DAYS)
+    from.setDate(from.getDate() - calDays)
     const fromDate = from.toISOString().split('T')[0]
     const res = await fetch(
-      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=1000&apiKey=${apiKey}`,
+      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=${limit}&apiKey=${apiKey}`,
       { signal }
     )
     if (!res.ok) return null
@@ -1344,6 +1347,20 @@ async function fetchOHLCV(
   }
 }
 
+// ── Global Polygon rate limiter — shared across ALL scanDPDays calls ──────────
+// Hard cap: max 4 simultaneous fetch() calls to api.polygon.io at any time.
+const _POLY_MAX = 4
+let _polyInflight = 0
+const _polyWaiting: Array<() => void> = []
+const polyAcquire = (): Promise<void> => new Promise(resolve => {
+  if (_polyInflight < _POLY_MAX) { _polyInflight++; resolve() }
+  else _polyWaiting.push(() => { _polyInflight++; resolve() })
+})
+const polyRelease = () => {
+  _polyInflight--
+  if (_polyWaiting.length) _polyWaiting.shift()!()
+}
+
 // ── RP: Dark pool scanner (exact match to POIScreener logic) ──────────────────
 type RawTrade = { sip_timestamp: number; price: number; size: number; exchange: number }
 
@@ -1353,24 +1370,47 @@ async function scanDPDays(
   apiKey: string,
   onProgress: (pct: number) => void,
   signal: AbortSignal,
-  maxConcurrency = 35
+  maxConcurrency = 3
 ): Promise<DPDay[]> {
   let aborted = false
   signal.addEventListener('abort', () => {
     aborted = true
   })
 
-  // Global semaphore: caps total in-flight Polygon requests across all workers + pagination
-  const MAX_INFLIGHT = 10
-  let _inflight = 0
-  const _waiting: Array<() => void> = []
-  const _acquire = (): Promise<void> => new Promise(resolve => {
-    if (_inflight < MAX_INFLIGHT) { _inflight++; resolve() }
-    else _waiting.push(() => { _inflight++; resolve() })
-  })
-  const _release = () => {
-    _inflight--
-    if (_waiting.length) _waiting.shift()!()
+  // Use the module-level global semaphore — no per-call semaphore needed
+  const _acquire = polyAcquire
+  const _release = polyRelease
+
+  // Fetch with retry + exponential backoff + jitter — handles ERR_CONNECTION_RESET
+  const fetchWithRetry = async (url: string, maxAttempts = 4): Promise<Response | null> => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (aborted) return null
+      // Per-attempt 10s timeout — prevents hanging connections from blocking the semaphore
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 10_000)
+      try {
+        const res = await fetch(url, { signal: ac.signal })
+        clearTimeout(timer)
+        if (res.ok) return res
+        // 429 rate-limited — back off longer
+        if (res.status === 429) {
+          const delay = 2000 * (attempt + 1) + Math.random() * 500
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        await res.text().catch(() => { })
+        return null // non-retryable HTTP error
+      } catch {
+        clearTimeout(timer)
+        if (aborted) return null
+        // ERR_CONNECTION_RESET or network error — retry with backoff
+        if (attempt < maxAttempts - 1) {
+          const delay = Math.min(300 * Math.pow(2, attempt) + Math.random() * 200, 3000)
+          await new Promise(r => setTimeout(r, delay))
+        }
+      }
+    }
+    return null
   }
 
   // ── Streaming fetch: processes each page as it arrives, keeps only top-50 DP
@@ -1381,12 +1421,15 @@ async function scanDPDays(
     let windowNotional = 0
     let nextUrl: string | null = url
     while (nextUrl && !aborted) {
-      let res: Response
       await _acquire()
-      try { res = await fetch(nextUrl) } catch { _release(); break }
+      const res = await fetchWithRetry(nextUrl)
       _release()
-      if (!res.ok) { await res.text().catch(() => { }); break }
-      const json = await res.json()
+      if (!res) break
+      let json: { results?: RawTrade[]; next_url?: string }
+      try { json = await res.json() } catch {
+        // Body stream cut mid-transfer — data already acquired, just stop paginating
+        break
+      }
       // Process each trade inline — never push to a large accumulator
       for (const t of (json.results || []) as RawTrade[]) {
         const notional = t.size * t.price
@@ -1400,7 +1443,9 @@ async function scanDPDays(
       if (top.length > 50) {
         top = top.sort((a, b) => b.size * b.price - a.size * a.price).slice(0, 50)
       }
-      nextUrl = json.next_url ? json.next_url + `&apiKey=${apiKey}` : null
+      // Do NOT follow cursor pagination — each window is already time-bounded.
+      // Cursor requests are the primary cause of ERR_CONNECTION_RESET.
+      nextUrl = null
     }
     return { prints: top, windowNotional }
   }
@@ -1449,15 +1494,20 @@ async function scanDPDays(
     const rthCloseUtcMs = 16 * 3600_000 + 15 * 60_000 + etOffsetMs
     const rthStartNs = (dayStartMs + rthOpenUtcMs) * 1_000_000
     const rthEndNs = (dayStartMs + rthCloseUtcMs) * 1_000_000
-    const WIN = 4
+    const WIN = 3
     const winNs = (rthEndNs - rthStartNs) / WIN
     const windowUrls = Array.from({ length: WIN }, (_, i) => {
       const s = rthStartNs + i * winNs
       const e = rthStartNs + (i + 1) * winNs
-      return `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&order=asc&apiKey=${apiKey}`
+      return `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=10000&order=asc&apiKey=${apiKey}`
     })
     try {
-      const winResults = await Promise.all(windowUrls.map(fetchWindowStreaming))
+      // Run windows sequentially — never more than 1 in-flight per day to avoid Polygon TCP resets
+      const winResults: Array<{ prints: DPPrint[]; windowNotional: number }> = []
+      for (const url of windowUrls) {
+        if (aborted) break
+        winResults.push(await fetchWindowStreaming(url))
+      }
       // Merge top-50 from every window, rerank, then take final top-10
       const allPrints = winResults
         .flatMap(w => w.prints)
@@ -1501,12 +1551,14 @@ function StraddleChart({
   dpDays,
   poiLevels,
   forceHeight,
+  symbol,
 }: {
   candles: Bar[]
   events: ContraEvent[]
   dpDays: DPDay[]
   poiLevels: POILevel[]
   forceHeight?: number
+  symbol?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1671,12 +1723,17 @@ function StraddleChart({
 
     // Current price label (no horizontal line)
     if (startIdx + visibleCount >= n) {
-      const py = Math.round(pyFn(candles[n - 1].close)) + 0.5
-      ctx.fillStyle = '#FF8C00'
+      const py = Math.round(pyFn(candles[n - 1].close))
+      const priceStr = candles[n - 1].close.toFixed(2)
       ctx.font = '900 24px "JetBrains Mono",monospace'
+      const pw = ctx.measureText(priceStr).width
+      // solid black background so it never overlaps grid labels
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(width - PAD.right + 1, py - 14, pw + 14, 28)
+      ctx.fillStyle = '#FF8C00'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillText(candles[n - 1].close.toFixed(2), width - PAD.right + 8, py)
+      ctx.fillText(priceStr, width - PAD.right + 8, py)
     }
     ctx.setLineDash([])
     ctx.globalAlpha = 1
@@ -1798,7 +1855,7 @@ function StraddleChart({
       .filter((d) => d?.totalNotional > 0 && d?.topPrint)
       .sort((a, b) => b.totalNotional - a.totalNotional)
     const top10DP = sortedDP
-      .slice(0, 10)
+      .slice(0, 3)
       .map((dp, i) => ({
         price: dp.topPrint.price,
         ts: dp.topPrint.ts,
@@ -1835,6 +1892,17 @@ function StraddleChart({
       ctx.arc(cx, py2, Math.max(2, r * 0.17), 0, Math.PI * 2)
       ctx.fillStyle = s.dot
       ctx.fill()
+      // notional label below bubble
+      const label = fmtBubbleNotional(print.notional)
+      const fontSize = Math.max(9, Math.min(14, r * 0.85))
+      ctx.font = `700 ${fontSize}px "JetBrains Mono",monospace`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      const lw2 = ctx.measureText(label).width
+      ctx.fillStyle = 'rgba(0,0,0,0.65)'
+      ctx.fillRect(cx - lw2 / 2 - 2, py2 + r + 2, lw2 + 4, fontSize + 2)
+      ctx.fillStyle = print.rank === 0 ? '#FFD700' : print.rank === 1 ? '#41B6F6' : '#CCCCCC'
+      ctx.fillText(label, cx, py2 + r + 3)
     }
     ctx.restore()
 
@@ -1863,7 +1931,7 @@ function StraddleChart({
     ) {
       ctx.save()
       ctx.setLineDash([4, 4])
-      ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+      ctx.strokeStyle = 'rgba(0,229,255,0.5)'
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(Math.round(ch.cx) + 0.5, PAD.top)
@@ -1874,6 +1942,8 @@ function StraddleChart({
       ctx.lineTo(width - PAD.right, Math.round(ch.cy) + 0.5)
       ctx.stroke()
       ctx.setLineDash([])
+
+      // ── Y-axis price label ────────────────────────────────────────────────
       const priceAtCursor = pMax - ((ch.cy - PAD.top) / chartH) * pRange
       const pl =
         priceAtCursor >= 1000
@@ -1881,13 +1951,36 @@ function StraddleChart({
           : priceAtCursor >= 100
             ? priceAtCursor.toFixed(1)
             : priceAtCursor.toFixed(2)
-      ctx.fillStyle = 'rgba(10,10,20,0.92)'
-      ctx.fillRect(width - PAD.right + 1, Math.round(ch.cy) - 16, PAD.right - 2, 32)
+      ctx.font = '800 24px "JetBrains Mono",monospace'
+      const priceW = ctx.measureText(pl).width
+      const yLabelX = width - PAD.right + 1
+      const yLabelY = Math.round(ch.cy)
+      const yPadX = 6, yPadY = 5
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(yLabelX, yLabelY - 12 - yPadY, priceW + yPadX * 2, 24 + yPadY * 2)
       ctx.fillStyle = '#00E5FF'
-      ctx.font = '700 17px "JetBrains Mono",monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillText(pl, width - PAD.right + 6, Math.round(ch.cy))
+      ctx.fillText(pl, yLabelX + yPadX, yLabelY)
+
+      // ── X-axis date label ─────────────────────────────────────────────────
+      const fracX = (ch.cx - PAD.left - 18) / Math.max(spacing, 1)
+      const hovIdx = Math.round(fracX)
+      if (hovIdx >= 0 && hovIdx < vis.length) {
+        const dateLabel = fmtDate(vis[hovIdx].date)
+        ctx.font = '700 24px "JetBrains Mono",monospace'
+        const dateW = ctx.measureText(dateLabel).width
+        const xLabelY = PAD.top + chartH + 1
+        const xLabelX = Math.min(Math.max(Math.round(ch.cx) - dateW / 2, PAD.left), width - PAD.right - dateW)
+        const xPadX = 6, xPadY = 4
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(xLabelX - xPadX, xLabelY, dateW + xPadX * 2, PAD.bottom - 2)
+        ctx.fillStyle = '#00E5FF'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillText(dateLabel, xLabelX, xLabelY + xPadY)
+      }
+
       ctx.restore()
     }
   }, [candles, events, dpDays, poiLevels, width, height])
@@ -1974,19 +2067,45 @@ function StraddleChart({
           userSelect: 'none',
         }}
       />
-      {/* Legend */}
+      {/* Legend + Ticker Info */}
       <div
         style={{
           position: 'absolute',
           top: 6,
           left: 14,
           display: 'flex',
-          gap: 14,
+          gap: 10,
           alignItems: 'center',
           pointerEvents: 'none',
           flexWrap: 'wrap',
+          background: 'linear-gradient(180deg,rgba(0,0,0,0.82) 0%,rgba(10,10,10,0.78) 100%)',
+          border: '1px solid rgba(255,140,0,0.35)',
+          borderRadius: 5,
+          padding: '5px 12px',
+          backdropFilter: 'blur(4px)',
         }}
       >
+        {symbol && (() => {
+          const last = candles.length > 0 ? candles[candles.length - 1] : null
+          const prev = candles.length > 1 ? candles[candles.length - 2] : null
+          const price = last?.close ?? 0
+          const chg = prev && prev.close > 0 ? ((price - prev.close) / prev.close) * 100 : 0
+          const chgColor = chg >= 0 ? '#00FF88' : '#FF4060'
+          return (
+            <>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 17, fontWeight: 900, color: '#FF8C00', letterSpacing: '2px' }}>
+                {symbol}
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, color: '#FFFFFF', letterSpacing: '1px' }}>
+                ${price.toFixed(2)}
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: chgColor, letterSpacing: '0.5px' }}>
+                {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
+              </span>
+              <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', margin: '0 2px' }} />
+            </>
+          )
+        })()}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div
             style={{
@@ -1997,36 +2116,15 @@ function StraddleChart({
               transform: 'rotate(45deg)',
             }}
           />
-          <span
-            style={{
-              color: '#fff',
-              fontSize: 10,
-              fontFamily: 'JetBrains Mono,monospace',
-              fontWeight: 700,
-            }}
-          >
+          <span style={{ color: '#fff', fontSize: 13, fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
             CONTRACTION
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <svg width="12" height="12">
-            <circle
-              cx="6"
-              cy="6"
-              r="5"
-              fill="rgba(255,140,40,0.8)"
-              stroke="rgba(255,180,60,0.8)"
-              strokeWidth="1"
-            />
+            <circle cx="6" cy="6" r="5" fill="rgba(255,140,40,0.8)" stroke="rgba(255,180,60,0.8)" strokeWidth="1" />
           </svg>
-          <span
-            style={{
-              color: '#fff',
-              fontSize: 10,
-              fontFamily: 'JetBrains Mono,monospace',
-              fontWeight: 700,
-            }}
-          >
+          <span style={{ color: '#fff', fontSize: 13, fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
             POI
           </span>
         </div>
@@ -2354,24 +2452,24 @@ function ResultsTable({
 
   type Tier = { label: string; emoji: string; accent: string; items: ScanResult[] }
   const tiers: Tier[] = [
-    { label: 'EXTREME COMPRESSION', emoji: '🔥', accent: '#FFD700', items: [] },
-    { label: 'STRONG COMPRESSION', emoji: '⚡', accent: '#9B30FF', items: [] },
-    { label: 'MODERATE COMPRESSION', emoji: '◆', accent: '#41B6F6', items: [] },
+    { label: 'EXTREME', emoji: '🔥', accent: '#FFD700', items: [] },
+    { label: 'STRONG', emoji: '⚡', accent: '#41B6F6', items: [] },
+    { label: 'MODERATE', emoji: '◆', accent: '#CCCCCC', items: [] },
   ]
   for (const r of sorted) {
-    if (r.compressionPct >= 65) tiers[0].items.push(r)
-    else if (r.compressionPct >= 50) tiers[1].items.push(r)
+    if (r.setupTier === 'extreme') tiers[0].items.push(r)
+    else if (r.setupTier === 'strong') tiers[1].items.push(r)
     else tiers[2].items.push(r)
   }
 
-  const compressColor = (pct: number) => {
-    if (pct >= 65) return '#FFD700'  // extreme → gold
-    if (pct >= 50) return '#9B30FF'  // strong  → purple
-    return '#41B6F6'                 // moderate → blue
+  const compressColor = (r: ScanResult) => {
+    if (r.setupTier === 'extreme') return '#FFD700'
+    if (r.setupTier === 'strong') return '#41B6F6'
+    return '#CCCCCC'
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, alignItems: 'start', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, alignItems: 'start' }}>
       {tiers.map(tier => (
         <div key={tier.label} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           {/* Tier header */}
@@ -2391,7 +2489,7 @@ function ResultsTable({
           </div>
 
           {/* Cards stacked vertically per tier — independently scrollable */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
             {tier.items.map(r => {
               const latestEvt = r.recentEvents[r.recentEvents.length - 1]
               const poiDate = r.topPOI?.dates?.[r.topPOI.dates.length - 1] ?? null
@@ -2403,7 +2501,7 @@ function ResultsTable({
                   key={r.symbol}
                   style={{
                     background: '#000000',
-                    border: `2px solid ${compressColor(r.compressionPct)}`,
+                    border: `2px solid ${compressColor(r)}`,
                     borderRadius: 6,
                     padding: '14px 16px',
                     cursor: 'pointer',
@@ -2411,7 +2509,7 @@ function ResultsTable({
                     flexDirection: 'column',
                     gap: 10,
                     transition: 'border-color 0.15s, background 0.15s',
-                    boxShadow: `0 0 10px ${compressColor(r.compressionPct)}22`,
+                    boxShadow: `0 0 10px ${compressColor(r)}22`,
                   }}
                   onMouseEnter={e => {
                     e.currentTarget.style.background = '#080808'
@@ -2448,14 +2546,36 @@ function ResultsTable({
                     </div>
                     <div style={{
                       ...mono, fontSize: 20, fontWeight: 900,
-                      color: compressColor(r.compressionPct),
-                      background: `${compressColor(r.compressionPct)}18`,
-                      border: `1px solid ${compressColor(r.compressionPct)}44`,
+                      color: compressColor(r),
+                      background: `${compressColor(r)}18`,
+                      border: `1px solid ${compressColor(r)}44`,
                       borderRadius: 4,
                       padding: '3px 10px',
                     }}>
                       {r.compressionPct.toFixed(0)}%
                     </div>
+                    {/* SCAN POI button in row 1 when pending */}
+                    {r.poiScanPending && (
+                      <button
+                        disabled={poiLoadingSet.has(r.symbol)}
+                        onClick={e => { e.stopPropagation(); onScanPOI(r) }}
+                        style={{
+                          ...mono,
+                          fontSize: 12,
+                          fontWeight: 800,
+                          letterSpacing: '1.5px',
+                          color: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.35)' : '#FFAA28',
+                          background: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.04)' : 'rgba(255,170,40,0.10)',
+                          border: `1px solid ${poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.12)' : 'rgba(255,170,40,0.35)'}`,
+                          borderRadius: 4,
+                          padding: '4px 12px',
+                          cursor: poiLoadingSet.has(r.symbol) ? 'default' : 'pointer',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {poiLoadingSet.has(r.symbol) ? '⏳ SCANNING...' : '🔍 SCAN POI'}
+                      </button>
+                    )}
                   </div>
 
                   {/* Row 3: POI info — two separate rows */}
@@ -2553,31 +2673,8 @@ function ResultsTable({
                       )}
                     </div>
                   ) : r.poiScanPending ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <button
-                        disabled={poiLoadingSet.has(r.symbol)}
-                        onClick={e => { e.stopPropagation(); onScanPOI(r) }}
-                        style={{
-                          ...mono,
-                          fontSize: 12,
-                          fontWeight: 800,
-                          letterSpacing: '1.5px',
-                          color: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.35)' : '#FFAA28',
-                          background: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.04)' : 'rgba(255,170,40,0.10)',
-                          border: `1px solid ${poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.12)' : 'rgba(255,170,40,0.35)'}`,
-                          borderRadius: 4,
-                          padding: '6px 14px',
-                          cursor: poiLoadingSet.has(r.symbol) ? 'default' : 'pointer',
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        {poiLoadingSet.has(r.symbol) ? '⏳ SCANNING POI...' : '🔍 SCAN POI'}
-                      </button>
-                      {!poiLoadingSet.has(r.symbol) && (
-                        <span style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
-                          high-volume — manual scan
-                        </span>
-                      )}
+                    <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.5px' }}>
+                      — no POI detected in scan window
                     </div>
                   ) : (
                     <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.5px' }}>
@@ -2592,6 +2689,7 @@ function ResultsTable({
                       events={r.allEvents}
                       dpDays={r.dpDays}
                       poiLevels={r.poiLevels}
+                      symbol={r.symbol}
                     />
                   </div>
                 </div>
@@ -2626,10 +2724,13 @@ export default function StraddleTownScreener() {
   const [poiLoadingSet, setPoiLoadingSet] = useState<Set<string>>(new Set())
   type ViewMode = 'setups' | 'all' | 'poi-only' | 'contraction-only'
   type BubbleFilter = 'all' | 'gold' | 'blue' | 'gray'
+  type ScanMode = 'both' | 'contraction' | 'poi'
   const [viewMode, setViewMode] = useState<ViewMode>('setups')
   const [minCompression, setMinCompression] = useState<number>(40)
   const [bubbleFilter, setBubbleFilter] = useState<BubbleFilter>('all')
   const [sqzOnly, setSqzOnly] = useState(false)
+  const [scanMode, setScanMode] = useState<ScanMode>('both')
+  const scanModeRef = useRef<ScanMode>('both')
 
   // ── Detail view state (when user clicks a row) ─────────────────────────────
   const [selected, setSelected] = useState<ScanResult | null>(null)
@@ -2638,6 +2739,9 @@ export default function StraddleTownScreener() {
   // ── Individual ticker search ───────────────────────────────────────────────
   const [tickerSearch, setTickerSearch] = useState('')
   const [tickerScanning, setTickerScanning] = useState(false)
+  const [tickerScanStatus, setTickerScanStatus] = useState<{ phase: 'ohlcv' | 'dp'; dpDate?: string; dpDone: number; dpTotal: number } | null>(null)
+  const [tickerSearchedSymbols, setTickerSearchedSymbols] = useState<string[]>([])
+  const [tickerLookback, setTickerLookback] = useState<252 | 756 | 1260>(252) // 1Y / 3Y / 5Y
 
   const addResult = useCallback((r: ScanResult) => {
     setResults((prev) => {
@@ -2654,6 +2758,7 @@ export default function StraddleTownScreener() {
     const controller = new AbortController()
     abortRef.current = controller
     const { signal } = controller
+    const mode = scanModeRef.current
 
     setPhase('fetching-symbols')
     setResults([])
@@ -2664,7 +2769,6 @@ export default function StraddleTownScreener() {
     try {
       // ── Phase 1: fetch symbol universe ───────────────────────────────────
       const symbols = await fetchTopSymbols(API_KEY, MAX_SYMBOLS, signal)
-      console.log(`[ST] Phase1 done — symbols=${symbols.length} | API_KEY present=${!!API_KEY}`)
       if (signal.aborted) return
       if (!symbols.length) {
         // shouldn't happen since hardcoded fallback is always non-empty
@@ -2677,8 +2781,9 @@ export default function StraddleTownScreener() {
       setStats((s) => ({ ...s, totalSymbols: symbols.length }))
       setPhase('scanning-ohlcv')
 
-      // ── Phase 2: OHLCV + contraction scan (concurrent batches) ───────────
-      // contractionHits collects [symbol, bars, allEvents, recentEvents]
+      // ── Phase 2: OHLCV + contraction scan — parallel Web Workers ────────
+      // Split symbol universe across N workers (one per logical CPU, max 8).
+      // Each worker fetches + detects independently; hits stream back via postMessage.
       const contractionHits: {
         symbol: string
         bars: Bar[]
@@ -2686,101 +2791,77 @@ export default function StraddleTownScreener() {
         recentEvents: ContraEvent[]
       }[] = []
 
-      let _ohlcvNull = 0, _ohlcvShort = 0, _ohlcvOk = 0, _noEvts = 0, _hasEvts = 0
-      let _taskAborted = 0, _taskThrew = 0
+      const OHLCV_WORKER_COUNT = Math.min(8, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 4) : 4)
+      const chunkSize = Math.ceil(symbols.length / OHLCV_WORKER_COUNT)
+      const chunks = Array.from({ length: OHLCV_WORKER_COUNT }, (_, i) =>
+        symbols.slice(i * chunkSize, (i + 1) * chunkSize)
+      ).filter(c => c.length > 0)
 
-      console.log(`[ST] Pre-Phase2 signal.aborted=${signal.aborted} | tasks=${symbols.length}`)
+      await new Promise<void>((resolve) => {
+        let doneWorkers = 0
+        const ohlcvWorkers: Worker[] = []
+        const cleanup = () => ohlcvWorkers.forEach(w => w.terminate())
 
-      // ── raw fetch probe: bypass fetchOHLCV wrapper, add 8s timeout ─────────
-      {
-        const testSym = symbols[0]
-        const toDate = new Date().toISOString().split('T')[0]
-        const from = new Date(); from.setDate(from.getDate() - FETCH_CAL_DAYS)
-        const fromDate = from.toISOString().split('T')[0]
-        const testUrl = `https://api.polygon.io/v2/aggs/ticker/${testSym}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=5&apiKey=${API_KEY}`
-        console.log(`[ST] Raw probe start: ${testSym} | url=${testUrl.replace(API_KEY, 'KEY')}`)
-        const timeout = new Promise<'timeout'>((res) => setTimeout(() => res('timeout'), 8000))
-        const t0 = Date.now()
-        try {
-          const winner = await Promise.race([fetch(testUrl, { signal }), timeout])
-          if (winner === 'timeout') {
-            console.error(`[ST] Raw probe TIMED OUT after 8s — fetch is hanging (likely rate-limited or firewall drop)`)
-          } else {
-            const res = winner as Response
-            console.log(`[ST] Raw probe HTTP ${res.status} ${res.statusText} in ${Date.now() - t0}ms`)
-            const text = await res.text().catch(() => '(could not read body)')
-            console.log(`[ST] Raw probe body snippet: ${text.slice(0, 300)}`)
+        signal.addEventListener('abort', () => { cleanup(); resolve() }, { once: true })
+
+        for (const [wi, chunk] of chunks.entries()) {
+          const worker = new Worker('/workers/straddleScanWorker.js')
+          ohlcvWorkers.push(worker)
+
+          worker.onmessage = (e) => {
+            if (signal.aborted) return
+            const msg = e.data
+            if (msg.type === 'hit') {
+              contractionHits.push({ symbol: msg.symbol, bars: msg.bars, allEvents: msg.allEvents, recentEvents: msg.recentEvents })
+              setStats(s => ({ ...s, contractionHits: s.contractionHits + 1 }))
+            } else if (msg.type === 'progress') {
+              setStats(s => ({ ...s, ohlcvDone: s.ohlcvDone + 1 }))
+            } else if (msg.type === 'log') {
+              tlog(msg.msg)
+            } else if (msg.type === 'done') {
+              doneWorkers++
+              if (doneWorkers === chunks.length) { cleanup(); resolve() }
+            }
           }
-        } catch (e: unknown) {
-          console.error(`[ST] Raw probe threw in ${Date.now() - t0}ms:`, e)
-        }
-      }
 
-      const ohlcvTasks = symbols.map((sym) => async () => {
-        if (signal.aborted) { _taskAborted++; return }
-        let bars: Bar[] | null = null
-        try {
-          bars = await fetchOHLCV(sym, API_KEY, signal)
-        } catch (e: unknown) {
-          _taskThrew++
-          if (_taskThrew <= 2) console.error(`[ST] fetchOHLCV threw for ${sym}:`, e)
-          return
-        }
-        if (!bars) { _ohlcvNull++; return }
-        if (bars.length < 120) { _ohlcvShort++; return }
-        _ohlcvOk++
-
-        const allEvts = scanHistory(bars)
-        const lastNDates = new Set(bars.slice(-SCAN_TRADING_DAYS).map((b) => b.date))
-        const recentEvts = allEvts.filter((e) => lastNDates.has(e.date))
-
-        setStats((s) => ({ ...s, ohlcvDone: s.ohlcvDone + 1 }))
-
-        const strongRecentEvts = recentEvts.filter((e) => e.compressionPct > CONTRACTION_THRESHOLD)
-        if (strongRecentEvts.length > 0) {
-          _hasEvts++
-          contractionHits.push({ symbol: sym, bars, allEvents: allEvts, recentEvents: strongRecentEvts })
-          setStats((s) => ({ ...s, contractionHits: s.contractionHits + 1 }))
-        } else {
-          _noEvts++
-          if (_noEvts === 1) {
-            const lastBar = bars[bars.length - 1]
-            const avgHV = calcHV4D(bars)
-            const lb4 = bars.slice(-4)
-            const h4 = Math.max(...lb4.map((b) => b.high))
-            const l4 = Math.min(...lb4.map((b) => b.low))
-            const rangePercent = (h4 - l4) / l4 * 100
-            const compressionPct = avgHV ? ((avgHV - rangePercent) / avgHV) * 100 : NaN
-            console.log(`[ST] First zero-event sample: ${sym} | bars=${bars.length} allEvts=${allEvts.length} lastDate=${lastBar.date} lastClose=${lastBar.close.toFixed(2)} avgHV=${avgHV.toFixed(2)} rangePercent=${rangePercent.toFixed(2)} compressionPct=${compressionPct.toFixed(1)} lastNDates=[${[...lastNDates].join(',')}]`)
+          worker.onerror = (err) => {
+            tlog(`[SCAN-W${wi}] worker error: ${err.message}`)
+            doneWorkers++
+            if (doneWorkers === chunks.length) { cleanup(); resolve() }
           }
+
+          worker.postMessage({
+            symbols: chunk,
+            apiKey: API_KEY,
+            calDays: FETCH_CAL_DAYS,
+            ohlcvLimit: 1000,
+            scanMode: mode,
+            workerId: wi,
+          })
         }
       })
 
-      await runWithConcurrency(ohlcvTasks, OHLCV_CONCURRENCY, undefined, signal)
-      console.log(`[ST] Phase2 done — taskAborted=${_taskAborted} taskThrew=${_taskThrew} ohlcvNull=${_ohlcvNull} ohlcvShort=${_ohlcvShort} ohlcvOk=${_ohlcvOk} | noEvts=${_noEvts} contractionHits=${_hasEvts} | post-signal.aborted=${signal.aborted}`)
-      console.log(`[ST] detectContraction fail reasons — hvLow=${_dbg.hvLow} compressionLow=${_dbg.compLow} trending=${_dbg.trending} notTight=${_dbg.notTight} | pass=${_dbg.pass}`)
       if (signal.aborted) return
 
-      // ── Phase 3: dark pool scan — sequential per contraction hit ─────────
+      // ── Phase 3: dark pool scan — only if mode includes POI ────────────
       setPhase('scanning-dp')
 
-      for (const hit of contractionHits) {
-        if (signal.aborted) break
-        const { symbol: sym, bars, allEvents: allEvts, recentEvents: recentEvts } = hit
-
-        const daysToScan = bars.slice(-DP_LOOKBACK_DAYS).map((b) => b.date)
-
-        if (MAG8_SYMBOLS.has(sym)) {
-          // High-volume symbol — skip auto POI scan, let user trigger it manually
-          const latestEvt = recentEvts[recentEvts.length - 1]
-          const pendingResult: ScanResult = {
+      if (mode === 'contraction') {
+        // Contraction-only mode: emit results directly without DP scan
+        for (const hit of contractionHits) {
+          if (signal.aborted) break
+          const { symbol: sym, bars, allEvents: allEvts, recentEvents: recentEvts } = hit
+          const latestEvent = recentEvts[recentEvts.length - 1]
+          const compressionPct = latestEvent?.compressionPct ?? 0
+          const result: ScanResult = {
             symbol: sym,
             currentPrice: bars[bars.length - 1].close,
-            compressionPct: latestEvt?.compressionPct ?? 0,
-            squeezeOn: latestEvt?.squeezeOn ?? false,
+            compressionPct,
+            squeezeOn: latestEvent?.squeezeOn ?? false,
             hasPOI: false,
             topPOI: null,
             setupActive: false,
+            setupTier: null,
             bars,
             allEvents: allEvts,
             recentEvents: recentEvts,
@@ -2789,53 +2870,180 @@ export default function StraddleTownScreener() {
             trade: null,
             poiScanPending: true,
           }
-          addResult(pendingResult)
+          addResult(result)
           setStats((s) => ({ ...s, dpDone: s.dpDone + 1 }))
-          continue
         }
+        setPhase('done')
+        return
+      }
 
-        const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, signal)
+      // ── Phase 3: dark pool scan — pool of 4 Web Workers ───────────────
+      // Main thread manages cache + dispatches one symbol per worker at a time.
+      // Workers only do network fetching; POI clustering + trade building stay here.
+      const DP_POOL_SIZE = 6
+      const nonMag8Hits = contractionHits.filter(h => !MAG8_SYMBOLS.has(h.symbol))
+      const mag8Hits = contractionHits.filter(h => MAG8_SYMBOLS.has(h.symbol))
+      const hitsMap = new Map(contractionHits.map(h => [h.symbol, h]))
+      const dpQueue = [...nonMag8Hits]
+      tlog(`[DP] Phase 3 start — ${nonMag8Hits.length} symbols to scan, pool=${DP_POOL_SIZE}`)
+
+      // Emit Mag8 symbols immediately as pending (no DP scan)
+      for (const hit of mag8Hits) {
         if (signal.aborted) break
-
-        const poi = clusterPOI(dpResults)
-        // Require the POI cluster to have at least one DP print within the last 3 calendar days
-        const poiCutoff = new Date()
-        poiCutoff.setDate(poiCutoff.getDate() - 3)
-        const poiCutoffStr = poiCutoff.toISOString().split('T')[0]
-        const recentPOI = poi.filter(p => p.dates.some(d => d >= poiCutoffStr))
-        const hasPOI = recentPOI.length > 0
-        const setupActive = recentEvts.length > 0 && hasPOI
-
-        const latestEvent = recentEvts[recentEvts.length - 1]
-        const compressionPct = latestEvent?.compressionPct ?? 0
-        const bubbleTier = getTopPOIBubbleTier(dpResults, recentPOI[0] ?? null)
-        const isThur = new Date().getDay() === 4
-        const minDays = compressionPct >= 65 && !isThur ? 0 : compressionPct >= 65 ? 8 : compressionPct >= 50 ? 7 : (bubbleTier !== 'gray' ? 0 : 21)
-        const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
-        const trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
-
-        const result: ScanResult = {
-          symbol: sym,
-          currentPrice: bars[bars.length - 1].close,
-          compressionPct: latestEvent?.compressionPct ?? 0,
-          squeezeOn: latestEvent?.squeezeOn ?? false,
-          hasPOI,
-          topPOI: recentPOI[0] ?? null,
-          setupActive,
-          bars,
-          allEvents: allEvts,
-          recentEvents: recentEvts,
-          dpDays: dpResults,
-          poiLevels: recentPOI,
-          trade,
+        const latestEvt = hit.recentEvents[hit.recentEvents.length - 1]
+        const pendingResult: ScanResult = {
+          symbol: hit.symbol,
+          currentPrice: hit.bars[hit.bars.length - 1].close,
+          compressionPct: latestEvt?.compressionPct ?? 0,
+          squeezeOn: latestEvt?.squeezeOn ?? false,
+          hasPOI: false,
+          topPOI: null,
+          setupActive: false,
+          setupTier: null,
+          bars: hit.bars,
+          allEvents: hit.allEvents,
+          recentEvents: hit.recentEvents,
+          dpDays: [],
+          poiLevels: [],
+          trade: null,
+          poiScanPending: true,
         }
+        addResult(pendingResult)
+        setStats((s) => ({ ...s, dpDone: s.dpDone + 1 }))
+      }
 
-        addResult(result)
-        setStats((s) => ({
-          ...s,
-          dpDone: s.dpDone + 1,
-          setupsFound: s.setupsFound + (setupActive ? 1 : 0),
-        }))
+      if (dpQueue.length > 0 && !signal.aborted) {
+        const todayStr = new Date().toISOString().split('T')[0]
+
+        await new Promise<void>((resolve) => {
+          const actualPoolSize = Math.min(DP_POOL_SIZE, dpQueue.length)
+          let activeWorkers = actualPoolSize
+          const dpWorkers: Worker[] = Array.from({ length: actualPoolSize }, (_, i) => new Worker('/workers/straddleDPWorker.js'))
+          const cleanup = () => dpWorkers.forEach(w => w.terminate())
+
+          signal.addEventListener('abort', () => { cleanup(); resolve() }, { once: true })
+
+          const dispatch = async (worker: Worker, wid: number) => {
+            if (signal.aborted || dpQueue.length === 0) {
+              activeWorkers--
+              if (activeWorkers === 0) { cleanup(); resolve() }
+              return
+            }
+            const hit = dpQueue.shift()!
+            const sym = hit.symbol
+            const daysToScan = hit.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
+
+            // Main thread checks cache — send only uncached dates to worker
+            const cachedDays: DPDay[] = []
+            const uncachedDates: string[] = []
+            for (const date of daysToScan) {
+              if (date === todayStr) { uncachedDates.push(date); continue }
+              try {
+                const raw = sessionStorage.getItem(`poi_dp_${sym}_${date}`)
+                if (raw) { cachedDays.push(JSON.parse(raw)); continue }
+              } catch { /* ignore */ }
+              uncachedDates.push(date)
+            }
+
+            const cachedCount = cachedDays.length
+            tlog(`[DP-W${wid}] dispatching ${sym} — ${uncachedDates.length} uncached / ${cachedCount} cached dates`)
+            worker.postMessage({ symbol: sym, dates: uncachedDates, apiKey: API_KEY, workerId: wid })
+
+            worker.onmessage = async (e) => {
+              if (signal.aborted) return
+              const msg = e.data
+              if (msg.type === 'log') {
+                tlog(msg.msg)
+              } else if (msg.type === 'progress') {
+                // progress tick — no-op here (logged inside worker)
+              } else if (msg.type === 'done') {
+                // Write new results to cache
+                for (const day of (msg.dpDays as DPDay[])) {
+                  try { sessionStorage.setItem(`poi_dp_${sym}_${day.date}`, JSON.stringify(day)) } catch { /* quota */ }
+                }
+
+                // Merge cached + fresh, sorted by date
+                const dpResults: DPDay[] = [...cachedDays, ...msg.dpDays].sort((a, b) => a.date.localeCompare(b.date))
+
+                const hitData = hitsMap.get(sym)!
+
+                // triggerDate = most recent contraction date. POI tier = gold/blue/gray based on 90-day notional rank.
+                const triggerDate = hitData.recentEvents.length > 0
+                  ? hitData.recentEvents[hitData.recentEvents.length - 1].date
+                  : hitData.bars[hitData.bars.length - 1].date
+
+                const poi = clusterPOI(dpResults)
+                const { setupTier, activePOI } = computeSetupTier(dpResults, triggerDate)
+                const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'extreme' ? 'gold' : setupTier === 'strong' ? 'blue' : 'gray'
+                const hasPOI = setupTier !== null
+                const setupActive = hitData.recentEvents.length > 0 && hasPOI
+
+                // ── DEBUG: log POI reasoning for every symbol ─────────────
+                const contractionDates = hitData.recentEvents.map(e => e.date)
+                const dpDateRange = dpResults.length
+                  ? `${dpResults[0].date} → ${dpResults[dpResults.length - 1].date}`
+                  : 'NO DP DAYS'
+                const allPoiDates = poi.flatMap(p => p.dates)
+                console.group(`[ST POI] ${sym}`)
+                console.log(`  contraction dates        : ${contractionDates.join(', ') || 'NONE'}`)
+                console.log(`  trigger date             : ${triggerDate}`)
+                console.log(`  dpDays returned          : ${dpResults.length} | range: ${dpDateRange}`)
+                console.log(`  poi clusters             : ${poi.length} | all poi dates: ${[...new Set(allPoiDates)].sort().slice(-10).join(', ')}`)
+                console.log(`  activePOI=$${activePOI?.price.toFixed(2) ?? 'none'} | bubbleTier=${bubbleTier} | setupTier=${setupTier}`)
+                console.log(`  hasPOI=${hasPOI} | setupActive=${setupActive}`)
+                if (!hasPOI && dpResults.length === 0) {
+                  console.warn(`  ⚠ Worker returned 0 dp days — check rate limiting or date window`)
+                }
+                console.groupEnd()
+                // ─────────────────────────────────────────────────────────
+
+                const latestEvent = hitData.recentEvents[hitData.recentEvents.length - 1]
+                const compressionPct = latestEvent?.compressionPct ?? 0
+                const isThur = new Date().getDay() === 4
+                const minDays = setupTier === 'extreme' ? (isThur ? 8 : 0) : setupTier === 'strong' ? 7 : 7
+                const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
+                const trade = setupActive ? buildStraddleTrade(hitData.bars, sym, compressionPct, bubbleTier, realExpiry) : null
+
+                const result: ScanResult = {
+                  symbol: sym,
+                  currentPrice: hitData.bars[hitData.bars.length - 1].close,
+                  compressionPct,
+                  squeezeOn: latestEvent?.squeezeOn ?? false,
+                  hasPOI,
+                  topPOI: activePOI,
+                  setupActive,
+                  setupTier,
+                  bars: hitData.bars,
+                  allEvents: hitData.allEvents,
+                  recentEvents: hitData.recentEvents,
+                  dpDays: dpResults,
+                  poiLevels: poi,
+                  trade,
+                }
+                addResult(result)
+                setStats((s) => ({
+                  ...s,
+                  dpDone: s.dpDone + 1,
+                  setupsFound: s.setupsFound + (setupActive ? 1 : 0),
+                }))
+                tlog(`[DP-W${wid}] ${sym} done — hasPOI=${hasPOI} setupActive=${setupActive} dpDays=${dpResults.length}`)
+
+                // Re-use this worker for the next symbol in the queue
+                dispatch(worker, wid)
+              }
+            }
+
+            worker.onerror = (err) => {
+              tlog(`[DP-W${wid}] ${sym} worker error: ${err.message}`)
+              setStats(s => ({ ...s, dpDone: s.dpDone + 1 }))
+              dispatch(worker, wid)
+            }
+          }
+
+          for (const [wi, worker] of dpWorkers.entries()) {
+            dispatch(worker, wi)
+          }
+        })
       }
 
       setPhase('done')
@@ -2855,26 +3063,27 @@ export default function StraddleTownScreener() {
       const daysToScan = r.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
       const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal)
       const poi = clusterPOI(dpResults)
-      const poiCutoff = new Date()
-      poiCutoff.setDate(poiCutoff.getDate() - 3)
-      const poiCutoffStr = poiCutoff.toISOString().split('T')[0]
-      const recentPOI = poi.filter(p => p.dates.some(d => d >= poiCutoffStr))
-      const hasPOI = recentPOI.length > 0
+      const triggerDateOnDemand = r.recentEvents.length > 0
+        ? r.recentEvents[r.recentEvents.length - 1].date
+        : r.bars[r.bars.length - 1].date
+      const { setupTier, activePOI } = computeSetupTier(dpResults, triggerDateOnDemand)
+      const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'extreme' ? 'gold' : setupTier === 'strong' ? 'blue' : 'gray'
+      const hasPOI = setupTier !== null
       const setupActive = r.recentEvents.length > 0 && hasPOI
       const latestEvent = r.recentEvents[r.recentEvents.length - 1]
       const compressionPct = latestEvent?.compressionPct ?? 0
-      const bubbleTier = getTopPOIBubbleTier(dpResults, recentPOI[0] ?? null)
       const isThursday2 = new Date().getDay() === 4
-      const minDays2 = compressionPct >= 65 && !isThursday2 ? 0 : compressionPct >= 65 ? 8 : compressionPct >= 50 ? 7 : (bubbleTier !== 'gray' ? 0 : 21)
+      const minDays2 = setupTier === 'extreme' ? (isThursday2 ? 8 : 0) : setupTier === 'strong' ? 7 : 7
       const realExpiry2 = setupActive ? await fetchNearestRealExpiry(sym, minDays2, API_KEY) : undefined
       const trade = setupActive ? buildStraddleTrade(r.bars, sym, compressionPct, bubbleTier, realExpiry2) : null
       setResults(prev => prev.map(res => res.symbol === sym ? {
         ...res,
         hasPOI,
-        topPOI: recentPOI[0] ?? null,
+        topPOI: activePOI,
         setupActive,
+        setupTier,
         dpDays: dpResults,
-        poiLevels: recentPOI,
+        poiLevels: poi,
         trade,
         poiScanPending: false,
       } : res))
@@ -2888,31 +3097,52 @@ export default function StraddleTownScreener() {
     const sym = tickerSearch.trim().toUpperCase()
     if (!sym || tickerScanning) return
     setTickerScanning(true)
+    setTickerScanStatus({ phase: 'ohlcv', dpDone: 0, dpTotal: 0 })
     setSelected(null)
+    const lookback = tickerLookback
+    // Calendar days + limit needed for each lookback window:
+    // 1Y = 252 td → ~400 cal days, limit 400
+    // 3Y = 756 td → ~1200 cal days, limit 1200
+    // 5Y = 1260 td → ~1900 cal days, limit 2000
+    const calDays = lookback === 252 ? 400 : lookback === 756 ? 1200 : 1900
+    const ohlcvLimit = lookback === 252 ? 400 : lookback === 756 ? 1200 : 2000
     try {
       const ac = new AbortController()
-      const bars = await fetchOHLCV(sym, API_KEY, ac.signal)
+      const bars = await fetchOHLCV(sym, API_KEY, ac.signal, calDays, ohlcvLimit)
       if (!bars || bars.length < 120) {
         setTickerScanning(false)
+        setTickerScanStatus(null)
         return
       }
       const allEvts = scanHistory(bars)
-      // Individual scan — show all events, no recency filter
+      // Filter contraction events to the selected lookback window
+      const tickerWindowDates = new Set(bars.slice(-lookback).map((b) => b.date))
+      const allEvtsWindow = allEvts.filter((e) => tickerWindowDates.has(e.date))
       const lastNDates = new Set(bars.slice(-SCAN_TRADING_DAYS).map((b) => b.date))
-      const recentEvts = allEvts.filter((e) => lastNDates.has(e.date))
+      const recentEvts = allEvtsWindow.filter((e) => lastNDates.has(e.date))
 
-      const daysToScan = bars.slice(-252).map((b) => b.date)
-      // Use low concurrency (6) for individual scan — 252 days but streaming, avoids OOM
-      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal, 6)
-      // Individual scan — show all POI clusters, no recency filter
+      const daysToScan = bars.slice(-lookback).map((b) => b.date)
+      const dpTotal = daysToScan.length
+      setTickerScanStatus({ phase: 'dp', dpDone: 0, dpTotal })
+      let dpDoneCount = 0
+      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, (pct) => {
+        dpDoneCount = Math.round((pct / 100) * dpTotal)
+        const approxDateIdx = Math.min(dpDoneCount, daysToScan.length - 1)
+        setTickerScanStatus({ phase: 'dp', dpDate: daysToScan[approxDateIdx], dpDone: dpDoneCount, dpTotal })
+      }, ac.signal)
+      // Individual ticker scan — show all POI clusters, apply same tier rules
       const allPOI = clusterPOI(dpResults)
-      const hasPOI = allPOI.length > 0
       const latestEvt = recentEvts[recentEvts.length - 1]
       const compressionPct = latestEvt?.compressionPct ?? 0
+      const tickerTriggerDate = recentEvts.length > 0
+        ? recentEvts[recentEvts.length - 1].date
+        : bars[bars.length - 1].date
+      const { setupTier, activePOI: tickerActivePOI } = computeSetupTier(dpResults, tickerTriggerDate)
+      const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'extreme' ? 'gold' : setupTier === 'strong' ? 'blue' : 'gray'
+      const hasPOI = setupTier !== null
       const setupActive = recentEvts.length > 0 && hasPOI
-      const bubbleTier = getTopPOIBubbleTier(dpResults, allPOI[0] ?? null)
       const isThur = new Date().getDay() === 4
-      const minDays = compressionPct >= 65 && !isThur ? 0 : compressionPct >= 65 ? 8 : compressionPct >= 50 ? 7 : (bubbleTier !== 'gray' ? 0 : 21)
+      const minDays = setupTier === 'extreme' ? (isThur ? 8 : 0) : setupTier === 'strong' ? 7 : 7
       const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
       const trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
 
@@ -2922,10 +3152,11 @@ export default function StraddleTownScreener() {
         compressionPct,
         squeezeOn: latestEvt?.squeezeOn ?? false,
         hasPOI,
-        topPOI: allPOI[0] ?? null,
+        topPOI: tickerActivePOI,
         setupActive,
+        setupTier,
         bars,
-        allEvents: allEvts,
+        allEvents: allEvtsWindow,
         recentEvents: recentEvts,
         dpDays: dpResults,
         poiLevels: allPOI,
@@ -2935,10 +3166,18 @@ export default function StraddleTownScreener() {
       setSelected(result)
       setSelectedFromTickerSearch(true)
       setPhase('done')
+      setTickerSearchedSymbols(prev => [...prev.filter(s => s !== sym), sym])
     } finally {
       setTickerScanning(false)
+      setTickerScanStatus(null)
     }
-  }, [tickerSearch, tickerScanning, API_KEY, addResult])
+  }, [tickerSearch, tickerScanning, tickerLookback, API_KEY, addResult])
+
+  const removeTickerResult = useCallback((sym: string) => {
+    setTickerSearchedSymbols(prev => prev.filter(s => s !== sym))
+    setResults(prev => prev.filter(r => r.symbol !== sym))
+    setSelected(sel => sel?.symbol === sym ? null : sel)
+  }, [])
 
   // ── If a row is selected, show detail view ─────────────────────────────────
   const DetailView = () => {
@@ -2973,46 +3212,17 @@ export default function StraddleTownScreener() {
           >
             ← BACK
           </button>
-          <span
-            style={{
-              ...mono,
-              fontSize: 20,
-              fontWeight: 800,
-              color: '#FFFFFF',
-              letterSpacing: '2px',
-            }}
-          >
-            {r.symbol}
-          </span>
-          <span style={{ ...mono, fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>
-            ${r.currentPrice.toFixed(2)}
-          </span>
-          {r.setupActive && (
-            <span
-              style={{
-                ...mono,
-                fontSize: 11,
-                fontWeight: 800,
-                color: '#FF8C00',
-                background: 'rgba(255,140,0,0.1)',
-                border: '1px solid rgba(255,140,0,0.35)',
-                borderRadius: 3,
-                padding: '3px 10px',
-              }}
-            >
-              ⚡ SETUP ACTIVE
-            </span>
-          )}
         </div>
 
         {/* Chart */}
         <div style={{ height: selectedFromTickerSearch ? 1300 : 749, position: 'relative', flexShrink: 0 }}>
           <StraddleChart
-            candles={r.bars.slice(-CHART_VISIBLE_DAYS)}
+            candles={selectedFromTickerSearch ? r.bars : r.bars.slice(-CHART_VISIBLE_DAYS)}
             events={r.allEvents}
             dpDays={r.dpDays}
             poiLevels={r.poiLevels}
             forceHeight={selectedFromTickerSearch ? 1300 : undefined}
+            symbol={r.symbol}
           />
         </div>
 
@@ -3192,16 +3402,16 @@ export default function StraddleTownScreener() {
         }}>
           <div style={{
             width: 5, height: 36,
-            background: 'linear-gradient(180deg, #FFB800 0%, #FF2D6B 100%)',
+            background: 'linear-gradient(180deg, #FF8C00 0%, #FFD700 100%)',
             borderRadius: 3, flexShrink: 0,
-            boxShadow: '0 0 10px rgba(255,184,0,0.4)',
+            boxShadow: '0 0 12px rgba(255,140,0,0.5)',
           }} />
           <div>
-            <div style={{ ...mono, fontWeight: 900, fontSize: 26, color: '#FFFFFF', letterSpacing: '5px', lineHeight: 1, textShadow: '0 0 20px rgba(255,255,255,0.15)' }}>
+            <div style={{ ...mono, fontWeight: 900, fontSize: 26, color: '#FFFFFF', letterSpacing: '5px', lineHeight: 1 }}>
               STRADDLE TOWN
             </div>
-            <div style={{ ...mono, fontSize: 10, color: '#FF8C00', letterSpacing: '3px', marginTop: 4, fontWeight: 700 }}>
-              VOLATILITY · POI · AI
+            <div style={{ ...mono, fontSize: 10, color: 'rgba(255,255,255,0.45)', letterSpacing: '4px', marginTop: 4, fontWeight: 700 }}>
+              VOLATILITY · CONTRACTION · SCREENER
             </div>
           </div>
         </div>
@@ -3215,35 +3425,16 @@ export default function StraddleTownScreener() {
             letterSpacing: '1.5px',
             cursor: 'pointer',
             borderRadius: 5,
-            padding: '7px 18px',
-            border: active ? `1px solid ${activeColor}99` : '1px solid rgba(255,255,255,0.10)',
-            color: active ? activeColor : '#FFFFFF',
-            background: active
-              ? `linear-gradient(180deg, ${activeColor}28 0%, ${activeColor}10 100%)`
-              : 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
-            boxShadow: active
-              ? `0 0 10px ${activeColor}33, inset 0 1px 0 ${activeColor}22`
-              : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+            padding: '9px 18px',
+            border: active ? '1px solid rgba(255,140,0,0.6)' : '1px solid rgba(255,255,255,0.10)',
+            color: active ? '#FF8C00' : '#FFFFFF',
+            background: '#000000',
+            boxShadow: 'none',
           })
           const lbl: React.CSSProperties = { ...mono, fontSize: 14, fontWeight: 900, color: '#FFFFFF', letterSpacing: '2px' }
           const div = <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={lbl}>VIEW</span>
-                <button style={glossy(viewMode === 'setups', '#00FF88')} onClick={() => setViewMode('setups')}>SETUPS ONLY</button>
-                <button style={glossy(viewMode === 'all', '#FF8C00')} onClick={() => setViewMode('all')}>ALL CONTRACTIONS</button>
-                <button style={glossy(viewMode === 'poi-only', '#FFD700')} onClick={() => setViewMode('poi-only')}>POI ONLY</button>
-                <button style={glossy(viewMode === 'contraction-only', '#41B6F6')} onClick={() => setViewMode('contraction-only')}>CONTRACTION ONLY</button>
-              </div>
-              {div}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={lbl}>COMPRESSION</span>
-                {([40, 50, 65] as const).map(v => (
-                  <button key={v} style={glossy(minCompression === v, '#FF8C00')} onClick={() => setMinCompression(v)}>{v}%+</button>
-                ))}
-              </div>
-              {div}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={lbl}>BUBBLE</span>
                 <button style={glossy(bubbleFilter === 'all', '#FFFFFF')} onClick={() => setBubbleFilter('all')}>ALL</button>
@@ -3263,7 +3454,7 @@ export default function StraddleTownScreener() {
         {/* Action buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
           {/* Individual ticker search */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 4, background: '#080a0d', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid #B8690A', borderRadius: 4, background: '#000000', overflow: 'hidden' }}>
             <input
               value={tickerSearch}
               onChange={e => setTickerSearch(e.target.value.toUpperCase())}
@@ -3272,56 +3463,170 @@ export default function StraddleTownScreener() {
               maxLength={8}
               style={{
                 ...mono,
-                fontSize: 13,
+                fontSize: 16,
                 fontWeight: 900,
                 letterSpacing: 2,
                 color: '#ffffff',
                 background: 'transparent',
                 border: 'none',
                 outline: 'none',
-                padding: '8px 12px',
+                padding: '10px 12px',
                 width: 90,
                 textTransform: 'uppercase',
               }}
             />
+            <select
+              value={tickerLookback}
+              onChange={e => setTickerLookback(Number(e.target.value) as 252 | 756 | 1260)}
+              style={{
+                ...mono,
+                fontSize: 13,
+                fontWeight: 900,
+                letterSpacing: 1,
+                color: '#FF8C00',
+                background: '#000000',
+                border: 'none',
+                borderLeft: '1px solid #B8690A',
+                outline: 'none',
+                padding: '10px 8px',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+              }}
+            >
+              <option value={252}>1Y</option>
+              <option value={756}>3Y</option>
+              <option value={1260}>5Y</option>
+            </select>
             <button
               onClick={runTickerScan}
               disabled={tickerScanning}
               style={{
                 ...mono,
-                fontSize: 11,
+                fontSize: 14,
                 fontWeight: 900,
                 letterSpacing: 2,
-                padding: '8px 14px',
                 cursor: tickerScanning ? 'not-allowed' : 'pointer',
-                background: tickerScanning ? 'rgba(255,255,255,0.04)' : 'rgba(255,140,0,0.18)',
+                background: '#000000',
                 border: 'none',
-                borderLeft: '1px solid rgba(255,140,0,0.3)',
-                color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FF8C00',
+                borderLeft: '1px solid #B8690A',
+                color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
                 textTransform: 'uppercase',
+                padding: '10px 14px',
               }}
             >
               {tickerScanning ? '…' : '▶ SCAN'}
             </button>
           </div>
+          {/* Ticker search result chips */}
+          {tickerSearchedSymbols.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {tickerSearchedSymbols.map(sym => {
+                const r = results.find(x => x.symbol === sym)
+                const isActive = selected?.symbol === sym
+                return (
+                  <div
+                    key={sym}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0,
+                      border: isActive ? '1px solid rgba(255,140,0,0.7)' : '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 4,
+                      background: isActive ? 'rgba(255,140,0,0.1)' : '#0a0c0f',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <button
+                      onClick={() => { if (r) { setSelected(r); setSelectedFromTickerSearch(true) } }}
+                      style={{
+                        ...mono,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        letterSpacing: 1.5,
+                        color: isActive ? '#FF8C00' : '#FFFFFF',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '6px 10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {sym}
+                      {r?.setupActive && <span style={{ color: '#FF8C00', marginLeft: 4 }}>⚡</span>}
+                    </button>
+                    <button
+                      onClick={() => removeTickerResult(sym)}
+                      style={{
+                        ...mono,
+                        fontSize: 11,
+                        fontWeight: 900,
+                        color: 'rgba(255,255,255,0.4)',
+                        background: 'transparent',
+                        border: 'none',
+                        borderLeft: '1px solid rgba(255,255,255,0.08)',
+                        padding: '6px 8px',
+                        cursor: 'pointer',
+                        lineHeight: 1,
+                      }}
+                      title={`Remove ${sym}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Scan mode toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid #B8690A', borderRadius: 4, overflow: 'hidden', background: '#000000' }}>
+            {(['both', 'contraction', 'poi'] as const).map((m, i) => {
+              const labels = { both: 'BOTH', contraction: 'CONTRACTION', poi: 'POI' } as const
+              const colors = { both: '#FFD700', contraction: '#FFD700', poi: '#FFD700' } as const
+              const active = scanMode === m
+              return (
+                <button
+                  key={m}
+                  onClick={() => { setScanMode(m); scanModeRef.current = m }}
+                  style={{
+                    ...mono,
+                    fontSize: 14,
+                    fontWeight: 900,
+                    letterSpacing: 1.5,
+                    padding: '10px 14px',
+                    cursor: 'pointer',
+                    background: '#000000',
+                    color: active ? '#FF8C00' : '#FFFFFF',
+                    border: 'none',
+                    borderLeft: i > 0 ? '1px solid #B8690A' : 'none',
+                    boxShadow: 'none',
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  {labels[m]}
+                </button>
+              )
+            })}
+          </div>
+
           {phase === 'idle' || phase === 'error' ? (
             <button
               onClick={run}
               style={{
-                background: 'linear-gradient(135deg, rgba(255,140,0,0.22) 0%, rgba(255,45,107,0.16) 100%)',
-                border: '1px solid rgba(255,140,0,0.5)',
+                background: '#000000',
+                border: '1px solid #B8690A',
                 borderRadius: 5,
-                padding: '10px 26px',
+                padding: '13px 26px',
                 cursor: 'pointer',
                 ...mono,
-                fontSize: 12,
+                fontSize: 15,
                 fontWeight: 900,
                 color: '#FFFFFF',
                 letterSpacing: '2px',
-                boxShadow: '0 0 16px rgba(255,140,0,0.18)',
+                boxShadow: 'none',
               }}
             >
-              ▶ RUN SCAN
+              ▶ SCAN ALL SYMBOLS
             </button>
           ) : isScanning ? (
             <button
@@ -3330,10 +3635,10 @@ export default function StraddleTownScreener() {
                 background: 'rgba(255,40,60,0.16)',
                 border: '1px solid rgba(255,40,60,0.5)',
                 borderRadius: 5,
-                padding: '10px 26px',
+                padding: '13px 26px',
                 cursor: 'pointer',
                 ...mono,
-                fontSize: 12,
+                fontSize: 15,
                 fontWeight: 900,
                 color: '#FF4060',
                 letterSpacing: '2px',
@@ -3345,16 +3650,17 @@ export default function StraddleTownScreener() {
             <button
               onClick={run}
               style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.15)',
+                background: '#000000',
+                border: '1px solid #B8690A',
                 borderRadius: 4,
-                padding: '8px 22px',
+                padding: '10px 22px',
                 cursor: 'pointer',
                 ...mono,
-                fontSize: 11,
+                fontSize: 14,
                 fontWeight: 900,
                 color: '#FFFFFF',
                 letterSpacing: '2px',
+                boxShadow: 'none',
               }}
             >
               ↺ RESCAN
@@ -3365,7 +3671,7 @@ export default function StraddleTownScreener() {
 
       {/* ── Filter bar (removed — now in header) ─────────────────────────── */}
 
-      {/* ── Progress bar ─────────────────────────────────────────────────── */}
+      {/* ── Progress / Complete bar ────────────────────────────────────── */}
       {isScanning && (
         <div style={{ flexShrink: 0, background: '#0a0b0d', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 24px 4px' }}>
@@ -3423,8 +3729,8 @@ export default function StraddleTownScreener() {
           <button
             onClick={run}
             style={{
-              background: 'linear-gradient(135deg, rgba(255,140,0,0.2) 0%, rgba(255,45,107,0.14) 100%)',
-              border: '1px solid rgba(255,140,0,0.45)',
+              background: '#000000',
+              border: '1px solid rgba(255,255,255,0.18)',
               borderRadius: 5,
               padding: '12px 40px',
               cursor: 'pointer',
@@ -3434,10 +3740,9 @@ export default function StraddleTownScreener() {
               color: '#FFFFFF',
               letterSpacing: '2.5px',
               marginTop: 8,
-              boxShadow: '0 0 20px rgba(255,140,0,0.12)',
             }}
           >
-            ▶ RUN SCAN
+            ▶ SCAN ALL SYMBOLS
           </button>
         </div>
       )}
@@ -3473,12 +3778,11 @@ export default function StraddleTownScreener() {
         <div
           style={{
             flex: 1,
-            overflow: 'hidden',
+            overflow: 'auto',
             padding: '16px 24px',
             display: 'flex',
             flexDirection: 'column',
             gap: 16,
-            minHeight: 0,
           }}
         >
           {results.length === 0 && isScanning && (
@@ -3500,10 +3804,23 @@ export default function StraddleTownScreener() {
                 if (viewMode === 'setups' && !r.setupActive) return false
                 if (viewMode === 'poi-only' && !r.hasPOI) return false
                 if (viewMode === 'contraction-only' && r.recentEvents.length === 0) return false
-                if (r.compressionPct < minCompression) return false
                 if (sqzOnly && !r.squeezeOn) return false
                 if (bubbleFilter !== 'all') {
-                  const tier = getTopPOIBubbleTier(r.dpDays, r.topPOI)
+                  // No POI at all — never matches a tier filter
+                  if (!r.hasPOI || !r.topPOI || !r.dpDays.length) return false
+                  // Restrict dpDays to the trade trigger window:
+                  // use the date of the most recent contraction event as anchor
+                  const triggerDate = r.recentEvents.length > 0
+                    ? r.recentEvents[r.recentEvents.length - 1].date
+                    : r.bars[r.bars.length - 1].date
+                  // Include DP days within 21 calendar days before the trigger (matches scan logic)
+                  const cutoff = new Date(triggerDate)
+                  cutoff.setDate(cutoff.getDate() - 21)
+                  const cutoffStr = cutoff.toISOString().split('T')[0]
+                  const recentDpDays = r.dpDays.filter(d => d.date >= cutoffStr && d.date <= triggerDate)
+                  if (!recentDpDays.length) return false
+                  // Find the top POI level nearest to a recent DP print
+                  const tier = getTopPOIBubbleTier(recentDpDays, r.topPOI)
                   if (tier !== bubbleFilter) return false
                 }
                 return true
@@ -3526,37 +3843,88 @@ export default function StraddleTownScreener() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          paddingTop: '12%',
-          gap: 28,
+          paddingTop: '1%',
+          gap: 36,
         }}>
-          {/* Spinner ring */}
-          <div style={{ position: 'relative', width: 64, height: 64 }}>
+          {/* Spinner ring — doubled size */}
+          <div style={{ position: 'relative', width: 128, height: 128 }}>
             <div style={{
               position: 'absolute', inset: 0,
               borderRadius: '50%',
-              border: '3px solid rgba(255,140,0,0.12)',
+              border: '5px solid rgba(255,140,0,0.12)',
             }} />
             <div style={{
               position: 'absolute', inset: 0,
               borderRadius: '50%',
-              border: '3px solid transparent',
+              border: '5px solid transparent',
               borderTopColor: '#FF8C00',
               animation: 'stSpin 0.9s linear infinite',
             }} />
             <div style={{
-              position: 'absolute', inset: 10,
+              position: 'absolute', inset: 18,
               borderRadius: '50%',
-              border: '2px solid transparent',
+              border: '3px solid transparent',
               borderTopColor: 'rgba(255,45,107,0.7)',
               animation: 'stSpin 1.4s linear infinite reverse',
             }} />
+            <div style={{
+              position: 'absolute', inset: 38,
+              borderRadius: '50%',
+              border: '2px solid transparent',
+              borderTopColor: 'rgba(0,229,255,0.5)',
+              animation: 'stSpin 2s linear infinite',
+            }} />
           </div>
-          <div style={{ ...mono, fontSize: 26, fontWeight: 900, color: '#FFFFFF', letterSpacing: '6px' }}>
-            SCANNING {tickerSearch.trim().toUpperCase()}
+
+          {/* Symbol */}
+          <div style={{ ...mono, fontSize: 52, fontWeight: 900, color: '#FFFFFF', letterSpacing: '10px', lineHeight: 1 }}>
+            {tickerSearch.trim().toUpperCase()}
           </div>
-          <div style={{ ...mono, fontSize: 20, color: 'rgba(255,255,255,0.35)', letterSpacing: '3px' }}>
-            FETCHING OHLCV · DARK POOL · POI
+
+          {/* Phase label */}
+          <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: '#FF8C00', letterSpacing: '4px' }}>
+            {tickerScanStatus?.phase === 'ohlcv' ? 'FETCHING OHLCV DATA' : 'SCANNING DARK POOL · POI'}
           </div>
+
+          {/* Progress detail */}
+          {tickerScanStatus?.phase === 'dp' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 480 }}>
+              {/* Progress bar */}
+              <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                <div style={{
+                  height: '100%',
+                  borderRadius: 2,
+                  background: 'linear-gradient(90deg, #FF8C00, #FF2D6B)',
+                  boxShadow: '0 0 8px rgba(255,140,0,0.5)',
+                  transition: 'width 0.25s ease',
+                  width: `${tickerScanStatus.dpTotal > 0 ? Math.round((tickerScanStatus.dpDone / tickerScanStatus.dpTotal) * 100) : 0}%`,
+                }} />
+              </div>
+              {/* Stats row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ ...mono, fontSize: 36, fontWeight: 900, color: '#FFD700', lineHeight: 1 }}>
+                    {tickerScanStatus.dpTotal > 0 ? Math.round((tickerScanStatus.dpDone / tickerScanStatus.dpTotal) * 100) : 0}%
+                  </div>
+                  <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '2px', marginTop: 4 }}>COMPLETE</div>
+                </div>
+                <div style={{ width: 1, height: 40, background: 'rgba(255,255,255,0.08)' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ ...mono, fontSize: 36, fontWeight: 900, color: '#00E5FF', lineHeight: 1 }}>
+                    {tickerScanStatus.dpDone}<span style={{ fontSize: 18, color: 'rgba(255,255,255,0.4)' }}>/{tickerScanStatus.dpTotal}</span>
+                  </div>
+                  <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '2px', marginTop: 4 }}>DAYS SCANNED</div>
+                </div>
+                <div style={{ width: 1, height: 40, background: 'rgba(255,255,255,0.08)' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ ...mono, fontSize: 22, fontWeight: 900, color: '#FFFFFF', lineHeight: 1 }}>
+                    {tickerScanStatus.dpDate ?? '—'}
+                  </div>
+                  <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '2px', marginTop: 4 }}>CURRENT DATE</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

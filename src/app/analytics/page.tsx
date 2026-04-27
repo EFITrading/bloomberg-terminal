@@ -28,6 +28,10 @@ const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScann
   ssr: false,
 })
 
+const OneWayAnalysis = dynamic(() => import('@/components/analytics/OneWayAnalysis'), {
+  ssr: false,
+})
+
 export default function Analytics() {
   const [activePanels, setActivePanels] = useState<string[]>(['rrg', 'performance'])
 
@@ -120,6 +124,12 @@ export default function Analytics() {
         return (
           <div key={id} style={{ ...panelStyle, overflow: 'hidden', height: 'calc(100vh - 127px)', display: 'flex', flexDirection: 'column' }}>
             <ResearchPanelV2 />
+          </div>
+        )
+      case 'one-way':
+        return (
+          <div key={id} style={{ ...panelStyle, overflow: 'hidden', height: 'calc(100vh - 127px)', display: 'flex', flexDirection: 'column' }}>
+            <OneWayAnalysis />
           </div>
         )
       default:
@@ -630,6 +640,7 @@ export default function Analytics() {
           <TabButton id="straddle-town" label="Straddle Town" />
           <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
           <TabButton id="research" label="Research" />
+          <TabButton id="one-way" label="One Way" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}

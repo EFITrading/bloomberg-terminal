@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 const TICKERS: string[] = [];
 const PATH_LEN = 30;   // measure forward 30 daily bars
 const PRE_LEN = 15;   // bars before trigger to show context of the event itself
-const MIN_WIN = 60;   // minimum 30-bar win rate to qualify
+const MIN_WIN = 65;   // minimum 30-bar win rate to qualify
 const MIN_N = 10;   // minimum occurrences
 const MAX_BARS = 3780; // cap to last 15 years (252 trading days × 15)
 const MIN_BARS = 1260; // require at least 5 years (252 trading days × 5)
@@ -294,10 +294,13 @@ function scanStock(ticker: string, rawBars: Bar[]): StockResult {
     function toPattern(label: string, st: ReturnType<typeof fwdStats>, isActive: boolean, context = ''): Pattern | null {
         if (!st) return null;
         const isBuy = st.w30 >= MIN_WIN;
-        // SELL: equities recover within 30 days in bull markets, so short-window
-        // bearish outcomes (w7/w13) are the real signal for topping/distribution setups.
-        // 45% win rate over 7 or 13 days = 5-point edge — genuine bearish conviction.
-        const isSell = st.w30 <= (100 - MIN_WIN) || st.w7 <= 45 || st.w13 <= 45;
+        // SELL: require 10pt edge AND avg move must be meaningful relative to THIS stock's
+        // own daily return distribution — not a hardcoded number.
+        // retP5 is already negative (e.g. -2% for AAPL, -5% for TSLA)
+        const sellViaW30 = st.w30 <= (100 - MIN_WIN) && st.avg30 <= retP5 * 3;
+        const sellViaW7 = st.w7 <= 40 && st.avg7 <= retP5 * 1.5;
+        const sellViaW13 = st.w13 <= 40 && st.avg13 <= retP5 * 2;
+        const isSell = sellViaW30 || sellViaW7 || sellViaW13;
         if (!isBuy && !isSell) return null;
         if (isBuy) return { label, context, ...st, type: 'BUY', edge: st.w30 - 50, isActive };
         // For SELL: edge = strongest bearish signal across any timeframe
@@ -3209,6 +3212,634 @@ function PatternRow({
     );
 }
 
+// ─── SPY Weighted P/E Chart ───────────────────────────────────────────────────
+interface SPXPEData { history: { date: string; pe: number }[]; avg5y: number | null; avg10y: number | null; current: number | null; constituents?: number; error?: string }
+
+function SPYPERatioChart() {
+    const [data, setData] = useState<SPXPEData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [tf, setTf] = useState<'1Y' | '5Y' | '10Y' | 'MAX'>('5Y');
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const visRef = useRef(0);
+    const offRef = useRef(0);
+    const drawRef = useRef<() => void>(() => { });
+    const inertiaRef = useRef<number | null>(null);
+    const dragRef = useRef({ active: false, startX: 0, startOff: 0, lastX: 0, lastT: 0, vel: 0 });
+
+    useEffect(() => {
+        setLoading(true);
+        setError(null);
+        fetch('/api/spx-pe')
+            .then(r => r.json())
+            .then((json: SPXPEData) => {
+                if (json.error && (!json.history || json.history.length === 0)) setError(json.error);
+                else setData(json);
+                setLoading(false);
+            })
+            .catch(err => { setError(String(err)); setLoading(false); });
+    }, []);
+
+    useEffect(() => {
+        if (!data || data.history.length < 2) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const MONO = "'JetBrains Mono', 'Consolas', monospace";
+        const PL = 46, PR = 90, PT = 48, PB = 46;
+        const n = data.history.length;
+
+        let initVis: number;
+        switch (tf) {
+            case '1Y': initVis = Math.min(252, n); break;
+            case '5Y': initVis = Math.min(252 * 5, n); break;
+            case '10Y': initVis = Math.min(252 * 10, n); break;
+            default: initVis = n;
+        }
+        visRef.current = initVis;
+        offRef.current = Math.max(0, n - initVis);
+
+        const draw = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const W = canvas.offsetWidth;
+            const H = canvas.offsetHeight;
+            if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+                canvas.width = W * dpr; canvas.height = H * dpr;
+                canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+            }
+            const ctx = canvas.getContext('2d')!;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            const vis = Math.max(10, Math.min(n, visRef.current));
+            const off = Math.max(0, Math.min(n - vis, offRef.current));
+            const slice = data.history.slice(off, off + vis);
+            const sn = slice.length;
+            if (sn < 2) return;
+
+            const cW = W - PL - PR;
+            const cH = H - PT - PB;
+
+            const peVals = slice.map(h => h.pe);
+            const refs = [data.avg5y, data.avg10y].filter(v => v !== null) as number[];
+            let minPE = Math.min(...peVals, ...refs);
+            let maxPE = Math.max(...peVals, ...refs);
+            const pad = (maxPE - minPE) * 0.12 || 1;
+            minPE -= pad; maxPE += pad;
+
+            const xOf = (i: number) => PL + (i / (sn - 1)) * cW;
+            const yOf = (v: number) => PT + cH - ((v - minPE) / (maxPE - minPE)) * cH;
+
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, W, H);
+
+            // Title
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `700 13px ${MONO}`;
+            ctx.textAlign = 'left';
+            ctx.setLineDash([]);
+            ctx.fillText(`S&P 500 — WEIGHTED P/E RATIO`, PL, 24);
+            if (data.constituents) {
+                ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                ctx.font = `11px ${MONO}`;
+                ctx.fillText(`${data.constituents} CONSTITUENTS`, PL + ctx.measureText('S&P 500 — WEIGHTED P/E RATIO').width + 14, 24);
+            }
+
+            // X axis
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(PL, PT + cH + 0.5); ctx.lineTo(W - PR, PT + cH + 0.5); ctx.stroke();
+
+            // Y axis
+            ctx.beginPath(); ctx.moveTo(PL + 0.5, PT); ctx.lineTo(PL + 0.5, PT + cH); ctx.stroke();
+
+            // Y labels
+            ctx.fillStyle = '#ffffff'; ctx.font = `12px ${MONO}`; ctx.textAlign = 'right';
+            for (let yi = 0; yi <= 4; yi++) {
+                const v = minPE + ((maxPE - minPE) * yi) / 4;
+                const y = yOf(v);
+                if (y < PT + 4 || y > PT + cH - 4) continue;
+                ctx.fillText(`${Math.round(v)}x`, PL - 4, y + 4);
+            }
+
+            // 10y avg (blue)
+            if (data.avg10y !== null) {
+                const y = yOf(data.avg10y);
+                ctx.save(); ctx.strokeStyle = '#4a8cff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+                ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke(); ctx.restore();
+            }
+
+            // 5y avg (purple)
+            if (data.avg5y !== null) {
+                const y = yOf(data.avg5y);
+                ctx.save(); ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+                ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke(); ctx.restore();
+            }
+
+            // Area fill
+            const grad = ctx.createLinearGradient(0, PT, 0, PT + cH);
+            grad.addColorStop(0, 'rgba(255,140,0,0.22)');
+            grad.addColorStop(1, 'rgba(255,140,0,0.02)');
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(xOf(0), yOf(slice[0].pe));
+            for (let i = 1; i < sn; i++) ctx.lineTo(xOf(i), yOf(slice[i].pe));
+            ctx.lineTo(xOf(sn - 1), PT + cH); ctx.lineTo(xOf(0), PT + cH);
+            ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+            // P/E line
+            ctx.beginPath();
+            ctx.moveTo(xOf(0), yOf(slice[0].pe));
+            for (let i = 1; i < sn; i++) ctx.lineTo(xOf(i), yOf(slice[i].pe));
+            ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.setLineDash([]); ctx.stroke();
+
+            // Right-rail labels
+            type RailItem = { y: number; label1: string; label2: string; color: string; isBox: boolean };
+            const railItems: RailItem[] = [];
+            const currentPE = data.history[data.history.length - 1].pe;
+            railItems.push({ y: yOf(currentPE), label1: `${currentPE}x`, label2: '', color: '#ff8c00', isBox: true });
+            if (data.avg5y !== null) railItems.push({ y: yOf(data.avg5y), label1: '5y avg.', label2: `${data.avg5y}x`, color: '#a78bfa', isBox: false });
+            if (data.avg10y !== null) railItems.push({ y: yOf(data.avg10y), label1: '10y avg.', label2: `${data.avg10y}x`, color: '#4a8cff', isBox: false });
+
+            railItems.sort((a, b) => a.y - b.y);
+            const LINE_H = 30;
+            for (let pass = 0; pass < 10; pass++) {
+                for (let i = 1; i < railItems.length; i++) {
+                    if (railItems[i].y - railItems[i - 1].y < LINE_H) railItems[i].y = railItems[i - 1].y + LINE_H;
+                }
+            }
+            for (const item of railItems) item.y = Math.max(PT + 12, Math.min(PT + cH - 6, item.y));
+
+            const bx = W - PR + 6;
+            ctx.textAlign = 'left';
+            for (const item of railItems) {
+                if (item.isBox) {
+                    ctx.font = `900 19px ${MONO}`;
+                    const tw = ctx.measureText(item.label1).width;
+                    const bh = 26, by = item.y - bh / 2;
+                    ctx.fillStyle = 'rgba(255,140,0,0.15)'; ctx.strokeStyle = 'rgba(255,140,0,0.55)';
+                    ctx.lineWidth = 1; ctx.setLineDash([]);
+                    ctx.beginPath(); ctx.roundRect(bx - 2, by, tw + 10, bh, 3); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#ff8c00'; ctx.fillText(item.label1, bx + 3, by + bh - 5);
+                } else {
+                    ctx.font = `700 13px ${MONO}`; ctx.fillStyle = item.color;
+                    ctx.fillText(item.label1, bx, item.y - 4);
+                    ctx.fillText(item.label2, bx, item.y + 12);
+                }
+            }
+
+            // X-axis date labels
+            ctx.fillStyle = '#ffffff'; ctx.font = `13px ${MONO}`; ctx.textAlign = 'center'; ctx.setLineDash([]);
+            const labelCount = Math.min(8, sn);
+            for (let li = 0; li < labelCount; li++) {
+                const i = Math.round((li / (labelCount - 1)) * (sn - 1));
+                const d = new Date(slice[i].date);
+                const line1 = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const line2 = d.getFullYear().toString();
+                const x = xOf(i);
+                ctx.fillText(line1, x, PT + cH + 18);
+                ctx.fillText(line2, x, PT + cH + 33);
+            }
+        };
+
+        drawRef.current = draw;
+        draw();
+
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const factor = e.deltaY > 0 ? 1.15 : 0.87;
+            const newVis = Math.max(20, Math.min(n, Math.round(visRef.current * factor)));
+            const cW = canvas.offsetWidth - PL - PR;
+            const ratio = Math.max(0, Math.min(1, (e.offsetX - PL) / cW));
+            const pivot = offRef.current + Math.round(ratio * visRef.current);
+            offRef.current = Math.max(0, Math.min(n - newVis, Math.round(pivot - ratio * newVis)));
+            visRef.current = newVis;
+            draw();
+        };
+
+        const onMouseDown = (e: MouseEvent) => {
+            if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null; }
+            dragRef.current = { active: true, startX: e.clientX, startOff: offRef.current, lastX: e.clientX, lastT: Date.now(), vel: 0 };
+            canvas.style.cursor = 'grabbing';
+        };
+        const onMouseMove = (e: MouseEvent) => {
+            if (!dragRef.current.active) return;
+            const bpp = visRef.current / (canvas.offsetWidth - PL - PR);
+            const dx = e.clientX - dragRef.current.startX;
+            const newOff = Math.max(0, Math.min(n - visRef.current, Math.round(dragRef.current.startOff - dx * bpp)));
+            const now2 = Date.now();
+            dragRef.current.vel = (offRef.current - newOff) / Math.max(1, now2 - dragRef.current.lastT);
+            dragRef.current.lastX = e.clientX; dragRef.current.lastT = now2;
+            offRef.current = newOff; draw();
+        };
+        const onMouseUp = () => {
+            if (!dragRef.current.active) return;
+            dragRef.current.active = false;
+            canvas.style.cursor = 'grab';
+            let vel = dragRef.current.vel;
+            const animate = () => {
+                if (Math.abs(vel) < 0.01) { inertiaRef.current = null; return; }
+                offRef.current = Math.max(0, Math.min(n - visRef.current, Math.round(offRef.current + vel * 16)));
+                vel *= 0.90; draw();
+                inertiaRef.current = requestAnimationFrame(animate);
+            };
+            inertiaRef.current = requestAnimationFrame(animate);
+        };
+
+        const ro = new ResizeObserver(() => draw());
+        ro.observe(canvas);
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        canvas.style.cursor = 'grab';
+
+        return () => {
+            ro.disconnect();
+            canvas.removeEventListener('wheel', onWheel);
+            canvas.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            if (inertiaRef.current !== null) cancelAnimationFrame(inertiaRef.current);
+        };
+    }, [data, tf]);
+
+    const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', 'Consolas', monospace" };
+
+    if (loading) return (
+        <div style={{ height: 432, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,140,0,0.6)', fontSize: 12, letterSpacing: 2, ...mono }}>
+            COMPUTING S&P 500 WEIGHTED P/E (~500 CONSTITUENTS)...
+        </div>
+    );
+    if (error) return (
+        <div style={{ height: 432, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,80,80,0.7)', fontSize: 12, letterSpacing: 2, ...mono }}>
+            {error}
+        </div>
+    );
+
+    return (
+        <div style={{ background: '#000', borderRadius: 6, overflow: 'hidden' }}>
+            {/* Timeframe buttons */}
+            <div style={{ display: 'flex', gap: 6, padding: '10px 12px 4px', background: '#000' }}>
+                {(['1Y', '5Y', '10Y', 'MAX'] as const).map(t => (
+                    <button key={t} onClick={() => setTf(t)} style={{
+                        background: 'transparent',
+                        border: `1px solid ${tf === t ? '#ff8c00' : 'rgba(255,255,255,0.30)'}`,
+                        borderRadius: 3, color: tf === t ? '#ff8c00' : '#ffffff',
+                        fontSize: 11, fontWeight: 700, letterSpacing: 2, padding: '4px 10px',
+                        cursor: 'pointer', ...mono,
+                    }}>{t}</button>
+                ))}
+            </div>
+            <canvas ref={canvasRef} style={{ width: '100%', height: '432px', display: 'block', cursor: 'grab' }} />
+        </div>
+    );
+}
+
+// ─── P/E Ratio Chart ─────────────────────────────────────────────────────────
+interface PEHistory { date: string; pe: number }
+interface PERatioData { history: PEHistory[]; avg5y: number | null; avg10y: number | null; current: number | null; error?: string }
+
+function PERatioChart({ ticker }: { ticker: string }) {
+    const [data, setData] = useState<PERatioData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [tf, setTf] = useState<'1Y' | '5Y' | '10Y' | 'MAX'>('5Y');
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const visRef = useRef(0);
+    const offRef = useRef(0);
+    const drawRef = useRef<() => void>(() => { });
+    const inertiaRef = useRef<number | null>(null);
+    const dragRef = useRef({ active: false, startX: 0, startOff: 0, lastX: 0, lastT: 0, vel: 0 });
+
+    // Fetch on ticker change
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        fetch(ticker === 'SPY' ? '/api/spx-pe' : `/api/pe-ratio?ticker=${encodeURIComponent(ticker)}`)
+            .then(r => r.json())
+            .then((json: PERatioData) => {
+                if (cancelled) return;
+                if (json.error && json.history.length === 0) setError(json.error);
+                else setData(json);
+                setLoading(false);
+            })
+            .catch(err => { if (!cancelled) { setError(String(err)); setLoading(false); } });
+        return () => { cancelled = true; };
+    }, [ticker]);
+
+    // Draw + interaction — re-runs when data or tf changes
+    useEffect(() => {
+        if (!data || data.history.length < 2) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const MONO = "'JetBrains Mono', 'Consolas', monospace";
+        const PL = 46, PR = 90, PT = 48, PB = 46;
+        const n = data.history.length;
+
+        // Init viewport for selected timeframe
+        let initVis: number;
+        switch (tf) {
+            case '1Y': initVis = Math.min(252, n); break;
+            case '5Y': initVis = Math.min(252 * 5, n); break;
+            case '10Y': initVis = Math.min(252 * 10, n); break;
+            default: initVis = n; break; // MAX
+        }
+        visRef.current = initVis;
+        offRef.current = Math.max(0, n - initVis);
+
+        const draw = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const W = canvas.offsetWidth;
+            const H = canvas.offsetHeight;
+            if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+                canvas.width = W * dpr;
+                canvas.height = H * dpr;
+                canvas.style.width = `${W}px`;
+                canvas.style.height = `${H}px`;
+            }
+            const ctx = canvas.getContext('2d')!;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            const vis = Math.max(10, Math.min(n, visRef.current));
+            const off = Math.max(0, Math.min(n - vis, offRef.current));
+            const slice = data.history.slice(off, off + vis);
+            const sn = slice.length;
+            if (sn < 2) return;
+
+            const cW = W - PL - PR;
+            const cH = H - PT - PB;
+
+            // Range from visible slice + ref lines
+            const peVals = slice.map(h => h.pe);
+            const refs = [data.avg5y, data.avg10y].filter(v => v !== null) as number[];
+            let minPE = Math.min(...peVals, ...refs);
+            let maxPE = Math.max(...peVals, ...refs);
+            const pad = (maxPE - minPE) * 0.12 || 1;
+            minPE -= pad; maxPE += pad;
+
+            const xOf = (i: number) => PL + (i / (sn - 1)) * cW;
+            const yOf = (v: number) => PT + cH - ((v - minPE) / (maxPE - minPE)) * cH;
+
+            // ── Background — solid black ──────────────────────────────────────
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, W, H);
+
+            // ── Title ─────────────────────────────────────────────────────────
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `700 13px ${MONO}`;
+            ctx.textAlign = 'left';
+            ctx.setLineDash([]);
+            ctx.fillText(ticker === 'SPY' ? 'S&P 500 — WEIGHTED P/E RATIO' : `${ticker} — TRAILING P/E RATIO`, PL, 24);
+
+            // ── X axis ────────────────────────────────────────────────────────
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(PL, PT + cH + 0.5);
+            ctx.lineTo(W - PR, PT + cH + 0.5);
+            ctx.stroke();
+
+            // ── Y axis (left) ─────────────────────────────────────────────────
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(PL + 0.5, PT);
+            ctx.lineTo(PL + 0.5, PT + cH);
+            ctx.stroke();
+
+            // ── Y axis labels ─────────────────────────────────────────────────
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `12px ${MONO}`;
+            ctx.textAlign = 'right';
+            const ySteps = 4;
+            for (let yi = 0; yi <= ySteps; yi++) {
+                const v = minPE + ((maxPE - minPE) * yi) / ySteps;
+                const y = yOf(v);
+                if (y < PT + 4 || y > PT + cH - 4) continue;
+                ctx.fillText(`${Math.round(v)}x`, PL - 4, y + 4);
+            }
+
+            // ── 10y avg dashed line (blue) ────────────────────────────────────
+            if (data.avg10y !== null) {
+                const y = yOf(data.avg10y);
+                ctx.save();
+                ctx.strokeStyle = '#4a8cff';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ── 5y avg dashed line (purple) ───────────────────────────────────
+            if (data.avg5y !== null) {
+                const y = yOf(data.avg5y);
+                ctx.save();
+                ctx.strokeStyle = '#a78bfa';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ── Area fill ─────────────────────────────────────────────────────
+            const grad = ctx.createLinearGradient(0, PT, 0, PT + cH);
+            grad.addColorStop(0, 'rgba(32,178,170,0.28)');
+            grad.addColorStop(1, 'rgba(32,178,170,0.02)');
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(xOf(0), yOf(slice[0].pe));
+            for (let i = 1; i < sn; i++) ctx.lineTo(xOf(i), yOf(slice[i].pe));
+            ctx.lineTo(xOf(sn - 1), PT + cH);
+            ctx.lineTo(xOf(0), PT + cH);
+            ctx.closePath();
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            // ── P/E line ──────────────────────────────────────────────────────
+            ctx.beginPath();
+            ctx.moveTo(xOf(0), yOf(slice[0].pe));
+            for (let i = 1; i < sn; i++) ctx.lineTo(xOf(i), yOf(slice[i].pe));
+            ctx.strokeStyle = '#20b2aa';
+            ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.setLineDash([]);
+            ctx.stroke();
+
+            // ── Right-rail labels: current PE box + avg labels (de-clustered) ─
+            // Collect all right-rail items sorted by Y position
+            type RailItem = { y: number; label1: string; label2: string; color: string; isBox: boolean };
+            const railItems: RailItem[] = [];
+
+            const currentPE = data.history[data.history.length - 1].pe;
+            railItems.push({ y: yOf(currentPE), label1: `${currentPE}x`, label2: '', color: '#ff8c00', isBox: true });
+            if (data.avg5y !== null) railItems.push({ y: yOf(data.avg5y), label1: '5y avg.', label2: `${data.avg5y}x`, color: '#a78bfa', isBox: false });
+            if (data.avg10y !== null) railItems.push({ y: yOf(data.avg10y), label1: '10y avg.', label2: `${data.avg10y}x`, color: '#4a8cff', isBox: false });
+
+            // Sort by Y ascending, then spread to avoid overlap
+            railItems.sort((a, b) => a.y - b.y);
+            const LINE_H = 30; // minimum vertical gap per label block
+            for (let pass = 0; pass < 10; pass++) {
+                for (let i = 1; i < railItems.length; i++) {
+                    if (railItems[i].y - railItems[i - 1].y < LINE_H) {
+                        railItems[i].y = railItems[i - 1].y + LINE_H;
+                    }
+                }
+            }
+            // Clamp to canvas
+            for (const item of railItems) {
+                item.y = Math.max(PT + 12, Math.min(PT + cH - 6, item.y));
+            }
+
+            const bx = W - PR + 6;
+            ctx.textAlign = 'left';
+            for (const item of railItems) {
+                if (item.isBox) {
+                    ctx.font = `900 19px ${MONO}`;
+                    const tw = ctx.measureText(item.label1).width;
+                    const bh = 26;
+                    const by = item.y - bh / 2;
+                    ctx.fillStyle = 'rgba(255,140,0,0.15)';
+                    ctx.strokeStyle = 'rgba(255,140,0,0.55)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([]);
+                    ctx.beginPath();
+                    ctx.roundRect(bx - 2, by, tw + 10, bh, 3);
+                    ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#ff8c00';
+                    ctx.fillText(item.label1, bx + 3, by + bh - 5);
+                } else {
+                    ctx.font = `700 13px ${MONO}`;
+                    ctx.fillStyle = item.color;
+                    ctx.fillText(item.label1, bx, item.y - 4);
+                    ctx.fillText(item.label2, bx, item.y + 12);
+                }
+            }
+
+            // ── X-axis date labels ────────────────────────────────────────────
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `13px ${MONO}`;
+            ctx.textAlign = 'center';
+            ctx.setLineDash([]);
+            const labelCount = Math.min(8, sn);
+            for (let li = 0; li < labelCount; li++) {
+                const i = Math.round((li / (labelCount - 1)) * (sn - 1));
+                const d = new Date(slice[i].date);
+                // Two-line label: "Jun 18" on top, "2026" below
+                const line1 = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const line2 = d.getFullYear().toString();
+                const x = xOf(i);
+                ctx.fillText(line1, x, PT + cH + 18);
+                ctx.fillText(line2, x, PT + cH + 33);
+            }
+        };
+
+        drawRef.current = draw;
+        draw();
+
+        // ── Wheel zoom ────────────────────────────────────────────────────────
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const factor = e.deltaY > 0 ? 1.15 : 0.87;
+            const newVis = Math.max(20, Math.min(n, Math.round(visRef.current * factor)));
+            const cW = canvas.offsetWidth - PL - PR;
+            const ratio = Math.max(0, Math.min(1, (e.offsetX - PL) / cW));
+            const pivot = offRef.current + Math.round(ratio * visRef.current);
+            offRef.current = Math.max(0, Math.min(n - newVis, Math.round(pivot - ratio * newVis)));
+            visRef.current = newVis;
+            draw();
+        };
+
+        // ── Drag pan ──────────────────────────────────────────────────────────
+        const onMouseDown = (e: MouseEvent) => {
+            if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null; }
+            dragRef.current = { active: true, startX: e.clientX, startOff: offRef.current, lastX: e.clientX, lastT: Date.now(), vel: 0 };
+            canvas.style.cursor = 'grabbing';
+        };
+        const onMouseMove = (e: MouseEvent) => {
+            if (!dragRef.current.active) return;
+            const bpp = visRef.current / (canvas.offsetWidth - PL - PR);
+            const dx = e.clientX - dragRef.current.startX;
+            const newOff = Math.max(0, Math.min(n - visRef.current, Math.round(dragRef.current.startOff - dx * bpp)));
+            const now = Date.now();
+            const dt = Math.max(1, now - dragRef.current.lastT);
+            dragRef.current.vel = (offRef.current - newOff) / dt;
+            dragRef.current.lastX = e.clientX;
+            dragRef.current.lastT = now;
+            offRef.current = newOff;
+            draw();
+        };
+        const onMouseUp = () => {
+            if (!dragRef.current.active) return;
+            dragRef.current.active = false;
+            canvas.style.cursor = 'grab';
+            let vel = dragRef.current.vel;
+            const animate = () => {
+                if (Math.abs(vel) < 0.01) { inertiaRef.current = null; return; }
+                offRef.current = Math.max(0, Math.min(n - visRef.current, Math.round(offRef.current + vel * 16)));
+                vel *= 0.90;
+                draw();
+                inertiaRef.current = requestAnimationFrame(animate);
+            };
+            inertiaRef.current = requestAnimationFrame(animate);
+        };
+
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        canvas.style.cursor = 'grab';
+
+        const ro = new ResizeObserver(() => draw());
+        ro.observe(canvas);
+
+        return () => {
+            canvas.removeEventListener('wheel', onWheel);
+            canvas.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            ro.disconnect();
+            if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null; }
+        };
+    }, [data, ticker, tf]);
+
+    if (loading) return (
+        <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11, fontFamily: 'monospace' }}>
+            LOADING P/E DATA...
+        </div>
+    );
+    if (error) return (
+        <div style={{ padding: '12px 16px', color: '#ff6666', fontSize: 11, fontFamily: 'monospace' }}>
+            P/E: {error}
+        </div>
+    );
+    if (!data || data.history.length === 0) return null;
+
+    const MONO_CSS: React.CSSProperties = { fontFamily: "'JetBrains Mono', 'Consolas', monospace" };
+    const tfOptions = ['1Y', '5Y', '10Y', 'MAX'] as const;
+
+    return (
+        <div style={{ marginBottom: 18, background: '#000000', border: '1px solid rgba(32,178,170,0.15)', borderRadius: 6, overflow: 'hidden' }}>
+            {/* Timeframe selector */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                {tfOptions.map(t => (
+                    <button key={t} onClick={() => setTf(t)} style={{
+                        background: tf === t ? 'rgba(32,178,170,0.18)' : 'transparent',
+                        border: `1px solid ${tf === t ? '#20b2aa' : 'rgba(255,255,255,0.30)'}`,
+                        borderRadius: 3,
+                        color: tf === t ? '#20b2aa' : '#ffffff',
+                        fontSize: 11, fontWeight: 700, letterSpacing: '1px',
+                        padding: '3px 9px', cursor: 'pointer',
+                        ...MONO_CSS,
+                    }}>{t}</button>
+                ))}
+            </div>
+            <canvas ref={canvasRef} style={{ width: '100%', height: 432, display: 'block', cursor: 'grab' }} />
+        </div>
+    );
+}
+
 // ─── Stock Card ───────────────────────────────────────────────────────────────
 function StockCard({ ticker }: { ticker: string }) {
     const [result, setResult] = useState<StockResult | null>(null);
@@ -3216,6 +3847,7 @@ function StockCard({ ticker }: { ticker: string }) {
     const [error, setError] = useState<string | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [showAll, setShowAll] = useState(false);
+    const [showPE, setShowPE] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -3282,8 +3914,18 @@ function StockCard({ ticker }: { ticker: string }) {
 
     if (!result) return null;
 
-    // Rarity tiers — filter out common noise (>200 occurrences)
-    const qualifiedPatterns = result.patterns.filter(p => p.n <= 200);
+    // Filter: rarity cap + move must exceed a multiple of this stock's own daily vol
+    // retP95 / retP5 come from the stock's own distribution — no hardcoded thresholds
+    const { retP95, retP5 } = result.dna;
+    const qualifiedPatterns = result.patterns.filter(p =>
+        p.n <= 200 &&
+        (p.type === 'BUY'
+            ? p.avg30 >= retP95 * 3           // BUY: 30-bar return must beat 3× this stock's 95th-pct daily move
+            : (p.avg7 <= retP5 * 1.5 ||      // SELL: drop must beat 1.5× worst typical day over 7 bars
+                p.avg13 <= retP5 * 2 ||      //       or 2× over 13 bars
+                p.avg30 <= retP5 * 3)          //       or 3× over 30 bars
+        )
+    );
     const activePatterns = qualifiedPatterns.filter(p => p.isActive);
     const displayAll = showAll ? qualifiedPatterns : qualifiedPatterns.slice(0, 12);
     const retColor = result.todayRet >= 0 ? '#00ff88' : '#ff3333';
@@ -3349,84 +3991,31 @@ function StockCard({ ticker }: { ticker: string }) {
                         }}>
                             {result.patterns.length} PATTERNS
                         </div>
+                        {/* P/E toggle button */}
+                        <button
+                            onClick={() => setShowPE(v => !v)}
+                            style={{
+                                background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
+                                border: `1px solid ${showPE ? 'rgba(32,178,170,0.50)' : 'rgba(255,255,255,0.12)'}`,
+                                borderRadius: 3,
+                                padding: '4px 10px',
+                                color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
+                                fontSize: 11, fontWeight: 700, letterSpacing: '1px',
+                                cursor: 'pointer',
+                                ...mono,
+                            }}
+                        >
+                            {showPE ? 'HIDE P/E' : 'P/E RATIO'}
+                        </button>
                     </div>
                 </div>
 
-                {/* Row 2: Meta stats — horizontal strip */}
-                <div style={{
-                    display: 'flex',
-                    borderTop: '1px solid rgba(255,255,255,0.06)',
-                    borderBottom: '1px solid rgba(255,255,255,0.06)',
-                    background: '#080808',
-                    borderRadius: 4,
-                    overflow: 'hidden',
-                    marginBottom: 12,
-                }}>
-                    {[
-                        { label: 'DAILY BARS', value: result.bars.toLocaleString(), vc: '#ffffff' },
-                        { label: 'BELOW ATH', value: `${ddAbs.toFixed(1)}%`, vc: ddColor },
-                        { label: 'DATE RANGE', value: result.dateRange, vc: '#ffffff' },
-                    ].map((cell, i) => (
-                        <div key={cell.label} style={{
-                            flex: 1,
-                            padding: '9px 14px',
-                            borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-                        }}>
-                            <div style={{ color: '#ff6600', fontSize: 14, letterSpacing: '2px', marginBottom: 4, fontWeight: 700, ...mono }}>{cell.label}</div>
-                            <div style={{ color: cell.vc, fontSize: 14, fontWeight: 900, letterSpacing: '1px', ...mono }}>{cell.value}</div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Row 3: DNA chips */}
-                {(() => {
-                    const d = result.dna;
-                    const f1 = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-                    const groups: Array<{ label: string; value: string; vc?: string }[]> = [
-                        [
-                            { label: 'UP LEG AVG', value: `${d.avgUpLeg.toFixed(1)}d` },
-                            { label: 'DN LEG AVG', value: `${d.avgDnLeg.toFixed(1)}d` },
-                            { label: 'SWING WIN', value: `${d.wS}d` },
-                            { label: 'CYCLE WIN', value: `${d.wM}d` },
-                        ],
-                        [
-                            { label: 'STREAK p75', value: `${d.strP75}d` },
-                            { label: 'STREAK p90', value: `${d.strP90}d` },
-                        ],
-                        [
-                            { label: 'RET p5', value: f1(d.retP5), vc: '#ff4444' },
-                            { label: 'RET p95', value: f1(d.retP95), vc: '#00ff88' },
-                            { label: 'GAP p5', value: f1(d.gapP5), vc: '#ff4444' },
-                            { label: 'GAP p95', value: f1(d.gapP95), vc: '#00ff88' },
-                            { label: 'DD p50', value: f1(d.ddP50), vc: '#ff8c00' },
-                            { label: 'DD p75', value: f1(d.ddP75), vc: '#ff4444' },
-                        ],
-                    ];
-                    return (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                            {groups.flatMap((g, gi) => [
-                                ...g.map(item => (
-                                    <div key={item.label} style={{
-                                        background: '#111',
-                                        border: '1px solid rgba(255,255,255,0.08)',
-                                        borderRadius: 4,
-                                        padding: '5px 10px',
-                                        minWidth: 0,
-                                    }}>
-                                        <div style={{ color: '#ff6600', fontSize: 14, letterSpacing: '1.5px', marginBottom: 2, fontWeight: 700, ...mono }}>{item.label}</div>
-                                        <div style={{ color: item.vc ?? '#ffffff', fontSize: 12, fontWeight: 900, ...mono }}>{item.value}</div>
-                                    </div>
-                                )),
-                                gi < groups.length - 1
-                                    ? <div key={`sep-${gi}`} style={{ width: 1, background: 'rgba(255,255,255,0.07)', alignSelf: 'stretch', margin: '0 2px' }} />
-                                    : null,
-                            ])}
-                        </div>
-                    );
-                })()}
             </div>
 
             <div style={{ padding: '14px 18px' }}>
+
+                {/* ── P/E Ratio Chart (toggled) ────────────────────────────── */}
+                {showPE && <PERatioChart ticker={ticker} />}
 
                 {/* ── Composite signal panel ─────────────────────────────────── */}
                 <ComboPanel combo={result.combo} bars={result.sortedBars} wyckoffZones={result.wyckoffZones} />
@@ -3734,11 +4323,12 @@ export default function ResearchPanelV2() {
             <div style={{ padding: '0 28px', flex: 1, overflowY: 'auto' }}>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    gridTemplateColumns: tickers.length === 1 ? '1fr' : '1fr 1fr',
                     gap: '20px',
                     alignItems: 'start',
                     paddingTop: '24px',
                     paddingBottom: '24px',
+                    maxWidth: tickers.length === 1 ? '100%' : undefined,
                 }}>
                     {tickers.map(t => <StockCard key={t} ticker={t} />)}
                 </div>

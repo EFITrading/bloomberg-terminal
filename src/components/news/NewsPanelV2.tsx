@@ -964,7 +964,17 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
   useEffect(() => {
     fetchCalendarData(calMonth.year, calMonth.month)
-  }, [fetchCalendarData, calMonth])
+    // If the current week's Friday falls in a different month, fetch that month too
+    const friday = new Date(calWeekOf)
+    friday.setDate(calWeekOf.getDate() + 4)
+    if (friday.getFullYear() !== calMonth.year || friday.getMonth() !== calMonth.month) {
+      fetchCalendarData(friday.getFullYear(), friday.getMonth())
+    }
+    // Also prefetch next month so navigating forward never shows empty
+    const nextMonth = calMonth.month === 11 ? 0 : calMonth.month + 1
+    const nextYear = calMonth.month === 11 ? calMonth.year + 1 : calMonth.year
+    fetchCalendarData(nextYear, nextMonth)
+  }, [fetchCalendarData, calMonth, calWeekOf])
 
   // Auto-refresh calendar every 30 minutes
   useEffect(() => {
@@ -982,11 +992,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       return d
     })
     const MCAP_RANK: Record<string, number> = {
-      MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9,
-      LLY: 10, JPM: 11, V: 12, UNH: 13, XOM: 14, MA: 15, COST: 16, HD: 17, PG: 18, JNJ: 19,
-      NFLX: 20, AMD: 21, CRM: 22, BAC: 23, WMT: 24, ORCL: 25, ABBV: 26, MRK: 27, ADBE: 28,
-      NOW: 29, QCOM: 30, MU: 31, AMAT: 32, TXN: 33, GS: 34, MS: 35, PYPL: 36, PANW: 37,
-      SNOW: 38, PLTR: 39, UBER: 40, SHOP: 41, ABNB: 42, COIN: 43,
+      MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9, BRK: 10,
+      LLY: 11, JPM: 12, V: 13, UNH: 14, XOM: 15, MA: 16, COST: 17, HD: 18, PG: 19, JNJ: 20,
+      NFLX: 21, AMD: 22, CRM: 23, BAC: 24, WMT: 25, ORCL: 26, CVX: 27, ABBV: 28, KO: 29, MRK: 30,
+      ADBE: 31, NOW: 32, ACN: 33, INTC: 34, IBM: 35, QCOM: 36, MU: 37, AMAT: 38, TXN: 39, LRCX: 40,
+      GE: 41, CAT: 42, GS: 43, MS: 44, BLK: 45, PYPL: 46, PANW: 47, SNOW: 48, PLTR: 49, UBER: 50,
+      SHOP: 51, ABNB: 52, COIN: 53, HOOD: 54, RIVN: 55, LCID: 56, NIO: 57, BABA: 58, JD: 59, PDD: 60,
+      VZ: 61, T: 62, NEE: 63, RTX: 64, LMT: 65, HON: 66, DE: 67, UPS: 68, FDX: 69, BA: 70,
+      SBUX: 71, MCD: 72, NKE: 73, DIS: 74, CMCSA: 75, AMGN: 76, GILD: 77, REGN: 78, VRTX: 79, BMY: 80,
+      PFE: 81, AZN: 82, NVO: 83, SAN: 84, BP: 85, SHEL: 86, COP: 87, EOG: 88, PSX: 89, MPC: 90,
+      LIN: 91, APD: 92, ECL: 93, SHW: 94, NEM: 95, FCX: 96, AMT: 97, PLD: 98, PSA: 99, SPG: 100,
+      TGT: 101, LOW: 102, TJX: 103, ROST: 104, DG: 105, KR: 106, YUM: 107, CMG: 108, DPZ: 109, QSR: 110,
+      PGR: 111, ALL: 112, CB: 113, AIG: 114, TRV: 115, MET: 116, AFL: 117, AON: 118, MMC: 119, SPGI: 120,
+      CME: 121, ICE: 122, FIS: 123, FISV: 124, ADP: 125, CDNS: 126, SNPS: 127, RDDT: 128, RBLX: 129, SNAP: 130,
+      CRWD: 131, ZS: 132, DDOG: 133, MDB: 134, HUBS: 135, TTD: 136, ROKU: 137, NUE: 138, STLD: 139, CLF: 140,
+      SYK: 141, MDT: 142, ABT: 143, BSX: 144, ISRG: 145, HCA: 146, CI: 147, CVS: 148, MCK: 149, ABC: 150,
+      CL: 151, GIS: 152, HSY: 153, MDLZ: 154, CAG: 155, HRL: 156, VLO: 157, WOR: 158, ATI: 159, RS: 160,
+      AME: 161, ETN: 162, EMR: 163, ROK: 164, DOV: 165, ITW: 166, PH: 167, GWW: 168, TT: 169, IR: 170,
     }
     const mcapSort = (a: string, b: string) => (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
     weekDays.forEach((day) => {
@@ -1001,7 +1023,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         .map((ev) => extractT(ev.event))
         .filter(Boolean)
       tickers.sort(mcapSort)
-      tickers.slice(0, 6).forEach((t) => {
+      tickers.slice(0, 20).forEach((t) => {
         impliedQueueRef.current.push({ ticker: t, date: day })
       })
     })
@@ -1849,32 +1871,25 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         ADBE: 31, NOW: 32, ACN: 33, INTC: 34, IBM: 35, QCOM: 36, MU: 37, AMAT: 38, TXN: 39, LRCX: 40,
         GE: 41, CAT: 42, GS: 43, MS: 44, BLK: 45, PYPL: 46, PANW: 47, SNOW: 48, PLTR: 49, UBER: 50,
         SHOP: 51, ABNB: 52, COIN: 53, HOOD: 54, RIVN: 55, LCID: 56, NIO: 57, BABA: 58, JD: 59, PDD: 60,
+        VZ: 61, T: 62, NEE: 63, RTX: 64, LMT: 65, HON: 66, DE: 67, UPS: 68, FDX: 69, BA: 70,
+        SBUX: 71, MCD: 72, NKE: 73, DIS: 74, CMCSA: 75, AMGN: 76, GILD: 77, REGN: 78, VRTX: 79, BMY: 80,
+        PFE: 81, AZN: 82, NVO: 83, SAN: 84, BP: 85, SHEL: 86, COP: 87, EOG: 88, PSX: 89, MPC: 90,
+        LIN: 91, APD: 92, ECL: 93, SHW: 94, NEM: 95, FCX: 96, AMT: 97, PLD: 98, PSA: 99, SPG: 100,
+        TGT: 101, LOW: 102, TJX: 103, ROST: 104, DG: 105, KR: 106, YUM: 107, CMG: 108, DPZ: 109, QSR: 110,
+        PGR: 111, ALL: 112, CB: 113, AIG: 114, TRV: 115, MET: 116, AFL: 117, AON: 118, MMC: 119, SPGI: 120,
+        CME: 121, ICE: 122, FIS: 123, FISV: 124, ADP: 125, CDNS: 126, SNPS: 127, RDDT: 128, RBLX: 129, SNAP: 130,
+        CRWD: 131, ZS: 132, DDOG: 133, MDB: 134, HUBS: 135, TTD: 136, ROKU: 137, NUE: 138, STLD: 139, CLF: 140,
+        SYK: 141, MDT: 142, ABT: 143, BSX: 144, ISRG: 145, HCA: 146, CI: 147, CVS: 148, MCK: 149, ABC: 150,
+        CL: 151, GIS: 152, HSY: 153, MDLZ: 154, CAG: 155, HRL: 156, VLO: 157, WOR: 158, ATI: 159, RS: 160,
+        AME: 161, ETN: 162, EMR: 163, ROK: 164, DOV: 165, ITW: 166, PH: 167, GWW: 168, TT: 169, IR: 170,
       }
       const mcapSort = (a: string, b: string) =>
         (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
-      const MAX_VISIBLE = 6
-
-      // Queue only the top MAX_VISIBLE tickers per day (by market cap) on initial load
-      if (weeklySubView === 'implied') {
-        weekDays.forEach((day) => {
-          const allEvs = [
-            ...getWeekEarnings(day, 'Pre-Market'),
-            ...getWeekEarnings(day, 'Post-Market'),
-          ]
-          const tickers = allEvs
-            .map((ev) => extractTicker(ev.event))
-            .filter(Boolean)
-          tickers.sort(mcapSort)
-          tickers.slice(0, MAX_VISIBLE).forEach((t) => {
-            impliedQueueRef.current.push({ ticker: t, date: day })
-          })
-        })
-        scheduleImpliedProcessing()
-      }
+      const MAX_VISIBLE = 20
 
       // ── IMPLIED MOVE chart view ──────────────────────────────────────────────
       if (weeklySubView === 'implied') {
-        const LOGO_PX = 82
+        const LOGO_PX = 86
 
         // Build per-day data sorted by market cap, capped at MAX_VISIBLE rows
         const dayData = weekDays.map((day, dayIdx) => {
@@ -1897,11 +1912,22 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           return { day, dayIdx, allEvs, allTickers, topTickers, hiddenTotal, isToday, pendingCount, rows }
         })
 
-        // Y-axis scale: floor to just below lowest loaded %, ceiling = highest + 10% of highest
+        // Y-axis scale — outlier detection first so they don't blow up the chart height
         const allLoadedPcts = dayData.flatMap(d => d.rows.map(r => r.pct))
-        const Y_MIN = allLoadedPcts.length > 0 ? Math.max(0, Math.floor(Math.min(...allLoadedPcts) - 2)) : 0
-        const _yRaw = allLoadedPcts.length > 0 ? Math.max(...allLoadedPcts) : 30
-        const Y_MAX = allLoadedPcts.length > 0 ? _yRaw * 1.1 : 30
+        // IQR-based outlier filter: exclude any ticker whose pct > Q3 * 2.0
+        const sorted75 = [...allLoadedPcts].sort((a, b) => a - b)
+        const q3 = sorted75.length > 0 ? sorted75[Math.floor(sorted75.length * 0.75)] : 0
+        const outlierThreshold = q3 > 0 ? q3 * 2.0 : Infinity
+        // Mark outliers in each day's rows
+        const dayDataClean = dayData.map(d => ({
+          ...d,
+          outliers: d.rows.filter(r => r.pct > outlierThreshold),
+          rows: d.rows.filter(r => r.pct <= outlierThreshold),
+        }))
+        const cleanPcts = dayDataClean.flatMap(d => d.rows.map(r => r.pct))
+        const Y_MIN = cleanPcts.length > 0 ? Math.max(0, Math.floor(Math.min(...cleanPcts) - 0.5)) : 0
+        const _yRaw = cleanPcts.length > 0 ? Math.max(...cleanPcts) : 30
+        const Y_MAX = cleanPcts.length > 0 ? _yRaw * 1.1 : 30
         const toFrac = (pct: number) => (Math.max(Y_MIN, Math.min(Y_MAX, pct)) - Y_MIN) / (Y_MAX - Y_MIN)
         const tickStep = Math.max(1, Math.ceil((Y_MAX - Y_MIN) / 8))
         const yLabels: number[] = []
@@ -1984,7 +2010,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   <div style={{ width: 48, flexShrink: 0, position: 'relative', borderRight: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
                     {mLabels.map((v) => (
                       <div key={v} style={{ position: 'absolute', bottom: `calc(${mToFrac(v) * 100}% - 8px)`, right: 4 }}>
-                        <span style={{ fontSize: 15, color: '#fff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
+                        <span style={{ fontSize: 20, color: '#fff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
                       </div>
                     ))}
                   </div>
@@ -2032,15 +2058,20 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               {/* Day headers row — fixed, never scrolls */}
               <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(5, 1fr)', flexShrink: 0, background: '#080808', borderBottom: '2px solid #d4af37' }}>
                 <div /> {/* Y-axis spacer */}
-                {dayData.map(({ day, dayIdx, isToday, allTickers, hiddenTotal, pendingCount }) => (
+                {dayDataClean.map(({ day, dayIdx, isToday, allTickers, hiddenTotal, outliers }) => (
                   <div
                     key={dayIdx}
                     style={{ padding: '10px 8px', textAlign: 'center', borderRight: dayIdx < 4 ? '2px solid #d4af37' : 'none', background: isToday ? 'rgba(249,115,22,0.1)' : 'transparent' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: isToday ? '#fb923c' : '#ffffff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: isToday ? '#fb923c' : '#ffffff' }}>
                         {DAY_FULL[dayIdx]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
                       </span>
+                      {outliers.map(o => (
+                        <span key={o.ticker} style={{ fontSize: 10, fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)', background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 4, color: '#fca5a5', padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                          {o.ticker} {o.pct.toFixed(1)}%↑
+                        </span>
+                      ))}
                       {allTickers.length > MAX_VISIBLE && (
                         <button
                           onClick={() => {
@@ -2056,9 +2087,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                         </button>
                       )}
                     </div>
-                    {pendingCount > 0 && (
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 700, marginTop: 2 }}>loading {pendingCount}…</div>
-                    )}
                   </div>
                 ))}
               </div>
@@ -2074,54 +2102,72 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 </div>
                 {/* 5 day columns */}
                 <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
-                  {dayData.map(({ day, dayIdx, rows, isToday, allEvs }) => {
-                    // spread logos - wider bucket prevents vertical overlap
-                    const LOGO_CELL = LOGO_PX + 8
-                    const BUCKET_STEP = 2.0
-                    const spread: { ticker: string; pct: number; isPre: boolean; xOffset: number; labelSide: 'above' | 'below' | 'left' | 'right' }[] = []
-                    const buckets: Record<number, number> = {}
-                    rows.forEach(({ ticker, pct, isPre }) => {
-                      const bucket = Math.round(pct / BUCKET_STEP)
-                      const slot = buckets[bucket] ?? 0
-                      buckets[bucket] = slot + 1
-                      spread.push({ ticker, pct, isPre, xOffset: (slot % 2 === 0 ? -1 : 1) * Math.ceil(slot / 2) * (LOGO_CELL + 16), labelSide: 'below' })
-                    })
-                    spread.forEach((item) => {
-                      if (item.xOffset < 0) {
-                        item.labelSide = 'left'
-                      } else if (item.xOffset > 0) {
-                        item.labelSide = 'right'
-                      } else {
-                        const hasBelowNeighbor = spread.some(o => o !== item && o.pct < item.pct && (item.pct - o.pct) < BUCKET_STEP * 2)
-                        item.labelSide = hasBelowNeighbor ? 'above' : 'below'
+                  {dayDataClean.map(({ day, dayIdx, rows, isToday, allEvs }) => {
+                    // ── Placement algorithm ──
+                    // Rule 1: Y position = ALWAYS the real pct. Never push tickers down.
+                    // Rule 2: Use columns [50,35,65,20,80,8,92] in center-out order for X.
+                    // Rule 3: If a column is occupied within minSep at that Y, try a tiny nudge (±0.3%) before trying next column.
+                    // Rule 4: All logos full size — no shrinking.
+                    const COL_ORDER = [50, 35, 65, 20, 80, 8, 92]
+                    const minSep = Math.max(0.8, (Y_MAX - Y_MIN) * (LOGO_PX + 22) / 620)
+                    const MAX_NUDGE = 0.4
+
+                    const sortedRows = [...rows].sort((a, b) => b.pct - a.pct)
+                    const colOccupied: Record<number, number[]> = {}
+                    COL_ORDER.forEach(c => { colOccupied[c] = [] })
+
+                    type PlacedItem = { ticker: string; pct: number; placedPct: number; isPre: boolean; leftPct: number }
+                    const spread: PlacedItem[] = []
+
+                    for (const { ticker, pct, isPre } of sortedRows) {
+                      let done = false
+                      for (const leftPct of COL_ORDER) {
+                        const col = colOccupied[leftPct]
+                        const free = (y: number) => col.every(yy => Math.abs(yy - y) >= minSep)
+                        // Try exact pct first
+                        if (free(pct)) {
+                          col.push(pct); spread.push({ ticker, pct, placedPct: pct, isPre, leftPct }); done = true; break
+                        }
+                        // Try small nudges up/down to fit in this column
+                        for (let n = 0.15; n <= MAX_NUDGE + 0.01; n += 0.15) {
+                          const candidates = [pct + n, pct - n].filter(y => y >= Y_MIN && y <= Y_MAX + 1)
+                          for (const y of candidates) {
+                            if (free(y)) {
+                              col.push(y); spread.push({ ticker, pct, placedPct: y, isPre, leftPct }); done = true; break
+                            }
+                          }
+                          if (done) break
+                        }
+                        if (done) break
                       }
-                    })
+                      // If no column found: skip this ticker
+                    }
+
                     return (
                       <div
                         key={dayIdx}
-                        style={{ position: 'relative', borderRight: dayIdx < 4 ? '2px solid #d4af37' : 'none', background: isToday ? 'rgba(249,115,22,0.03)' : 'transparent' }}
+                        style={{ position: 'relative', overflow: 'hidden', borderRight: dayIdx < 4 ? '2px solid #d4af37' : 'none', background: isToday ? 'rgba(249,115,22,0.03)' : 'transparent' }}
                       >
                         {/* grid lines */}
                         {yLabels.map((v) => (
                           <div key={v} style={{ position: 'absolute', left: 0, right: 0, bottom: `${toFrac(v) * 100}%`, borderTop: '1px solid rgba(212,175,55,0.35)' }} />
                         ))}
                         {/* logos at Y position */}
-                        {spread.map(({ ticker, pct, isPre, xOffset, labelSide }) => {
-                          const isHoriz = labelSide === 'left' || labelSide === 'right'
+                        {spread.map(({ ticker, pct, placedPct, isPre, leftPct }) => {
                           const logoEl = (
-                            <div style={{ borderRadius: 6, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.7)' : 'rgba(0,174,239,0.7)'}` }}>
+                            <div style={{ borderRadius: 8, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.8)' : 'rgba(0,174,239,0.8)'}` }}>
                               <CompanyLogo ticker={ticker} size={LOGO_PX} />
                             </div>
                           )
                           const labelEl = (
-                            <span style={{ fontSize: 16, fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-geist-mono, monospace)', background: 'rgba(0,0,0,0.75)', padding: '1px 3px', borderRadius: 2, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                            <span style={{ fontSize: 13, fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-geist-mono, monospace)', background: 'rgba(0,0,0,0.8)', padding: '1px 4px', borderRadius: 2, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
                               {ticker}
                             </span>
                           )
                           return (
                             <div
                               key={ticker}
-                              style={{ position: 'absolute', bottom: `${toFrac(pct) * 100}%`, left: '50%', transform: `translateX(calc(-50% + ${xOffset}px)) translateY(50%)`, display: 'flex', flexDirection: labelSide === 'above' ? 'column-reverse' : labelSide === 'left' ? 'row-reverse' : labelSide === 'right' ? 'row' : 'column', alignItems: 'center', gap: isHoriz ? 3 : 2 }}
+                              style={{ position: 'absolute', bottom: `${toFrac(placedPct) * 100}%`, left: `${leftPct}%`, transform: 'translateX(-50%) translateY(50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
                             >
                               {logoEl}
                               {labelEl}
@@ -2189,7 +2235,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     {/* Logo grid: pre + after side by side */}
                     <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
                       {/* Pre-Market logos — 2 columns */}
-                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '2px solid #d4af37' }}>
+                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,160,50,0.05)' }}>
                         {preEvs.length === 0 ? (
                           <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
                         ) : (
@@ -2206,7 +2252,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                         )}
                       </div>
                       {/* After-Hours logos — 4 columns */}
-                      <div className="grid grid-cols-4 gap-1.5 p-2 content-start">
+                      <div className="grid grid-cols-4 gap-1.5 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(50,140,255,0.05)' }}>
                         {postEvs.length === 0 ? (
                           <span className="text-xs text-white/15 font-bold italic mt-1 col-span-4">—</span>
                         ) : (
@@ -2239,7 +2285,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d) => (
             <div
               key={d}
-              className="py-3 text-center text-xs font-black text-white uppercase tracking-widest bg-[#060606]"
+              className="py-3 text-center text-[18px] font-black text-white uppercase tracking-widest bg-[#060606]"
             >
               {d}
             </div>
@@ -2268,7 +2314,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   key={di}
                   onClick={() => setSelectedCalDate(isSelected ? null : day)}
                   style={{ borderRight: '2px solid #d4af37' }}
-                  className={`relative min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col ${isSelected
+                  className={`relative min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col overflow-hidden ${isSelected
                     ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/50'
                     : isToday
                       ? 'bg-orange-500/5'
@@ -2280,12 +2326,12 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   {/* Day number */}
                   <div className="mb-2">
                     {isToday ? (
-                      <span className="inline-flex items-center justify-center w-7 h-7 bg-orange-500 text-black rounded-full font-black text-sm">
+                      <span className="inline-flex items-center justify-center w-9 h-9 bg-orange-500 text-black rounded-full font-black text-[21px]">
                         {day}
                       </span>
                     ) : (
                       <span
-                        className={`text-sm font-black ${isSelected ? 'text-orange-400' : dayEvs.length > 0 ? 'text-white' : 'text-white/25'}`}
+                        className={`text-[21px] font-black ${isSelected ? 'text-orange-400' : dayEvs.length > 0 ? 'text-white' : 'text-white/25'}`}
                       >
                         {day}
                       </span>
@@ -2309,7 +2355,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                       [...evs].sort((a, b) => (importanceOrder[a.importance] ?? 9) - (importanceOrder[b.importance] ?? 9))
                     const preEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Pre-Market'))
                     const postEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Post-Market'))
-                    console.log(`[CAL DEBUG] day=${day} earningEvs=${earningEvs.length} preEvs=${preEvs.length} postEvs=${postEvs.length}`, earningEvs.map(e => e.time))
 
                     // Layout: 6-col grid per row — col 1-2 = pre-market, col 3-6 = post-market
                     const PRE_COLS = 2
@@ -2337,7 +2382,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     const postOverflow = postEvs.length - FIXED_ROWS * POST_COLS
 
                     return (
-                      <div className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
+                      <div className="flex flex-col" style={{ overflow: 'hidden' }}>
                         {/* Column headers */}
                         <div style={{ display: 'grid', gridTemplateColumns: `repeat(6, 1fr)`, gap: '2px', marginBottom: '2px' }}>
                           <div className="col-span-2 flex items-center gap-1">
@@ -2349,12 +2394,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                             <span className="font-black uppercase" style={{ fontSize: '13px', letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)', color: '#22d3ee' }}>After-Hours</span>
                           </div>
                         </div>
-                        {/* Unified grid */}
-                        <div className="flex-1" style={{
+                        {/* Unified grid — NO flex-1, height driven by content so tall siblings don't stretch logos */}
+                        <div style={{
                           display: 'grid',
                           gridTemplateColumns: `repeat(6, 1fr)`,
-                          gridTemplateRows: `repeat(${FIXED_ROWS}, 1fr)`,
+                          gridTemplateRows: `repeat(${FIXED_ROWS}, auto)`,
                           gap: '2px',
+                          overflow: 'hidden',
                         }}>
                           {Array.from({ length: FIXED_ROWS }, (_, r) => (
                             <>
