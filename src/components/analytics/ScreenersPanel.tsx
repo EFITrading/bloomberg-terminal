@@ -8,6 +8,7 @@ import LeadershipScan from '../LeadershipScan'
 import RSScreener from '../RSScreener'
 import AttractionZoneScanner from './AttractionZoneScanner'
 import ConsolidationHistoryScreener from './ConsolidationHistoryScreener'
+import DealerClusterScreener from './DealerClusterScreener'
 import LiquidationScreener from './LiquidationScreener'
 import OTMPremiumHistoryChart from './OTMPremiumHistoryChart'
 import OTMPremiumScanner from './OTMPremiumScanner'
@@ -25,6 +26,7 @@ type ScreenerTab =
   | 'poi'
   | 'consolidation-history'
   | 'premium-history'
+  | 'dealer-cluster'
   | 'unified-search'
 
 interface PremiumImbalance {
@@ -149,6 +151,7 @@ const TABS = [
   { id: 'poi' as const, label: 'POI', color: '#00E5FF' },
   { id: 'consolidation-history' as const, label: 'Consolidation History', color: '#FF8C00' },
   { id: 'premium-history' as const, label: 'Premium Imbalance History', color: '#00d4ff' },
+  { id: 'dealer-cluster' as const, label: 'Dealer Cluster', color: '#c84fff' },
 ]
 
 export default function ScreenersPanel() {
@@ -196,7 +199,7 @@ export default function ScreenersPanel() {
                 eventSource.close()
                 resolve()
               }
-            } catch (e) {}
+            } catch (e) { }
           }
 
           eventSource.onerror = () => {
@@ -209,7 +212,7 @@ export default function ScreenersPanel() {
             resolve()
           }, 10000)
         })
-      } catch (err) {}
+      } catch (err) { }
 
       // Scan Attraction Zones
       try {
@@ -242,7 +245,7 @@ export default function ScreenersPanel() {
             }))
           }
         }
-      } catch (err) {}
+      } catch (err) { }
 
       // Scan RS Screener (8 lookback periods)
       const lookbackPeriods = [0.5, 1.0, 1.5, 2.0, 5.0, 10.0, 15.0, 20.0]
@@ -321,7 +324,7 @@ export default function ScreenersPanel() {
               if (percentile <= 15) results.rsResults.breakdowns.push(label)
             }
           }
-        } catch (err) {}
+        } catch (err) { }
       })
 
       await Promise.all(rsPromises)
@@ -369,7 +372,7 @@ export default function ScreenersPanel() {
               results.hvResults[key] = percentFromLow <= 20
             }
           }
-        } catch (err) {}
+        } catch (err) { }
       })
 
       await Promise.all(hvPromises)
@@ -405,7 +408,7 @@ export default function ScreenersPanel() {
               }
             }
           }
-        } catch (err) {}
+        } catch (err) { }
       })
 
       await Promise.all(leadershipPromises)
@@ -429,8 +432,8 @@ export default function ScreenersPanel() {
           const recentReturn =
             prices.length >= 5
               ? ((prices[prices.length - 1] - prices[prices.length - 5]) /
-                  prices[prices.length - 5]) *
-                100
+                prices[prices.length - 5]) *
+              100
               : 0
 
           const mli = volumeRatio * Math.abs(recentReturn)
@@ -440,7 +443,7 @@ export default function ScreenersPanel() {
             results.liquidationResults.mli = mli
           }
         }
-      } catch (err) {}
+      } catch (err) { }
 
       // Scan Pivot
       try {
@@ -908,153 +911,153 @@ export default function ScreenersPanel() {
                 {(searchResults.rsResults.breakouts.length > 0 ||
                   searchResults.rsResults.rareLows.length > 0 ||
                   searchResults.rsResults.breakdowns.length > 0) && (
-                  <div
-                    style={{
-                      background: '#0a0a0a',
-                      border: '3px solid #00ff88',
-                      borderRadius: '10px',
-                      padding: '18px',
-                    }}
-                  >
                     <div
                       style={{
-                        fontSize: '24px',
-                        fontWeight: '800',
-                        color: '#00ff88',
-                        marginBottom: '12px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '1.5px',
+                        background: '#0a0a0a',
+                        border: '3px solid #00ff88',
+                        borderRadius: '10px',
+                        padding: '18px',
                       }}
                     >
-                      📊 RELATIVE STRENGTH
+                      <div
+                        style={{
+                          fontSize: '24px',
+                          fontWeight: '800',
+                          color: '#00ff88',
+                          marginBottom: '12px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '1.5px',
+                        }}
+                      >
+                        📊 RELATIVE STRENGTH
+                      </div>
+                      {searchResults.rsResults.breakouts.length > 0 && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <div
+                            style={{
+                              fontSize: '18px',
+                              color: '#00ff88',
+                              fontWeight: '700',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            ✓ BREAKOUTS (85th+ Percentile)
+                          </div>
+                          {searchResults.rsResults.breakouts.map((item) => (
+                            <div
+                              key={item}
+                              style={{
+                                fontSize: '16px',
+                                color: '#ffffff',
+                                marginLeft: '12px',
+                                marginBottom: '4px',
+                              }}
+                            >
+                              • {item}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {searchResults.rsResults.rareLows.length > 0 && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <div
+                            style={{
+                              fontSize: '18px',
+                              color: '#ffd700',
+                              fontWeight: '700',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            ✓ RARE LOWS (15-25th Percentile)
+                          </div>
+                          {searchResults.rsResults.rareLows.map((item) => (
+                            <div
+                              key={item}
+                              style={{
+                                fontSize: '16px',
+                                color: '#ffffff',
+                                marginLeft: '12px',
+                                marginBottom: '4px',
+                              }}
+                            >
+                              • {item}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {searchResults.rsResults.breakdowns.length > 0 && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <div
+                            style={{
+                              fontSize: '18px',
+                              color: '#ff073a',
+                              fontWeight: '700',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            ✓ BREAKDOWNS (&lt;15th Percentile)
+                          </div>
+                          {searchResults.rsResults.breakdowns.map((item) => (
+                            <div
+                              key={item}
+                              style={{
+                                fontSize: '16px',
+                                color: '#ffffff',
+                                marginLeft: '12px',
+                                marginBottom: '4px',
+                              }}
+                            >
+                              • {item}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {searchResults.rsResults.breakouts.length > 0 && (
-                      <div style={{ marginBottom: '10px' }}>
-                        <div
-                          style={{
-                            fontSize: '18px',
-                            color: '#00ff88',
-                            fontWeight: '700',
-                            marginBottom: '6px',
-                          }}
-                        >
-                          ✓ BREAKOUTS (85th+ Percentile)
-                        </div>
-                        {searchResults.rsResults.breakouts.map((item) => (
-                          <div
-                            key={item}
-                            style={{
-                              fontSize: '16px',
-                              color: '#ffffff',
-                              marginLeft: '12px',
-                              marginBottom: '4px',
-                            }}
-                          >
-                            • {item}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {searchResults.rsResults.rareLows.length > 0 && (
-                      <div style={{ marginBottom: '10px' }}>
-                        <div
-                          style={{
-                            fontSize: '18px',
-                            color: '#ffd700',
-                            fontWeight: '700',
-                            marginBottom: '6px',
-                          }}
-                        >
-                          ✓ RARE LOWS (15-25th Percentile)
-                        </div>
-                        {searchResults.rsResults.rareLows.map((item) => (
-                          <div
-                            key={item}
-                            style={{
-                              fontSize: '16px',
-                              color: '#ffffff',
-                              marginLeft: '12px',
-                              marginBottom: '4px',
-                            }}
-                          >
-                            • {item}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {searchResults.rsResults.breakdowns.length > 0 && (
-                      <div style={{ marginBottom: '10px' }}>
-                        <div
-                          style={{
-                            fontSize: '18px',
-                            color: '#ff073a',
-                            fontWeight: '700',
-                            marginBottom: '6px',
-                          }}
-                        >
-                          ✓ BREAKDOWNS (&lt;15th Percentile)
-                        </div>
-                        {searchResults.rsResults.breakdowns.map((item) => (
-                          <div
-                            key={item}
-                            style={{
-                              fontSize: '16px',
-                              color: '#ffffff',
-                              marginLeft: '12px',
-                              marginBottom: '4px',
-                            }}
-                          >
-                            • {item}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
 
                 {/* HV Screener Results */}
                 {(searchResults.hvResults.hv10Day ||
                   searchResults.hvResults.hv20Day ||
                   searchResults.hvResults.hv52Week) && (
-                  <div
-                    style={{
-                      background: '#0a0a0a',
-                      border: '3px solid #ffd700',
-                      borderRadius: '10px',
-                      padding: '18px',
-                    }}
-                  >
                     <div
                       style={{
-                        fontSize: '24px',
-                        fontWeight: '800',
-                        color: '#ffd700',
-                        marginBottom: '12px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '1.5px',
+                        background: '#0a0a0a',
+                        border: '3px solid #ffd700',
+                        borderRadius: '10px',
+                        padding: '18px',
                       }}
                     >
-                      📉 HISTORICAL VOLATILITY (NEAR LOWS)
+                      <div
+                        style={{
+                          fontSize: '24px',
+                          fontWeight: '800',
+                          color: '#ffd700',
+                          marginBottom: '12px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '1.5px',
+                        }}
+                      >
+                        📉 HISTORICAL VOLATILITY (NEAR LOWS)
+                      </div>
+                      <div style={{ fontSize: '16px', color: '#ffffff', lineHeight: '1.6' }}>
+                        {searchResults.hvResults.hv10Day && (
+                          <div style={{ color: '#00ff88', fontWeight: '700' }}>
+                            ✓ 10-Day HV Near Low (≤20% from low)
+                          </div>
+                        )}
+                        {searchResults.hvResults.hv20Day && (
+                          <div style={{ color: '#00ff88', fontWeight: '700' }}>
+                            ✓ 20-Day HV Near Low (≤20% from low)
+                          </div>
+                        )}
+                        {searchResults.hvResults.hv52Week && (
+                          <div style={{ color: '#00ff88', fontWeight: '700' }}>
+                            ✓ 52-Week HV Near Low (≤20% from low)
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '16px', color: '#ffffff', lineHeight: '1.6' }}>
-                      {searchResults.hvResults.hv10Day && (
-                        <div style={{ color: '#00ff88', fontWeight: '700' }}>
-                          ✓ 10-Day HV Near Low (≤20% from low)
-                        </div>
-                      )}
-                      {searchResults.hvResults.hv20Day && (
-                        <div style={{ color: '#00ff88', fontWeight: '700' }}>
-                          ✓ 20-Day HV Near Low (≤20% from low)
-                        </div>
-                      )}
-                      {searchResults.hvResults.hv52Week && (
-                        <div style={{ color: '#00ff88', fontWeight: '700' }}>
-                          ✓ 52-Week HV Near Low (≤20% from low)
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  )}
 
                 {/* Leadership Scan Results */}
                 {searchResults.leadershipResults.isLeader && (
@@ -1225,6 +1228,8 @@ export default function ScreenersPanel() {
         return <ConsolidationHistoryScreener />
       case 'premium-history':
         return <OTMPremiumHistoryChart />
+      case 'dealer-cluster':
+        return <DealerClusterScreener />
       default:
         return null
     }

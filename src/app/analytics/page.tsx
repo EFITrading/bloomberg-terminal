@@ -12,7 +12,7 @@ import IVRRGAnalytics from '@/components/analytics/IVRRGAnalytics'
 import MarketCycleIndicator from '@/components/analytics/MarketCycleIndicator'
 import MarketHeatmap from '@/components/analytics/MarketHeatmap'
 import RRGAnalytics from '@/components/analytics/RRGAnalytics'
-import ResearchPanelV2 from '@/components/analytics/ResearchPanelV2'
+import DealerClusterScreener from '@/components/analytics/DealerClusterScreener'
 import ScreenersPanel from '@/components/analytics/ScreenersPanel'
 import PerformanceDashboard from '@/components/charts/PerformanceDashboard'
 import Footer from '@/components/terminal/Footer'
@@ -25,10 +25,6 @@ const StraddleTownScreener = dynamic(() => import('@/components/analytics/Stradd
 })
 
 const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScanner'), {
-  ssr: false,
-})
-
-const OneWayAnalysis = dynamic(() => import('@/components/analytics/OneWayAnalysis'), {
   ssr: false,
 })
 
@@ -120,16 +116,10 @@ export default function Analytics() {
             <BuySellScanner />
           </div>
         )
-      case 'research':
+      case 'dealer-cluster':
         return (
-          <div key={id} style={{ ...panelStyle, overflow: 'hidden', height: 'calc(100vh - 127px)', display: 'flex', flexDirection: 'column' }}>
-            <ResearchPanelV2 />
-          </div>
-        )
-      case 'one-way':
-        return (
-          <div key={id} style={{ ...panelStyle, overflow: 'hidden', height: 'calc(100vh - 127px)', display: 'flex', flexDirection: 'column' }}>
-            <OneWayAnalysis />
+          <div key={id} style={{ ...panelStyle, overflow: 'visible' }}>
+            <DealerClusterScreener />
           </div>
         )
       default:
@@ -448,6 +438,14 @@ export default function Analytics() {
           />
         </svg>
       ),
+      'dealer-cluster': (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="10" width="4" height="11" fill="#ff4444" opacity="0.6" rx="1" />
+          <rect x="10" y="4" width="4" height="17" fill="#c84fff" rx="1" />
+          <rect x="17" y="8" width="4" height="13" fill="#00d264" opacity="0.6" rx="1" />
+          <line x1="3" y1="21" x2="21" y2="21" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+        </svg>
+      ),
     }
     return icons[id] || icons['rrg']
   }
@@ -639,8 +637,7 @@ export default function Analytics() {
           <TabButton id="market-cycle" label="Market Cycle" />
           <TabButton id="straddle-town" label="Straddle Town" />
           <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
-          <TabButton id="research" label="Research" />
-          <TabButton id="one-way" label="One Way" />
+          <TabButton id="dealer-cluster" label="Dealer Cluster" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}

@@ -9,6 +9,52 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 // Polygon API key
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
+// ── Live OI cache helpers ─────────────────────────────────────────────────────
+// Returns the relevant trading date (YYYY-MM-DD, PST-aware).
+// Before 6:30 AM PST → roll back to the previous trading day so a post-close
+// scan from the previous session is still considered "fresh".
+const getFlowTradingDate = (): string => {
+  const nowPST = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+  )
+  const hour = nowPST.getHours()
+  const minute = nowPST.getMinutes()
+  const target = new Date(nowPST)
+  if (hour < 6 || (hour === 6 && minute < 30)) {
+    target.setDate(target.getDate() - 1)
+    while (target.getDay() === 0 || target.getDay() === 6) {
+      target.setDate(target.getDate() - 1)
+    }
+  }
+  const y = target.getFullYear()
+  const m = String(target.getMonth() + 1).padStart(2, '0')
+  const d = String(target.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// Persist the liveOIMap from applyLiveOI into the database, one row per ticker.
+// Fire-and-forget — does not block the UI.
+const persistLiveOIByTicker = (liveOIMap: Map<string, number>) => {
+  const tradingDate = getFlowTradingDate()
+  // Group map entries by underlying ticker (first segment of the contract key)
+  const byTicker = new Map<string, [string, number][]>()
+  for (const [key, val] of liveOIMap) {
+    const ticker = key.split('_')[0]
+    if (!byTicker.has(ticker)) byTicker.set(ticker, [])
+    byTicker.get(ticker)!.push([key, val])
+  }
+  for (const [ticker, entries] of byTicker) {
+    fetch('/api/live-oi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, tradingDate, entries }),
+    }).catch(() => {
+      // Non-critical — ignore save errors
+    })
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Concurrency limiter — prevents ERR_INSUFFICIENT_RESOURCES from too many parallel fetches
 async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
   const results: T[] = new Array(tasks.length)
@@ -150,6 +196,71 @@ const enrichTradeDataCombined = async (
   })
 
   return finalResults
+}
+
+// [LIVE OI] Compute intraday live OI per contract from fill styles after enrichment
+// A / AA / BB fills = opening new position → add contracts to OI
+// B fill = closing position → subtract (unless size > baseOI, then treat as opening)
+const applyLiveOI = (trades: OptionsFlowData[]): OptionsFlowData[] => {
+  if (trades.length === 0) return trades
+
+  // Group by unique contract
+  const contractGroups = new Map<string, OptionsFlowData[]>()
+  for (const trade of trades) {
+    const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+    if (!contractGroups.has(key)) contractGroups.set(key, [])
+    contractGroups.get(key)!.push(trade)
+  }
+
+  // Compute live OI for each contract
+  const liveOIMap = new Map<string, number>()
+  for (const [key, contractTrades] of contractGroups) {
+    const baseOI = contractTrades[0].open_interest ?? 0
+    const sorted = [...contractTrades].sort(
+      (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+    )
+    let liveOI = baseOI
+    const seen = new Set<string>()
+    for (const trade of sorted) {
+      const tradeId = `${trade.ticker}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`
+      if (seen.has(tradeId)) continue
+      seen.add(tradeId)
+      const contracts = trade.trade_size ?? 0
+      switch (trade.fill_style) {
+        case 'A':
+        case 'AA':
+        case 'BB':
+          liveOI += contracts
+          break
+        case 'B':
+          if (contracts > baseOI) {
+            liveOI += contracts // size exceeds prior OI — must be new opening
+          } else {
+            liveOI -= contracts
+          }
+          break
+        // N/A — no change
+      }
+    }
+    liveOIMap.set(key, Math.max(0, liveOI))
+  }
+
+  // Persist to localStorage so LiquidPanel can reuse this data instantly
+  persistLiveOIByTicker(liveOIMap)
+
+  // Stamp the live OI onto every trade; preserve base_open_interest for coloring
+  return trades.map((trade) => {
+    const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+    const liveOI = liveOIMap.get(key)
+    if (liveOI !== undefined) {
+      return {
+        ...trade,
+        base_open_interest: trade.base_open_interest ?? trade.open_interest,
+        open_interest: liveOI,
+      }
+    }
+    return trade
+  })
 }
 
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
@@ -335,6 +446,7 @@ interface OptionsFlowData {
   fill_style?: 'A' | 'B' | 'AA' | 'BB' | 'N/A'
   volume?: number
   open_interest?: number
+  base_open_interest?: number
   vol_oi_ratio?: number
   delta?: number
   gamma?: number
@@ -510,11 +622,12 @@ export default function OptionsFlowPage() {
 
           setLastUpdate(new Date().toLocaleString())
 
-          // Enrich everything at once
+          // Enrich everything at once, then apply live OI
           if (allTrades.length > 0) {
             setStreamingStatus(`Enriching ${allTrades.length} trades...`)
             const enriched = await enrichTradeDataCombined(allTrades)
-            setData(enriched)
+            setStreamingStatus('Computing live OI...')
+            setData(applyLiveOI(enriched))
           }
 
           setIsStreamComplete(true)
@@ -622,7 +735,8 @@ export default function OptionsFlowPage() {
                 enrichTradeDataCombined(rawTrades, (partial) => {
                   setData(partial)
                 }).then((final) => {
-                  setData(final)
+                  setStreamingStatus('Computing live OI...')
+                  setData(applyLiveOI(final))
                   setLoading(false)
                   setStreamingStatus('')
                 })

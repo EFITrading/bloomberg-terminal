@@ -506,6 +506,8 @@ interface OptionsFlowData {
 
   open_interest?: number
 
+  base_open_interest?: number
+
   vol_oi_ratio?: number
 
   classification?: string
@@ -8706,8 +8708,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 </span>
 
                                 <span
-                                  className="text-purple-400 font-bold"
-                                  style={{ fontSize: '19.2px' }}
+                                  className="font-bold"
+                                  style={{
+                                    fontSize: '19.2px',
+                                    color:
+                                      trade.base_open_interest !== undefined &&
+                                        trade.open_interest !== trade.base_open_interest
+                                        ? '#FFD700'
+                                        : '#a855f7',
+                                  }}
                                 >
                                   {trade.open_interest.toLocaleString()}
                                 </span>

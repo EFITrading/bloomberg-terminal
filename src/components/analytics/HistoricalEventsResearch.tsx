@@ -23,6 +23,7 @@ import {
   SEVERITY_COLORS,
 } from '../../data/marketEvents'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
+import ResearchPanelV2 from './ResearchPanelV2'
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Types
@@ -357,7 +358,7 @@ const StatCard = ({ label, value, color }: { label: string; value: string; color
 // Main component
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function HistoricalEventsResearch() {
-  const [activeTab, setActiveTab] = useState<'events' | 'screener'>('events')
+  const [activeTab, setActiveTab] = useState<'events' | 'screener' | 'research'>('events')
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'All'>('All')
   const [selectedEvent, setSelectedEvent] = useState<MarketEvent | null>(null)
   const [stats, setStats] = useState<EventStats>({
@@ -622,6 +623,24 @@ export default function HistoricalEventsResearch() {
               </svg>
             ),
           },
+          {
+            id: 'research' as const,
+            label: 'PATTERN RESEARCH',
+            icon: (
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="square"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+            ),
+          },
         ].map((tab) => {
           const isActive = activeTab === tab.id
           return (
@@ -663,7 +682,11 @@ export default function HistoricalEventsResearch() {
       </div>
 
       {/* TAB CONTENT */}
-      {activeTab === 'screener' ? (
+      {activeTab === 'research' ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <ResearchPanelV2 />
+        </div>
+      ) : activeTab === 'screener' ? (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingTop: '60px' }}>
           <SeasonaxLanding />
         </div>

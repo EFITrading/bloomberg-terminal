@@ -448,7 +448,6 @@ const TOP_SCREENER_SYMBOLS = [
   'EVRG',
   'EW',
   'EWBC',
-  'EXAS',
   'EXC',
   'EXE',
   'EXEL',
@@ -575,7 +574,6 @@ const TOP_SCREENER_SYMBOLS = [
   'HLT',
   'HMC',
   'HMY',
-  'HOLX',
   'HOMB',
   'HON',
   'HOOD',
@@ -1569,11 +1567,11 @@ async function calculateSymbolGEX(
         // Center must be the global peak — nothing outside the cluster is taller
         if (centerAbs < globalPeak) continue
 
-        // Neighbors must be 25–65% of center
+        // Neighbors must be 25–75% of center
         const leftPct = (leftAbs / centerAbs) * 100
         const rightPct = (rightAbs / centerAbs) * 100
-        if (leftPct < 25 || leftPct > 65) continue
-        if (rightPct < 25 || rightPct > 65) continue
+        if (leftPct < 25 || leftPct > 75) continue
+        if (rightPct < 25 || rightPct > 75) continue
 
         if (centerAbs > bestCenterGEX) {
           bestCenterGEX = centerAbs

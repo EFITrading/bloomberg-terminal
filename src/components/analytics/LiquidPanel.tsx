@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+﻿import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   AlertCircle,
@@ -625,23 +625,23 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
 interface GEXData {
   strike: number
   [key: string]:
-    | number
-    | {
-        call: number
-        put: number
-        net: number
-        callOI: number
-        putOI: number
-        callPremium?: number
-        putPremium?: number
-        callVex?: number
-        putVex?: number
-        callDelta?: number
-        putDelta?: number
-        flowCall?: number
-        flowPut?: number
-        flowNet?: number
-      }
+  | number
+  | {
+    call: number
+    put: number
+    net: number
+    callOI: number
+    putOI: number
+    callPremium?: number
+    putPremium?: number
+    callVex?: number
+    putVex?: number
+    callDelta?: number
+    putDelta?: number
+    flowCall?: number
+    flowPut?: number
+    flowNet?: number
+  }
 }
 
 interface ServerGEXData {
@@ -2080,6 +2080,58 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     }
   }, [activeTableCount, showOI, duoMode])
 
+  // ── Flow Live OI cache (from OptionsFlow page, stored in DB) ────────────────
+  // Same PST-aware trading date logic as options-flow/page.tsx.
+  const getFlowTradingDate = (): string => {
+    const nowPST = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+    )
+    const hour = nowPST.getHours()
+    const minute = nowPST.getMinutes()
+    const target = new Date(nowPST)
+    if (hour < 6 || (hour === 6 && minute < 30)) {
+      target.setDate(target.getDate() - 1)
+      while (target.getDay() === 0 || target.getDay() === 6) {
+        target.setDate(target.getDate() - 1)
+      }
+    }
+    const y = target.getFullYear()
+    const m = String(target.getMonth() + 1).padStart(2, '0')
+    const d = String(target.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  // true when live OI was loaded from the DB (hides LIVE button)
+  const [liveOIFromFlowCache, setLiveOIFromFlowCache] = useState(false)
+
+  // When the selected ticker changes, check the DB for a fresh cached live OI map.
+  // If found → restore it instantly and skip the scan.
+  useEffect(() => {
+    if (!selectedTicker) return
+    const tradingDate = getFlowTradingDate()
+    const ticker = selectedTicker.toUpperCase()
+    fetch(`/api/live-oi?ticker=${ticker}&date=${tradingDate}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('not found')
+        return res.json()
+      })
+      .then((cached: { entries: [string, number][] }) => {
+        if (cached.entries && cached.entries.length > 0) {
+          const restoredMap = new Map<string, number>(cached.entries)
+          setLiveOIData(restoredMap)
+          setLiveMode(true)
+          setLiveOIFromFlowCache(true)
+        } else {
+          setLiveOIFromFlowCache(false)
+        }
+      })
+      .catch(() => {
+        setLiveOIFromFlowCache(false)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTicker])
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
     // Use whatever ticker is typed in the search bar
@@ -3200,8 +3252,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
           // For puts
           const putGamma = gexData.put_gex
             ? Math.abs(
-                gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
-              )
+              gexData.put_gex / ((gexData.putOI || 1) * (currentPrice * currentPrice) * 100)
+            )
             : 0
           const putDelta = -0.5 // Approximation
           const putVanna = 0 // Approximation
@@ -3905,6 +3957,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
   // Auto-trigger data fetch when ticker or flow mode changes
   useEffect(() => {
+    // If cache was loaded from OptionsFlow, skip the auto-scan — data already applied.
+    if (liveOIFromFlowCache) return
     if (selectedTicker && showFlowGEX && !liveMode) {
       // Flow Map enabled and not in live mode yet - trigger live scan
       setLiveMode(true)
@@ -4973,11 +5027,11 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     const isHighestPositive =
       value > 0 &&
       Math.abs(value - topVals.highestPositive) <
-        Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
+      Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01)
     const isHighestNegative =
       value < 0 &&
       Math.abs(Math.abs(value) - topVals.highestNegative) <
-        Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
+      Math.max(topVals.highestNegative * relativeEpsilon, 0.01)
 
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
@@ -5254,7 +5308,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                       className="absolute -top-2 -right-2 w-8 h-8 flex items-center justify-center bg-black border-2 border-orange-500 hover:bg-orange-500 hover:text-black text-orange-500 transition-all rounded"
                       style={{ zIndex: 10 }}
                     >
-                      <span className="text-xl font-bold leading-none">�</span>
+                      <span className="text-xl font-bold leading-none">&#x2715;</span>
                     </button>
                   )}
                 </div>
@@ -5305,60 +5359,89 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                       )}
 
                       {/* LIVE */}
-                      <button
-                        onClick={() => {
-                          if (liveOILoading) return
-                          const t = tickerInput.trim() || selectedTicker
-                          if (!t) {
-                            alert('Enter a ticker first')
-                            return
-                          }
-                          if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
-                            const u = tickerInput.trim().toUpperCase()
-                            setSelectedTicker(u)
-                            setTickerInput(u)
-                          }
-                          if (!liveMode) {
-                            setLiveMode(true)
-                            updateLiveOI()
-                          } else {
-                            setLiveMode(false)
-                            setLiveOIData(new Map())
-                            setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
-                            setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
-                          }
-                        }}
-                        className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
-                        style={{
-                          height: analysisSuiteMode ? '51px' : '34px',
-                          padding: analysisSuiteMode ? '0 14px' : '0 8px',
-                          fontSize: analysisSuiteMode ? '15px' : '10px',
-                          letterSpacing: '0.5px',
-                          background: liveMode
-                            ? 'rgba(34,197,94,0.15)'
-                            : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
-                          border: liveMode
-                            ? '1px solid rgba(34,197,94,0.55)'
-                            : '1px solid rgba(255,255,255,0.1)',
-                          color: liveMode ? '#22c55e' : '#888',
-                          boxShadow: liveMode
-                            ? '0 0 8px rgba(34,197,94,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
-                            : 'inset 0 1px 0 rgba(255,255,255,0.08)',
-                          display: showODTRIO ? 'none' : undefined,
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: '50%',
-                            background: liveMode ? '#22c55e' : '#555',
-                            display: 'inline-block',
-                            boxShadow: liveMode ? '0 0 5px #22c55e' : 'none',
+                      {liveOIFromFlowCache ? (
+                        // Cache loaded from OptionsFlow scan — show indicator, hide button
+                        !showODTRIO && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              height: analysisSuiteMode ? '51px' : '34px',
+                              padding: analysisSuiteMode ? '0 14px' : '0 8px',
+                              fontSize: analysisSuiteMode ? '13px' : '9px',
+                              fontWeight: 900,
+                              letterSpacing: '1px',
+                              fontFamily: 'monospace',
+                              border: '1px solid rgba(34,197,94,0.5)',
+                              background: 'rgba(34,197,94,0.08)',
+                              color: '#22c55e',
+                              borderRadius: 4,
+                              flexShrink: 0,
+                              textTransform: 'uppercase',
+                            }}
+                            title={`Live OI loaded from OptionsFlow scan for ${selectedTicker}`}
+                          >
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 5px #22c55e' }} />
+                            LIVE ✓
+                          </div>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (liveOILoading) return
+                            const t = tickerInput.trim() || selectedTicker
+                            if (!t) {
+                              alert('Enter a ticker first')
+                              return
+                            }
+                            if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
+                              const u = tickerInput.trim().toUpperCase()
+                              setSelectedTicker(u)
+                              setTickerInput(u)
+                            }
+                            if (!liveMode) {
+                              setLiveMode(true)
+                              updateLiveOI()
+                            } else {
+                              setLiveMode(false)
+                              setLiveOIData(new Map())
+                              setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                              setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                            }
                           }}
-                        />
-                        {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
-                      </button>
+                          className="flex items-center gap-1 flex-shrink-0 font-black uppercase rounded"
+                          style={{
+                            height: analysisSuiteMode ? '51px' : '34px',
+                            padding: analysisSuiteMode ? '0 14px' : '0 8px',
+                            fontSize: analysisSuiteMode ? '15px' : '10px',
+                            letterSpacing: '0.5px',
+                            background: liveMode
+                              ? 'rgba(34,197,94,0.15)'
+                              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+                            border: liveMode
+                              ? '1px solid rgba(34,197,94,0.55)'
+                              : '1px solid rgba(255,255,255,0.1)',
+                            color: liveMode ? '#22c55e' : '#888',
+                            boxShadow: liveMode
+                              ? '0 0 8px rgba(34,197,94,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
+                              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                            display: showODTRIO ? 'none' : undefined,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: '50%',
+                              background: liveMode ? '#22c55e' : '#555',
+                              display: 'inline-block',
+                              boxShadow: liveMode ? '0 0 5px #22c55e' : 'none',
+                            }}
+                          />
+                          {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
+                        </button>
+                      )}
 
                       {/* OTM Range */}
                       <select
@@ -5378,18 +5461,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="1%">�1%</option>
-                        <option value="2%">�2%</option>
-                        <option value="3%">�3%</option>
-                        <option value="5%">�5%</option>
-                        <option value="8%">�8%</option>
-                        <option value="10%">�10%</option>
-                        <option value="15%">�15%</option>
-                        <option value="20%">�20%</option>
-                        <option value="25%">�25%</option>
-                        <option value="40%">�40%</option>
-                        <option value="50%">�50%</option>
-                        <option value="100%">�100%</option>
+                        <option value="1%">±1%</option>
+                        <option value="2%">±2%</option>
+                        <option value="3%">±3%</option>
+                        <option value="5%">±5%</option>
+                        <option value="8%">±8%</option>
+                        <option value="10%">±10%</option>
+                        <option value="15%">±15%</option>
+                        <option value="20%">±20%</option>
+                        <option value="25%">±25%</option>
+                        <option value="40%">±40%</option>
+                        <option value="50%">±50%</option>
+                        <option value="100%">±100%</option>
                       </select>
 
                       {/* Mode � custom dropdown mobile */}
@@ -5813,11 +5896,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                     setShowDealer(false)
                                   }
                                 }}
-                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  duoMode
-                                    ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
-                                }`}
+                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
+                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
+                                  }`}
                                 style={
                                   analysisSuiteMode
                                     ? { padding: '10px 24px', fontSize: '18px' }
@@ -5834,11 +5916,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                               {/* NORMAL (GEX) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  showGEX
-                                    ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-                                }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
+                                  ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                  }`}
                                 style={
                                   analysisSuiteMode
                                     ? { padding: '10px 18px', fontSize: '18px' }
@@ -5867,11 +5948,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                               {/* MM ACTIVITY (Dealer) Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  showDealer
-                                    ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                                }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer
+                                  ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                  }`}
                                 style={
                                   analysisSuiteMode
                                     ? { padding: '10px 18px', fontSize: '18px' }
@@ -5901,11 +5981,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                               {/* FLOW MAP Checkbox */}
                               <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  showFlowGEX
-                                    ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
-                                }`}
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX
+                                  ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'
+                                  }`}
                                 style={
                                   analysisSuiteMode
                                     ? { padding: '10px 18px', fontSize: '18px' }
@@ -5942,11 +6021,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                               {/* OI Checkbox */}
                               {!analysisSuiteMode && (
                                 <div
-                                  className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                    showOI
-                                      ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                                  }`}
+                                  className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
+                                    ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                                    }`}
                                 >
                                   <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                   <input
@@ -5964,59 +6042,75 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                               )}
 
                               {/* LIVE Checkbox */}
-                              <div
-                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${
-                                  liveMode
+                              {liveOIFromFlowCache ? (
+                                // Cache loaded — show indicator, hide interactive button
+                                <div
+                                  className="relative flex items-center gap-2 px-3 py-1.5 rounded"
+                                  style={{
+                                    background: 'rgba(34,197,94,0.08)',
+                                    border: '1px solid rgba(34,197,94,0.5)',
+                                    ...(analysisSuiteMode ? { padding: '10px 18px', fontSize: '18px' } : {}),
+                                  }}
+                                  title={`Live OI loaded from OptionsFlow scan for ${selectedTicker}`}
+                                >
+                                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 6px #22c55e' }} />
+                                  <span className={`${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]`}>
+                                    LIVE ✓
+                                  </span>
+                                </div>
+                              ) : (
+                                <div
+                                  className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${liveMode
                                     ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 border border-green-400/70 shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                     : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-green-500/40 hover:shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                                } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                style={
-                                  analysisSuiteMode
-                                    ? { padding: '10px 18px', fontSize: '18px' }
-                                    : {}
-                                }
-                                onClick={() => {
-                                  if (liveOILoading) return
-                                  const currentTicker = tickerInput.trim() || selectedTicker
-                                  if (!currentTicker || currentTicker.trim() === '') {
-                                    alert(
-                                      'Please type a ticker in the search bar first before enabling Live OI'
-                                    )
-                                    return
+                                    } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                  style={
+                                    analysisSuiteMode
+                                      ? { padding: '10px 18px', fontSize: '18px' }
+                                      : {}
                                   }
-                                  if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
-                                    const newTicker = tickerInput.trim().toUpperCase()
-                                    setSelectedTicker(newTicker)
-                                    setTickerInput(newTicker)
-                                  }
-                                  if (!liveMode) {
-                                    setLiveMode(true)
-                                    updateLiveOI()
-                                  } else {
-                                    setLiveMode(false)
-                                    setLiveOIData(new Map())
-                                    setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
-                                    setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
-                                  }
-                                }}
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
-                                <input
-                                  type="checkbox"
-                                  checked={liveMode}
-                                  onChange={() => {}}
-                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-green-500 border-green-500/60 focus:ring-green-500 accent-green-500 pointer-events-none"
-                                />
-                                <span
-                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${
-                                    liveMode
+                                  onClick={() => {
+                                    if (liveOILoading) return
+                                    const currentTicker = tickerInput.trim() || selectedTicker
+                                    if (!currentTicker || currentTicker.trim() === '') {
+                                      alert(
+                                        'Please type a ticker in the search bar first before enabling Live OI'
+                                      )
+                                      return
+                                    }
+                                    if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
+                                      const newTicker = tickerInput.trim().toUpperCase()
+                                      setSelectedTicker(newTicker)
+                                      setTickerInput(newTicker)
+                                    }
+                                    if (!liveMode) {
+                                      setLiveMode(true)
+                                      updateLiveOI()
+                                    } else {
+                                      setLiveMode(false)
+                                      setLiveOIData(new Map())
+                                      setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
+                                      setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
+                                    }
+                                  }}
+                                >
+                                  <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                  <input
+                                    type="checkbox"
+                                    checked={liveMode}
+                                    onChange={() => { }}
+                                    className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-green-500 border-green-500/60 focus:ring-green-500 accent-green-500 pointer-events-none"
+                                  />
+                                  <span
+                                    className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${liveMode
                                       ? 'text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]'
                                       : 'text-white'
-                                  }`}
-                                >
-                                  {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
-                                </span>
-                              </div>
+                                      }`}
+                                  >
+                                    {liveOILoading ? `LIVE ${liveOIProgress}%` : 'LIVE'}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -6033,34 +6127,34 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                 onChange={(e) =>
                                   setOtmFilter(
                                     e.target.value as
-                                      | '1%'
-                                      | '2%'
-                                      | '3%'
-                                      | '5%'
-                                      | '8%'
-                                      | '10%'
-                                      | '15%'
-                                      | '20%'
-                                      | '25%'
-                                      | '40%'
-                                      | '50%'
-                                      | '100%'
+                                    | '1%'
+                                    | '2%'
+                                    | '3%'
+                                    | '5%'
+                                    | '8%'
+                                    | '10%'
+                                    | '15%'
+                                    | '20%'
+                                    | '25%'
+                                    | '40%'
+                                    | '50%'
+                                    | '100%'
                                   )
                                 }
                                 className={`bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none ${analysisSuiteMode ? 'px-6 py-4 text-base min-w-[135px]' : 'px-4 py-2.5 text-sm min-w-[90px]'} pr-10 text-white font-bold uppercase appearance-none cursor-pointer transition-all`}
                               >
-                                <option value="1%">�1%</option>
-                                <option value="2%">�2%</option>
-                                <option value="3%">�3%</option>
-                                <option value="5%">�5%</option>
-                                <option value="8%">�8%</option>
-                                <option value="10%">�10%</option>
-                                <option value="15%">�15%</option>
-                                <option value="20%">�20%</option>
-                                <option value="25%">�25%</option>
-                                <option value="40%">�40%</option>
-                                <option value="50%">�50%</option>
-                                <option value="100%">�100%</option>
+                                <option value="1%">±1%</option>
+                                <option value="2%">±2%</option>
+                                <option value="3%">±3%</option>
+                                <option value="5%">±5%</option>
+                                <option value="8%">±8%</option>
+                                <option value="10%">±10%</option>
+                                <option value="15%">±15%</option>
+                                <option value="20%">±20%</option>
+                                <option value="25%">±25%</option>
+                                <option value="40%">±40%</option>
+                                <option value="50%">±50%</option>
+                                <option value="100%">±100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg
@@ -6334,50 +6428,50 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                         {(() => {
                           // Count how many tickers have golden zones above current price
                           const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {}
-                          ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
-                            const tickerData = odtrioData[ticker]
-                            const tickerDataArray = tickerData?.data || []
-                            const odteExpiry = tickerData?.odteExpiry
-                            const currentPrice = tickerData?.currentPrice || 0
+                            ;['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
+                              const tickerData = odtrioData[ticker]
+                              const tickerDataArray = tickerData?.data || []
+                              const odteExpiry = tickerData?.odteExpiry
+                              const currentPrice = tickerData?.currentPrice || 0
 
-                            if (odteExpiry && tickerDataArray.length > 0) {
-                              const normalGEXValues = tickerDataArray
-                                .filter((row) => row.expirations && row.expirations[odteExpiry])
-                                .map((row) => {
-                                  const gexData = row.expirations![odteExpiry]
-                                  return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                              if (odteExpiry && tickerDataArray.length > 0) {
+                                const normalGEXValues = tickerDataArray
+                                  .filter((row) => row.expirations && row.expirations[odteExpiry])
+                                  .map((row) => {
+                                    const gexData = row.expirations![odteExpiry]
+                                    return (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                  })
+                                const dealerGEXValues = tickerDataArray
+                                  .filter((row) => row.expirations && row.expirations[odteExpiry])
+                                  .map((row) => {
+                                    const gexData = row.expirations![odteExpiry]
+                                    return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                                  })
+
+                                const highestGEX = Math.max(...normalGEXValues)
+                                const highestDealer = Math.max(...dealerGEXValues)
+
+                                // Find golden zone row (highest GEX for both columns)
+                                const goldenRow = tickerDataArray.find((row) => {
+                                  const gexData = row.expirations?.[odteExpiry]
+                                  if (!gexData) return false
+                                  const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
+                                  const netDealer =
+                                    (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
+                                  return (
+                                    netGEX === highestGEX &&
+                                    netDealer === highestDealer &&
+                                    netGEX > 0 &&
+                                    netDealer > 0
+                                  )
                                 })
-                              const dealerGEXValues = tickerDataArray
-                                .filter((row) => row.expirations && row.expirations[odteExpiry])
-                                .map((row) => {
-                                  const gexData = row.expirations![odteExpiry]
-                                  return (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                                })
 
-                              const highestGEX = Math.max(...normalGEXValues)
-                              const highestDealer = Math.max(...dealerGEXValues)
-
-                              // Find golden zone row (highest GEX for both columns)
-                              const goldenRow = tickerDataArray.find((row) => {
-                                const gexData = row.expirations?.[odteExpiry]
-                                if (!gexData) return false
-                                const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0)
-                                const netDealer =
-                                  (gexData.call_dealer || 0) + (gexData.put_dealer || 0)
-                                return (
-                                  netGEX === highestGEX &&
-                                  netDealer === highestDealer &&
-                                  netGEX > 0 &&
-                                  netDealer > 0
-                                )
-                              })
-
-                              if (goldenRow) {
-                                tickerGoldenPositions[ticker] =
-                                  goldenRow.strike > currentPrice ? 'above' : 'below'
+                                if (goldenRow) {
+                                  tickerGoldenPositions[ticker] =
+                                    goldenRow.strike > currentPrice ? 'above' : 'below'
+                                }
                               }
-                            }
-                          })
+                            })
 
                           const goldensAbove = Object.values(tickerGoldenPositions).filter(
                             (pos) => pos === 'above'
@@ -7286,7 +7380,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                                           to={
                                                                             30 +
                                                                             (Math.random() - 0.5) *
-                                                                              20
+                                                                            20
                                                                           }
                                                                           dur="2s"
                                                                           begin={`${i * 0.4}s`}
@@ -7469,771 +7563,763 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                       </div>
                     </div>
                   ) : /* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */
-                  showOI ||
-                    (showGEX && showDealer) ||
-                    (showGEX && showFlowGEX) ||
-                    (showDealer && showFlowGEX) ||
-                    (showGEX && showDealer && showFlowGEX) ? (
-                    <div
-                      className="flex overflow-x-auto"
-                      style={{
-                        gap:
-                          typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
-                      }}
-                    >
-                      {/* OI/GEX Charts - Show when OI checkbox is active */}
-                      {showOI && (
-                        <div
-                          className="flex-shrink-0"
-                          style={{
-                            width: activeTableCount === 2 ? '1100px' : '1200px',
-                            minWidth: activeTableCount === 2 ? '1100px' : '1200px',
-                          }}
-                        >
-                          <OIGEXTab selectedTicker={selectedTicker} />
-                        </div>
-                      )}
-                      {(() => {
-                        // Calculate table width based on context
-                        const tableWidths: string[] = []
+                    showOI ||
+                      (showGEX && showDealer) ||
+                      (showGEX && showFlowGEX) ||
+                      (showDealer && showFlowGEX) ||
+                      (showGEX && showDealer && showFlowGEX) ? (
+                      <div
+                        className="flex overflow-x-auto"
+                        style={{
+                          gap:
+                            typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
+                        }}
+                      >
+                        {/* OI/GEX Charts - Show when OI checkbox is active */}
+                        {showOI && (
+                          <div
+                            className="flex-shrink-0"
+                            style={{
+                              width: activeTableCount === 2 ? '1100px' : '1200px',
+                              minWidth: activeTableCount === 2 ? '1100px' : '1200px',
+                            }}
+                          >
+                            <OIGEXTab selectedTicker={selectedTicker} />
+                          </div>
+                        )}
+                        {(() => {
+                          // Calculate table width based on context
+                          const tableWidths: string[] = []
 
-                        if (showOI && activeTableCount === 1) {
-                          // OI + 1 table: table gets 900px
-                          tableWidths.push('900px')
-                        } else if (showOI && activeTableCount === 2) {
-                          // OI + 2 tables: each table gets 895px
-                          tableWidths.push('895px', '895px')
-                        } else if (!showOI && activeTableCount === 2 && duoMode) {
-                          // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
-                          tableWidths.push('540px', '540px')
-                        } else if (!showOI && activeTableCount === 2) {
-                          // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
-                          tableWidths.push('887px', '887px')
-                        } else if (!showOI && activeTableCount === 3) {
-                          // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
-                          tableWidths.push('887px', '887px', '886px')
-                        }
+                          if (showOI && activeTableCount === 1) {
+                            // OI + 1 table: table gets 900px
+                            tableWidths.push('900px')
+                          } else if (showOI && activeTableCount === 2) {
+                            // OI + 2 tables: each table gets 895px
+                            tableWidths.push('895px', '895px')
+                          } else if (!showOI && activeTableCount === 2 && duoMode) {
+                            // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
+                            tableWidths.push('540px', '540px')
+                          } else if (!showOI && activeTableCount === 2) {
+                            // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
+                            tableWidths.push('887px', '887px')
+                          } else if (!showOI && activeTableCount === 3) {
+                            // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
+                            tableWidths.push('887px', '887px', '886px')
+                          }
 
-                        // Mobile detection - needed for getTableWidth function
-                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                          // Mobile detection - needed for getTableWidth function
+                          const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-                        let currentTableIndex = 0
-                        const getTableWidth = () => {
-                          // On mobile, enforce equal widths so tables don't collapse when empty
-                          if (isMobile) {
-                            if (activeTableCount === 3) {
-                              return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
-                            } else if (activeTableCount === 2) {
-                              return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
+                          let currentTableIndex = 0
+                          const getTableWidth = () => {
+                            // On mobile, enforce equal widths so tables don't collapse when empty
+                            if (isMobile) {
+                              if (activeTableCount === 3) {
+                                return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
+                              } else if (activeTableCount === 2) {
+                                return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
+                              }
+                              return undefined
+                            }
+                            if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
+                              return {
+                                width: tableWidths[currentTableIndex],
+                                minWidth: tableWidths[currentTableIndex++],
+                              }
                             }
                             return undefined
                           }
-                          if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
-                            return {
-                              width: tableWidths[currentTableIndex],
-                              minWidth: tableWidths[currentTableIndex++],
+
+                          // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
+                          const allThreeActive = showGEX && showDealer && showFlowGEX
+                          const mobileStrikeWidth = isMobile
+                            ? 45
+                            : allThreeActive
+                              ? Math.round(strikeColWidth * 0.56)
+                              : strikeColWidth
+                          let mobileExpWidth = isMobile ? 82 : allThreeActive ? 50 : 90
+
+                          // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
+                          if (duoMode && showGEX && showDealer && !isMobile) {
+                            mobileExpWidth = allThreeActive ? 50 : 70
+                          }
+
+                          const tlOffset = analysisSuiteMode ? 1 : 0
+
+                          let table1Expirations = analysisSuiteMode
+                            ? expirations.slice(0, 4)
+                            : expirations
+                          let table2Expirations = analysisSuiteMode
+                            ? expirations.slice(0, 4)
+                            : expirations
+                          let table3Expirations = analysisSuiteMode
+                            ? expirations.slice(0, 4)
+                            : expirations
+
+                          // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
+                          if (duoMode && showGEX && showDealer && !isMobile) {
+                            // Duo mode (no flow map): 6 expirations
+                            table1Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 6 - tlOffset
+                            )
+                            table2Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 6 - tlOffset
+                            )
+                            table3Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 6 - tlOffset
+                            )
+                          } else if (allThreeActive && !duoMode && !isMobile) {
+                            // All three tables without duo mode: 8 expirations
+                            table1Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 8 - tlOffset
+                            )
+                            table2Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 8 - tlOffset
+                            )
+                            table3Expirations = expirations.slice(
+                              0,
+                              analysisSuiteMode ? 4 : 8 - tlOffset
+                            )
+                          }
+
+                          if (isMobile) {
+                            if (activeTableCount === 3) {
+                              // 3 tables on mobile: each gets 1 expiration
+                              table1Expirations = expirations.slice(0, 1)
+                              table2Expirations = expirations.slice(0, 1)
+                              table3Expirations = expirations.slice(0, 1)
+                            } else if (activeTableCount === 2) {
+                              // 2 tables on mobile: each gets 2 expirations
+                              table1Expirations = expirations.slice(0, 2 - tlOffset)
+                              table2Expirations = expirations.slice(0, 2 - tlOffset)
+                              table3Expirations = expirations.slice(0, 2 - tlOffset)
                             }
                           }
-                          return undefined
-                        }
 
-                        // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
-                        const allThreeActive = showGEX && showDealer && showFlowGEX
-                        const mobileStrikeWidth = isMobile
-                          ? 45
-                          : allThreeActive
-                            ? Math.round(strikeColWidth * 0.56)
-                            : strikeColWidth
-                        let mobileExpWidth = isMobile ? 82 : allThreeActive ? 50 : 90
-
-                        // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
-                        if (duoMode && showGEX && showDealer && !isMobile) {
-                          mobileExpWidth = allThreeActive ? 50 : 70
-                        }
-
-                        const tlOffset = analysisSuiteMode ? 1 : 0
-
-                        let table1Expirations = analysisSuiteMode
-                          ? expirations.slice(0, 4)
-                          : expirations
-                        let table2Expirations = analysisSuiteMode
-                          ? expirations.slice(0, 4)
-                          : expirations
-                        let table3Expirations = analysisSuiteMode
-                          ? expirations.slice(0, 4)
-                          : expirations
-
-                        // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
-                        if (duoMode && showGEX && showDealer && !isMobile) {
-                          // Duo mode (no flow map): 6 expirations
-                          table1Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 6 - tlOffset
-                          )
-                          table2Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 6 - tlOffset
-                          )
-                          table3Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 6 - tlOffset
-                          )
-                        } else if (allThreeActive && !duoMode && !isMobile) {
-                          // All three tables without duo mode: 8 expirations
-                          table1Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 8 - tlOffset
-                          )
-                          table2Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 8 - tlOffset
-                          )
-                          table3Expirations = expirations.slice(
-                            0,
-                            analysisSuiteMode ? 4 : 8 - tlOffset
-                          )
-                        }
-
-                        if (isMobile) {
-                          if (activeTableCount === 3) {
-                            // 3 tables on mobile: each gets 1 expiration
-                            table1Expirations = expirations.slice(0, 1)
-                            table2Expirations = expirations.slice(0, 1)
-                            table3Expirations = expirations.slice(0, 1)
-                          } else if (activeTableCount === 2) {
-                            // 2 tables on mobile: each gets 2 expirations
-                            table1Expirations = expirations.slice(0, 2 - tlOffset)
-                            table2Expirations = expirations.slice(0, 2 - tlOffset)
-                            table3Expirations = expirations.slice(0, 2 - tlOffset)
-                          }
-                        }
-
-                        return (
-                          <>
-                            {/* GEX/NORMAL TABLE */}
-                            {showGEX && (
-                              <div className="flex-shrink-0" style={getTableWidth()}>
-                                <div
-                                  className={`${
-                                    useBloombergTheme
+                          return (
+                            <>
+                              {/* GEX/NORMAL TABLE */}
+                              {showGEX && (
+                                <div className="flex-shrink-0" style={getTableWidth()}>
+                                  <div
+                                    className={`${useBloombergTheme
                                       ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                                       : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                >
-                                  {useBloombergTheme && (
-                                    <div
-                                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
-                                      style={{ animationDuration: '3s' }}
-                                    ></div>
-                                  )}
-                                  <div className="flex items-center justify-center gap-3 relative z-10">
+                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                  >
                                     {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                      <div
+                                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse"
+                                        style={{ animationDuration: '3s' }}
+                                      ></div>
                                     )}
-                                    <h3
-                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
-                                      style={{
-                                        letterSpacing: '0.2em',
-                                        textShadow: useBloombergTheme
-                                          ? '0 0 20px rgba(52,211,153,0.5)'
-                                          : '0 2px 4px rgba(0,0,0,0.8)',
-                                      }}
-                                    >
-                                      NORMAL
-                                    </h3>
-                                    {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-                                    )}
+                                    <div className="flex items-center justify-center gap-3 relative z-10">
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                      )}
+                                      <h3
+                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}
+                                        style={{
+                                          letterSpacing: '0.2em',
+                                          textShadow: useBloombergTheme
+                                            ? '0 0 20px rgba(52,211,153,0.5)'
+                                            : '0 2px 4px rgba(0,0,0,0.8)',
+                                        }}
+                                      >
+                                        NORMAL
+                                      </h3>
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                                <div
-                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                  style={{
-                                    maxHeight: isMobile
-                                      ? 'calc(74.78vh - 225px)'
-                                      : 'calc(74.78vh - 270px)',
-                                    overflowX: 'auto',
-                                    zoom: analysisSuiteMode ? 1.5 : undefined,
-                                  }}
-                                >
-                                  <table
+                                  <div
+                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
-                                      minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
-                                      width: '100%',
+                                      maxHeight: isMobile
+                                        ? 'calc(74.78vh - 225px)'
+                                        : 'calc(74.78vh - 270px)',
+                                      overflowX: 'auto',
+                                      zoom: analysisSuiteMode ? 1.5 : undefined,
                                     }}
                                   >
-                                    <thead
-                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                    <table
                                       style={{
-                                        top: '0',
-                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`,
+                                        width: '100%',
                                       }}
                                     >
-                                      <tr
-                                        className={
-                                          useBloombergTheme
-                                            ? ''
-                                            : 'border-b border-gray-700 bg-black'
-                                        }
+                                      <thead
+                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                        style={{
+                                          top: '0',
+                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        }}
                                       >
-                                        <th
-                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
-                                          style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`,
-                                          }}
+                                        <tr
+                                          className={
+                                            useBloombergTheme
+                                              ? ''
+                                              : 'border-b border-gray-700 bg-black'
+                                          }
                                         >
-                                          <div
-                                            className={
-                                              useBloombergTheme
-                                                ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                : 'text-xs md:text-sm font-bold text-white uppercase'
-                                            }
-                                          >
-                                            Strike
-                                          </div>
-                                        </th>
-                                        {table1Expirations.map((exp) => (
                                           <th
-                                            key={exp}
-                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
                                             style={{
-                                              width: `${mobileExpWidth}px`,
-                                              minWidth: `${mobileExpWidth}px`,
-                                              maxWidth: `${mobileExpWidth}px`,
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
                                             }}
                                           >
                                             <div
-                                              className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                              className={
+                                                useBloombergTheme
+                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
+                                              }
                                             >
-                                              {formatDate(exp)}
+                                              Strike
                                             </div>
                                           </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {allCalculatedData
-                                        .filter((row) => {
-                                          const strikeRange = getStrikeRange(currentPrice)
-                                          return (
-                                            row.strike >= strikeRange.min &&
-                                            row.strike <= strikeRange.max
-                                          )
-                                        })
-                                        .map((row, idx) => {
-                                          // Use historical price when scrubbing, otherwise current price
-                                          const priceForRow = historicalTimestamp
-                                            ? historicalPrice
-                                            : currentPrice
-                                          const closestStrike =
-                                            priceForRow > 0
-                                              ? data.reduce((closest, current) =>
+                                          {table1Expirations.map((exp) => (
+                                            <th
+                                              key={exp}
+                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                              style={{
+                                                width: `${mobileExpWidth}px`,
+                                                minWidth: `${mobileExpWidth}px`,
+                                                maxWidth: `${mobileExpWidth}px`,
+                                              }}
+                                            >
+                                              <div
+                                                className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                              >
+                                                {formatDate(exp)}
+                                              </div>
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {allCalculatedData
+                                          .filter((row) => {
+                                            const strikeRange = getStrikeRange(currentPrice)
+                                            return (
+                                              row.strike >= strikeRange.min &&
+                                              row.strike <= strikeRange.max
+                                            )
+                                          })
+                                          .map((row, idx) => {
+                                            // Use historical price when scrubbing, otherwise current price
+                                            const priceForRow = historicalTimestamp
+                                              ? historicalPrice
+                                              : currentPrice
+                                            const closestStrike =
+                                              priceForRow > 0
+                                                ? data.reduce((closest, current) =>
                                                   Math.abs(current.strike - priceForRow) <
-                                                  Math.abs(closest.strike - priceForRow)
+                                                    Math.abs(closest.strike - priceForRow)
                                                     ? current
                                                     : closest
                                                 ).strike
-                                              : 0
+                                                : 0
 
-                                          const isCurrentPriceRow =
-                                            priceForRow > 0 && row.strike === closestStrike
+                                            const isCurrentPriceRow =
+                                              priceForRow > 0 && row.strike === closestStrike
 
-                                          return (
-                                            <tr
-                                              key={idx}
-                                              className={`hover:bg-gray-800/20 transition-colors ${
-                                                isCurrentPriceRow
+                                            return (
+                                              <tr
+                                                key={idx}
+                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
                                                   ? 'border-2 border-orange-500'
                                                   : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
-                                            >
-                                              <td
-                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                style={{
-                                                  width: `${mobileStrikeWidth}px`,
-                                                  minWidth: `${mobileStrikeWidth}px`,
-                                                  maxWidth: `${mobileStrikeWidth}px`,
-                                                }}
+                                                  }`}
                                               >
-                                                <div
-                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                <td
+                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                  style={{
+                                                    width: `${mobileStrikeWidth}px`,
+                                                    minWidth: `${mobileStrikeWidth}px`,
+                                                    maxWidth: `${mobileStrikeWidth}px`,
+                                                  }}
                                                 >
-                                                  {row.strike.toFixed(1)}
-                                                </div>
-                                              </td>
-                                              {table1Expirations.map((exp) => {
-                                                // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
-                                                const calculatedRow = allGEXCalculatedData.find(
-                                                  (r) => r.strike === row.strike
-                                                )
-                                                const gexValue = calculatedRow?.[exp] as any
-                                                const displayValue =
-                                                  (gexValue?.call || 0) + (gexValue?.put || 0)
-                                                const cellStyle = getCellStyle(
-                                                  displayValue,
-                                                  false,
-                                                  row.strike,
-                                                  exp,
-                                                  gexTopValues,
-                                                  'gex'
-                                                )
-
-                                                return (
-                                                  <td
-                                                    key={exp}
-                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                    style={{
-                                                      width: `${mobileExpWidth}px`,
-                                                      minWidth: `${mobileExpWidth}px`,
-                                                      maxWidth: `${mobileExpWidth}px`,
-                                                    }}
+                                                  <div
+                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                                   >
-                                                    <div
-                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
-                                                    >
-                                                      <div className="text-sm md:text-base font-bold mb-1">
-                                                        {formatCurrency(displayValue)}
-                                                      </div>
-                                                    </div>
-                                                  </td>
-                                                )
-                                              })}
-                                            </tr>
-                                          )
-                                        })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            )}
+                                                    {row.strike.toFixed(1)}
+                                                  </div>
+                                                </td>
+                                                {table1Expirations.map((exp) => {
+                                                  // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
+                                                  const calculatedRow = allGEXCalculatedData.find(
+                                                    (r) => r.strike === row.strike
+                                                  )
+                                                  const gexValue = calculatedRow?.[exp] as any
+                                                  const displayValue =
+                                                    (gexValue?.call || 0) + (gexValue?.put || 0)
+                                                  const cellStyle = getCellStyle(
+                                                    displayValue,
+                                                    false,
+                                                    row.strike,
+                                                    exp,
+                                                    gexTopValues,
+                                                    'gex'
+                                                  )
 
-                            {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
-                            {showDealer && (
-                              <div
-                                key={`dealer-${liveMode}-${liveOIData.size}`}
-                                className="flex-shrink-0"
-                                style={
-                                  showOI && activeTableCount === 1
-                                    ? { width: '900px', minWidth: '900px' }
-                                    : getTableWidth()
-                                }
-                              >
+                                                  return (
+                                                    <td
+                                                      key={exp}
+                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                      style={{
+                                                        width: `${mobileExpWidth}px`,
+                                                        minWidth: `${mobileExpWidth}px`,
+                                                        maxWidth: `${mobileExpWidth}px`,
+                                                      }}
+                                                    >
+                                                      <div
+                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                                      >
+                                                        <div className="text-sm md:text-base font-bold mb-1">
+                                                          {formatCurrency(displayValue)}
+                                                        </div>
+                                                      </div>
+                                                    </td>
+                                                  )
+                                                })}
+                                              </tr>
+                                            )
+                                          })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                              {showDealer && (
                                 <div
-                                  className={`${
-                                    useBloombergTheme
+                                  key={`dealer-${liveMode}-${liveOIData.size}`}
+                                  className="flex-shrink-0"
+                                  style={
+                                    showOI && activeTableCount === 1
+                                      ? { width: '900px', minWidth: '900px' }
+                                      : getTableWidth()
+                                  }
+                                >
+                                  <div
+                                    className={`${useBloombergTheme
                                       ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
                                       : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                >
-                                  {useBloombergTheme && (
-                                    <div
-                                      className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
-                                      style={{ animationDuration: '3s' }}
-                                    ></div>
-                                  )}
-                                  <div className="flex items-center justify-center gap-3 relative z-10">
+                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                  >
                                     {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                      <div
+                                        className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse"
+                                        style={{ animationDuration: '3s' }}
+                                      ></div>
                                     )}
-                                    <h3
-                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
-                                      style={{
-                                        letterSpacing: '0.2em',
-                                        textShadow: useBloombergTheme
-                                          ? '0 0 20px rgba(251,191,36,0.5)'
-                                          : '0 2px 4px rgba(0,0,0,0.8)',
-                                      }}
-                                    >
-                                      DEALER
-                                    </h3>
-                                    {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
-                                    )}
+                                    <div className="flex items-center justify-center gap-3 relative z-10">
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                      )}
+                                      <h3
+                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`}
+                                        style={{
+                                          letterSpacing: '0.2em',
+                                          textShadow: useBloombergTheme
+                                            ? '0 0 20px rgba(251,191,36,0.5)'
+                                            : '0 2px 4px rgba(0,0,0,0.8)',
+                                        }}
+                                      >
+                                        DEALER
+                                      </h3>
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                                <div
-                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                  style={{
-                                    maxHeight: isMobile
-                                      ? 'calc(74.78vh - 225px)'
-                                      : 'calc(74.78vh - 270px)',
-                                    zoom: analysisSuiteMode ? 1.5 : undefined,
-                                    overflowX: 'auto',
-                                  }}
-                                >
-                                  <table
+                                  <div
+                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
-                                      minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
-                                      width: '100%',
+                                      maxHeight: isMobile
+                                        ? 'calc(74.78vh - 225px)'
+                                        : 'calc(74.78vh - 270px)',
+                                      zoom: analysisSuiteMode ? 1.5 : undefined,
+                                      overflowX: 'auto',
                                     }}
                                   >
-                                    <thead
-                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                    <table
                                       style={{
-                                        top: '0',
-                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        minWidth: `${mobileStrikeWidth + table2Expirations.length * mobileExpWidth}px`,
+                                        width: '100%',
                                       }}
                                     >
-                                      <tr
-                                        className={
-                                          useBloombergTheme
-                                            ? ''
-                                            : 'border-b border-gray-700 bg-black'
-                                        }
+                                      <thead
+                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                        style={{
+                                          top: '0',
+                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        }}
                                       >
-                                        <th
-                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
-                                          style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`,
-                                          }}
+                                        <tr
+                                          className={
+                                            useBloombergTheme
+                                              ? ''
+                                              : 'border-b border-gray-700 bg-black'
+                                          }
                                         >
-                                          <div
-                                            className={
-                                              useBloombergTheme
-                                                ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                : 'text-xs md:text-sm font-bold text-white uppercase'
-                                            }
-                                          >
-                                            Strike
-                                          </div>
-                                        </th>
-                                        {table2Expirations.map((exp) => (
                                           <th
-                                            key={exp}
-                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
                                             style={{
-                                              width: `${mobileExpWidth}px`,
-                                              minWidth: `${mobileExpWidth}px`,
-                                              maxWidth: `${mobileExpWidth}px`,
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
                                             }}
                                           >
                                             <div
-                                              className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                              className={
+                                                useBloombergTheme
+                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
+                                              }
                                             >
-                                              {formatDate(exp)}
+                                              Strike
                                             </div>
                                           </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {allCalculatedData
-                                        .filter((row) => {
-                                          const strikeRange = getStrikeRange(currentPrice)
-                                          return (
-                                            row.strike >= strikeRange.min &&
-                                            row.strike <= strikeRange.max
-                                          )
-                                        })
-                                        .map((row, idx) => {
-                                          // Use historical price when scrubbing, otherwise current price
-                                          const priceForRow = historicalTimestamp
-                                            ? historicalPrice
-                                            : currentPrice
-                                          const closestStrike =
-                                            priceForRow > 0
-                                              ? data.reduce((closest, current) =>
+                                          {table2Expirations.map((exp) => (
+                                            <th
+                                              key={exp}
+                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                              style={{
+                                                width: `${mobileExpWidth}px`,
+                                                minWidth: `${mobileExpWidth}px`,
+                                                maxWidth: `${mobileExpWidth}px`,
+                                              }}
+                                            >
+                                              <div
+                                                className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}
+                                              >
+                                                {formatDate(exp)}
+                                              </div>
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {allCalculatedData
+                                          .filter((row) => {
+                                            const strikeRange = getStrikeRange(currentPrice)
+                                            return (
+                                              row.strike >= strikeRange.min &&
+                                              row.strike <= strikeRange.max
+                                            )
+                                          })
+                                          .map((row, idx) => {
+                                            // Use historical price when scrubbing, otherwise current price
+                                            const priceForRow = historicalTimestamp
+                                              ? historicalPrice
+                                              : currentPrice
+                                            const closestStrike =
+                                              priceForRow > 0
+                                                ? data.reduce((closest, current) =>
                                                   Math.abs(current.strike - priceForRow) <
-                                                  Math.abs(closest.strike - priceForRow)
+                                                    Math.abs(closest.strike - priceForRow)
                                                     ? current
                                                     : closest
                                                 ).strike
-                                              : 0
+                                                : 0
 
-                                          const isCurrentPriceRow =
-                                            priceForRow > 0 && row.strike === closestStrike
+                                            const isCurrentPriceRow =
+                                              priceForRow > 0 && row.strike === closestStrike
 
-                                          return (
-                                            <tr
-                                              key={idx}
-                                              className={`hover:bg-gray-800/20 transition-colors ${
-                                                isCurrentPriceRow
+                                            return (
+                                              <tr
+                                                key={idx}
+                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
                                                   ? 'border-2 border-orange-500'
                                                   : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
-                                            >
-                                              <td
-                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                style={{
-                                                  width: `${mobileStrikeWidth}px`,
-                                                  minWidth: `${mobileStrikeWidth}px`,
-                                                  maxWidth: `${mobileStrikeWidth}px`,
-                                                }}
+                                                  }`}
                                               >
-                                                <div
-                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                <td
+                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                  style={{
+                                                    width: `${mobileStrikeWidth}px`,
+                                                    minWidth: `${mobileStrikeWidth}px`,
+                                                    maxWidth: `${mobileStrikeWidth}px`,
+                                                  }}
                                                 >
-                                                  {row.strike.toFixed(1)}
-                                                </div>
-                                              </td>
-                                              {table2Expirations.map((exp) => {
-                                                // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
-                                                const calculatedRow = allDealerCalculatedData.find(
-                                                  (r) => r.strike === row.strike
-                                                )
-                                                const dealerValue = calculatedRow?.[exp] as any
-                                                const displayValue =
-                                                  (dealerValue?.call || 0) + (dealerValue?.put || 0)
-                                                const cellStyle = getCellStyle(
-                                                  displayValue,
-                                                  false,
-                                                  row.strike,
-                                                  exp,
-                                                  dealerTopValues,
-                                                  'dealer'
-                                                )
-
-                                                return (
-                                                  <td
-                                                    key={exp}
-                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                    style={{
-                                                      width: `${mobileExpWidth}px`,
-                                                      minWidth: `${mobileExpWidth}px`,
-                                                      maxWidth: `${mobileExpWidth}px`,
-                                                    }}
+                                                  <div
+                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                                   >
-                                                    <div
-                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${
-                                                        cellStyle.clusterPosition === 'top'
+                                                    {row.strike.toFixed(1)}
+                                                  </div>
+                                                </td>
+                                                {table2Expirations.map((exp) => {
+                                                  // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
+                                                  const calculatedRow = allDealerCalculatedData.find(
+                                                    (r) => r.strike === row.strike
+                                                  )
+                                                  const dealerValue = calculatedRow?.[exp] as any
+                                                  const displayValue =
+                                                    (dealerValue?.call || 0) + (dealerValue?.put || 0)
+                                                  const cellStyle = getCellStyle(
+                                                    displayValue,
+                                                    false,
+                                                    row.strike,
+                                                    exp,
+                                                    dealerTopValues,
+                                                    'dealer'
+                                                  )
+
+                                                  return (
+                                                    <td
+                                                      key={exp}
+                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                      style={{
+                                                        width: `${mobileExpWidth}px`,
+                                                        minWidth: `${mobileExpWidth}px`,
+                                                        maxWidth: `${mobileExpWidth}px`,
+                                                      }}
+                                                    >
+                                                      <div
+                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top'
                                                           ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                           : cellStyle.clusterPosition === 'middle'
                                                             ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                             : cellStyle.clusterPosition === 'bottom'
                                                               ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                               : ''
-                                                      }`}
-                                                    >
-                                                      <div className="text-sm md:text-base font-bold mb-1">
-                                                        {formatCurrency(displayValue)}
+                                                          }`}
+                                                      >
+                                                        <div className="text-sm md:text-base font-bold mb-1">
+                                                          {formatCurrency(displayValue)}
+                                                        </div>
                                                       </div>
-                                                    </div>
-                                                  </td>
-                                                )
-                                              })}
-                                            </tr>
-                                          )
-                                        })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* FLOW MAP Table - conditionally rendered */}
-                            {showFlowGEX && (
-                              <div
-                                key={`flowmap-${liveMode}-${liveOIData.size}`}
-                                className="flex-shrink-0"
-                                style={
-                                  showOI && activeTableCount === 1
-                                    ? { width: '900px', minWidth: '900px' }
-                                    : getTableWidth()
-                                }
-                              >
-                                <div
-                                  className={`${
-                                    useBloombergTheme
-                                      ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-                                      : 'bg-black border-gray-700'
-                                  } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                                >
-                                  {useBloombergTheme && (
-                                    <div
-                                      className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
-                                      style={{ animationDuration: '3s' }}
-                                    ></div>
-                                  )}
-                                  <div className="flex items-center justify-center gap-3 relative z-10">
-                                    {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                    )}
-                                    <h3
-                                      className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
-                                      style={{
-                                        letterSpacing: '0.2em',
-                                        textShadow: useBloombergTheme
-                                          ? '0 0 20px rgba(251,146,60,0.5)'
-                                          : '0 2px 4px rgba(0,0,0,0.8)',
-                                      }}
-                                    >
-                                      FLOW MAP
-                                    </h3>
-                                    {useBloombergTheme && (
-                                      <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
-                                    )}
+                                                    </td>
+                                                  )
+                                                })}
+                                              </tr>
+                                            )
+                                          })}
+                                      </tbody>
+                                    </table>
                                   </div>
                                 </div>
+                              )}
+
+                              {/* FLOW MAP Table - conditionally rendered */}
+                              {showFlowGEX && (
                                 <div
-                                  className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                                  style={{
-                                    maxHeight: isMobile
-                                      ? 'calc(74.78vh - 225px)'
-                                      : 'calc(74.78vh - 270px)',
-                                    overflowX: 'auto',
-                                    zoom: analysisSuiteMode ? 1.5 : undefined,
-                                  }}
+                                  key={`flowmap-${liveMode}-${liveOIData.size}`}
+                                  className="flex-shrink-0"
+                                  style={
+                                    showOI && activeTableCount === 1
+                                      ? { width: '900px', minWidth: '900px' }
+                                      : getTableWidth()
+                                  }
                                 >
-                                  <table
+                                  <div
+                                    className={`${useBloombergTheme
+                                      ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                                      : 'bg-black border-gray-700'
+                                      } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                  >
+                                    {useBloombergTheme && (
+                                      <div
+                                        className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse"
+                                        style={{ animationDuration: '3s' }}
+                                      ></div>
+                                    )}
+                                    <div className="flex items-center justify-center gap-3 relative z-10">
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                      )}
+                                      <h3
+                                        className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`}
+                                        style={{
+                                          letterSpacing: '0.2em',
+                                          textShadow: useBloombergTheme
+                                            ? '0 0 20px rgba(251,146,60,0.5)'
+                                            : '0 2px 4px rgba(0,0,0,0.8)',
+                                        }}
+                                      >
+                                        FLOW MAP
+                                      </h3>
+                                      {useBloombergTheme && (
+                                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div
+                                    className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
-                                      minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
-                                      width: '100%',
+                                      maxHeight: isMobile
+                                        ? 'calc(74.78vh - 225px)'
+                                        : 'calc(74.78vh - 270px)',
+                                      overflowX: 'auto',
+                                      zoom: analysisSuiteMode ? 1.5 : undefined,
                                     }}
                                   >
-                                    <thead
-                                      className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                    <table
                                       style={{
-                                        top: '0',
-                                        backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        minWidth: `${mobileStrikeWidth + table3Expirations.length * mobileExpWidth}px`,
+                                        width: '100%',
                                       }}
                                     >
-                                      <tr
-                                        className={
-                                          useBloombergTheme
-                                            ? ''
-                                            : 'border-b border-gray-700 bg-black'
-                                        }
+                                      <thead
+                                        className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                        style={{
+                                          top: '0',
+                                          backgroundColor: useBloombergTheme ? undefined : '#000000',
+                                        }}
                                       >
-                                        <th
-                                          className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
-                                          style={{
-                                            width: `${mobileStrikeWidth}px`,
-                                            minWidth: `${mobileStrikeWidth}px`,
-                                            maxWidth: `${mobileStrikeWidth}px`,
-                                          }}
+                                        <tr
+                                          className={
+                                            useBloombergTheme
+                                              ? ''
+                                              : 'border-b border-gray-700 bg-black'
+                                          }
                                         >
-                                          <div
-                                            className={
-                                              useBloombergTheme
-                                                ? 'bb-header text-xs md:text-sm text-gray-400'
-                                                : 'text-xs md:text-sm font-bold text-white uppercase'
-                                            }
-                                          >
-                                            Strike
-                                          </div>
-                                        </th>
-                                        {table3Expirations.map((exp) => (
                                           <th
-                                            key={exp}
-                                            className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                            className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
                                             style={{
-                                              width: `${mobileExpWidth}px`,
-                                              minWidth: `${mobileExpWidth}px`,
-                                              maxWidth: `${mobileExpWidth}px`,
+                                              width: `${mobileStrikeWidth}px`,
+                                              minWidth: `${mobileStrikeWidth}px`,
+                                              maxWidth: `${mobileStrikeWidth}px`,
                                             }}
                                           >
-                                            <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                              {formatDate(exp)}
+                                            <div
+                                              className={
+                                                useBloombergTheme
+                                                  ? 'bb-header text-xs md:text-sm text-gray-400'
+                                                  : 'text-xs md:text-sm font-bold text-white uppercase'
+                                              }
+                                            >
+                                              Strike
                                             </div>
                                           </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {allFlowWeightedDealerData
-                                        .filter((row) => {
-                                          const strikeRange = getStrikeRange(currentPrice)
-                                          return (
-                                            row.strike >= strikeRange.min &&
-                                            row.strike <= strikeRange.max
-                                          )
-                                        })
-                                        .map((row, idx) => {
-                                          // Use historical price when scrubbing, otherwise current price
-                                          const priceForRow = historicalTimestamp
-                                            ? historicalPrice
-                                            : currentPrice
-                                          const closestStrike =
-                                            priceForRow > 0
-                                              ? data.reduce((closest, current) =>
+                                          {table3Expirations.map((exp) => (
+                                            <th
+                                              key={exp}
+                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                              style={{
+                                                width: `${mobileExpWidth}px`,
+                                                minWidth: `${mobileExpWidth}px`,
+                                                maxWidth: `${mobileExpWidth}px`,
+                                              }}
+                                            >
+                                              <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                                {formatDate(exp)}
+                                              </div>
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {allFlowWeightedDealerData
+                                          .filter((row) => {
+                                            const strikeRange = getStrikeRange(currentPrice)
+                                            return (
+                                              row.strike >= strikeRange.min &&
+                                              row.strike <= strikeRange.max
+                                            )
+                                          })
+                                          .map((row, idx) => {
+                                            // Use historical price when scrubbing, otherwise current price
+                                            const priceForRow = historicalTimestamp
+                                              ? historicalPrice
+                                              : currentPrice
+                                            const closestStrike =
+                                              priceForRow > 0
+                                                ? data.reduce((closest, current) =>
                                                   Math.abs(current.strike - priceForRow) <
-                                                  Math.abs(closest.strike - priceForRow)
+                                                    Math.abs(closest.strike - priceForRow)
                                                     ? current
                                                     : closest
                                                 ).strike
-                                              : 0
+                                                : 0
 
-                                          const isCurrentPriceRow =
-                                            priceForRow > 0 && row.strike === closestStrike
+                                            const isCurrentPriceRow =
+                                              priceForRow > 0 && row.strike === closestStrike
 
-                                          return (
-                                            <tr
-                                              key={idx}
-                                              className={`hover:bg-gray-800/20 transition-colors ${
-                                                isCurrentPriceRow
+                                            return (
+                                              <tr
+                                                key={idx}
+                                                className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
                                                   ? 'border-2 border-orange-500'
                                                   : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                              }`}
-                                            >
-                                              <td
-                                                className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                                style={{
-                                                  width: `${mobileStrikeWidth}px`,
-                                                  minWidth: `${mobileStrikeWidth}px`,
-                                                  maxWidth: `${mobileStrikeWidth}px`,
-                                                }}
+                                                  }`}
                                               >
-                                                <div
-                                                  className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                <td
+                                                  className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                  style={{
+                                                    width: `${mobileStrikeWidth}px`,
+                                                    minWidth: `${mobileStrikeWidth}px`,
+                                                    maxWidth: `${mobileStrikeWidth}px`,
+                                                  }}
                                                 >
-                                                  {row.strike.toFixed(1)}
-                                                </div>
-                                              </td>
-                                              {table3Expirations.map((exp) => {
-                                                const value = row[exp] as any
-                                                const displayValue =
-                                                  (value?.call || 0) + (value?.put || 0)
-                                                const cellStyle = getCellStyle(
-                                                  displayValue,
-                                                  false,
-                                                  row.strike,
-                                                  exp,
-                                                  flowTopValues
-                                                )
-
-                                                return (
-                                                  <td
-                                                    key={exp}
-                                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                                    style={{
-                                                      width: `${mobileExpWidth}px`,
-                                                      minWidth: `${mobileExpWidth}px`,
-                                                      maxWidth: `${mobileExpWidth}px`,
-                                                    }}
+                                                  <div
+                                                    className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                                   >
-                                                    <div
-                                                      className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                                    {row.strike.toFixed(1)}
+                                                  </div>
+                                                </td>
+                                                {table3Expirations.map((exp) => {
+                                                  const value = row[exp] as any
+                                                  const displayValue =
+                                                    (value?.call || 0) + (value?.put || 0)
+                                                  const cellStyle = getCellStyle(
+                                                    displayValue,
+                                                    false,
+                                                    row.strike,
+                                                    exp,
+                                                    flowTopValues
+                                                  )
+
+                                                  return (
+                                                    <td
+                                                      key={exp}
+                                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                      style={{
+                                                        width: `${mobileExpWidth}px`,
+                                                        minWidth: `${mobileExpWidth}px`,
+                                                        maxWidth: `${mobileExpWidth}px`,
+                                                      }}
                                                     >
-                                                      <div className="text-sm md:text-base font-bold mb-1">
-                                                        {formatCurrency(displayValue)}
+                                                      <div
+                                                        className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}
+                                                      >
+                                                        <div className="text-sm md:text-base font-bold mb-1">
+                                                          {formatCurrency(displayValue)}
+                                                        </div>
                                                       </div>
-                                                    </div>
-                                                  </td>
-                                                )
-                                              })}
-                                            </tr>
-                                          )
-                                        })}
-                                    </tbody>
-                                  </table>
+                                                    </td>
+                                                  )
+                                                })}
+                                              </tr>
+                                            )
+                                          })}
+                                      </tbody>
+                                    </table>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </>
-                        )
-                      })()}
-                    </div>
-                  ) : (
-                    /* Original single table when only one mode is active */
-                    <div>
-                      {/* Title banner for single-table mode */}
-                      <div
-                        className={`${
-                          showGEX
+                              )}
+                            </>
+                          )
+                        })()}
+                      </div>
+                    ) : (
+                      /* Original single table when only one mode is active */
+                      <div>
+                        {/* Title banner for single-table mode */}
+                        <div
+                          className={`${showGEX
                             ? useBloombergTheme
                               ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                               : 'bg-black border-gray-700'
@@ -8246,131 +8332,130 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                   ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
                                   : 'bg-black border-gray-700'
                                 : 'bg-black border-gray-700'
-                        } border border-b-0 px-4 py-3 relative overflow-hidden`}
-                      >
-                        <div className="flex items-center justify-center gap-3 relative z-10">
-                          {useBloombergTheme && (
-                            <div
-                              className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
-                            ></div>
-                          )}
-                          <h3
-                            className={`text-lg font-black uppercase tracking-widest text-center ${
-                              useBloombergTheme
+                            } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                        >
+                          <div className="flex items-center justify-center gap-3 relative z-10">
+                            {useBloombergTheme && (
+                              <div
+                                className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                              ></div>
+                            )}
+                            <h3
+                              className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme
                                 ? showGEX
                                   ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]'
                                   : showDealer
                                     ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]'
                                     : 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]'
                                 : 'text-white'
-                            }`}
-                            style={{ letterSpacing: '0.2em' }}
-                          >
-                            {showGEX
-                              ? 'NORMAL'
-                              : showDealer
-                                ? 'DEALER'
-                                : showFlowGEX
-                                  ? 'FLOW MAP'
-                                  : ''}
-                          </h3>
-                          {useBloombergTheme && (
-                            <div
-                              className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
-                            ></div>
-                          )}
+                                }`}
+                              style={{ letterSpacing: '0.2em' }}
+                            >
+                              {showGEX
+                                ? 'NORMAL'
+                                : showDealer
+                                  ? 'DEALER'
+                                  : showFlowGEX
+                                    ? 'FLOW MAP'
+                                    : ''}
+                            </h3>
+                            {useBloombergTheme && (
+                              <div
+                                className={`w-2 h-2 rounded-full animate-pulse ${showGEX ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : showDealer ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.8)]'}`}
+                              ></div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div
-                        className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
-                        style={{
-                          maxHeight:
-                            typeof window !== 'undefined' && window.innerWidth < 768
-                              ? 'calc(74.78vh - 225px)'
-                              : 'calc(74.78vh - 270px)',
-                          overflowX: 'auto',
-                          zoom: analysisSuiteMode ? 1.5 : undefined,
-                        }}
-                      >
-                        <table
+                        <div
+                          className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                           style={{
-                            minWidth: `${strikeColWidth + expirations.length * 90}px`,
-                            width: '100%',
+                            maxHeight:
+                              typeof window !== 'undefined' && window.innerWidth < 768
+                                ? 'calc(74.78vh - 225px)'
+                                : 'calc(74.78vh - 270px)',
+                            overflowX: 'auto',
+                            zoom: analysisSuiteMode ? 1.5 : undefined,
                           }}
                         >
-                          <thead
-                            className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
+                          <table
+                            style={{
+                              minWidth: `${strikeColWidth + expirations.length * 90}px`,
+                              width: '100%',
+                            }}
                           >
-                            <tr
-                              className={
-                                useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
-                              }
+                            <thead
+                              className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}
                             >
-                              <th
-                                className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
-                                style={{
-                                  width: `${strikeColWidth}px`,
-                                  minWidth: `${strikeColWidth}px`,
-                                  maxWidth: `${strikeColWidth}px`,
-                                }}
+                              <tr
+                                className={
+                                  useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'
+                                }
                               >
-                                <div
-                                  className={
-                                    useBloombergTheme
-                                      ? 'bb-header text-xs md:text-sm text-gray-400'
-                                      : 'text-xs md:text-sm font-bold text-white uppercase'
-                                  }
-                                >
-                                  Strike
-                                </div>
-                              </th>
-                              {expirations.map((exp) => (
                                 <th
-                                  key={exp}
-                                  className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`}
-                                  style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                  className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`}
+                                  style={{
+                                    width: `${strikeColWidth}px`,
+                                    minWidth: `${strikeColWidth}px`,
+                                    maxWidth: `${strikeColWidth}px`,
+                                  }}
                                 >
-                                  <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
-                                    {formatDate(exp)}
+                                  <div
+                                    className={
+                                      useBloombergTheme
+                                        ? 'bb-header text-xs md:text-sm text-gray-400'
+                                        : 'text-xs md:text-sm font-bold text-white uppercase'
+                                    }
+                                  >
+                                    Strike
                                   </div>
                                 </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(showFlowGEX
-                              ? allFlowWeightedDealerData
-                              : showDealer
-                                ? allDealerCalculatedData
-                                : allGEXCalculatedData
-                            )
-                              .filter((row) => {
-                                const strikeRange = getStrikeRange(currentPrice)
-                                return (
-                                  row.strike >= strikeRange.min && row.strike <= strikeRange.max
-                                )
-                              })
-                              .map((row, idx) => {
-                                // Find the single closest strike to current price (use historical when scrubbing)
-                                const priceForRow = historicalTimestamp
-                                  ? historicalPrice
-                                  : currentPrice
-                                const closestStrike =
-                                  priceForRow > 0
-                                    ? data.reduce((closest, current) =>
+                                {expirations.map((exp) => (
+                                  <th
+                                    key={exp}
+                                    className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`}
+                                    style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                  >
+                                    <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
+                                      {formatDate(exp)}
+                                    </div>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(showFlowGEX
+                                ? allFlowWeightedDealerData
+                                : showDealer
+                                  ? allDealerCalculatedData
+                                  : allGEXCalculatedData
+                              )
+                                .filter((row) => {
+                                  const strikeRange = getStrikeRange(currentPrice)
+                                  return (
+                                    row.strike >= strikeRange.min && row.strike <= strikeRange.max
+                                  )
+                                })
+                                .map((row, idx) => {
+                                  // Find the single closest strike to current price (use historical when scrubbing)
+                                  const priceForRow = historicalTimestamp
+                                    ? historicalPrice
+                                    : currentPrice
+                                  const closestStrike =
+                                    priceForRow > 0
+                                      ? data.reduce((closest, current) =>
                                         Math.abs(current.strike - priceForRow) <
-                                        Math.abs(closest.strike - priceForRow)
+                                          Math.abs(closest.strike - priceForRow)
                                           ? current
                                           : closest
                                       ).strike
-                                    : 0
+                                      : 0
 
-                                // Find the strike with the highest GEX value using the same logic as cell highlighting
-                                // This ensures purple row highlight is always on the same strike as the gold cell
-                                const tolerance = 1
-                                const largestValueStrike =
-                                  allCalculatedData.length > 0 && topValues.highest > 0
-                                    ? (allCalculatedData.find((row) => {
+                                  // Find the strike with the highest GEX value using the same logic as cell highlighting
+                                  // This ensures purple row highlight is always on the same strike as the gold cell
+                                  const tolerance = 1
+                                  const largestValueStrike =
+                                    allCalculatedData.length > 0 && topValues.highest > 0
+                                      ? (allCalculatedData.find((row) => {
                                         return expirations.some((exp) => {
                                           const value = row[exp] as {
                                             call: number
@@ -8393,98 +8478,96 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                           )
                                         })
                                       })?.strike ?? 0)
-                                    : 0
+                                      : 0
 
-                                // Find the cell with largest VEX value (only when VEX is enabled)
-                                const isCurrentPriceRow =
-                                  currentPrice > 0 && row.strike === closestStrike
-                                const isLargestValueRow = row.strike === largestValueStrike
+                                  // Find the cell with largest VEX value (only when VEX is enabled)
+                                  const isCurrentPriceRow =
+                                    currentPrice > 0 && row.strike === closestStrike
+                                  const isLargestValueRow = row.strike === largestValueStrike
 
-                                return (
-                                  <tr
-                                    key={idx}
-                                    className={`hover:bg-gray-800/20 transition-colors ${
-                                      isCurrentPriceRow
+                                  return (
+                                    <tr
+                                      key={idx}
+                                      className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow
                                         ? 'border-2 border-orange-500'
                                         : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                    }`}
-                                  >
-                                    <td
-                                      className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
-                                      style={{
-                                        width: `${strikeColWidth}px`,
-                                        minWidth: `${strikeColWidth}px`,
-                                        maxWidth: `${strikeColWidth}px`,
-                                      }}
+                                        }`}
                                     >
-                                      <div
-                                        className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                      <td
+                                        className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                        style={{
+                                          width: `${strikeColWidth}px`,
+                                          minWidth: `${strikeColWidth}px`,
+                                          maxWidth: `${strikeColWidth}px`,
+                                        }}
                                       >
-                                        {row.strike.toFixed(1)}
-                                      </div>
-                                    </td>
-                                    {expirations.map((exp) => {
-                                      const value = row[exp] as any
-                                      const displayValue = (value?.call || 0) + (value?.put || 0)
-
-                                      // Determine which top values and table type to use
-                                      const modeTopValues = showFlowGEX
-                                        ? flowTopValues
-                                        : showDealer
-                                          ? dealerTopValues
-                                          : gexTopValues
-                                      const tableType: 'gex' | 'dealer' | undefined = showFlowGEX
-                                        ? undefined
-                                        : showDealer
-                                          ? 'dealer'
-                                          : 'gex'
-
-                                      const cellStyle = getCellStyle(
-                                        displayValue,
-                                        false,
-                                        row.strike,
-                                        exp,
-                                        modeTopValues,
-                                        tableType
-                                      )
-                                      return (
-                                        <td
-                                          key={exp}
-                                          className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                          style={{
-                                            width: '90px',
-                                            minWidth: '90px',
-                                            maxWidth: '90px',
-                                          }}
+                                        <div
+                                          className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
                                         >
-                                          {/* Always display net value in a single cell */}
-                                          <div
-                                            className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105 ${
-                                              cellStyle.clusterPosition === 'top'
+                                          {row.strike.toFixed(1)}
+                                        </div>
+                                      </td>
+                                      {expirations.map((exp) => {
+                                        const value = row[exp] as any
+                                        const displayValue = (value?.call || 0) + (value?.put || 0)
+
+                                        // Determine which top values and table type to use
+                                        const modeTopValues = showFlowGEX
+                                          ? flowTopValues
+                                          : showDealer
+                                            ? dealerTopValues
+                                            : gexTopValues
+                                        const tableType: 'gex' | 'dealer' | undefined = showFlowGEX
+                                          ? undefined
+                                          : showDealer
+                                            ? 'dealer'
+                                            : 'gex'
+
+                                        const cellStyle = getCellStyle(
+                                          displayValue,
+                                          false,
+                                          row.strike,
+                                          exp,
+                                          modeTopValues,
+                                          tableType
+                                        )
+                                        return (
+                                          <td
+                                            key={exp}
+                                            className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                            style={{
+                                              width: '90px',
+                                              minWidth: '90px',
+                                              maxWidth: '90px',
+                                            }}
+                                          >
+                                            {/* Always display net value in a single cell */}
+                                            <div
+                                              className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105 ${cellStyle.clusterPosition === 'top'
                                                 ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                 : cellStyle.clusterPosition === 'middle'
                                                   ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                   : cellStyle.clusterPosition === 'bottom'
                                                     ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`
                                                     : ''
-                                            }`}
-                                          >
-                                            {/* Display the net value */}
-                                            <div className="text-sm md:text-base font-bold mb-1">
-                                              {formatCurrency(displayValue)}
+                                                }`}
+                                            >
+                                              {/* Display the net value */}
+                                              <div className="text-sm md:text-base font-bold mb-1">
+                                                {formatCurrency(displayValue)}
+                                              </div>
                                             </div>
-                                          </div>
-                                        </td>
-                                      )
-                                    })}
-                                  </tr>
-                                )
-                              })}
-                          </tbody>
-                        </table>
+                                          </td>
+                                        )
+                                      })}
+                                    </tr>
+                                  )
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
                 {/* -- Trading Signal Gauges � hidden when OI mode or ODTRIO is active -- */}
                 {!showOI && !showODTRIO && (

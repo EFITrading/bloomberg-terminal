@@ -2341,10 +2341,39 @@ export default function AlgoFlowScreener() {
                       const paginatedTrades = sortedTrades.slice((currentPage - 1) * TRADES_PER_PAGE, currentPage * TRADES_PER_PAGE)
                       const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
                       const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
+
+                      // Pre-compute live OI once per contract using ALL trades (same logic as Options Flow applyLiveOI).
+                      // Using first-trade OI as base and deduping by ticker+timestamp+size+premium — identical to Options Flow.
+                      const allTrades: any[] = analysis?.trades || flowData || []
+                      const contractGroups = new Map<string, any[]>()
+                      for (const t of allTrades) {
+                        const k = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
+                        if (!contractGroups.has(k)) contractGroups.set(k, [])
+                        contractGroups.get(k)!.push(t)
+                      }
+                      const liveOIMap = new Map<string, number>()
+                      for (const [k, group] of contractGroups) {
+                        const baseOI = group[0].open_interest ?? 0
+                        const sorted = [...group].sort((a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime())
+                        let oi = baseOI
+                        const seen = new Set<string>()
+                        for (const t of sorted) {
+                          const id = `${t.ticker}_${t.trade_timestamp}_${t.trade_size}_${t.premium_per_contract}`
+                          if (seen.has(id)) continue
+                          seen.add(id)
+                          const qty = t.trade_size ?? 0
+                          switch (t.fill_style) {
+                            case 'A': case 'AA': case 'BB': oi += qty; break
+                            case 'B': oi += qty > baseOI ? qty : -qty; break
+                          }
+                        }
+                        liveOIMap.set(k, Math.max(0, oi))
+                      }
+
                       return paginatedTrades.map((trade, idx) => {
                         const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-                        const originalOI = trade.open_interest || 0
-                        const liveOI = calculateLiveOI(originalOI, analysis?.trades || flowData || [], contractKey)
+                        const originalOI = contractGroups.get(contractKey)?.[0]?.open_interest ?? trade.open_interest ?? 0
+                        const liveOI = liveOIMap.get(contractKey) ?? originalOI
                         const change = liveOI - originalOI
                         return (
                           <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent' }}

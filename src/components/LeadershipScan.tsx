@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
 
@@ -1749,7 +1749,7 @@ export default function LeadershipScan() {
               marginTop: '80px',
             }}
           >
-            <div style={{ fontSize: '48px', marginBottom: '24px' }}>�</div>
+            <div style={{ fontSize: '48px', marginBottom: '24px' }}>&#x1F4C8;</div>
             <div style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>
               FRESH BREAKOUT SCANNER READY
             </div>

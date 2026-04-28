@@ -37,3 +37,15 @@ model PortfolioData {
 
   @@index([userId])
 }
+
+model LiveOICache {
+  id          String   @id @default(cuid())
+  ticker      String
+  tradingDate String   // 'YYYY-MM-DD' PST-aware trading date
+  data        String   // JSON: [[contractKey, liveOI], ...]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ticker, tradingDate])
+  @@index([ticker, tradingDate])
+}

@@ -36,6 +36,8 @@ const LOW_VOL_EXCLUSIONS = new Set([
   'VZ', 'AZN',
   // Other sub-4.5% names
   'GTLS', 'EA', 'BUD', 'ACGL', 'ITW', 'VTR', 'NVS', 'ROST', 'HON', 'LIN', 'WM', 'WCN',
+  // Manually excluded
+  'HOLX', 'EXAS',
 ])
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -558,758 +560,6 @@ async function fetchTopSymbols(
 ): Promise<string[]> {
   return TOP_1800_SYMBOLS.slice(0, limit).filter(s => !LOW_VOL_EXCLUSIONS.has(s))
 }
-; ('JPM',
-  'LLY',
-  'V',
-  'MA',
-  'UNH',
-  'XOM',
-  'WMT',
-  'ORCL',
-  'HD',
-  'PG',
-  'COST',
-  'BAC',
-  'NFLX',
-  'AMD',
-  'KO',
-  'ABBV',
-  'MRK',
-  'CVX',
-  'WFC',
-  'CRM',
-  'CSCO',
-  'MCD',
-  'ACN',
-  'PEP',
-  'LIN',
-  'ABT',
-  'MS',
-  'BX',
-  'GE',
-  'TMO',
-  'GS',
-  'IBM',
-  'ISRG',
-  'NOW',
-  'AXP',
-  'CAT',
-  'RTX',
-  'SPGI',
-  'UBER',
-  'INTU',
-  'TXN',
-  'VZ',
-  'NEE',
-  'UNP',
-  'T',
-  'ETN',
-  'BA',
-  'PFE',
-  'HON',
-  'AMGN',
-  'LOW',
-  'DE',
-  'BKNG',
-  'AMAT',
-  'ADI',
-  'CMCSA',
-  'BMY',
-  'TJX',
-  'PANW',
-  'SYK',
-  'VRTX',
-  'ADP',
-  'BSX',
-  'MU',
-  'PLD',
-  'LMT',
-  'C',
-  'GEV',
-  'SCHW',
-  'INTC',
-  'MDT',
-  'GILD',
-  'CB',
-  'NKE',
-  'CI',
-  'SO',
-  'CMG',
-  'MMC',
-  'DUK',
-  'ELV',
-  'AMT',
-  'AON',
-  'WM',
-  'ICE',
-  'ZTS',
-  'SHW',
-  'CTAS',
-  'USB',
-  'COF',
-  'MCO',
-  'FCX',
-  'MDLZ',
-  'PH',
-  'MPC',
-  'EMR',
-  'TDG',
-  'APD',
-  'CEG',
-  'GD',
-  'APH',
-  'SNPS',
-  'CDNS',
-  'CME',
-  'ITW',
-  'MSI',
-  'EOG',
-  'ORLY',
-  'MCK',
-  'REGN',
-  'ECL',
-  'HCA',
-  'BDX',
-  'NOC',
-  'PSA',
-  'SPG',
-  'NSC',
-  'KMB',
-  'WMB',
-  'TT',
-  'PSX',
-  'ROP',
-  'WELL',
-  'OXY',
-  'BBY',
-  'KR',
-  'HUM',
-  'CL',
-  'AFL',
-  'F',
-  'GM',
-  'PCAR',
-  'CARR',
-  'COP',
-  'MET',
-  'AIG',
-  'EW',
-  'GWW',
-  'GLW',
-  'PCG',
-  'FIS',
-  'PAYX',
-  'NEM',
-  'DLR',
-  'AZO',
-  'FAST',
-  'A',
-  'FICO',
-  'CPRT',
-  'VRSK',
-  'ACGL',
-  'PWR',
-  'VLO',
-  'FANG',
-  'CTVA',
-  'BK',
-  'TFC',
-  'STZ',
-  'RSG',
-  'URI',
-  'KVUE',
-  'LRCX',
-  'ODFL',
-  'MCHP',
-  'DD',
-  'IQV',
-  'FTNT',
-  'SRE',
-  'DG',
-  'MPWR',
-  'TEL',
-  'DXCM',
-  'HSY',
-  'MSCI',
-  'EFX',
-  'VICI',
-  'VMC',
-  'MLM',
-  'MAR',
-  'DLTR',
-  'DHI',
-  'IDXX',
-  'EXC',
-  'GEHC',
-  'CDW',
-  'KHC',
-  'XEL',
-  'GIS',
-  'DFS',
-  'WAB',
-  'WEC',
-  'CBRE',
-  'ON',
-  'AVB',
-  'ED',
-  'MTD',
-  'FTV',
-  'TSCO',
-  'OTIS',
-  'KEYS',
-  'RCL',
-  'HST',
-  'EXR',
-  'EBAY',
-  'DOV',
-  'ETR',
-  'DECK',
-  'PPL',
-  'CHD',
-  'ROK',
-  'ANSS',
-  'LHX',
-  'APTV',
-  'SBUX',
-  'NXPI',
-  'TTWO',
-  'TRV',
-  'WBA',
-  'AMP',
-  'TROW',
-  'BBB',
-  'CBOE',
-  'STT',
-  'LEN',
-  'LUV',
-  'UAL',
-  'CCL',
-  'WYNN',
-  'MGM',
-  'LVS',
-  'NCLH',
-  'DAL',
-  'AAL',
-  'HA',
-  'SAVE',
-  'HAL',
-  'DVN',
-  'BKR',
-  'SLB',
-  'CVI',
-  'MRO',
-  'APA',
-  'PDCE',
-  'OVV',
-  'SM',
-  'PYPL',
-  'SQ',
-  'AFRM',
-  'COIN',
-  'HOOD',
-  'SOFI',
-  'MARA',
-  'RIOT',
-  'CIFR',
-  'HUT',
-  'PLTR',
-  'RBLX',
-  'SNAP',
-  'PINS',
-  'TWTR',
-  'U',
-  'DDOG',
-  'ZS',
-  'CRWD',
-  'NET',
-  'MDB',
-  'ESTC',
-  'CFLT',
-  'GTLB',
-  'OKTA',
-  'ZI',
-  'PATH',
-  'ASAN',
-  'SMAR',
-  'FROG',
-  'SNOW',
-  'ABNB',
-  'DASH',
-  'LYFT',
-  'NERDZ',
-  'RIVN',
-  'LCID',
-  'NIO',
-  'LI',
-  'XPEV',
-  'BIDU',
-  'JD',
-  'BABA',
-  'PDD',
-  'TCOM',
-  'NTES',
-  'EDU',
-  'TAL',
-  'YUMC',
-  'ZTO',
-  'PTON',
-  'W',
-  'ETSY',
-  'CHWY',
-  'WISH',
-  'OSTK',
-  'PRTS',
-  'COHU',
-  'KLIC',
-  'ACLS',
-  'GXO',
-  'XPO',
-  'SAIA',
-  'WERN',
-  'JBHT',
-  'KNX',
-  'CHRW',
-  'EXPD',
-  'HXL',
-  'RXO',
-  'DHR',
-  'WAT',
-  'REPX',
-  'TECH',
-  'PKI',
-  'HOLX',
-  'ALGN',
-  'HSIC',
-  'TFX',
-  'PODD',
-  'INSP',
-  'AXNX',
-  'NVCR',
-  'TMDX',
-  'IRTC',
-  'LIVN',
-  'ATRC',
-  'SWAV',
-  'CRVS',
-  'SRDX',
-  'AMD',
-  'INTC',
-  'QCOM',
-  'TER',
-  'KLAC',
-  'LRCX',
-  'AMAT',
-  'ENTG',
-  'ONTO',
-  'UCTT',
-  'IP',
-  'PKG',
-  'SEE',
-  'SON',
-  'BERY',
-  'MYE',
-  'GEF',
-  'ATR',
-  'PTVE',
-  'SLGN',
-  'FMC',
-  'CF',
-  'MOS',
-  'NTR',
-  'ICL',
-  'CTLT',
-  'AVNT',
-  'RPM',
-  'PPG',
-  'ASH',
-  'AXTA',
-  'H.B.Fuller',
-  'HUN',
-  'CE',
-  'CC',
-  'OLN',
-  'TROX',
-  'VNTR',
-  'GRFS',
-  'JPM',
-  'BAC',
-  'WFC',
-  'C',
-  'USB',
-  'TFC',
-  'PNC',
-  'FITB',
-  'KEY',
-  'RF',
-  'CFG',
-  'HBAN',
-  'MTB',
-  'STI',
-  'BOH',
-  'SIVB',
-  'WAL',
-  'FHN',
-  'PBCT',
-  'TCF',
-  'INT',
-  'ICE',
-  'CME',
-  'CBOE',
-  'NDAQ',
-  'BMO',
-  'TD',
-  'RY',
-  'BNS',
-  'ENB',
-  'CNQ',
-  'TRP',
-  'SU',
-  'CVE',
-  'IMO',
-  'MEG',
-  'PEY',
-  'ERF',
-  'WCP',
-  'BTE',
-  'ARX',
-  'VOD',
-  'BP',
-  'SHEL',
-  'TTE',
-  'AZN',
-  'GSK',
-  'SNY',
-  'ROG',
-  'NVS',
-  'NOVN',
-  'SAP',
-  'ASML',
-  'ADYEN',
-  'HEIA',
-  'PHIA',
-  'ABN',
-  'ING',
-  'AEGN',
-  'UNA',
-  'RAND',
-  'RIO',
-  'BHP',
-  'GLEN',
-  'AAL',
-  'BA',
-  'BARC',
-  'HSBA',
-  'LLOY',
-  'NWG',
-  'PRU',
-  'AV',
-  'LGEN',
-  'SLA',
-  'RSA',
-  'ADM',
-  'BT',
-  'VOD',
-  'MEO',
-  'SKY',
-  'SVT',
-  'AOF',
-  'BCO',
-  'SMCP',
-  'ML',
-  'CAP',
-  'SAN',
-  'GLE',
-  'BNP',
-  'ACA',
-  'SGO',
-  'OR',
-  'LR',
-  'MC',
-  'CFR',
-  'RMS',
-  'TFI',
-  'KNIN',
-  'NESN',
-  'NOVN',
-  'ZURN',
-  'ATVI',
-  'EA',
-  'TTWO',
-  'RBLX',
-  'U',
-  'GMBL',
-  'DKNG',
-  'PENN',
-  'PDYPY',
-  'GAN',
-  'DIS',
-  'PARA',
-  'WBD',
-  'FOX',
-  'FOXA',
-  'NWSA',
-  'NYT',
-  'TRIP',
-  'IAC',
-  'ZG',
-  'AMCX',
-  'SGAM',
-  'FUBO',
-  'SIRI',
-  'IHRT',
-  'CARG',
-  'CARS',
-  'CDK',
-  'CLVT',
-  'IHS',
-  'SPCE',
-  'ASTS',
-  'RDW',
-  'MNTS',
-  'BRPH',
-  'ASTR',
-  'RKLB',
-  'PL',
-  'BWXT',
-  'DRS',
-  'HEI',
-  'HEICO',
-  'TDY',
-  'TGI',
-  'KTOS',
-  'LDOS',
-  'VEC',
-  'PAE',
-  'KEYW',
-  'CACI',
-  'SAIC',
-  'BAH',
-  'MANT',
-  'VRSN',
-  'IBM',
-  'CSC',
-  'DXC',
-  'EPAM',
-  'GLOB',
-  'LNKD',
-  'WIT',
-  'INFY',
-  'TCS',
-  'HCL',
-  'TECH.M',
-  'HEXW',
-  'MPHASIS',
-  'SIFY',
-  'GOOGL',
-  'META',
-  'AMZN',
-  'MSFT',
-  'AAPL',
-  'NFLX',
-  'SPOT',
-  'SNDL',
-  'LYFT',
-  'CRM',
-  'NOW',
-  'WDAY',
-  'VEEV',
-  'PAYC',
-  'PCTY',
-  'SPSN',
-  'SWTX',
-  'TNET',
-  'HRB',
-  'ADP',
-  'PAYX',
-  'WU',
-  'FIS',
-  'FISV',
-  'GPN',
-  'MA',
-  'V',
-  'PYPL',
-  'SQ',
-  'XOM',
-  'CVX',
-  'COP',
-  'EOG',
-  'PXD',
-  'DVN',
-  'FANG',
-  'OXY',
-  'MPC',
-  'VLO',
-  'PSX',
-  'HES',
-  'MRO',
-  'APA',
-  'OKE',
-  'WMB',
-  'KMI',
-  'ET',
-  'EPD',
-  'MMP',
-  'NEE',
-  'DUK',
-  'SO',
-  'AEP',
-  'D',
-  'EXC',
-  'PCG',
-  'PEG',
-  'ES',
-  'XEL',
-  'ED',
-  'ETR',
-  'PPL',
-  'FE',
-  'CMS',
-  'NI',
-  'AES',
-  'DTE',
-  'WEC',
-  'CNP',
-  'WELL',
-  'VTR',
-  'PEAK',
-  'HR',
-  'OHI',
-  'MPW',
-  'SBRA',
-  'CTRE',
-  'LTC',
-  'UHT',
-  'AMT',
-  'CCI',
-  'SBAC',
-  'SBA',
-  'EQIX',
-  'DLR',
-  'QTS',
-  'IRM',
-  'CONE',
-  'UNIT',
-  'PLD',
-  'PSA',
-  'EXR',
-  'LSI',
-  'NSA',
-  'CUBE',
-  'REXR',
-  'EGP',
-  'LXP',
-  'GTY',
-  'O',
-  'WPC',
-  'NNN',
-  'STOR',
-  'SRC',
-  'VICI',
-  'GLPI',
-  'PENN',
-  'BYD',
-  'CHDN',
-  'MAR',
-  'HLT',
-  'IHG',
-  'H',
-  'CHH',
-  'WH',
-  'STAY',
-  'RHP',
-  'SHO',
-  'APLE',
-  'PK',
-  'BHR',
-  'CLDT',
-  'CPLG',
-  'INN',
-  'SLCH',
-  'SOHO',
-  'XHR',
-  'DH',
-  'BTB',
-  'SPG',
-  'MAC',
-  'CBL',
-  'WPG',
-  'TCO',
-  'REG',
-  'KIM',
-  'AKR',
-  'BRX',
-  'ROIC',
-  'EQR',
-  'AVB',
-  'ESSummons',
-  'UDR',
-  'MAA',
-  'CPT',
-  'NMI',
-  'JBG',
-  'AIRC',
-  'IRT',
-  'AMH',
-  'INVH',
-  'TRICON',
-  'SFR',
-  'NVR',
-  'PHM',
-  'TOL',
-  'MDC',
-  'LGIH',
-  'CCS',
-  'TMHC',
-  'KBH',
-  'BZH',
-  'MHO',
-  'SKY',
-  'CVCO',
-  'UCP',
-  'GRBK',
-  'TPH',
-  'NWHM',
-  'SCI',
-  'CSV',
-  'MATW',
-  'HI',
-  'FL',
-  'PLCE',
-  'ANF',
-  'PVH',
-  'RL',
-  'G-III',
-  'GES',
-  'FOSL',
-  'WWW',
-  'BOOT',
-  'CATO',
-  'JWN',
-  'DDS',
-  'KSS',
-  'M',
-  'SSI',
-  'BBBY',
-  'BIG',
-  'JCP',
-  'TUEM',
-  'EXPR',
-  'ZUMZ',
-  'HIBB',
-  'SPWH',
-  'BGFV',
-  'CATO',
-  'TGT',
-  'WMT',
-  'COST',
-  'BJ',
-  'SFM',
-  'WINN',
-  'ACI',
-  'SVU',
-  'CHEF',
-  'CASY'
-)
 
 // ── Fetch OHLCV for a single symbol ───────────────────────────────────────────
 async function fetchOHLCV(
@@ -1918,7 +1168,13 @@ function StraddleChart({
     ctx.font = '700 24px "JetBrains Mono",monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    for (const i of xIdxs) ctx.fillText(fmtDate(vis[i].date), cxFn(i), height - PAD.bottom + 6)
+    for (const i of xIdxs) {
+      const lbl = fmtDate(vis[i].date)
+      const lw = ctx.measureText(lbl).width
+      const rawX = cxFn(i)
+      const clampedX = Math.max(PAD.left + lw / 2 + 2, Math.min(width - PAD.right - lw / 2 - 2, rawX))
+      ctx.fillText(lbl, clampedX, height - PAD.bottom + 6)
+    }
 
     // Crosshair
     const ch = crosshairRef.current
@@ -2067,68 +1323,7 @@ function StraddleChart({
           userSelect: 'none',
         }}
       />
-      {/* Legend + Ticker Info */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 6,
-          left: 14,
-          display: 'flex',
-          gap: 10,
-          alignItems: 'center',
-          pointerEvents: 'none',
-          flexWrap: 'wrap',
-          background: 'linear-gradient(180deg,rgba(0,0,0,0.82) 0%,rgba(10,10,10,0.78) 100%)',
-          border: '1px solid rgba(255,140,0,0.35)',
-          borderRadius: 5,
-          padding: '5px 12px',
-          backdropFilter: 'blur(4px)',
-        }}
-      >
-        {symbol && (() => {
-          const last = candles.length > 0 ? candles[candles.length - 1] : null
-          const prev = candles.length > 1 ? candles[candles.length - 2] : null
-          const price = last?.close ?? 0
-          const chg = prev && prev.close > 0 ? ((price - prev.close) / prev.close) * 100 : 0
-          const chgColor = chg >= 0 ? '#00FF88' : '#FF4060'
-          return (
-            <>
-              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 17, fontWeight: 900, color: '#FF8C00', letterSpacing: '2px' }}>
-                {symbol}
-              </span>
-              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, color: '#FFFFFF', letterSpacing: '1px' }}>
-                ${price.toFixed(2)}
-              </span>
-              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: chgColor, letterSpacing: '0.5px' }}>
-                {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
-              </span>
-              <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', margin: '0 2px' }} />
-            </>
-          )
-        })()}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div
-            style={{
-              width: 10,
-              height: 10,
-              background: 'linear-gradient(135deg,rgba(255,200,60,0.95),rgba(255,120,0,0.8))',
-              border: '1px solid rgba(255,220,80,0.95)',
-              transform: 'rotate(45deg)',
-            }}
-          />
-          <span style={{ color: '#fff', fontSize: 13, fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
-            CONTRACTION
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <svg width="12" height="12">
-            <circle cx="6" cy="6" r="5" fill="rgba(255,140,40,0.8)" stroke="rgba(255,180,60,0.8)" strokeWidth="1" />
-          </svg>
-          <span style={{ color: '#fff', fontSize: 13, fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
-            POI
-          </span>
-        </div>
-      </div>
+
     </div>
   )
 }
@@ -2683,7 +1878,7 @@ function ResultsTable({
                   )}
 
                   {/* Row 4: Inline chart */}
-                  <div style={{ height: 280, borderRadius: 4, overflow: 'hidden', marginTop: 4, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ height: 336, borderRadius: 4, overflow: 'hidden', marginTop: 4, display: 'flex', flexDirection: 'column' }}>
                     <StraddleChart
                       candles={r.bars.slice(-CHART_VISIBLE_DAYS)}
                       events={r.allEvents}
@@ -3386,141 +2581,197 @@ export default function StraddleTownScreener() {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           padding: '0 28px',
           display: 'flex',
-          alignItems: 'center',
-          gap: 28,
+          flexDirection: 'column',
           flexShrink: 0,
           boxShadow: '0 2px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04)',
-          minHeight: 72,
-          flexWrap: 'wrap',
         }}
       >
-        {/* Brand block */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 14,
-          borderRight: '1px solid rgba(255,255,255,0.07)',
-          paddingRight: 28, alignSelf: 'stretch', paddingTop: 12, paddingBottom: 12,
-        }}>
-          <div style={{
-            width: 5, height: 36,
-            background: 'linear-gradient(180deg, #FF8C00 0%, #FFD700 100%)',
-            borderRadius: 3, flexShrink: 0,
-            boxShadow: '0 0 12px rgba(255,140,0,0.5)',
-          }} />
-          <div>
-            <div style={{ ...mono, fontWeight: 900, fontSize: 26, color: '#FFFFFF', letterSpacing: '5px', lineHeight: 1 }}>
-              STRADDLE TOWN
-            </div>
-            <div style={{ ...mono, fontSize: 10, color: 'rgba(255,255,255,0.45)', letterSpacing: '4px', marginTop: 4, fontWeight: 700 }}>
-              VOLATILITY · CONTRACTION · SCREENER
+        {/* ── SINGLE ROW: Brand · Legends · Controls ─── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58 }}>
+
+          {/* Brand */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 24, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+            <div style={{ width: 4, height: 30, background: 'linear-gradient(180deg,#FF8C00,#FFD700)', borderRadius: 2, flexShrink: 0, boxShadow: '0 0 10px rgba(255,140,0,0.45)' }} />
+            <div>
+              <div style={{ ...mono, fontWeight: 900, fontSize: 21, color: '#FFFFFF', letterSpacing: '4px', lineHeight: 1 }}>STRADDLE TOWN</div>
             </div>
           </div>
-        </div>
 
-        {/* Inline filters — shown once scan starts */}
-        {(isScanning || phase === 'done') && (() => {
-          const glossy = (active: boolean, activeColor: string): React.CSSProperties => ({
-            ...mono,
-            fontSize: 14,
-            fontWeight: 900,
-            letterSpacing: '1.5px',
-            cursor: 'pointer',
-            borderRadius: 5,
-            padding: '9px 18px',
-            border: active ? '1px solid rgba(255,140,0,0.6)' : '1px solid rgba(255,255,255,0.10)',
-            color: active ? '#FF8C00' : '#FFFFFF',
-            background: '#000000',
-            boxShadow: 'none',
-          })
-          const lbl: React.CSSProperties = { ...mono, fontSize: 14, fontWeight: 900, color: '#FFFFFF', letterSpacing: '2px' }
-          const div = <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={lbl}>BUBBLE</span>
-                <button style={glossy(bubbleFilter === 'all', '#FFFFFF')} onClick={() => setBubbleFilter('all')}>ALL</button>
-                <button style={glossy(bubbleFilter === 'gold', '#FFD700')} onClick={() => setBubbleFilter('gold')}>● GOLD</button>
-                <button style={glossy(bubbleFilter === 'blue', '#41B6F6')} onClick={() => setBubbleFilter('blue')}>● BLUE</button>
-                <button style={glossy(bubbleFilter === 'gray', '#AAAAAA')} onClick={() => setBubbleFilter('gray')}>● GRAY</button>
+          {/* Diamond + Bubble legends — inline horizontal, shown once scan starts */}
+          {(isScanning || phase === 'done') && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 22px', borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+                {/* SVG diamond icon */}
+                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                  <polygon points="7,1 13,7 7,13 1,7" fill="url(#dgrad)" stroke="rgba(255,220,80,0.95)" strokeWidth="1" />
+                  <defs><linearGradient id="dgrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="rgba(255,210,60,0.95)" /><stop offset="100%" stopColor="rgba(255,110,0,0.85)" /></linearGradient></defs>
+                </svg>
+                <span style={{ ...mono, fontSize: 13, fontWeight: 900, color: '#FFD700', letterSpacing: '1.5px' }}>DIAMOND</span>
+                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>77–99%</span>
+                <span style={{ ...mono, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>=</span>
+                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>High Pressure · Low Vol</span>
+                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>45–75%</span>
+                <span style={{ ...mono, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>=</span>
+                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Low Pressure · High Vol</span>
               </div>
-              {div}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={lbl}>PRESSURE</span>
-                <button style={glossy(sqzOnly, '#A855F7')} onClick={() => setSqzOnly(s => !s)}>{sqzOnly ? 'ON' : 'OFF'}</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 22px', borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+                {/* SVG bubble icon */}
+                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                  <circle cx="7" cy="7" r="6" fill="rgba(255,180,40,0.2)" stroke="rgba(255,200,60,0.9)" strokeWidth="1.5" />
+                  <circle cx="5" cy="5" r="1.5" fill="rgba(255,230,120,0.7)" />
+                </svg>
+                <span style={{ ...mono, fontSize: 13, fontWeight: 900, color: '#FF8C00', letterSpacing: '1.5px' }}>BUBBLES</span>
+                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                  <circle cx="7" cy="7" r="6" fill="rgba(255,200,60,0.2)" stroke="rgba(255,215,0,0.9)" strokeWidth="1.5" />
+                  <circle cx="5" cy="5" r="1.5" fill="rgba(255,240,140,0.7)" />
+                </svg>
+                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>Gold:</span>
+                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Dealer Levels</span>
+                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                  <circle cx="7" cy="7" r="6" fill="rgba(80,180,255,0.15)" stroke="rgba(100,200,255,0.9)" strokeWidth="1.5" />
+                  <circle cx="5" cy="5" r="1.5" fill="rgba(180,230,255,0.7)" />
+                </svg>
+                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#41B6F6' }}>Blue:</span>
+                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Institutional</span>
+                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                  <circle cx="7" cy="7" r="6" fill="rgba(160,160,160,0.15)" stroke="rgba(185,185,185,0.75)" strokeWidth="1.5" />
+                  <circle cx="5" cy="5" r="1.5" fill="rgba(210,210,210,0.6)" />
+                </svg>
+                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#CCCCCC' }}>Gray:</span>
+                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Leveraged Traders</span>
               </div>
-            </div>
-          )
-        })()}
+            </>
+          )}
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-          {/* Individual ticker search */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid #B8690A', borderRadius: 4, background: '#000000', overflow: 'hidden' }}>
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Search + Scan */}
+          <div style={{
+            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)',
+          }}>
             <input
               value={tickerSearch}
               onChange={e => setTickerSearch(e.target.value.toUpperCase())}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); runTickerScan() } }}
-              placeholder="TICKER"
+              placeholder="SEARCH TICKER"
               maxLength={8}
               style={{
-                ...mono,
-                fontSize: 16,
-                fontWeight: 900,
-                letterSpacing: 2,
-                color: '#ffffff',
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                padding: '10px 12px',
-                width: 90,
-                textTransform: 'uppercase',
+                ...mono, fontSize: 13, fontWeight: 700, letterSpacing: 2,
+                color: '#ffffff', background: 'transparent', border: 'none', outline: 'none',
+                padding: '0 14px', width: 140, textTransform: 'uppercase',
               }}
             />
-            <select
-              value={tickerLookback}
-              onChange={e => setTickerLookback(Number(e.target.value) as 252 | 756 | 1260)}
-              style={{
-                ...mono,
-                fontSize: 13,
-                fontWeight: 900,
-                letterSpacing: 1,
-                color: '#FF8C00',
-                background: '#000000',
-                border: 'none',
-                borderLeft: '1px solid #B8690A',
-                outline: 'none',
-                padding: '10px 8px',
-                cursor: 'pointer',
-                appearance: 'none',
-                WebkitAppearance: 'none',
-              }}
-            >
-              <option value={252}>1Y</option>
-              <option value={756}>3Y</option>
-              <option value={1260}>5Y</option>
-            </select>
             <button
               onClick={runTickerScan}
               disabled={tickerScanning}
               style={{
-                ...mono,
-                fontSize: 14,
-                fontWeight: 900,
-                letterSpacing: 2,
+                ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2,
                 cursor: tickerScanning ? 'not-allowed' : 'pointer',
-                background: '#000000',
-                border: 'none',
-                borderLeft: '1px solid #B8690A',
+                background: 'rgba(255,255,255,0.04)', border: 'none',
+                borderLeft: '1px solid rgba(255,255,255,0.1)',
                 color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
-                textTransform: 'uppercase',
-                padding: '10px 14px',
+                padding: '0 18px',
               }}
             >
-              {tickerScanning ? '…' : '▶ SCAN'}
+              {tickerScanning ? '…' : '▶  SCAN'}
             </button>
           </div>
-          {/* Ticker search result chips */}
+
+          {/* Timeframe tabs */}
+          <div style={{
+            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)', marginLeft: 8,
+          }}>
+            {([252, 756, 1260] as const).map((val, i) => {
+              const label = val === 252 ? '1 YEAR' : val === 756 ? '3 YEAR' : '5 YEAR'
+              const active = tickerLookback === val
+              return (
+                <button key={val} onClick={() => setTickerLookback(val)} style={{
+                  ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 38,
+                  cursor: 'pointer', background: 'transparent',
+                  color: active ? '#FF8C00' : '#FFFFFF',
+                  border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none',
+                  transition: 'color 0.15s',
+                }}>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', flexShrink: 0, margin: '0 8px' }} />
+
+          {/* Scan mode tabs */}
+          <div style={{
+            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)',
+          }}>
+            {(['both', 'contraction', 'poi'] as const).map((m, i) => {
+              const labels = { both: 'BOTH', contraction: '◆  CONTRACTION', poi: '●  POI' } as const
+              const active = scanMode === m
+              return (
+                <button key={m} onClick={() => { setScanMode(m); scanModeRef.current = m }} style={{
+                  ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 36,
+                  cursor: 'pointer', background: 'transparent',
+                  color: active ? '#FF8C00' : '#FFFFFF',
+                  border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none',
+                  transition: 'color 0.15s',
+                }}>
+                  {labels[m]}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Scan All / Stop / Rescan */}
+          {phase === 'idle' || phase === 'error' ? (
+            <button onClick={run} style={{
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
+              cursor: 'pointer', borderRadius: 7, border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.03)', color: '#FFFFFF', flexShrink: 0,
+            }}>
+              ▶  SCAN ALL STOCKS
+            </button>
+          ) : isScanning ? (
+            <button onClick={() => abortRef.current?.abort()} style={{
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
+              cursor: 'pointer', borderRadius: 7,
+              background: 'rgba(255,40,60,0.08)', border: '1px solid rgba(255,40,60,0.5)',
+              color: '#FF4060', flexShrink: 0,
+            }}>
+              ■  STOP
+            </button>
+          ) : (
+            <button onClick={run} style={{
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
+              cursor: 'pointer', borderRadius: 7, border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.03)', color: '#FFFFFF', flexShrink: 0,
+            }}>
+              ↺  RESCAN ALL
+            </button>
+          )}
+
+          {/* Pressure toggle */}
+          <button onClick={() => setSqzOnly(s => !s)} style={{
+            ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 36,
+            cursor: 'pointer', borderRadius: 7, flexShrink: 0,
+            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.12)',
+            color: sqzOnly ? '#FF8C00' : '#FFFFFF',
+            transition: 'color 0.15s',
+          }}>
+            PRESSURE {sqzOnly ? 'ON' : 'OFF'}
+          </button>
+
+          {/* Ticker result chips */}
           {tickerSearchedSymbols.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 4 }}>
               {tickerSearchedSymbols.map(sym => {
                 const r = results.find(x => x.symbol === sym)
                 const isActive = selected?.symbol === sym
@@ -3528,27 +2779,19 @@ export default function StraddleTownScreener() {
                   <div
                     key={sym}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0,
+                      display: 'flex', alignItems: 'center', gap: 0,
                       border: isActive ? '1px solid rgba(255,140,0,0.7)' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: 4,
-                      background: isActive ? 'rgba(255,140,0,0.1)' : '#0a0c0f',
+                      background: isActive ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
                       overflow: 'hidden',
                     }}
                   >
                     <button
                       onClick={() => { if (r) { setSelected(r); setSelectedFromTickerSearch(true) } }}
                       style={{
-                        ...mono,
-                        fontSize: 12,
-                        fontWeight: 900,
-                        letterSpacing: 1.5,
+                        ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1.5,
                         color: isActive ? '#FF8C00' : '#FFFFFF',
-                        background: 'transparent',
-                        border: 'none',
-                        padding: '6px 10px',
-                        cursor: 'pointer',
+                        background: 'transparent', border: 'none', padding: '5px 10px', cursor: 'pointer',
                       }}
                     >
                       {sym}
@@ -3557,16 +2800,11 @@ export default function StraddleTownScreener() {
                     <button
                       onClick={() => removeTickerResult(sym)}
                       style={{
-                        ...mono,
-                        fontSize: 11,
-                        fontWeight: 900,
+                        ...mono, fontSize: 11, fontWeight: 900,
                         color: 'rgba(255,255,255,0.4)',
-                        background: 'transparent',
-                        border: 'none',
+                        background: 'transparent', border: 'none',
                         borderLeft: '1px solid rgba(255,255,255,0.08)',
-                        padding: '6px 8px',
-                        cursor: 'pointer',
-                        lineHeight: 1,
+                        padding: '5px 8px', cursor: 'pointer', lineHeight: 1,
                       }}
                       title={`Remove ${sym}`}
                     >
@@ -3576,95 +2814,6 @@ export default function StraddleTownScreener() {
                 )
               })}
             </div>
-          )}
-
-          {/* Scan mode toggles */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: '1px solid #B8690A', borderRadius: 4, overflow: 'hidden', background: '#000000' }}>
-            {(['both', 'contraction', 'poi'] as const).map((m, i) => {
-              const labels = { both: 'BOTH', contraction: 'CONTRACTION', poi: 'POI' } as const
-              const colors = { both: '#FFD700', contraction: '#FFD700', poi: '#FFD700' } as const
-              const active = scanMode === m
-              return (
-                <button
-                  key={m}
-                  onClick={() => { setScanMode(m); scanModeRef.current = m }}
-                  style={{
-                    ...mono,
-                    fontSize: 14,
-                    fontWeight: 900,
-                    letterSpacing: 1.5,
-                    padding: '10px 14px',
-                    cursor: 'pointer',
-                    background: '#000000',
-                    color: active ? '#FF8C00' : '#FFFFFF',
-                    border: 'none',
-                    borderLeft: i > 0 ? '1px solid #B8690A' : 'none',
-                    boxShadow: 'none',
-                    transition: 'color 0.15s',
-                  }}
-                >
-                  {labels[m]}
-                </button>
-              )
-            })}
-          </div>
-
-          {phase === 'idle' || phase === 'error' ? (
-            <button
-              onClick={run}
-              style={{
-                background: '#000000',
-                border: '1px solid #B8690A',
-                borderRadius: 5,
-                padding: '13px 26px',
-                cursor: 'pointer',
-                ...mono,
-                fontSize: 15,
-                fontWeight: 900,
-                color: '#FFFFFF',
-                letterSpacing: '2px',
-                boxShadow: 'none',
-              }}
-            >
-              ▶ SCAN ALL SYMBOLS
-            </button>
-          ) : isScanning ? (
-            <button
-              onClick={() => abortRef.current?.abort()}
-              style={{
-                background: 'rgba(255,40,60,0.16)',
-                border: '1px solid rgba(255,40,60,0.5)',
-                borderRadius: 5,
-                padding: '13px 26px',
-                cursor: 'pointer',
-                ...mono,
-                fontSize: 15,
-                fontWeight: 900,
-                color: '#FF4060',
-                letterSpacing: '2px',
-              }}
-            >
-              ■ STOP
-            </button>
-          ) : (
-            <button
-              onClick={run}
-              style={{
-                background: '#000000',
-                border: '1px solid #B8690A',
-                borderRadius: 4,
-                padding: '10px 22px',
-                cursor: 'pointer',
-                ...mono,
-                fontSize: 14,
-                fontWeight: 900,
-                color: '#FFFFFF',
-                letterSpacing: '2px',
-                boxShadow: 'none',
-              }}
-            >
-              ↺ RESCAN
-            </button>
           )}
         </div>
       </div>
@@ -3820,7 +2969,7 @@ export default function StraddleTownScreener() {
                   const recentDpDays = r.dpDays.filter(d => d.date >= cutoffStr && d.date <= triggerDate)
                   if (!recentDpDays.length) return false
                   // Find the top POI level nearest to a recent DP print
-                  const tier = getTopPOIBubbleTier(recentDpDays, r.topPOI)
+                  const tier = getTopPOIBubbleTier(r.poiLevels, r.topPOI)
                   if (tier !== bubbleFilter) return false
                 }
                 return true
