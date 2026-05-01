@@ -9,62 +9,89 @@ const handler = NextAuth({
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: 'identify guilds'
+          scope: 'identify guilds guilds.members.read'
         }
       }
     })
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
+      // DEBUG: log every JWT callback invocation
+      console.log('🟡 [JWT] called - has account:', !!account, '| tokenVersion:', (token as any).tokenVersion, '| hasAccess:', token.hasAccess);
+
+      // Force re-auth if token was issued before role-check was added
+      if ((token as any).tokenVersion !== 2) {
+        console.log('🔴 [JWT] Old/missing tokenVersion - clearing token to force re-login');
+        return {} as any;
+      }
+
       if (account && profile) {
-        console.log('🔵 JWT Callback - New login detected');
-        // Store Discord info in token
+        console.log('🔵 [JWT] New login - profile id:', profile.id);
+        console.log('🔵 [JWT] account.access_token present:', !!account.access_token);
+        console.log('🔵 [JWT] scopes granted:', account.scope);
         token.discordId = profile.id;
         token.accessToken = account.access_token;
-        
-        // Check if user is in your Discord server
+        (token as any).tokenVersion = 2;
+
+        const guildId = process.env.DISCORD_GUILD_ID;
+        const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID;
+        console.log('🔍 [JWT] DISCORD_GUILD_ID:', guildId ?? 'MISSING');
+        console.log('🔍 [JWT] DISCORD_REQUIRED_ROLE_ID:', requiredRoleId ?? 'MISSING');
+
+        if (!guildId || !requiredRoleId) {
+          console.error('❌ [JWT] Missing env vars - denying access');
+          token.hasAccess = false;
+          return token;
+        }
+
         try {
-          const guildId = process.env.DISCORD_GUILD_ID!;
-          console.log('🔍 Checking guild membership for guild:', guildId);
-          
-          // Get user's guilds
-          const guildsResponse = await fetch(
-            'https://discord.com/api/v10/users/@me/guilds',
-            {
-              headers: {
-                Authorization: `Bearer ${account.access_token}`
-              }
-            }
-          );
-          
-          if (guildsResponse.ok) {
-            const guilds = await guildsResponse.json();
-            console.log('✅ User guilds:', guilds.map((g: any) => g.id));
-            const isInGuild = guilds.some((guild: any) => guild.id === guildId);
-            console.log('🎯 Is in required guild?', isInGuild);
-            token.hasAccess = isInGuild;
+          const memberUrl = `https://discord.com/api/v10/users/@me/guilds/${guildId}/member`;
+          console.log('🔍 [JWT] Fetching:', memberUrl);
+
+          const memberResponse = await fetch(memberUrl, {
+            headers: { Authorization: `Bearer ${account.access_token}` }
+          });
+
+          console.log('🔍 [JWT] Discord API response status:', memberResponse.status);
+
+          if (memberResponse.ok) {
+            const member = await memberResponse.json();
+            const roles: string[] = member.roles ?? [];
+            console.log('✅ [JWT] User roles:', JSON.stringify(roles));
+            console.log('✅ [JWT] Looking for role:', requiredRoleId);
+            const hasRole = roles.includes(requiredRoleId);
+            console.log('🎯 [JWT] hasRole:', hasRole);
+            token.hasAccess = hasRole;
           } else {
-            console.error('❌ Failed to fetch guilds:', guildsResponse.status);
+            const body = await memberResponse.text();
+            console.error('❌ [JWT] Discord API error body:', body);
             token.hasAccess = false;
           }
         } catch (error) {
-          console.error('❌ Error checking Discord guilds:', error);
+          console.error('❌ [JWT] Exception:', error);
           token.hasAccess = false;
         }
       }
+
+      console.log('🟡 [JWT] returning token - hasAccess:', token.hasAccess);
       return token;
     },
     async session({ session, token }) {
-      console.log('🔵 Session callback - hasAccess:', token.hasAccess);
-      // Pass role info to session
+      console.log('🔵 [SESSION] hasAccess:', token.hasAccess, '| tokenVersion:', (token as any).tokenVersion);
       (session as any).user.discordId = token.discordId;
       (session as any).hasAccess = token.hasAccess;
       (session as any).user.discordRoles = token.discordRoles;
       return session;
     },
     async signIn({ user, account, profile }) {
-      // You can add additional sign-in logic here if needed
       return true;
+    },
+    async redirect({ url, baseUrl }) {
+      // After sign-in, check will happen in middleware via hasAccess token
+      // If they land on baseUrl, send them home and middleware handles the rest
+      if (url === baseUrl || url === `${baseUrl}/`) return baseUrl;
+      if (url.startsWith(baseUrl)) return url;
+      return baseUrl;
     }
   },
   pages: {

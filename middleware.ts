@@ -10,6 +10,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api') || // Allow all API routes (they handle their own auth)
     pathname === '/login' ||
     pathname === '/' ||
+    pathname === '/auth/no-access' ||
+    pathname.startsWith('/auth') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {
@@ -26,11 +28,13 @@ export async function middleware(request: NextRequest) {
 
   // Only call getToken if cookie check failed — avoids hanging/slow JWT verify on every request
   let tokenAccess = false
+  let hasToken = false
   try {
     const token = await getToken({
       req: request,
       secret: process.env.NEXTAUTH_SECRET,
     })
+    hasToken = !!token
     tokenAccess = !!(token as any)?.hasAccess
   } catch (err) {
     console.error('[Middleware] getToken failed:', err)
@@ -40,7 +44,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Redirect to login
+  // They logged in with Discord but don't have the required role
+  if (hasToken && !tokenAccess) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/no-access'
+    return NextResponse.redirect(url)
+  }
+
+  // Not logged in at all — redirect to login
   console.log('[Middleware] No access, redirecting to login from:', pathname)
   const url = request.nextUrl.clone()
   url.pathname = '/login'
