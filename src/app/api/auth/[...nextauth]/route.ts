@@ -19,8 +19,8 @@ const handler = NextAuth({
       // DEBUG: log every JWT callback invocation
       console.log('🟡 [JWT] called - has account:', !!account, '| tokenVersion:', (token as any).tokenVersion, '| hasAccess:', token.hasAccess);
 
-      // Force re-auth if token was issued before role-check was added
-      if ((token as any).tokenVersion !== 2) {
+      // Force re-auth if token was issued before role-check was added (only for existing sessions, not fresh logins)
+      if (!account && (token as any).tokenVersion !== 2) {
         console.log('🔴 [JWT] Old/missing tokenVersion - clearing token to force re-login');
         return {} as any;
       }
