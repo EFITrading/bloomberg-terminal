@@ -100,7 +100,7 @@ function ClusterCard({
   expirationFilter: string
 }) {
   const isPos = side === 'positive'
-  const accentColor = isPos ? '#b060ff' : '#00d264'
+  const accentColor = isPos ? '#ff4444' : '#00d264'
   const cardKey = `${side}-${item.ticker}`
   const isExpanded = expandedCard === cardKey
   const expiryParam = expirationFilter === 'Week' ? '7-days' : expirationFilter === 'Month' ? '30-days' : '45-days'
@@ -524,7 +524,7 @@ function ClusterCard({
             if (py < priceY0 || py > priceY0 + priceH) return null
             return (
               <text key={p} x={PL + plotW + 3} y={py + 3.5}
-                textAnchor="start" fill="#ffffff" fontSize={9} fontFamily="monospace" fontWeight="700"
+                textAnchor="start" fill="#ffffff" fontSize={16} fontFamily="monospace" fontWeight="700"
               >${p < 10 ? p.toFixed(2) : p.toFixed(p % 1 === 0 ? 0 : 2)}</text>
             )
           })}
@@ -548,7 +548,7 @@ function ClusterCard({
                 <text x={x} y={priceY0 + priceH + 15}
                   textAnchor="middle"
                   fill="#ffffff"
-                  fontSize={isDay ? 9 : 8}
+                  fontSize={isDay ? 16 : 13}
                   fontWeight={isDay ? '700' : '400'}
                   fontFamily="monospace"
                 >{lbl}</text>
@@ -564,11 +564,30 @@ function ClusterCard({
           onClick={(e) => e.stopPropagation()}
           style={{ borderTop: `1px solid ${accentColor}22`, padding: '14px' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor }} />
-            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', color: accentColor }}>
-              CLUSTER ANALYSIS — {item.ticker} · {item.cluster.type.toUpperCase()} · ${item.cluster.centralStrike.toFixed(2)}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor }} />
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', color: accentColor }}>
+                CLUSTER ANALYSIS — {item.ticker} · {item.cluster.type.toUpperCase()} · ${item.cluster.centralStrike.toFixed(2)}
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpandedCard(null) }}
+              style={{
+                background: 'transparent',
+                border: `1px solid ${accentColor}55`,
+                color: accentColor,
+                fontSize: 11,
+                fontWeight: 800,
+                fontFamily: 'monospace',
+                letterSpacing: '0.12em',
+                padding: '3px 10px',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              ✕ CLOSE
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>

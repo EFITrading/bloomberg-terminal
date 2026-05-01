@@ -1,22 +1,21 @@
 'use client'
 
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
+  Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
-
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   CATEGORY_COLORS,
   EVENT_CATEGORIES,
   type EventCategory,
+  type KeyDate,
   type KeyMover,
   MARKET_EVENTS,
   type MarketEvent,
@@ -25,9 +24,9 @@ import {
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import ResearchPanelV2 from './ResearchPanelV2'
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Types
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 interface PriceBar {
   date: string
   timestamp: number
@@ -93,15 +92,15 @@ interface EventStats {
   error: string | null
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Instrument definitions grouped by asset class
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 interface InstrumentDef {
   ticker: string
   apiTicker: string // what we send to /api/historical-data
   label: string
   color: string
-  group: 'Equities' | 'Sectors' | 'Commodities' | 'Fixed Income' | 'FX & Vol'
+  group: 'Equities' | 'Sectors' | 'FX & Vol'
 }
 
 const ALL_INSTRUMENTS: InstrumentDef[] = [
@@ -110,6 +109,7 @@ const ALL_INSTRUMENTS: InstrumentDef[] = [
   { ticker: 'QQQ', apiTicker: 'QQQ', label: 'NASDAQ', color: '#a855f7', group: 'Equities' },
   { ticker: 'IWM', apiTicker: 'IWM', label: 'Small Caps', color: '#06b6d4', group: 'Equities' },
   { ticker: 'EEM', apiTicker: 'EEM', label: 'Emerg. Mkts', color: '#f472b6', group: 'Equities' },
+  { ticker: 'TLT', apiTicker: 'TLT', label: 'Long Bonds', color: '#22c55e', group: 'Equities' },
   // Sectors (all 11 GICS)
   { ticker: 'XLE', apiTicker: 'XLE', label: 'Energy', color: '#f97316', group: 'Sectors' },
   { ticker: 'XLF', apiTicker: 'XLF', label: 'Financials', color: '#84cc16', group: 'Sectors' },
@@ -122,31 +122,25 @@ const ALL_INSTRUMENTS: InstrumentDef[] = [
   { ticker: 'XLU', apiTicker: 'XLU', label: 'Utilities', color: '#fcd34d', group: 'Sectors' },
   { ticker: 'XLRE', apiTicker: 'XLRE', label: 'Real Estate', color: '#67e8f9', group: 'Sectors' },
   { ticker: 'XLC', apiTicker: 'XLC', label: 'Comm. Services', color: '#c084fc', group: 'Sectors' },
-  // Commodities
-  { ticker: 'GLD', apiTicker: 'GLD', label: 'Gold', color: '#eab308', group: 'Commodities' },
-  { ticker: 'USO', apiTicker: 'USO', label: 'Crude Oil', color: '#78350f', group: 'Commodities' },
-  // Fixed income
-  { ticker: 'TLT', apiTicker: 'TLT', label: 'Long Bonds', color: '#22c55e', group: 'Fixed Income' },
+  { ticker: 'GLD', apiTicker: 'GLD', label: 'Gold', color: '#eab308', group: 'Sectors' },
   // FX & Vol
   { ticker: 'DXY', apiTicker: 'UUP', label: 'USD Index', color: '#38bdf8', group: 'FX & Vol' },
-  { ticker: 'VIX', apiTicker: 'I:VIX', label: 'VIX', color: '#ef4444', group: 'FX & Vol' },
+  { ticker: 'VIX', apiTicker: 'VIXY', label: 'VIX (VIXY)', color: '#ef4444', group: 'FX & Vol' },
 ]
 
 const INSTRUMENT_GROUPS: Array<
-  'Equities' | 'Sectors' | 'Commodities' | 'Fixed Income' | 'FX & Vol'
-> = ['Equities', 'Sectors', 'Commodities', 'Fixed Income', 'FX & Vol']
+  'Equities' | 'Sectors' | 'FX & Vol'
+> = ['Equities', 'Sectors', 'FX & Vol']
 
 const GROUP_COLORS: Record<string, string> = {
-  Equities: '#3b82f6',
-  Sectors: '#f97316',
-  Commodities: '#eab308',
-  'Fixed Income': '#22c55e',
+  Equities: '#FF6B00',
+  Sectors: '#22d3ee',
   'FX & Vol': '#ef4444',
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Types
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 function calcStats(bars: PriceBar[]): {
   totalReturn: number
   maxDrawdown: number
@@ -241,9 +235,9 @@ function eventDurationDays(event: MarketEvent): number {
   return Math.round((b - a) / 86400000) + 1
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Fetch historical data from the existing /api/historical-data route
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 async function fetchBars(ticker: string, startDate: string, endDate: string): Promise<PriceBar[]> {
   // Wide window: 35 cal days before/after to support pre-30d and post-30d periods
   const start = new Date(startDate)
@@ -254,13 +248,31 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
   const s = start.toISOString().split('T')[0]
   const e = end.toISOString().split('T')[0]
 
-  const res = await fetch(
-    `/api/historical-data?symbol=${ticker}&startDate=${s}&endDate=${e}&timeframe=1d`
-  )
-  if (!res.ok) throw new Error(`Failed to fetch ${ticker}`)
-  const json = await res.json()
+  const url = `/api/historical-data?symbol=${ticker}&startDate=${s}&endDate=${e}&timeframe=1d`
+  console.log(`[HER] fetchBars → ${ticker} | url: ${url}`)
 
-  if (!json.results || !Array.isArray(json.results)) return []
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch (err) {
+    console.error(`[HER] fetchBars NETWORK ERROR for ${ticker}:`, err)
+    throw err
+  }
+
+  console.log(`[HER] fetchBars response ${ticker}: status=${res.status} ok=${res.ok}`)
+  if (!res.ok) {
+    const text = await res.text().catch(() => '(no body)')
+    console.error(`[HER] fetchBars HTTP error for ${ticker}: ${res.status} — ${text}`)
+    throw new Error(`Failed to fetch ${ticker}: ${res.status}`)
+  }
+
+  const json = await res.json()
+  console.log(`[HER] fetchBars ${ticker}: json keys=${Object.keys(json).join(',')}, results=${Array.isArray(json.results) ? json.results.length : 'N/A'}`)
+
+  if (!json.results || !Array.isArray(json.results)) {
+    console.warn(`[HER] fetchBars ${ticker}: no results array — full response:`, json)
+    return []
+  }
 
   const bars: PriceBar[] = json.results
     .map((r: { t: number; o: number; h: number; l: number; c: number; v: number }) => ({
@@ -274,12 +286,13 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
     }))
     .sort((a: PriceBar, b: PriceBar) => a.timestamp - b.timestamp)
 
+  console.log(`[HER] fetchBars ${ticker}: parsed ${bars.length} bars (${bars[0]?.date} → ${bars[bars.length - 1]?.date})`)
   return bars
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Chart tooltip
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 const ChartTooltip = ({
   active,
   payload,
@@ -324,9 +337,9 @@ const ChartTooltip = ({
   )
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Stat card
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 const StatCard = ({ label, value, color }: { label: string; value: string; color: string }) => (
   <div
     style={{
@@ -354,11 +367,12 @@ const StatCard = ({ label, value, color }: { label: string; value: string; color
   </div>
 )
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 // Main component
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────────────
 export default function HistoricalEventsResearch() {
   const [activeTab, setActiveTab] = useState<'events' | 'screener' | 'research'>('events')
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'All'>('All')
   const [selectedEvent, setSelectedEvent] = useState<MarketEvent | null>(null)
   const [stats, setStats] = useState<EventStats>({
@@ -385,15 +399,12 @@ export default function HistoricalEventsResearch() {
     loading: false,
     error: null,
   })
-  const [activeInstruments, setActiveInstruments] = useState<string[]>([
-    'SPY',
-    'QQQ',
-    'GLD',
-    'TLT',
-    'USO',
-  ])
   const [searchQuery, setSearchQuery] = useState('')
   const [activePeriod, setActivePeriod] = useState<PeriodKey>('during')
+  const [activeInstruments, setActiveInstruments] = useState<string[]>(
+    ALL_INSTRUMENTS.map((i) => i.ticker)
+  )
+  const [openGroup, setOpenGroup] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const INSTR_KEY_MAP: Record<string, keyof Omit<EventStats, 'loading' | 'error'>> = {
@@ -419,7 +430,7 @@ export default function HistoricalEventsResearch() {
     VIX: 'vix',
   }
 
-  // â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filtering ─────────────────────────────────────────────────────────────
   const filteredEvents = MARKET_EVENTS.filter((e) => {
     const matchCat = selectedCategory === 'All' || e.category === selectedCategory
     const q = searchQuery.toLowerCase()
@@ -431,7 +442,7 @@ export default function HistoricalEventsResearch() {
     return matchCat && matchSearch
   }).sort((a, b) => a.startDate.localeCompare(b.startDate))
 
-  // â”€â”€ Load data when event is selected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Load data when event is selected ─────────────────────────────────────
   const loadEventData = useCallback(async (event: MarketEvent) => {
     setStats({
       spy: null,
@@ -458,9 +469,21 @@ export default function HistoricalEventsResearch() {
       error: null,
     })
 
+    console.log(`[HER] loadEventData: event="${event.name}" start=${event.startDate} end=${event.endDate}`)
+    console.log(`[HER] fetching ${ALL_INSTRUMENTS.length} instruments:`, ALL_INSTRUMENTS.map(i => i.apiTicker))
+
     const results = await Promise.allSettled(
       ALL_INSTRUMENTS.map((ins) => fetchBars(ins.apiTicker, event.startDate, event.endDate))
     )
+
+    console.log('[HER] allSettled results:')
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        console.log(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✓ ${r.value.length} bars`)
+      } else {
+        console.error(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✗ rejected —`, r.reason)
+      }
+    })
 
     const update: Partial<EventStats> = { loading: false, error: null }
 
@@ -472,9 +495,20 @@ export default function HistoricalEventsResearch() {
       const key = INSTR_KEY_MAP[ins.ticker]
       const result = results[i]
       if (result.status === 'fulfilled' && result.value.length >= 2) {
+        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate,-10)} duringEnd=${offsetDate(event.startDate,10)}`)
         const allBars = result.value
-        const duringBars = sliceBars(allBars, event.startDate, event.endDate)
-        const d = buildPeriodStats(duringBars.length >= 2 ? duringBars : allBars)!
+
+        // 'During' window: ±10 calendar days around the event START DATE
+        const duringStart = offsetDate(event.startDate, -10)
+        const duringEnd = offsetDate(event.startDate, 10)
+
+        const duringBars = sliceBars(allBars, duringStart, duringEnd)
+        const d = buildPeriodStats(duringBars.length >= 2 ? duringBars : sliceBars(allBars, duringStart, offsetDate(duringEnd, 5)))
+        if (!d) {
+          console.warn(`[HER] ${ins.ticker}: buildPeriodStats returned null for during window — skipping`)
+          update[key] = null
+          return
+        }
         update[key] = {
           ticker: ins.ticker,
           label: ins.label,
@@ -494,6 +528,9 @@ export default function HistoricalEventsResearch() {
           recoveryDays: d.recoveryDays,
         }
       } else {
+        if (result.status === 'fulfilled') {
+          console.warn(`[HER] ${ins.ticker}: only ${result.value.length} bars — need ≥2, setting null`)
+        }
         update[key] = null
       }
     })
@@ -508,46 +545,7 @@ export default function HistoricalEventsResearch() {
     }
   }, [selectedEvent, loadEventData])
 
-  // â”€â”€ Build chart dataset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const buildChartData = () => {
-    const active = activeInstruments
-      .map((k) => stats[INSTR_KEY_MAP[k]] as InstrumentData | null)
-      .filter((d): d is InstrumentData => !!d && (d[activePeriod]?.bars?.length ?? 0) > 0)
-
-    if (!active.length) return []
-    const maxLen = Math.max(...active.map((d) => d[activePeriod]?.bars?.length ?? 0))
-    return Array.from({ length: maxLen }, (_, i) => {
-      const row: Record<string, number | string> = {
-        date: active[0]?.[activePeriod]?.bars[i]?.date ?? '',
-      }
-      active.forEach((d) => {
-        const idx = d[activePeriod]?.indexed ?? []
-        row[d.label] = idx[i] ?? idx[idx.length - 1] ?? 100
-      })
-      return row
-    })
-  }
-
-  // â”€â”€ Build impact leaderboard (all instruments sorted by totalReturn) â”€â”€â”€â”€â”€â”€â”€
-  const buildLeaderboard = (): Array<InstrumentData & { group: string; periodReturn: number }> => {
-    const results: Array<InstrumentData & { group: string; periodReturn: number }> = []
-    ALL_INSTRUMENTS.forEach((ins) => {
-      const d = stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null
-      if (d) {
-        const periodReturn = d[activePeriod]?.totalReturn ?? d.totalReturn
-        results.push({ ...d, group: ins.group as string, periodReturn })
-      }
-    })
-    return results.sort((a, b) => b.periodReturn - a.periodReturn)
-  }
-
-  const chartData = buildChartData()
-  const leaderboard = buildLeaderboard()
-  const leaderboardMax = leaderboard.length
-    ? Math.max(...leaderboard.map((d) => Math.abs(d.periodReturn)), 1)
-    : 1
-
-  // â”€â”€ UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── UI ────────────────────────────────────────────────────────────────────
   return (
     <div
       style={{
@@ -557,6 +555,18 @@ export default function HistoricalEventsResearch() {
         flexDirection: 'column',
         height: '100%',
         overflow: 'hidden',
+        ...(isFullscreen
+          ? {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+            height: '100dvh',
+            width: '100vw',
+          }
+          : {}),
       }}
     >
       <style>{`
@@ -567,7 +577,7 @@ export default function HistoricalEventsResearch() {
         .her-tab-btn.inactive { color: #FFFFFF !important; }
         .her-cat-btn:hover { opacity: 1 !important; }
         .her-event-row:hover { background: #0e0e0e !important; }
-        .her-period-btn:hover { opacity: 1 !important; }
+        .her-period-btn:hover { color: #ffffff !important; background: rgba(255,255,255,0.04) !important; }
         .her-instr-btn:hover { opacity: 1 !important; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: #070707; }
@@ -679,6 +689,36 @@ export default function HistoricalEventsResearch() {
             </button>
           )
         })}
+        {/* FULLSCREEN TOGGLE */}
+        <button
+          onClick={() => setIsFullscreen((f) => !f)}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          style={{
+            flexShrink: 0,
+            padding: '0 18px',
+            background: '#000',
+            border: 'none',
+            borderLeft: '1px solid #1e1e1e',
+            color: isFullscreen ? '#FF6B00' : 'rgba(255,255,255,0.45)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'color 0.15s',
+          }}
+        >
+          {isFullscreen ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
+              <polyline points="8 3 3 3 3 8" /><polyline points="21 8 21 3 16 3" />
+              <polyline points="3 16 3 21 8 21" /><polyline points="16 21 21 21 21 16" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
+              <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          )}
+        </button>
       </div>
 
       {/* TAB CONTENT */}
@@ -700,7 +740,7 @@ export default function HistoricalEventsResearch() {
             overflow: 'hidden',
           }}
         >
-          {/* â”€â”€ SUB-HEADER: title + search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── SUB-HEADER: title + search ─────────────────────────────── */}
           {/* ROW 1: Title + Stats + Search */}
           <div
             style={{
@@ -769,7 +809,7 @@ export default function HistoricalEventsResearch() {
                   <span style={{ color: '#444', fontSize: 13 }}>|</span>
                   <span
                     style={{
-                      color: '#FFFFFF',
+                      color: '#888',
                       fontSize: 12,
                       fontWeight: 600,
                       letterSpacing: '0.06em',
@@ -782,7 +822,7 @@ export default function HistoricalEventsResearch() {
                   <span style={{ color: '#444', fontSize: 13 }}>|</span>
                   <span
                     style={{
-                      color: '#FFFFFF',
+                      color: '#888',
                       fontSize: 12,
                       fontWeight: 600,
                       letterSpacing: '0.06em',
@@ -836,7 +876,7 @@ export default function HistoricalEventsResearch() {
             </div>
           </div>
 
-          {/* â”€â”€ CATEGORY FILTERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── CATEGORY FILTERS ───────────────────────────────────────── */}
           {/* ROW 2: CATEGORY FILTERS */}
           <div
             style={{
@@ -879,14 +919,14 @@ export default function HistoricalEventsResearch() {
             })}
           </div>
 
-          {/* â”€â”€ MAIN BODY: event list + detail panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── MAIN BODY: event list + detail panel ───────────────────── */}
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-            {/* â”€â”€ EVENT LIST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── EVENT LIST ─────────────────────────────────────────── */}
             <div
               style={{
-                width: 260,
-                minWidth: 220,
-                borderRight: '1px solid #111',
+                width: 300,
+                minWidth: 260,
+                borderRight: '1px solid #1a1a1a',
                 overflowY: 'auto',
                 background: '#030303',
               }}
@@ -895,10 +935,9 @@ export default function HistoricalEventsResearch() {
                 <div
                   style={{
                     padding: '32px 20px',
-                    color: '#FFFFFF',
+                    color: '#888',
                     fontSize: 13,
                     textAlign: 'center',
-                    opacity: 0.5,
                   }}
                 >
                   No events match your filter.
@@ -915,10 +954,10 @@ export default function HistoricalEventsResearch() {
                     onClick={() => setSelectedEvent(event)}
                     style={{
                       padding: '14px 16px',
-                      borderBottom: '1px solid #0e0e0e',
+                      borderBottom: '1px solid #111',
                       cursor: 'pointer',
                       background: isSelected
-                        ? `linear-gradient(90deg, ${catColor}18 0%, transparent 100%)`
+                        ? `linear-gradient(90deg, ${catColor}22 0%, transparent 100%)`
                         : 'transparent',
                       borderLeft: isSelected ? `3px solid ${catColor}` : '3px solid transparent',
                       transition: 'background 0.1s',
@@ -929,13 +968,13 @@ export default function HistoricalEventsResearch() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        marginBottom: 6,
+                        marginBottom: 5,
                         gap: 6,
                       }}
                     >
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 11,
                           fontWeight: 800,
                           color: catColor,
                           letterSpacing: '0.5px',
@@ -950,7 +989,7 @@ export default function HistoricalEventsResearch() {
                           fontWeight: 800,
                           color: '#000',
                           background: sevColor,
-                          padding: '1px 7px',
+                          padding: '2px 7px',
                           letterSpacing: '0.4px',
                           textTransform: 'uppercase',
                           flexShrink: 0,
@@ -961,25 +1000,25 @@ export default function HistoricalEventsResearch() {
                     </div>
                     <div
                       style={{
-                        color: '#FFFFFF',
-                        fontSize: 13,
+                        color: isSelected ? '#fff' : 'rgba(255,255,255,0.85)',
+                        fontSize: 14,
                         fontWeight: 700,
                         lineHeight: 1.35,
-                        marginBottom: 6,
+                        marginBottom: 5,
                       }}
                     >
                       {event.name}
                     </div>
                     <div
                       style={{
-                        color: 'rgba(255,255,255,0.5)',
-                        fontSize: 11,
+                        color: 'rgba(255,255,255,0.4)',
+                        fontSize: 12,
                         display: 'flex',
                         gap: 5,
                       }}
                     >
                       <span>{formatDate(event.startDate)}</span>
-                      <span>â†’</span>
+                      <span style={{ color: '#333' }}>→</span>
                       <span>{formatDate(event.endDate)}</span>
                     </div>
                   </div>
@@ -987,7 +1026,7 @@ export default function HistoricalEventsResearch() {
               })}
             </div>
 
-            {/* â”€â”€ DETAIL PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── DETAIL PANEL ─────────────────────────────────────────── */}
             <div style={{ flex: 1, overflowY: 'auto', background: '#000', padding: '20px 22px' }}>
               {!selectedEvent ? (
                 <div
@@ -1051,7 +1090,7 @@ export default function HistoricalEventsResearch() {
                 </div>
               ) : (
                 <div>
-                  {/* â”€â”€ EVENT HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── EVENT HEADER ──────────────────────────────────── */}
                   <div
                     style={{
                       background: 'linear-gradient(135deg, #0a0a0a 0%, #080808 100%)',
@@ -1091,7 +1130,7 @@ export default function HistoricalEventsResearch() {
                           >
                             {selectedEvent.category}
                           </span>
-                          <span style={{ color: '#2a2a2a' }}>â€¢</span>
+                          <span style={{ color: '#2a2a2a' }}>|</span>
                           <span
                             style={{
                               fontSize: 11,
@@ -1103,17 +1142,17 @@ export default function HistoricalEventsResearch() {
                           >
                             {selectedEvent.severity} severity
                           </span>
-                          <span style={{ color: '#2a2a2a' }}>â€¢</span>
-                          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                          <span style={{ color: '#2a2a2a' }}>|</span>
+                          <span style={{ color: '#666', fontSize: 11 }}>
                             {eventDurationDays(selectedEvent).toLocaleString()} days
                           </span>
                         </div>
                         <div
                           style={{
-                            color: '#FFFFFF',
-                            fontSize: 22,
+                            color: CATEGORY_COLORS[selectedEvent.category],
+                            fontSize: 20,
                             fontWeight: 800,
-                            letterSpacing: '-0.5px',
+                            letterSpacing: '-0.3px',
                             marginBottom: 10,
                             lineHeight: 1.2,
                           }}
@@ -1121,15 +1160,69 @@ export default function HistoricalEventsResearch() {
                           {selectedEvent.name}
                         </div>
                         <div
-                          style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, lineHeight: 1.7 }}
+                          style={{ color: '#aaa', fontSize: 13, lineHeight: 1.7 }}
                         >
                           {selectedEvent.description}
                         </div>
+                        {selectedEvent.keyDates && selectedEvent.keyDates.length > 0 && (
+                          <div style={{ marginTop: 14 }}>
+                            <div
+                              style={{
+                                color: 'rgba(255,255,255,0.35)',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: '1.2px',
+                                textTransform: 'uppercase',
+                                marginBottom: 8,
+                              }}
+                            >
+                              Key Event Dates
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                              {selectedEvent.keyDates.map((kd: KeyDate, i: number) => (
+                                <div
+                                  key={i}
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 3,
+                                    padding: '6px 10px',
+                                    background: '#0a0a0a',
+                                    border: '1px solid #161616',
+                                    borderLeft: `3px solid ${CATEGORY_COLORS[selectedEvent.category]}`,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      color: CATEGORY_COLORS[selectedEvent.category],
+                                      fontSize: 13,
+                                      fontWeight: 800,
+                                      fontFamily: '"Roboto Mono", monospace',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {formatDate(kd.date)}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: 'rgba(255,255,255,0.7)',
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {kd.label.split(' — ')[0]}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div
                         style={{
                           background: '#0a0a0a',
-                          border: '1px solid #1a1a1a',
+                          border: `1px solid ${CATEGORY_COLORS[selectedEvent.category]}30`,
                           padding: '10px 14px',
                           whiteSpace: 'nowrap',
                           textAlign: 'right',
@@ -1139,7 +1232,7 @@ export default function HistoricalEventsResearch() {
                       >
                         <div
                           style={{
-                            color: 'rgba(255,255,255,0.4)',
+                            color: '#555',
                             fontSize: 10,
                             letterSpacing: '0.8px',
                             textTransform: 'uppercase',
@@ -1150,7 +1243,7 @@ export default function HistoricalEventsResearch() {
                         </div>
                         <div
                           style={{
-                            color: '#FFFFFF',
+                            color: CATEGORY_COLORS[selectedEvent.category],
                             fontSize: 14,
                             fontWeight: 800,
                             marginBottom: 10,
@@ -1160,7 +1253,7 @@ export default function HistoricalEventsResearch() {
                         </div>
                         <div
                           style={{
-                            color: 'rgba(255,255,255,0.4)',
+                            color: '#555',
                             fontSize: 10,
                             letterSpacing: '0.8px',
                             textTransform: 'uppercase',
@@ -1169,22 +1262,31 @@ export default function HistoricalEventsResearch() {
                         >
                           END DATE
                         </div>
-                        <div style={{ color: '#FFFFFF', fontSize: 14, fontWeight: 800 }}>
+                        <div style={{ color: CATEGORY_COLORS[selectedEvent.category], fontSize: 14, fontWeight: 800 }}>
                           {formatDate(selectedEvent.endDate)}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* â”€â”€ PERIOD SELECTOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {/* ── PERIOD SELECTOR ───────────────────────────────── */}
+                  <div style={{
+                    display: 'flex',
+                    gap: 0,
+                    marginBottom: 20,
+                    background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
+                    border: '1px solid #222',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+                  }}>
                     {[
-                      { key: 'pre30' as PeriodKey, label: 'âˆ’30D BEFORE', color: '#a855f7' },
-                      { key: 'pre10' as PeriodKey, label: 'âˆ’10D BEFORE', color: '#f472b6' },
+                      { key: 'pre30' as PeriodKey, label: '-30D BEFORE', color: '#a855f7' },
+                      { key: 'pre10' as PeriodKey, label: '-10D BEFORE', color: '#f472b6' },
                       { key: 'during' as PeriodKey, label: 'DURING EVENT', color: '#ef4444' },
                       { key: 'post30' as PeriodKey, label: '+30D AFTER', color: '#22c55e' },
                       { key: 'full' as PeriodKey, label: 'FULL TIMELINE', color: '#3b82f6' },
-                    ].map((p) => {
+                    ].map((p, idx, arr) => {
                       const isActive = activePeriod === p.key
                       return (
                         <button
@@ -1192,24 +1294,23 @@ export default function HistoricalEventsResearch() {
                           className="her-period-btn"
                           onClick={() => setActivePeriod(p.key)}
                           style={{
-                            padding: '8px 14px',
-                            background: isActive
-                              ? `linear-gradient(135deg, ${p.color}20 0%, ${p.color}0a 100%)`
-                              : '#080808',
-                            border: `1px solid ${isActive ? p.color : '#1e1e1e'}`,
-                            color: isActive ? p.color : 'rgba(255,255,255,0.6)',
-                            fontSize: 11,
+                            flex: 1,
+                            padding: '16px 8px',
+                            background: 'transparent',
+                            borderTop: 'none',
+                            borderBottom: isActive ? `2px solid #FF6B00` : '2px solid transparent',
+                            borderLeft: idx === 0 ? 'none' : '1px solid #1a1a1a',
+                            borderRight: 'none',
+                            color: isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)',
+                            fontSize: 19,
                             fontWeight: 800,
                             cursor: 'pointer',
-                            letterSpacing: '0.8px',
+                            letterSpacing: '1px',
                             textTransform: 'uppercase',
                             fontFamily: '"Roboto Mono", monospace',
                             whiteSpace: 'nowrap',
-                            opacity: isActive ? 1 : 0.7,
-                            boxShadow: isActive
-                              ? `0 0 12px ${p.color}25, inset 0 1px 0 ${p.color}20`
-                              : 'inset 0 1px 0 rgba(255,255,255,0.03)',
                             transition: 'all 0.15s',
+                            boxShadow: 'none',
                           }}
                         >
                           {p.label}
@@ -1218,7 +1319,9 @@ export default function HistoricalEventsResearch() {
                     })}
                   </div>
 
-                  {/* â”€â”€ LOADING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+
+
+                  {/* ── LOADING ───────────────────────────────────────── */}
                   {stats.loading && (
                     <div
                       style={{
@@ -1261,12 +1364,295 @@ export default function HistoricalEventsResearch() {
                     </div>
                   )}
 
-                  {!stats.loading &&
-                    !stats.error &&
-                    (leaderboard.length > 0 || chartData.length > 0) && (
+                  {!stats.loading && !stats.error && (
                       <>
-                        {/* â”€â”€ PERFORMANCE MATRIX TABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                        <div
+                        {/* ── PERFORMANCE CHART ─────────────────────────── */}
+                        {(() => {
+                          const allWithData = ALL_INSTRUMENTS
+                            .map((ins) => ({
+                              ins,
+                              d: stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null,
+                            }))
+                            .filter(({ d }) => !!d && (d[activePeriod]?.indexed?.length ?? 0) > 0)
+
+                          const active = allWithData.filter(({ ins }) =>
+                            activeInstruments.includes(ins.ticker)
+                          )
+
+                          const maxLen = active.length
+                            ? Math.max(...active.map(({ d }) => d![activePeriod]!.indexed.length))
+                            : 0
+
+                          const chartData = Array.from({ length: maxLen }, (_, i) => {
+                            const raw = active[0]?.d![activePeriod]!.bars[i]?.date ?? ''
+                            // Compute calendar day offset from event start date
+                            let dayOffset = i
+                            if (selectedEvent && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                              const barMs = new Date(raw + 'T00:00:00').getTime()
+                              const anchorMs = new Date(selectedEvent.startDate + 'T00:00:00').getTime()
+                              dayOffset = Math.round((barMs - anchorMs) / 86400000)
+                            }
+                            const label = dayOffset === 0 ? 'D0' : dayOffset > 0 ? `+${dayOffset}` : `${dayOffset}`
+                            const row: Record<string, number | string> = { date: label, _dayOffset: dayOffset }
+                            active.forEach(({ ins, d }) => {
+                              const idx = d![activePeriod]!.indexed
+                              row[ins.label] = idx[i] ?? idx[idx.length - 1]
+                            })
+                            return row
+                          })
+
+                          return (
+                            <div style={{ marginBottom: 14 }}>
+                              {/* ── GROUP DROPDOWN LEGEND ── */}
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                                {INSTRUMENT_GROUPS.map((group) => {
+                                  const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
+                                  if (!groupInstruments.length) return null
+                                  const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
+                                  const isOpen = openGroup === group
+                                  return (
+                                    <div key={group} style={{ position: 'relative' }}>
+                                      <button
+                                        onClick={() => setOpenGroup(isOpen ? null : group)}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          padding: '9px 16px',
+                                          background: isOpen
+                                            ? `linear-gradient(180deg, ${GROUP_COLORS[group]}22 0%, ${GROUP_COLORS[group]}0d 100%)`
+                                            : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
+                                          border: `1px solid ${isOpen ? GROUP_COLORS[group] : '#252525'}`,
+                                          color: '#fff',
+                                          fontSize: 15,
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          letterSpacing: '0.6px',
+                                          textTransform: 'uppercase',
+                                          fontFamily: '"Roboto Mono", monospace',
+                                          boxShadow: isOpen
+                                            ? `0 0 10px ${GROUP_COLORS[group]}20`
+                                            : '0 2px 6px rgba(0,0,0,0.4)',
+                                          transition: 'all 0.15s',
+                                        }}
+                                      >
+                                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
+                                        {group}
+                                        <span style={{
+                                          background: enabledCount > 0 ? GROUP_COLORS[group] : '#333',
+                                          color: enabledCount > 0 ? '#000' : '#666',
+                                          fontSize: 12,
+                                          fontWeight: 900,
+                                          padding: '2px 6px',
+                                          borderRadius: 2,
+                                          minWidth: 20,
+                                          textAlign: 'center',
+                                        }}>
+                                          {enabledCount}/{groupInstruments.length}
+                                        </span>
+                                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{isOpen ? '▲' : '▼'}</span>
+                                      </button>
+
+                                      {isOpen && (
+                                        <div style={{
+                                          position: 'absolute',
+                                          top: '100%',
+                                          left: 0,
+                                          zIndex: 50,
+                                          marginTop: 4,
+                                          background: 'linear-gradient(180deg, #181818 0%, #111 100%)',
+                                          border: `1px solid ${GROUP_COLORS[group]}40`,
+                                          boxShadow: `0 8px 24px rgba(0,0,0,0.7), 0 0 0 1px ${GROUP_COLORS[group]}15`,
+                                          minWidth: 200,
+                                          overflow: 'hidden',
+                                        }}>
+                                          {/* Select all / none */}
+                                          <div style={{
+                                            display: 'flex',
+                                            borderBottom: '1px solid #1e1e1e',
+                                            padding: '6px 10px',
+                                            gap: 8,
+                                          }}>
+                                            <button
+                                              onClick={() => setActiveInstruments((prev) => {
+                                                const tickers = groupInstruments.map(({ ins }) => ins.ticker)
+                                                const others = prev.filter((t) => !tickers.includes(t))
+                                                return [...others, ...tickers]
+                                              })}
+                                              style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#fff', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
+                                            >ALL</button>
+                                            <button
+                                              onClick={() => setActiveInstruments((prev) => {
+                                                const tickers = groupInstruments.map(({ ins }) => ins.ticker)
+                                                return prev.filter((t) => !tickers.includes(t))
+                                              })}
+                                              style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#666', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
+                                            >NONE</button>
+                                          </div>
+                                          {groupInstruments.map(({ ins, d }) => {
+                                            const on = activeInstruments.includes(ins.ticker)
+                                            const ret = d![activePeriod]?.totalReturn ?? 0
+                                            return (
+                                              <div
+                                                key={ins.ticker}
+                                                onClick={() => setActiveInstruments((prev) =>
+                                                  on ? prev.filter((t) => t !== ins.ticker) : [...prev, ins.ticker]
+                                                )}
+                                                style={{
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: 9,
+                                                  padding: '8px 12px',
+                                                  cursor: 'pointer',
+                                                  background: on ? `${ins.color}0a` : 'transparent',
+                                                  borderBottom: '1px solid #141414',
+                                                  transition: 'background 0.1s',
+                                                }}
+                                              >
+                                                {/* Checkbox */}
+                                                <div style={{
+                                                  width: 14,
+                                                  height: 14,
+                                                  border: `1.5px solid ${on ? ins.color : '#333'}`,
+                                                  background: on ? ins.color : 'transparent',
+                                                  flexShrink: 0,
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                }}>
+                                                  {on && <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                                </div>
+                                                <div style={{ width: 14, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
+                                                <span style={{ color: on ? '#fff' : '#555', fontSize: 15, fontWeight: 700, flex: 1 }}>
+                                                  {ins.label}
+                                                </span>
+                                                <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 15, fontWeight: 800 }}>
+                                                  {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
+                                                </span>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                                {/* Close dropdown on outside area click */}
+                                {openGroup && (
+                                  <div
+                                    style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+                                    onClick={() => setOpenGroup(null)}
+                                  />
+                                )}
+                              </div>
+
+                              {active.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={675}>
+                                  <LineChart
+                                    data={chartData}
+                                    margin={{ top: 12, right: 110, bottom: 8, left: 8 }}
+                                  >
+                                    <XAxis
+                                      dataKey="date"
+                                      tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                      tickLine={{ stroke: '#333' }}
+                                      axisLine={{ stroke: '#333' }}
+                                      interval="preserveStartEnd"
+                                      minTickGap={40}
+                                    />
+                                    <YAxis
+                                      orientation="left"
+                                      domain={['auto', 'auto']}
+                                      tickFormatter={(v: number) =>
+                                        `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
+                                      }
+                                      tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                      tickLine={{ stroke: '#333' }}
+                                      axisLine={{ stroke: '#333' }}
+                                      width={72}
+                                    />
+                                    <Tooltip
+                                      contentStyle={{
+                                        background: '#0d0d0d',
+                                        border: '1px solid #2a2a2a',
+                                        fontSize: 12,
+                                        fontFamily: '"Roboto Mono", monospace',
+                                        padding: '8px 12px',
+                                      }}
+                                      formatter={((val: unknown, name: string) => {
+                                        const v = val as number
+                                        return [`${v >= 100 ? '+' : ''}${(v - 100).toFixed(2)}%`, name]
+                                      }) as never}
+                                      labelStyle={{ color: '#aaa', fontSize: 11, marginBottom: 4 }}
+                                      itemStyle={{ padding: '2px 0', fontSize: 12 }}
+                                    />
+                                    <ReferenceLine y={100} stroke="#2a2a2a" strokeDasharray="4 4" strokeWidth={1} />
+                                    <ReferenceLine x="D0" stroke="#FF6B00" strokeWidth={1.5} label={{ value: 'EVENT', position: 'top', fill: '#FF6B00', fontSize: 10, fontWeight: 700, fontFamily: '"Roboto Mono", monospace' }} />
+                                    {(() => {
+                                      const endPos: Record<string, { x: number; y: number; color: string }> = {}
+                                      return active.map(({ ins }, lineIndex) => (
+                                        <Line
+                                          key={ins.ticker}
+                                          type="monotone"
+                                          dataKey={ins.label}
+                                          stroke={ins.color}
+                                          strokeWidth={2}
+                                          dot={false}
+                                          activeDot={{ r: 4, fill: ins.color, stroke: '#000', strokeWidth: 1 }}
+                                          label={((props: { index: number; x: number; y: number }) => {
+                                            if (props.index !== maxLen - 1) return <g />
+                                            endPos[ins.ticker] = { x: props.x, y: props.y, color: ins.color }
+                                            if (lineIndex !== active.length - 1) return <g />
+                                            // all lines have written — run collision avoidance
+                                            const items = Object.entries(endPos).map(([ticker, p]) => ({ ticker, x: p.x, y: p.y, color: p.color }))
+                                            items.sort((a, b) => a.y - b.y)
+                                            const minGap = 26
+                                            for (let pass = 0; pass < 300; pass++) {
+                                              let moved = false
+                                              for (let i = 1; i < items.length; i++) {
+                                                const gap = items[i].y - items[i - 1].y
+                                                if (gap < minGap) {
+                                                  const shift = (minGap - gap) / 2
+                                                  items[i - 1].y -= shift
+                                                  items[i].y += shift
+                                                  moved = true
+                                                }
+                                              }
+                                              if (!moved) break
+                                            }
+                                            return (
+                                              <g>
+                                                {items.map(item => (
+                                                  <text
+                                                    key={item.ticker}
+                                                    x={item.x + 10}
+                                                    y={item.y}
+                                                    fill={item.color}
+                                                    fontSize={20}
+                                                    fontFamily='"Roboto Mono", monospace'
+                                                    fontWeight={700}
+                                                    dominantBaseline="middle"
+                                                  >
+                                                    {item.ticker}
+                                                  </text>
+                                                ))}
+                                              </g>
+                                            )
+                                          }) as never}
+                                        />
+                                      ))
+                                    })()}
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div style={{ height: 450, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700, letterSpacing: '1px' }}>
+                                  NO INSTRUMENTS SELECTED
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
+                        {false && <div
                           style={{
                             background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
                             border: '1px solid #141414',
@@ -1327,11 +1713,11 @@ export default function HistoricalEventsResearch() {
                                   <th
                                     style={{
                                       textAlign: 'left',
-                                      color: 'rgba(255,255,255,0.4)',
-                                      fontSize: 10,
+                                      color: '#666',
+                                      fontSize: 13,
                                       fontWeight: 700,
                                       letterSpacing: '0.8px',
-                                      padding: '10px 18px',
+                                      padding: '8px 14px',
                                       textTransform: 'uppercase',
                                       whiteSpace: 'nowrap',
                                       borderBottom: '1px solid #111',
@@ -1342,8 +1728,8 @@ export default function HistoricalEventsResearch() {
                                   {(['pre30', 'pre10', 'during', 'post30'] as PeriodKey[]).map(
                                     (pk) => {
                                       const labels: Record<string, string> = {
-                                        pre30: 'âˆ’30D Before',
-                                        pre10: 'âˆ’10D Before',
+                                        pre30: '-30D Before',
+                                        pre10: '-10D Before',
                                         during: 'During Event',
                                         post30: '+30D After',
                                       }
@@ -1361,11 +1747,11 @@ export default function HistoricalEventsResearch() {
                                           style={{
                                             textAlign: 'center',
                                             cursor: 'pointer',
-                                            color: isA ? colors[pk] : 'rgba(255,255,255,0.35)',
-                                            fontSize: 10,
+                                            color: isA ? colors[pk] : '#444',
+                                            fontSize: 13,
                                             fontWeight: 800,
                                             letterSpacing: '0.7px',
-                                            padding: '10px 14px',
+                                            padding: '8px 12px',
                                             whiteSpace: 'nowrap',
                                             textTransform: 'uppercase',
                                             borderBottom: isA
@@ -1398,9 +1784,9 @@ export default function HistoricalEventsResearch() {
                                         <td
                                           colSpan={5}
                                           style={{
-                                            padding: '10px 18px 5px',
+                                            padding: '7px 14px 4px',
                                             color: GROUP_COLORS[group],
-                                            fontSize: 10,
+                                            fontSize: 11,
                                             fontWeight: 800,
                                             letterSpacing: '1.2px',
                                             textTransform: 'uppercase',
@@ -1426,12 +1812,12 @@ export default function HistoricalEventsResearch() {
                                             }}
                                           >
                                             <td
-                                              style={{ padding: '9px 18px', whiteSpace: 'nowrap' }}
+                                              style={{ padding: '7px 14px', whiteSpace: 'nowrap' }}
                                             >
                                               <span
                                                 style={{
                                                   color: ins.color,
-                                                  fontSize: 13,
+                                                  fontSize: 15,
                                                   fontWeight: 700,
                                                 }}
                                               >
@@ -1439,8 +1825,8 @@ export default function HistoricalEventsResearch() {
                                               </span>
                                               <span
                                                 style={{
-                                                  color: 'rgba(255,255,255,0.3)',
-                                                  fontSize: 10,
+                                                  color: '#444',
+                                                  fontSize: 12,
                                                   marginLeft: 7,
                                                 }}
                                               >
@@ -1462,9 +1848,9 @@ export default function HistoricalEventsResearch() {
                                                   key={pk}
                                                   style={{
                                                     textAlign: 'center',
-                                                    padding: '9px 14px',
+                                                    padding: '7px 10px',
                                                     background: isA
-                                                      ? 'rgba(59,130,246,0.05)'
+                                                      ? 'rgba(255,255,255,0.02)'
                                                       : 'transparent',
                                                   }}
                                                 >
@@ -1473,13 +1859,13 @@ export default function HistoricalEventsResearch() {
                                                       style={{
                                                         display: 'inline-block',
                                                         padding: '3px 10px',
-                                                        fontSize: 13,
+                                                        fontSize: 15,
                                                         fontWeight: 800,
-                                                        color: ret >= 0 ? '#00e676' : '#ff1744',
+                                                        color: ret >= 0 ? '#00e676' : '#ff4d6d',
                                                         background:
-                                                          ret >= 0 ? '#00e67610' : '#ff174410',
+                                                          ret >= 0 ? '#00e67612' : '#ff4d6d12',
                                                         letterSpacing: '-0.2px',
-                                                        minWidth: 72,
+                                                        minWidth: 68,
                                                         textAlign: 'center',
                                                       }}
                                                     >
@@ -1488,11 +1874,11 @@ export default function HistoricalEventsResearch() {
                                                   ) : (
                                                     <span
                                                       style={{
-                                                        color: 'rgba(255,255,255,0.15)',
-                                                        fontSize: 13,
+                                                        color: '#2a2a2a',
+                                                        fontSize: 15,
                                                       }}
                                                     >
-                                                      â€”
+                                                      —
                                                     </span>
                                                   )}
                                                 </td>
@@ -1507,794 +1893,86 @@ export default function HistoricalEventsResearch() {
                               </tbody>
                             </table>
                           </div>
-                        </div>
+                        </div>}
 
-                        {/* â”€â”€ IMPACT LEADERBOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                        <div
-                          style={{
-                            background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
-                            border: '1px solid #141414',
-                            marginBottom: 14,
-                            overflow: 'hidden',
-                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-                          }}
-                        >
-                          <div
-                            style={{
-                              padding: '12px 18px 10px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              borderBottom: '1px solid #111',
-                              background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div
-                                style={{
-                                  width: 3,
-                                  height: 14,
-                                  background: '#f97316',
-                                  boxShadow: '0 0 6px #f9731640',
-                                }}
-                              />
-                              <span
-                                style={{
-                                  color: '#FFFFFF',
-                                  fontSize: 12,
-                                  fontWeight: 800,
-                                  letterSpacing: '1.2px',
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                Impact Leaderboard
-                              </span>
-                            </div>
-                            <span
-                              style={{
-                                color: 'rgba(255,255,255,0.3)',
-                                fontSize: 10,
-                                letterSpacing: '0.5px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              All instruments â€” ranked by return
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              padding: '12px 16px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 5,
-                            }}
-                          >
-                            {leaderboard.map((d) => {
-                              const pct = d.periodReturn
-                              const isPos = pct >= 0
-                              const barW = (Math.abs(pct) / leaderboardMax) * 100
-                              const ins = ALL_INSTRUMENTS.find((i) => i.ticker === d.ticker)
-                              return (
-                                <div
-                                  key={d.ticker}
-                                  style={{ display: 'flex', alignItems: 'center', gap: 10 }}
-                                >
-                                  <div
-                                    style={{
-                                      fontSize: 9,
-                                      fontWeight: 800,
-                                      color: GROUP_COLORS[d.group],
-                                      letterSpacing: '0.4px',
-                                      width: 70,
-                                      textAlign: 'right',
-                                      textTransform: 'uppercase',
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {d.group}
-                                  </div>
-                                  <div
-                                    style={{
-                                      width: 100,
-                                      color: ins?.color ?? '#FFFFFF',
-                                      fontSize: 12,
-                                      fontWeight: 700,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {d.label}
-                                  </div>
-                                  <div
-                                    style={{
-                                      flex: 1,
-                                      height: 22,
-                                      background: '#0a0a0a',
-                                      overflow: 'hidden',
-                                      position: 'relative',
-                                      border: '1px solid #111',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        [isPos ? 'left' : 'right']: '50%',
-                                        width: `${barW / 2}%`,
-                                        height: '100%',
-                                        background: isPos
-                                          ? 'linear-gradient(90deg, #00e676 0%, #00b85e 100%)'
-                                          : 'linear-gradient(90deg, #ff1744 0%, #cc0033 100%)',
-                                        opacity: 0.9,
-                                        transition: 'width 0.4s ease',
-                                      }}
-                                    />
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        bottom: 0,
-                                        left: '50%',
-                                        width: 1,
-                                        background: '#1a1a1a',
-                                      }}
-                                    />
-                                  </div>
-                                  <div
-                                    style={{
-                                      width: 68,
-                                      textAlign: 'right',
-                                      color: isPos ? '#00e676' : '#ff1744',
-                                      fontSize: 13,
-                                      fontWeight: 800,
-                                      letterSpacing: '-0.3px',
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {formatPct(pct)}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-
-                        {/* â”€â”€ KEY MOVERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* ── KEY MOVERS ────────────────────────────────── */}
                         {selectedEvent?.keyMovers && selectedEvent.keyMovers.length > 0 && (
-                          <div
-                            style={{
-                              background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
-                              border: '1px solid #141414',
-                              marginBottom: 14,
-                              overflow: 'hidden',
-                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-                            }}
-                          >
+                          <div style={{ padding: '8px 0 16px' }}>
                             <div
                               style={{
-                                padding: '12px 18px 10px',
-                                borderBottom: '1px solid #111',
-                                background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 3,
-                                  height: 14,
-                                  background: '#eab308',
-                                  boxShadow: '0 0 6px #eab30840',
-                                }}
-                              />
-                              <span
-                                style={{
-                                  color: '#FFFFFF',
-                                  fontSize: 12,
-                                  fontWeight: 800,
-                                  letterSpacing: '1.2px',
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                What Moved & Why
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                padding: '12px 16px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 8,
-                              }}
-                            >
-                              {selectedEvent.keyMovers.map((mover: KeyMover, i: number) => {
-                                const dirColor =
-                                  mover.direction === 'up'
-                                    ? '#00e676'
-                                    : mover.direction === 'down'
-                                      ? '#ff1744'
-                                      : '#eab308'
-                                const dirArrow =
-                                  mover.direction === 'up'
-                                    ? 'â–²'
-                                    : mover.direction === 'down'
-                                      ? 'â–¼'
-                                      : 'â—†'
-                                const magColors: Record<string, string> = {
-                                  '1-5%': '#FFFFFF',
-                                  '5-15%': '#eab308',
-                                  '15-30%': '#f97316',
-                                  '30%+': '#ef4444',
-                                }
-                                return (
-                                  <div
-                                    key={i}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'flex-start',
-                                      gap: 14,
-                                      padding: '12px 14px',
-                                      background: '#060606',
-                                      border: `1px solid ${dirColor}18`,
-                                      borderLeft: `3px solid ${dirColor}`,
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        minWidth: 40,
-                                      }}
-                                    >
-                                      <span
-                                        style={{ color: dirColor, fontSize: 18, lineHeight: 1 }}
-                                      >
-                                        {dirArrow}
-                                      </span>
-                                      <span
-                                        style={{
-                                          fontSize: 9,
-                                          fontWeight: 800,
-                                          color: magColors[mover.magnitude],
-                                          letterSpacing: '0.3px',
-                                        }}
-                                      >
-                                        {mover.magnitude}
-                                      </span>
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 8,
-                                          marginBottom: 4,
-                                        }}
-                                      >
-                                        <span
-                                          style={{
-                                            color: '#FFFFFF',
-                                            fontSize: 14,
-                                            fontWeight: 700,
-                                          }}
-                                        >
-                                          {mover.asset}
-                                        </span>
-                                        {mover.ticker && (
-                                          <span
-                                            style={{
-                                              fontSize: 10,
-                                              fontWeight: 700,
-                                              color: 'rgba(255,255,255,0.5)',
-                                              background: '#111',
-                                              border: '1px solid #1e1e1e',
-                                              padding: '1px 7px',
-                                            }}
-                                          >
-                                            {mover.ticker}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div
-                                        style={{
-                                          color: 'rgba(255,255,255,0.7)',
-                                          fontSize: 12,
-                                          lineHeight: 1.65,
-                                        }}
-                                      >
-                                        {mover.note}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* â”€â”€ CHART INSTRUMENT TOGGLES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                        <div
-                          style={{
-                            background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
-                            border: '1px solid #141414',
-                            marginBottom: 14,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <div
-                            style={{
-                              padding: '12px 18px 10px',
-                              borderBottom: '1px solid #111',
-                              background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 3,
-                                height: 14,
-                                background: '#3b82f6',
-                                boxShadow: '0 0 6px #3b82f640',
-                              }}
-                            />
-                            <span
-                              style={{
-                                color: '#FFFFFF',
-                                fontSize: 12,
-                                fontWeight: 800,
-                                letterSpacing: '1.2px',
+                                color: 'rgba(255,255,255,0.35)',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                letterSpacing: '1px',
                                 textTransform: 'uppercase',
+                                padding: '0 4px 10px',
                               }}
                             >
-                              Chart Instruments
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              padding: '12px 16px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 10,
-                            }}
-                          >
-                            {INSTRUMENT_GROUPS.map((group) => {
-                              const groupInstruments = ALL_INSTRUMENTS.filter(
-                                (ins) => ins.group === group
-                              )
+                              What Moved &amp; Why
+                            </div>
+                            {selectedEvent.keyMovers.map((mover: KeyMover, i: number) => {
+                              const dirColor =
+                                mover.direction === 'up'
+                                  ? '#00e676'
+                                  : mover.direction === 'down'
+                                    ? '#ff1744'
+                                    : '#eab308'
+                              const dirArrow =
+                                mover.direction === 'up' ? '▲' : mover.direction === 'down' ? '▼' : '—'
                               return (
                                 <div
-                                  key={group}
+                                  key={i}
                                   style={{
                                     display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    flexWrap: 'wrap',
+                                    flexDirection: 'column',
+                                    gap: 5,
+                                    padding: '12px 8px',
+                                    borderBottom: '1px solid #181818',
+                                    borderLeft: `3px solid ${dirColor}`,
+                                    paddingLeft: 14,
+                                    marginBottom: 4,
+                                    background: 'rgba(255,255,255,0.015)',
                                   }}
                                 >
-                                  <span
-                                    style={{
-                                      fontSize: 10,
-                                      fontWeight: 800,
-                                      color: GROUP_COLORS[group],
-                                      letterSpacing: '0.5px',
-                                      textTransform: 'uppercase',
-                                      minWidth: 90,
-                                    }}
-                                  >
-                                    {group}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ color: dirColor, fontSize: 20, fontWeight: 900, lineHeight: 1 }}>
+                                      {dirArrow}
+                                    </span>
+                                    <span
+                                      style={{
+                                        color: '#FF6B00',
+                                        fontSize: 20,
+                                        fontWeight: 900,
+                                        letterSpacing: '0.5px',
+                                        fontFamily: '"Roboto Mono", monospace',
+                                      }}
+                                    >
+                                      {mover.ticker ?? mover.asset}
+                                    </span>
+                                    <span
+                                      style={{
+                                        color: dirColor,
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '1px',
+                                        opacity: 0.8,
+                                      }}
+                                    >
+                                      {mover.direction}
+                                    </span>
+                                  </div>
+                                  <span style={{ color: dirColor, fontSize: 15, lineHeight: 1.6 }}>
+                                    {mover.note}
                                   </span>
-                                  {groupInstruments.map((ins) => {
-                                    const on = activeInstruments.includes(ins.ticker)
-                                    const hasData = !!(stats[
-                                      INSTR_KEY_MAP[ins.ticker]
-                                    ] as InstrumentData | null)
-                                    return (
-                                      <button
-                                        key={ins.ticker}
-                                        className="her-instr-btn"
-                                        onClick={() =>
-                                          setActiveInstruments((prev) =>
-                                            on
-                                              ? prev.filter((k) => k !== ins.ticker)
-                                              : [...prev, ins.ticker]
-                                          )
-                                        }
-                                        disabled={!hasData}
-                                        style={{
-                                          padding: '5px 11px',
-                                          background: on && hasData ? `${ins.color}18` : '#0a0a0a',
-                                          border: `1px solid ${on && hasData ? ins.color : '#1e1e1e'}`,
-                                          color: hasData
-                                            ? on
-                                              ? ins.color
-                                              : 'rgba(255,255,255,0.5)'
-                                            : '#222',
-                                          fontSize: 11,
-                                          fontWeight: 700,
-                                          cursor: hasData ? 'pointer' : 'not-allowed',
-                                          letterSpacing: '0.3px',
-                                          opacity: hasData ? 1 : 0.3,
-                                          fontFamily: '"Roboto Mono", monospace',
-                                          transition: 'all 0.12s',
-                                          boxShadow:
-                                            on && hasData ? `0 0 8px ${ins.color}20` : 'none',
-                                        }}
-                                      >
-                                        {ins.label}
-                                      </button>
-                                    )
-                                  })}
                                 </div>
                               )
                             })}
                           </div>
-                        </div>
-
-                        {/* â”€â”€ INDEXED PERFORMANCE CHART â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                        {chartData.length > 0 && (
-                          <div
-                            style={{
-                              background: 'linear-gradient(180deg, #080808 0%, #030303 100%)',
-                              border: '1px solid #141414',
-                              marginBottom: 14,
-                              overflow: 'hidden',
-                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-                            }}
-                          >
-                            <div
-                              style={{
-                                padding: '12px 18px 10px',
-                                borderBottom: '1px solid #111',
-                                background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 3,
-                                  height: 14,
-                                  background: '#a855f7',
-                                  boxShadow: '0 0 6px #a855f740',
-                                }}
-                              />
-                              <span
-                                style={{
-                                  color: '#FFFFFF',
-                                  fontSize: 12,
-                                  fontWeight: 800,
-                                  letterSpacing: '1.2px',
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                Indexed Performance â€” Base 100
-                              </span>
-                              <span
-                                style={{
-                                  color: 'rgba(255,255,255,0.3)',
-                                  fontSize: 10,
-                                  marginLeft: 'auto',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.5px',
-                                }}
-                              >
-                                {activePeriod === 'pre30'
-                                  ? '30D Pre-Event Start'
-                                  : activePeriod === 'pre10'
-                                    ? '10D Pre-Event Start'
-                                    : activePeriod === 'during'
-                                      ? 'Event Start'
-                                      : activePeriod === 'post30'
-                                        ? 'Event End'
-                                        : 'Window Start'}
-                              </span>
-                            </div>
-                            <div style={{ padding: '12px 0 8px' }}>
-                              {(() => {
-                                const activeLabels = ALL_INSTRUMENTS.filter((ins) =>
-                                  activeInstruments.includes(ins.ticker)
-                                ).map((ins) => ins.label)
-                                const allVals = chartData.flatMap((row) =>
-                                  activeLabels
-                                    .map((lbl) => row[lbl])
-                                    .filter((v): v is number => typeof v === 'number')
-                                )
-                                const dataMin = allVals.length ? Math.min(...allVals) : 90
-                                const dataMax = allVals.length ? Math.max(...allVals) : 110
-                                const pad = Math.max((dataMax - dataMin) * 0.1, 1)
-                                return (
-                                  <ResponsiveContainer width="100%" height={320}>
-                                    <AreaChart
-                                      data={chartData}
-                                      margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
-                                    >
-                                      <defs>
-                                        {ALL_INSTRUMENTS.filter((ins) =>
-                                          activeInstruments.includes(ins.ticker)
-                                        ).map((ins) => (
-                                          <linearGradient
-                                            key={ins.ticker}
-                                            id={`g-${ins.ticker}`}
-                                            x1="0"
-                                            y1="0"
-                                            x2="0"
-                                            y2="1"
-                                          >
-                                            <stop
-                                              offset="5%"
-                                              stopColor={ins.color}
-                                              stopOpacity={0.2}
-                                            />
-                                            <stop
-                                              offset="95%"
-                                              stopColor={ins.color}
-                                              stopOpacity={0}
-                                            />
-                                          </linearGradient>
-                                        ))}
-                                      </defs>
-                                      <CartesianGrid
-                                        strokeDasharray="2 4"
-                                        stroke="#0e0e0e"
-                                        vertical={false}
-                                      />
-                                      <XAxis
-                                        dataKey="date"
-                                        tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
-                                        axisLine={{ stroke: '#1a1a1a' }}
-                                        tickLine={false}
-                                        interval={Math.max(1, Math.floor(chartData.length / 7))}
-                                        tickFormatter={(d) => {
-                                          if (!d) return ''
-                                          const p = d.split('-')
-                                          return p.length === 3 ? `${p[1]}/${p[2].slice(0, 2)}` : d
-                                        }}
-                                      />
-                                      <YAxis
-                                        tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
-                                        axisLine={{ stroke: '#1a1a1a' }}
-                                        tickLine={false}
-                                        tickFormatter={(v) => `${(v - 100).toFixed(0)}%`}
-                                        width={50}
-                                        domain={[dataMin - pad, dataMax + pad]}
-                                      />
-                                      <Tooltip content={<ChartTooltip />} />
-                                      <ReferenceLine
-                                        y={100}
-                                        stroke="#1e1e1e"
-                                        strokeDasharray="3 4"
-                                        strokeWidth={1}
-                                      />
-                                      {activePeriod === 'full' && selectedEvent && (
-                                        <>
-                                          <ReferenceLine
-                                            x={selectedEvent.startDate}
-                                            stroke="#ff174460"
-                                            strokeDasharray="3 3"
-                                            strokeWidth={1.5}
-                                          />
-                                          <ReferenceLine
-                                            x={selectedEvent.endDate}
-                                            stroke="#00e67660"
-                                            strokeDasharray="3 3"
-                                            strokeWidth={1.5}
-                                          />
-                                        </>
-                                      )}
-                                      {ALL_INSTRUMENTS.filter((ins) =>
-                                        activeInstruments.includes(ins.ticker)
-                                      ).map((ins) => {
-                                        const d = stats[
-                                          INSTR_KEY_MAP[ins.ticker]
-                                        ] as InstrumentData | null
-                                        if (!d) return null
-                                        return (
-                                          <Area
-                                            key={ins.ticker}
-                                            type="monotone"
-                                            dataKey={ins.label}
-                                            stroke={ins.color}
-                                            strokeWidth={1.5}
-                                            fill={`url(#g-${ins.ticker})`}
-                                            dot={false}
-                                            activeDot={{
-                                              r: 3,
-                                              fill: ins.color,
-                                              stroke: '#000',
-                                              strokeWidth: 2,
-                                            }}
-                                          />
-                                        )
-                                      })}
-                                    </AreaChart>
-                                  </ResponsiveContainer>
-                                )
-                              })()}
-                            </div>
-                          </div>
                         )}
-
-                        {/* â”€â”€ GROUPED STATS BREAKDOWN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-                        {INSTRUMENT_GROUPS.map((group) => {
-                          const groupData = ALL_INSTRUMENTS.filter((ins) => ins.group === group)
-                            .map((ins) => ({
-                              ins,
-                              d: stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null,
-                            }))
-                            .filter(({ d }) => !!d)
-                          if (!groupData.length) return null
-                          return (
-                            <div key={group} style={{ marginBottom: 14 }}>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 8,
-                                  marginBottom: 8,
-                                  padding: '8px 18px',
-                                  background: `${GROUP_COLORS[group]}08`,
-                                  borderLeft: `3px solid ${GROUP_COLORS[group]}`,
-                                  border: `1px solid ${GROUP_COLORS[group]}15`,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    color: GROUP_COLORS[group],
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    letterSpacing: '1px',
-                                    textTransform: 'uppercase',
-                                  }}
-                                >
-                                  {group}
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                {groupData.map(({ ins, d }) => {
-                                  if (!d) return null
-                                  const ps = (d[activePeriod] as PeriodStats | null) ?? d.during
-                                  const tr = ps?.totalReturn ?? 0
-                                  const md = ps?.maxDrawdown ?? 0
-                                  const pg = ps?.peakGain ?? 0
-                                  const rd = ps?.recoveryDays ?? null
-                                  return (
-                                    <div
-                                      key={ins.ticker}
-                                      style={{
-                                        background: '#060606',
-                                        border: `1px solid ${ins.color}15`,
-                                        borderLeft: `3px solid ${ins.color}`,
-                                        padding: '12px 16px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 14,
-                                        flexWrap: 'wrap',
-                                      }}
-                                    >
-                                      <div style={{ minWidth: 110 }}>
-                                        <div
-                                          style={{
-                                            color: ins.color,
-                                            fontSize: 14,
-                                            fontWeight: 800,
-                                          }}
-                                        >
-                                          {ins.label}
-                                        </div>
-                                        <div
-                                          style={{
-                                            color: 'rgba(255,255,255,0.35)',
-                                            fontSize: 10,
-                                            marginTop: 2,
-                                          }}
-                                        >
-                                          {ins.ticker === 'DXY'
-                                            ? 'UUP'
-                                            : ins.ticker === 'VIX'
-                                              ? 'I:VIX'
-                                              : ins.ticker}
-                                        </div>
-                                      </div>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          gap: 6,
-                                          flex: 1,
-                                          flexWrap: 'wrap',
-                                        }}
-                                      >
-                                        {[
-                                          {
-                                            label: 'Total Return',
-                                            value: formatPct(tr),
-                                            color: tr >= 0 ? '#00e676' : '#ff1744',
-                                          },
-                                          {
-                                            label: 'Max Drawdown',
-                                            value: formatPct(md),
-                                            color: '#ff1744',
-                                          },
-                                          {
-                                            label: 'Peak Gain',
-                                            value: formatPct(pg),
-                                            color: '#00e676',
-                                          },
-                                          {
-                                            label: 'Recovery',
-                                            value: rd !== null ? `${rd}d` : 'N/A',
-                                            color:
-                                              rd === null
-                                                ? '#333'
-                                                : rd < 30
-                                                  ? '#00e676'
-                                                  : rd < 90
-                                                    ? '#f97316'
-                                                    : '#ff1744',
-                                          },
-                                        ].map((sc) => (
-                                          <div
-                                            key={sc.label}
-                                            style={{
-                                              background: '#0a0a0a',
-                                              border: '1px solid #141414',
-                                              padding: '8px 14px',
-                                              minWidth: 100,
-                                              flex: '1 1 100px',
-                                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-                                            }}
-                                          >
-                                            <div
-                                              style={{
-                                                color: 'rgba(255,255,255,0.4)',
-                                                fontSize: 9,
-                                                fontWeight: 700,
-                                                letterSpacing: '0.8px',
-                                                textTransform: 'uppercase',
-                                                marginBottom: 4,
-                                              }}
-                                            >
-                                              {sc.label}
-                                            </div>
-                                            <div
-                                              style={{
-                                                color: sc.color,
-                                                fontSize: 18,
-                                                fontWeight: 800,
-                                                letterSpacing: '-0.5px',
-                                              }}
-                                            >
-                                              {sc.value}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                          )
-                        })}
                       </>
                     )}
 
-                  {!stats.loading && !stats.error && leaderboard.length === 0 && (
-                    <div
-                      style={{
-                        color: 'rgba(255,255,255,0.4)',
-                        fontSize: 14,
-                        padding: '48px 0',
-                        textAlign: 'center',
-                      }}
-                    >
-                      No price data available for this event period.
-                    </div>
-                  )}
                 </div>
               )}
             </div>

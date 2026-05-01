@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// ── Server-side cache: same ticker always returns the same snapshot within 5 min ──
+// ── Server-side cache ──
+// Fresh TTL: 5 min during market hours.
+// Stale TTL: 4 hours — stale cache is served as fallback when a live fetch returns
+// empty results (e.g. Polygon maintenance, pre-market, overnight dead-zone).
 const _cache = new Map<string, { data: any; currentPrice: any; ts: number }>()
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000        // 5 minutes — serve as fresh
+const STALE_TTL_MS = 4 * 60 * 60 * 1000  // 4 hours  — serve as stale fallback
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -215,6 +219,28 @@ export async function GET(request: NextRequest) {
 
     const finalExpirationDates = Object.keys(groupedByExpiration).sort()
 
+    // ── If the sweep came back empty, fall back to stale cache rather than returning blank ──
+    if (finalExpirationDates.length === 0) {
+      const stale = _cache.get(cacheKey)
+      if (stale && Date.now() - stale.ts < STALE_TTL_MS) {
+        console.warn(`[options-chain] Live sweep returned 0 contracts for ${ticker} — serving stale cache (age: ${Math.round((Date.now() - stale.ts) / 60000)}min)`)
+        return NextResponse.json({
+          success: true,
+          data: stale.data,
+          currentPrice: currentPrice ?? stale.currentPrice,
+          fromCache: true,
+          stale: true,
+        })
+      }
+      // No cache at all — return the empty result so the UI can show the right state
+      return NextResponse.json({
+        success: false,
+        error: 'No options data available — market may be closed and no cached data found',
+        data: {},
+        currentPrice,
+      })
+    }
+
     // ── Store in cache so next call (DealerAttraction OR OptionsFlow) gets identical data ──
     _cache.set(cacheKey, { data: groupedByExpiration, currentPrice, ts: Date.now() })
 
@@ -230,6 +256,19 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error fetching options data:', error)
+    // ── On hard error, serve stale cache if available rather than blanking the UI ──
+    const cacheKey = (searchParams.get('ticker') || searchParams.get('symbol') || 'SPY').toUpperCase()
+    const stale = _cache.get(cacheKey)
+    if (stale && Date.now() - stale.ts < STALE_TTL_MS) {
+      console.warn(`[options-chain] Request threw for ${cacheKey} — serving stale cache as fallback`)
+      return NextResponse.json({
+        success: true,
+        data: stale.data,
+        currentPrice: stale.currentPrice,
+        fromCache: true,
+        stale: true,
+      })
+    }
     return NextResponse.json(
       {
         success: false,

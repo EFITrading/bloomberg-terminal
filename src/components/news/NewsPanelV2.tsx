@@ -651,17 +651,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       // one-sided implied move: how far price moves to each 80% strike (averaged)
       const pct = ((call80 - put80) / stockPrice) * 100 / 2
 
-      console.group(`[IV] ${ticker}`)
-      console.log(`  expiry         : ${usedExpiry}${usedExpiry !== fridayStr ? ` (target was ${fridayStr})` : ''}`)
-      console.log(`  price          : $${stockPrice}`)
-      console.log(`  ATM options    : ${atmOptions.length} within 5%, ${validIVs.length} with valid IV`)
-      console.log(`  avgIV          : ${(avgIV * 100).toFixed(1)}%`)
-      console.log(`  DTE            : ${daysToExpiry}d  (T = ${T.toFixed(4)})`)
-      console.log(`  80% call       : $${call80Theoretical.toFixed(2)} → snapped $${call80}`)
-      console.log(`  80% put        : $${put80Theoretical.toFixed(2)} → snapped $${put80}`)
-      console.log(`  implied move   : (${call80} - ${put80}) / ${stockPrice} = ${pct.toFixed(2)}%`)
-      console.groupEnd()
-
       setImpliedMoves((prev) => ({ ...prev, [ticker]: pct }))
     } catch (e) {
       console.error(`[IV] ${ticker} error:`, e)
@@ -909,13 +898,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           .then((r) => r.json())
           .catch(() => ({ success: false, events: {} })),
       ])
-      console.log('[CAL DEBUG] raw earningsData:', earningsData)
-      console.log('[CAL DEBUG] total events from API:', earningsData?.events?.length)
       const postEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Post-Market')
       const preEvents = earningsData?.events?.filter((e: CalendarEvent) => e.time === 'Pre-Market')
-      console.log('[CAL DEBUG] Pre-Market count:', preEvents?.length, '| Post-Market count:', postEvents?.length)
-      console.log('[CAL DEBUG] sample Post-Market events:', postEvents?.slice(0, 3))
-      console.log('[CAL DEBUG] unique time values:', [...new Set(earningsData?.events?.map((e: CalendarEvent) => e.time))])
+      void postEvents; void preEvents
       const incoming: CalendarEvent[] = []
       if (earningsData.success && Array.isArray(earningsData.events)) {
         incoming.push(...earningsData.events)

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
@@ -21,7 +21,7 @@ const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
 // Helper function to normalize ticker for options contracts
 
-// Polygon removes periods from tickers in option symbols (e.g., BRK.B → BRKB)
+// Polygon removes periods from tickers in option symbols (e.g., BRK.B ? BRKB)
 
 const normalizeTickerForOptions = (ticker: string): string => {
   return ticker.replace(/\./g, '')
@@ -144,7 +144,7 @@ const enrichTradeDataCombined = async (
         } catch (error) {
           failCount++
 
-          console.error(`❌ Error enriching ${trade.underlying_ticker}:`, error)
+          console.error(`? Error enriching ${trade.underlying_ticker}:`, error)
 
           return { ...trade, fill_style: 'N/A', volume: null, open_interest: null }
         }
@@ -567,7 +567,7 @@ interface MarketInfo {
   market_open: boolean
 }
 
-// ── Pure Black-Scholes helpers (same math as DealerOpenInterestChart) ──
+// -- Pure Black-Scholes helpers (same math as DealerOpenInterestChart) --
 function _bsNormalCDF(x: number): number {
   const a1 = 0.254829592,
     a2 = -0.284496736,
@@ -693,7 +693,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   onHistoricalDaysChange,
 }) => {
-  const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade'>(
+  const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade' | 'leap_grade'>(
     'trade_timestamp'
   )
 
@@ -714,8 +714,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [selectedTickerFilters, setSelectedTickerFilters] = useState<string[]>([])
 
+  const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'WEEKLY_ONLY', 'MINI_ONLY']
   const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>(
-    typeof window !== 'undefined' && window.innerWidth < 768 ? ['OTM'] : []
+    ['OTM', 'SWEEP_ONLY', 'BLOCK_ONLY']
   )
 
   const [expirationStartDate, setExpirationStartDate] = useState<string>('')
@@ -723,19 +724,19 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [expirationEndDate, setExpirationEndDate] = useState<string>('')
 
   const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(() => {
-    const empty10 = ['', '', '', '', '', '', '', '', '', '']
+    const empty14 = ['', '', '', '', '', '', '', '', '', '', '', '', '', '']
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('optionsflow_blacklist')
         if (saved) {
           const parsed: string[] = JSON.parse(saved)
-          // Pad to 10 slots if fewer were saved
-          while (parsed.length < 10) parsed.push('')
+          // Pad to 14 slots if fewer were saved
+          while (parsed.length < 14) parsed.push('')
           return parsed
         }
       } catch { }
     }
-    return empty10
+    return empty14
   })
 
   const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('')
@@ -779,6 +780,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }>({ otm: false, weekly: false, premium100k: false, sweep: false, block: false })
 
   const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false)
+  const [leapActive, setLeapActive] = useState<boolean>(false)
 
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false)
 
@@ -825,6 +827,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [stdDevFailed, setStdDevFailed] = useState<Set<string>>(new Set())
 
   const [relativeStrengthData, setRelativeStrengthData] = useState<Map<string, number>>(new Map()) // ticker -> RS value
+  const [leapRsData, setLeapRsData] = useState<Map<string, { rs5d: number; rs13d: number; rs21d: number }>>(new Map())
+  const [leap52wkData, setLeap52wkData] = useState<Map<string, { high52: number; low52: number }>>(new Map())
+  const [leapSeasonalData, setLeapSeasonalData] = useState<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>>(new Map())
 
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set())
 
@@ -844,7 +849,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     purpleZones: Array<{ strike: number; oi: number; expiry: string }>
   } | null>(null)
 
-  // Cache: key = `${ticker}_${expiry}` → { golden: strike|null, purple: strike|null }
+  // Cache: key = `${ticker}_${expiry}` ? { golden: strike|null, purple: strike|null }
   const getDealerZone = useDealerZonesStore((s) => s.getZone)
   const [dealerZoneCache, setDealerZoneCache] = useState<
     Record<
@@ -1837,6 +1842,193 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     return rsMap
   }
 
+  // Calculate multi-period RS vs SPY for LEAP grading (5D/13D/21D)
+
+  const calculateLeapRS = async (
+    trades: OptionsFlowData[]
+  ): Promise<Map<string, { rs5d: number; rs13d: number; rs21d: number }>> => {
+    const rsMap = new Map<string, { rs5d: number; rs13d: number; rs21d: number }>()
+    const tickers = [...new Set(trades.map((t) => t.underlying_ticker))]
+
+    const today = new Date()
+    const endStr = today.toISOString().split('T')[0]
+    const startDate = new Date(today)
+    startDate.setDate(startDate.getDate() - 38) // 38 calendar days to cover 21+ trading days
+    const startStr = startDate.toISOString().split('T')[0]
+
+    // Fetch SPY once
+    let spyResults: Array<{ c: number }> = []
+    try {
+      const spyRes = await fetch(
+        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+        { signal: AbortSignal.timeout(8000) }
+      )
+      const spyData = await spyRes.json()
+      spyResults = spyData.results || []
+    } catch {
+      // silent fail
+    }
+
+    if (spyResults.length < 6) return rsMap
+
+    const pctChange = (arr: Array<{ c: number }>, n: number): number | null => {
+      if (arr.length < n + 1) return null
+      const recent = arr[arr.length - 1].c
+      const old = arr[arr.length - 1 - n].c
+      return ((recent - old) / old) * 100
+    }
+
+    const spy5d = pctChange(spyResults, Math.min(5, spyResults.length - 1))
+    const spy13d = pctChange(spyResults, Math.min(13, spyResults.length - 1))
+    const spy21d = pctChange(spyResults, Math.min(21, spyResults.length - 1))
+
+    const BATCH_SIZE = 20
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE)
+      await Promise.all(
+        batch.map(async (ticker, idx) => {
+          await new Promise((resolve) => setTimeout(resolve, idx * 50))
+          try {
+            const stockRes = await fetch(
+              `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+              { signal: AbortSignal.timeout(8000) }
+            )
+            if (!stockRes.ok) return
+            const stockData = await stockRes.json()
+            const stockResults: Array<{ c: number }> = stockData.results || []
+            if (stockResults.length < 6) return
+
+            const stock5d = pctChange(stockResults, Math.min(5, stockResults.length - 1))
+            const stock13d = pctChange(stockResults, Math.min(13, stockResults.length - 1))
+            const stock21d = pctChange(stockResults, Math.min(21, stockResults.length - 1))
+
+            rsMap.set(ticker, {
+              rs5d: stock5d !== null && spy5d !== null ? stock5d - spy5d : 0,
+              rs13d: stock13d !== null && spy13d !== null ? stock13d - spy13d : 0,
+              rs21d: stock21d !== null && spy21d !== null ? stock21d - spy21d : 0,
+            })
+          } catch {
+            // silent fail
+          }
+        })
+      )
+    }
+
+    return rsMap
+  }
+
+  // Fetch 52-week high/low for a set of tickers (for LEAP bonus scoring)
+  const fetchLeap52wkData = async (tickers: string[]): Promise<Map<string, { high52: number; low52: number }>> => {
+    const result = new Map<string, { high52: number; low52: number }>()
+    const BATCH_SIZE = 5
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE)
+      await Promise.allSettled(
+        batch.map(async (ticker) => {
+          try {
+            const endDate = new Date().toISOString().split('T')[0]
+            const startDate = new Date(Date.now() - 366 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_API_KEY}`
+            const resp = await fetch(url, { signal: AbortSignal.timeout(10000) })
+            if (!resp.ok) return
+            const data = await resp.json()
+            if (data.results && data.results.length > 0) {
+              const high52 = Math.max(...data.results.map((r: any) => r.h))
+              const low52 = Math.min(...data.results.map((r: any) => r.l))
+              result.set(ticker, { high52, low52 })
+            }
+          } catch { /* silent */ }
+        })
+      )
+      if (i + BATCH_SIZE < tickers.length) {
+        await new Promise(r => setTimeout(r, 200))
+      }
+    }
+    return result
+  }
+
+  // Compute seasonal sweet-spot / pain-point for a ticker using 15y of Polygon daily bars
+  // Returns whether today's day-of-year falls within the best sweet spot or worst pain point window
+  const fetchLeapSeasonalData = async (
+    tickers: string[]
+  ): Promise<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>> => {
+    const result = new Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>()
+
+    // Helper: day-of-year for a Date
+    const getDayOfYear = (d: Date) => {
+      const start = new Date(d.getFullYear(), 0, 0)
+      const diff = d.getTime() - start.getTime()
+      return Math.floor(diff / (1000 * 60 * 60 * 24))
+    }
+
+    const SEASONAL_BATCH_SIZE = 3
+    for (let bi = 0; bi < tickers.length; bi += SEASONAL_BATCH_SIZE) {
+      const batch = tickers.slice(bi, bi + SEASONAL_BATCH_SIZE)
+      await Promise.allSettled(
+        batch.map(async (ticker) => {
+          try {
+            const endDate = new Date().toISOString().split('T')[0]
+            const startDate = new Date(Date.now() - 15 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=5000&apiKey=${POLYGON_API_KEY}`
+            const resp = await fetch(url, { signal: AbortSignal.timeout(15000) })
+            if (!resp.ok) return
+            const json = await resp.json()
+            const bars: { t: number; c: number }[] = json.results || []
+            if (bars.length < 20) return
+
+            // Build daily avgReturn map (same algorithm as SeasonalityChart processDailySeasonalData)
+            const dailyGroups: { [day: number]: number[] } = {}
+            for (let j = 1; j < bars.length; j++) {
+              const prev = bars[j - 1]
+              const curr = bars[j]
+              const dayOfYear = getDayOfYear(new Date(curr.t))
+              const ret = ((curr.c - prev.c) / prev.c) * 100
+              if (!dailyGroups[dayOfYear]) dailyGroups[dayOfYear] = []
+              dailyGroups[dayOfYear].push(ret)
+            }
+
+            // Build dailyData with avgReturn per day-of-year
+            const dailyData: { dayOfYear: number; avgReturn: number }[] = []
+            for (let day = 1; day <= 365; day++) {
+              const group = dailyGroups[day]
+              if (!group || group.length === 0) continue
+              const avgReturn = group.reduce((s, r) => s + r, 0) / group.length
+              dailyData.push({ dayOfYear: day, avgReturn })
+            }
+
+            // Find best sweet spot and worst pain point (50-90 day windows)
+            let bestSweetSpot = { startDay: 1, endDay: 50, totalReturn: -9999 }
+            let worstPainPoint = { startDay: 1, endDay: 50, totalReturn: 9999 }
+
+            for (let windowSize = 50; windowSize <= 90; windowSize++) {
+              for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+                const endDay = startDay + windowSize - 1
+                const windowData = dailyData.filter(d => d.dayOfYear >= startDay && d.dayOfYear <= endDay)
+                if (windowData.length < Math.floor(windowSize * 0.8)) continue
+                const cumulativeReturn = windowData.reduce((s, d) => s + d.avgReturn, 0)
+                if (cumulativeReturn > bestSweetSpot.totalReturn) {
+                  bestSweetSpot = { startDay, endDay, totalReturn: cumulativeReturn }
+                }
+                if (cumulativeReturn < worstPainPoint.totalReturn) {
+                  worstPainPoint = { startDay, endDay, totalReturn: cumulativeReturn }
+                }
+              }
+            }
+
+            const todayDayOfYear = getDayOfYear(new Date())
+            const inSweetSpot = todayDayOfYear >= bestSweetSpot.startDay && todayDayOfYear <= bestSweetSpot.endDay
+            const inPainPoint = todayDayOfYear >= worstPainPoint.startDay && todayDayOfYear <= worstPainPoint.endDay
+            result.set(ticker, { inSweetSpot, inPainPoint })
+          } catch { /* silent */ }
+        })
+      )
+      if (bi + SEASONAL_BATCH_SIZE < tickers.length) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+    }
+    return result
+  }
+
   // Calculate positioning grade for EFI trades - COMPLETE 100-POINT SYSTEM
 
   const calculatePositioningGrade = (
@@ -2042,7 +2234,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     } else {
       scores.priceAction = 0
       console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data — currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
+        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data � currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
       )
     }
 
@@ -2072,7 +2264,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     } else {
       scores.volumeOI = 0
       console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data — volume=${tradeVolume}, OI=${tradeOI})`
+        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data � volume=${tradeVolume}, OI=${tradeOI})`
       )
     }
 
@@ -2167,6 +2359,234 @@ Stock Reaction: ${scores.stockReaction}/15`
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
+  // LEAP grading system � 4 criteria, normalized to 100
+
+  const calculateLeapGrade = (
+    trade: OptionsFlowData,
+    _comboMap: Map<string, boolean>
+  ): {
+    grade: string
+    score: number
+    color: string
+    breakdown: string
+    stdDevError: boolean
+    scores: {
+      contractPrice: number
+      relativeStrength: number
+      volumeOI: number
+      stockReaction: number
+      bonus52w: number
+      seasonalBonus: number
+    }
+  } => {
+    const expiry = trade.expiry.replace(/-/g, '').slice(2)
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+    const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+    const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+    const currentPrice = currentOptionPrices[optionTicker]
+    const entryPrice = trade.premium_per_contract
+
+
+
+    const scores = {
+      contractPrice: 0,
+      relativeStrength: 0,
+      volumeOI: 0,
+      stockReaction: 0,
+      bonus52w: 0,
+      seasonalBonus: 0,
+    }
+
+    if (!currentPrice || currentPrice <= 0) {
+      return {
+        grade: 'N/A',
+        score: 0,
+        color: '#9ca3af',
+        breakdown: 'Loading prices...',
+        stdDevError: stdDevFailed.has(trade.underlying_ticker),
+        scores,
+      }
+    }
+
+    // 1. Contract P&L (15 pts max)
+    // Sweet spot for LEAP: down 15-20% = consolidation / still cheap
+    const tradeFillStyle = trade.fill_style || ''
+    const isSoldToOpen = tradeFillStyle === 'B' || tradeFillStyle === 'BB'
+    const rawPct = ((currentPrice - entryPrice) / entryPrice) * 100
+    const pct = isSoldToOpen ? -rawPct : rawPct
+
+    if (pct <= -40) scores.contractPrice = -7.5       // blown up � penalize
+    else if (pct <= -20) scores.contractPrice = 7.5   // down 20-40%: half points
+    else if (pct <= -15) scores.contractPrice = 15    // down 15-20%: sweet spot, full points
+    else if (pct <= -10) scores.contractPrice = 8     // down 10-15%: partial
+    else if (pct <= 10) scores.contractPrice = 0      // flat �10%: no points
+    else if (pct <= 20) scores.contractPrice = 3      // up 10-20%: small reward
+    else scores.contractPrice = 5                     // up 20%+: 1/3 of max (5 pts)
+
+    // 2. Relative Strength (30 pts max) � weighted 5D�30% + 13D�40% + 21D�30%
+    const leapRs = leapRsData.get(trade.underlying_ticker)
+    if (leapRs) {
+      const { rs5d, rs13d, rs21d } = leapRs
+      const weightedRS = rs5d * 0.3 + rs13d * 0.4 + rs21d * 0.3
+
+      const isCall = trade.type === 'call'
+      const fill = tradeFillStyle
+      // Bullish: call A/AA or put B
+      const isBullish =
+        (isCall && (fill === 'A' || fill === 'AA')) || (!isCall && fill === 'B')
+      // Bearish: put A/AA or call BB
+      const isBearish =
+        (!isCall && (fill === 'A' || fill === 'AA')) || (isCall && fill === 'BB')
+
+      const aligned = (isBullish && weightedRS > 0) || (isBearish && weightedRS < 0)
+      const magnitude = Math.abs(weightedRS)
+
+      if (aligned) {
+        if (magnitude >= 3) scores.relativeStrength = 30
+        else if (magnitude >= 1.5) scores.relativeStrength = 20
+        else scores.relativeStrength = 10
+      }
+    }
+
+    // 3. Volume vs OI (15 pts max)
+    const tradeVolume = trade.volume ?? null
+    const tradeOI = trade.open_interest ?? null
+    if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
+      const ratio = tradeVolume / tradeOI
+      if (ratio >= 1.5) scores.volumeOI = 15
+      else if (ratio >= 1.0) scores.volumeOI = 7.5
+      else if (ratio >= 0.5) scores.volumeOI = 5
+    }
+
+    // 4. Stock Reaction (15 pts max) � 4hr and 1d checkpoints
+    const isCall = trade.type === 'call'
+    const fill = tradeFillStyle
+    const currentStockPrice = currentPrices[trade.underlying_ticker]
+    const entryStockPrice = trade.spot_price
+
+    if (currentStockPrice && entryStockPrice) {
+      const stockPct = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100
+      const isBullishFlow =
+        (isCall && (fill === 'A' || fill === 'AA')) || (!isCall && (fill === 'B' || fill === 'BB'))
+      const isBearishFlow =
+        (isCall && (fill === 'B' || fill === 'BB')) || (!isCall && (fill === 'A' || fill === 'AA'))
+
+      const reversed =
+        (isBullishFlow && stockPct <= -1.0) || (isBearishFlow && stockPct >= 1.0)
+      const followed =
+        (isBullishFlow && stockPct >= 1.0) || (isBearishFlow && stockPct <= -1.0)
+      const chopped = Math.abs(stockPct) < 1.0
+
+      const hoursElapsed =
+        (new Date().getTime() - new Date(trade.trade_timestamp).getTime()) / (1000 * 60 * 60)
+
+      if (hoursElapsed >= 4) {
+        // 4-hour checkpoint
+        if (reversed) scores.stockReaction += 7.5
+        else if (chopped) scores.stockReaction += 5
+        else if (followed) scores.stockReaction += 2.5
+
+        if (hoursElapsed >= 24) {
+          // 1-day checkpoint
+          if (reversed) scores.stockReaction += 7.5
+          else if (chopped) scores.stockReaction += 5
+          else if (followed) scores.stockReaction += 2.5
+        }
+      }
+    }
+
+    // Bonus 1: 52-week high/low alignment (+7.5 pts = +10% of 75)
+    const wkRange = leap52wkData.get(trade.underlying_ticker)
+    const stockNow = currentPrices[trade.underlying_ticker]
+    if (wkRange && stockNow && stockNow > 0) {
+      const isBullishFill =
+        (isCall && (fill === 'A' || fill === 'AA')) ||
+        (!isCall && (fill === 'B' || fill === 'BB'))
+      const isBearishFill =
+        (!isCall && (fill === 'A' || fill === 'AA')) ||
+        (isCall && (fill === 'B' || fill === 'BB'))
+      const nearHigh = stockNow >= wkRange.high52 * 0.98
+      const nearLow = stockNow <= wkRange.low52 * 1.02
+      if (isBullishFill && nearHigh) scores.bonus52w = 7.5
+      else if (isBearishFill && nearLow) scores.bonus52w = 7.5
+    }
+
+    // Bonus 2: Seasonality sweet-spot / pain-point alignment (+15 pts = +20% of 75)
+    const seasonal = leapSeasonalData.get(trade.underlying_ticker)
+    if (seasonal) {
+      const isBullishFill =
+        (isCall && (fill === 'A' || fill === 'AA')) ||
+        (!isCall && (fill === 'B' || fill === 'BB'))
+      const isBearishFill =
+        (!isCall && (fill === 'A' || fill === 'AA')) ||
+        (isCall && (fill === 'B' || fill === 'BB'))
+      if (isBullishFill && seasonal.inSweetSpot) scores.seasonalBonus = 15
+      else if (isBearishFill && seasonal.inPainPoint) scores.seasonalBonus = 15
+    }
+
+    // Base max = 75; bonus points push score up but cap stays at 75
+    const rawScore =
+      scores.contractPrice + scores.relativeStrength + scores.volumeOI + scores.stockReaction +
+      scores.bonus52w + scores.seasonalBonus
+    const confidenceScore = Math.min(75, Math.max(0, rawScore))
+
+    let grade = 'F'
+    if (confidenceScore >= 64) grade = 'A+'
+    else if (confidenceScore >= 60) grade = 'A'
+    else if (confidenceScore >= 56) grade = 'A-'
+    else if (confidenceScore >= 53) grade = 'B+'
+    else if (confidenceScore >= 49) grade = 'B'
+    else if (confidenceScore >= 45) grade = 'B-'
+    else if (confidenceScore >= 41) grade = 'C+'
+    else if (confidenceScore >= 38) grade = 'C'
+    else if (confidenceScore >= 34) grade = 'C-'
+    else if (confidenceScore >= 30) grade = 'D+'
+    else if (confidenceScore >= 26) grade = 'D'
+    else if (confidenceScore >= 22) grade = 'D-'
+
+    let scoreColor = '#ff0000'
+    if (confidenceScore >= 64) scoreColor = '#00ff00'
+    else if (confidenceScore >= 53) scoreColor = '#84cc16'
+    else if (confidenceScore >= 38) scoreColor = '#fbbf24'
+    else if (confidenceScore >= 22) scoreColor = '#3b82f6'
+
+    const leapRsForBreakdown = leapRsData.get(trade.underlying_ticker)
+    const breakdown =
+      `LEAP Score: ${confidenceScore}/75\n\n` +
+      `Contract P&L: ${scores.contractPrice}/15  (option Δ: ${((currentPrice - entryPrice) / entryPrice * 100).toFixed(1)}%)\n` +
+      `RS (5D/13D/21D): ${scores.relativeStrength}/30  ` +
+      (leapRsForBreakdown
+        ? `(5D: ${leapRsForBreakdown.rs5d.toFixed(2)}%, 13D: ${leapRsForBreakdown.rs13d.toFixed(2)}%, 21D: ${leapRsForBreakdown.rs21d.toFixed(2)}%)`
+        : '(loading...)') +
+      `\nVolume vs OI: ${scores.volumeOI}/15` +
+      `\nStock Reaction (4h/1d): ${scores.stockReaction}/15` +
+      (scores.bonus52w > 0 ? `\n52W Breakout Bonus: +${scores.bonus52w}` : '') +
+      (scores.seasonalBonus > 0 ? `\nSeasonality Bonus: +${scores.seasonalBonus}` : '')
+
+    return {
+      grade,
+      score: confidenceScore,
+      color: scoreColor,
+      breakdown,
+      stdDevError: stdDevFailed.has(trade.underlying_ticker),
+      scores,
+    }
+  }
+
+  // LEAP criteria checker
+  const meetsLeapCriteria = (trade: OptionsFlowData): boolean => {
+    // 1. Expiry: 30�180 days
+    if (trade.days_to_expiry < 30 || trade.days_to_expiry > 180) return false
+    // 2. Premium: $250k�$2m
+    if (trade.total_premium < 250000 || trade.total_premium > 2000000) return false
+    // 3. Contracts: 300+
+    if (trade.trade_size < 300) return false
+    // 4. ATM or OTM only
+    if (!trade.moneyness || !['ATM', 'OTM'].includes(trade.moneyness)) return false
+    return true
+  }
+
   // EFI Highlights criteria checker
 
   const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
@@ -2255,7 +2675,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return true
   }
 
-  // Notable Trade Analysis — targets + dealer zones
+  // Notable Trade Analysis � targets + dealer zones
   const openNotableAnalysis = async (trade: OptionsFlowData) => {
     setSelectedNotableTrade(trade)
     setNotableAnalysisLoading(true)
@@ -2266,7 +2686,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const spotPrice = trade.spot_price
       const expiryForApi = trade.expiry
 
-      // ── Fetch real option chain for IV + tower detection ──
+      // -- Fetch real option chain for IV + tower detection --
       const response = await fetch(
         `/api/options-chain?ticker=${trade.underlying_ticker}&expiration=${expiryForApi}`
       )
@@ -2283,7 +2703,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         const expData = result.data[expiryForApi] || (Object.values(result.data)[0] as any)
 
         if (expData) {
-          // ── EXACT same Black-Scholes as DealerOpenInterestChart ──
+          // -- EXACT same Black-Scholes as DealerOpenInterestChart --
           const normalCDF = (x: number): number => {
             const a1 = 0.254829592,
               a2 = -0.284496736,
@@ -2377,7 +2797,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           pctToT1 = +((Math.abs(t1 - spotPrice) / spotPrice) * 100).toFixed(2)
           pctToT2 = +((Math.abs(t2 - spotPrice) / spotPrice) * 100).toFixed(2)
 
-          // ── EXACT tower detection from DealerOpenInterestChart ──
+          // -- EXACT tower detection from DealerOpenInterestChart --
           // Build OI arrays sorted by strike
           const callEntries = Object.entries(expData.calls || {})
             .map(([s, d]: [string, any]) => ({ strike: parseFloat(s), oi: d.open_interest || 0 }))
@@ -2502,11 +2922,14 @@ Stock Reaction: ${scores.stockReaction}/15`
       setSaveStatus('idle')
       setSaveErrorMsg('')
 
-      const today = new Date().toISOString().split('T')[0]
-      console.log('[SaveFlow] Starting save for date:', today, '| trades count:', data?.length)
+      const _now = new Date()
+      const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+      console.log('[SaveFlow] RAW data prop count (before filters):', data?.length)
+      console.log('[SaveFlow] FILTERED display count (filteredAndSortedData):', filteredAndSortedData?.length)
+      console.log('[SaveFlow] Saving filteredAndSortedData � count:', filteredAndSortedData?.length)
 
       // Compress payload client-side to avoid 413 Payload Too Large
-      const dataString = JSON.stringify({ date: today, data })
+      const dataString = JSON.stringify({ date: today, data: filteredAndSortedData })
       const encoded = new TextEncoder().encode(dataString)
       console.log('[SaveFlow] Payload size (uncompressed):', (encoded.length / 1024 / 1024).toFixed(2), 'MB')
       const cs = new CompressionStream('gzip')
@@ -2514,7 +2937,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       writer.write(encoded)
       writer.close()
       const compressedBuffer = await new Response(cs.readable).arrayBuffer()
-      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB — sending to /api/flows/save')
+      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB � sending to /api/flows/save')
 
       const response = await fetch('/api/flows/save', {
         method: 'POST',
@@ -2548,20 +2971,34 @@ Stock Reaction: ${scores.stockReaction}/15`
   const loadFlowHistory = async () => {
     try {
       setLoadingHistory(true)
+      console.log('[History] Fetching /api/flows/dates...')
 
       const response = await fetch('/api/flows/dates')
+      console.log('[History] /api/flows/dates status:', response.status, response.statusText)
 
       if (!response.ok) {
-        throw new Error('Failed to load history')
+        const errText = await response.text().catch(() => '(no body)')
+        console.error('[History] Error body:', errText)
+        throw new Error(`Failed to load history: HTTP ${response.status} � ${errText}`)
       }
 
-      const dates = await response.json()
+      const rawText = await response.text()
+      console.log('[History] Raw response text:', rawText.slice(0, 500))
+      let dates: any[]
+      try { dates = JSON.parse(rawText) } catch (e) {
+        throw new Error(`Response was not JSON: ${rawText.slice(0, 200)}`)
+      }
+      if (!Array.isArray(dates)) {
+        console.error('[History] Response is not an array:', dates)
+        throw new Error(`Expected array, got: ${JSON.stringify(dates).slice(0, 200)}`)
+      }
+      console.log('[History] Received', dates.length, 'saved flows:', dates)
 
       setSavedFlowDates(dates)
-
       setIsHistoryDialogOpen(true)
     } catch (error) {
-      console.error('Error loading history:', error)
+      console.error('[History] loadFlowHistory threw:', error)
+      alert(`Failed to load history: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoadingHistory(false)
     }
@@ -2572,20 +3009,27 @@ Stock Reaction: ${scores.stockReaction}/15`
   const handleLoadFlow = async (date: string) => {
     try {
       setLoadingFlowDate(date)
+      const encodedDate = encodeURIComponent(date)
+      const url = `/api/flows/${encodedDate}`
+      console.log('[LoadFlow] Fetching URL:', url, '| raw date:', date)
 
-      const response = await fetch(`/api/flows/${date}`)
+      const response = await fetch(url)
+      console.log('[LoadFlow] Response status:', response.status, response.statusText)
 
       if (!response.ok) {
-        throw new Error('Failed to load flow')
+        const errText = await response.text().catch(() => '(no body)')
+        console.error('[LoadFlow] Error body:', errText)
+        throw new Error(`HTTP ${response.status} � ${errText}`)
       }
 
       const flowData = await response.json()
+      console.log('[LoadFlow] Got data � trades:', flowData.data?.length, '| date field:', flowData.date)
 
       onDataUpdate && onDataUpdate(flowData.data)
-
       setIsHistoryDialogOpen(false)
     } catch (error) {
-      console.error('Error loading flow:', error)
+      console.error('[LoadFlow] threw:', error)
+      alert(`Failed to load flow: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoadingFlowDate(null)
     }
@@ -2641,21 +3085,34 @@ Stock Reaction: ${scores.stockReaction}/15`
     if (!confirm(`Delete flow from ${date}?`)) return
 
     try {
-      const response = await fetch(`/api/flows/${date}`, { method: 'DELETE' })
+      const encodedDate = encodeURIComponent(date)
+      const url = `/api/flows/${encodedDate}`
+      console.log('[DeleteFlow] DELETE', url, '| raw date:', date)
+
+      const response = await fetch(url, { method: 'DELETE' })
+      console.log('[DeleteFlow] Response status:', response.status, response.statusText)
 
       if (!response.ok) {
-        throw new Error('Failed to delete flow')
+        const errText = await response.text().catch(() => '(no body)')
+        console.error('[DeleteFlow] Error body:', errText)
+        throw new Error(`HTTP ${response.status} � ${errText}`)
       }
 
-      // Reload history
+      const result = await response.json().catch(() => ({}))
+      console.log('[DeleteFlow] Success:', result)
 
-      setSavedFlowDates((prev) => prev.filter((f) => f.date !== date))
+      setSavedFlowDates((prev) => {
+        const next = prev.filter((f) => f.date !== date)
+        console.log('[DeleteFlow] Removed from local list. Remaining:', next.length)
+        return next
+      })
     } catch (error) {
-      console.error('Error deleting flow:', error)
+      console.error('[DeleteFlow] threw:', error)
+      alert(`Failed to delete: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
-  const handleSort = (field: keyof OptionsFlowData | 'positioning_grade') => {
+  const handleSort = (field: keyof OptionsFlowData | 'positioning_grade' | 'leap_grade') => {
     if (sortField === field) {
       const newDirection = sortDirection === 'asc' ? 'desc' : 'asc'
       setSortDirection(newDirection)
@@ -2767,7 +3224,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Step 1: Fast deduplication using Set (O(n) instead of O(n²))
+    // Step 1: Fast deduplication using Set (O(n) instead of O(n�))
 
     const seen = new Set<string>()
 
@@ -2862,9 +3319,13 @@ Stock Reaction: ${scores.stockReaction}/15`
     let filtered = bundledData
 
     // EFI Highlights filter - when active, show ONLY trades that meet EFI criteria
-
     if (efiHighlightsActive) {
       filtered = filtered.filter((trade) => meetsEfiCriteria(trade))
+    }
+
+    // LEAP filter - when active, show ONLY trades that meet LEAP criteria
+    if (leapActive) {
+      filtered = filtered.filter((trade) => meetsLeapCriteria(trade))
     }
 
     // Apply filters - Option Type (checkbox)
@@ -2969,47 +3430,24 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Unique filters (checkbox)
+    // Unique filters (visibility toggles — unchecked = hide that category)
 
-    if (selectedUniqueFilters.length > 0) {
+    const hasDeselected = ALL_UNIQUE_FILTERS.some(f => !selectedUniqueFilters.includes(f))
+    if (hasDeselected) {
       filtered = filtered.filter((trade) => {
-        return selectedUniqueFilters.every((filter) => {
-          switch (filter) {
-            case 'ITM':
-              return trade.moneyness === 'ITM'
-
-            case 'OTM':
-              return trade.moneyness === 'OTM'
-
-            case 'SWEEP_ONLY':
-              return trade.trade_type === 'SWEEP'
-
-            case 'BLOCK_ONLY':
-              return trade.trade_type === 'BLOCK'
-
-            case 'MULTI_LEG_ONLY':
-              return trade.trade_type === 'MULTI-LEG'
-
-            case 'WEEKLY_ONLY':
-              // Check if expiration is within 7 days
-
-              const expiryDate = new Date(trade.expiry)
-
-              const today = new Date()
-
-              const daysToExpiry = Math.ceil(
-                (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-              )
-
-              return daysToExpiry <= 7
-
-            case 'MINI_ONLY':
-              return trade.trade_type === 'MINI'
-
-            default:
-              return true
-          }
-        })
+        if (trade.moneyness === 'ITM' && !selectedUniqueFilters.includes('ITM')) return false
+        if (trade.moneyness === 'OTM' && !selectedUniqueFilters.includes('OTM')) return false
+        if (trade.trade_type === 'SWEEP' && !selectedUniqueFilters.includes('SWEEP_ONLY')) return false
+        if (trade.trade_type === 'BLOCK' && !selectedUniqueFilters.includes('BLOCK_ONLY')) return false
+        if (trade.trade_type === 'MULTI-LEG' && !selectedUniqueFilters.includes('MULTI_LEG_ONLY')) return false
+        if (trade.trade_type === 'MINI' && !selectedUniqueFilters.includes('MINI_ONLY')) return false
+        if (!selectedUniqueFilters.includes('WEEKLY_ONLY')) {
+          const expiryDate = new Date(trade.expiry)
+          const today = new Date()
+          const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          if (daysToExpiry <= 7) return false
+        }
+        return true
       })
     }
 
@@ -3109,6 +3547,12 @@ Stock Reaction: ${scores.stockReaction}/15`
         return result
       }
 
+      if (sortField === 'leap_grade') {
+        const gradeA = calculateLeapGrade(a, comboTradeMap)
+        const gradeB = calculateLeapGrade(b, comboTradeMap)
+        return sortDirection === 'desc' ? gradeB.score - gradeA.score : gradeA.score - gradeB.score
+      }
+
       const aValue = a[sortField as keyof OptionsFlowData]
 
       const bValue = b[sortField as keyof OptionsFlowData]
@@ -3142,6 +3586,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     selectedOrderSides,
     tradesWithFillStyles,
     efiHighlightsActive,
+    leapActive,
     quickFilters,
     notableFilterActive,
   ])
@@ -3149,11 +3594,13 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Memoize all grade calculations - massive performance boost for 100+ trades
 
   const gradesCache = useMemo(() => {
-    const cache = new Map<string, ReturnType<typeof calculatePositioningGrade>>()
+    const cache = new Map<string, ReturnType<typeof calculatePositioningGrade> | ReturnType<typeof calculateLeapGrade>>()
 
     filteredAndSortedData.forEach((trade) => {
       const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
-      const result = calculatePositioningGrade(trade, comboTradeMap)
+      const result = leapActive
+        ? calculateLeapGrade(trade, comboTradeMap)
+        : calculatePositioningGrade(trade, comboTradeMap)
       cache.set(tradeId, result)
 
       if (efiHighlightsActive && meetsEfiCriteria(trade)) {
@@ -3175,7 +3622,11 @@ Stock Reaction: ${scores.stockReaction}/15`
     optionPriceCheckpoints,
     comboTradeMap,
     relativeStrengthData,
+    leapRsData,
+    leapActive,
     historicalStdDevs,
+    leap52wkData,
+    leapSeasonalData,
   ])
 
   // Helper function to get cached grade
@@ -3183,13 +3634,18 @@ Stock Reaction: ${scores.stockReaction}/15`
   const getCachedGrade = (trade: OptionsFlowData) => {
     const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
 
-    return gradesCache.get(tradeId) || calculatePositioningGrade(trade, comboTradeMap)
+    return (
+      gradesCache.get(tradeId) ||
+      (leapActive
+        ? calculateLeapGrade(trade, comboTradeMap)
+        : calculatePositioningGrade(trade, comboTradeMap))
+    )
   }
 
   // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
 
   useEffect(() => {
-    // ✅ NO ENRICHMENT NEEDED! All data comes pre-enriched from backend snapshot API
+    // ? NO ENRICHMENT NEEDED! All data comes pre-enriched from backend snapshot API
 
     // Backend now returns: vol, OI, vol/OI ratio, Greeks, bid/ask, fill_style, classification
 
@@ -3215,14 +3671,14 @@ Stock Reaction: ${scores.stockReaction}/15`
     const notableTrades = paginatedData.filter(
       (t) => notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(t))
     )
-    // Deduplicate by ticker — one fetch covers ALL expirations for the ticker
+    // Deduplicate by ticker � one fetch covers ALL expirations for the ticker
     const seenTickers = new Set<string>()
     for (const trade of notableTrades) {
       const key = trade.underlying_ticker
       if (key in dealerZoneCache || seenTickers.has(key)) continue
       seenTickers.add(key)
 
-      // ── Priority 1: use DealerAttraction's live-computed values if available ──
+      // -- Priority 1: use DealerAttraction's live-computed values if available --
       const storeZone = getDealerZone(key)
       if (storeZone) {
         setDealerZoneCache((prev) => ({
@@ -3238,11 +3694,11 @@ Stock Reaction: ${scores.stockReaction}/15`
         continue
       }
 
-      // ── Priority 2: fetch from server-side snapshot API ──
+      // -- Priority 2: fetch from server-side snapshot API --
       setDealerZoneCache((prev) =>
         key in prev ? prev : { ...prev, [key]: { golden: null, purple: null, atmIV: null } }
       )
-      // Delegate entirely to the dealer-zones API — same computation as DealerAttraction
+      // Delegate entirely to the dealer-zones API � same computation as DealerAttraction
       fetch(`/api/dealer-zones?ticker=${trade.underlying_ticker}`)
         .then((r) => r.json())
         .then((result: any) => {
@@ -3280,10 +3736,10 @@ Stock Reaction: ${scores.stockReaction}/15`
     selectedOrderSides,
   ])
 
-  // Fetch current option prices when EFI Highlights is ON
+  // Fetch current option prices when EFI Highlights or LEAP is ON
 
   useEffect(() => {
-    if (efiHighlightsActive && filteredAndSortedData.length > 0) {
+    if ((efiHighlightsActive || leapActive) && filteredAndSortedData.length > 0) {
       // Create a hash of the current dataset (based on data length + first few tickers)
 
       const datasetHash = `${data.length}-${data
@@ -3299,7 +3755,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         setPricesFetchedForDataset(datasetHash)
       }
     }
-  }, [efiHighlightsActive, data.length])
+  }, [efiHighlightsActive, leapActive, data.length])
 
   // Fetch chart data for tracked flows when EFI is active or flows are added
 
@@ -3324,7 +3780,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const FOOTER_H = 34
       const PAD = 14
 
-      // columns — grade col appended only when EFI active
+      // columns � grade col appended only when EFI active
       const baseCols = [
         { label: 'TIME', w: 118 },
         { label: 'SYMBOL', w: 80 },
@@ -3377,11 +3833,11 @@ Stock Reaction: ${scores.stockReaction}/15`
         const ctx = canvas.getContext('2d')!
         ctx.scale(dpr, dpr)
 
-        // ── Background ──
+        // -- Background --
         ctx.fillStyle = '#000000'
         ctx.fillRect(0, 0, totalW, totalH)
 
-        // ── Title bar ──
+        // -- Title bar --
         ctx.fillStyle = '#080808'
         ctx.fillRect(0, 0, totalW, TITLE_H)
         // orange bottom border
@@ -3392,17 +3848,17 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.font = 'bold 21px "Courier New", monospace'
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
-        ctx.fillText('⬡ EFI OPTIONS FLOW', PAD, TITLE_H / 2)
+        ctx.fillText('? EFI OPTIONS FLOW', PAD, TITLE_H / 2)
         ctx.fillStyle = '#ffffff'
         ctx.font = '15px "Courier New", monospace'
         ctx.textAlign = 'right'
         ctx.fillText(
           new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) +
-          (totalPages > 1 ? `   ${page + 1}/${totalPages}  •  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
+          (totalPages > 1 ? `   ${page + 1}/${totalPages}  �  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
           totalW - PAD, TITLE_H / 2
         )
 
-        // ── Header (glossy black) ──
+        // -- Header (glossy black) --
         const hY = TITLE_H
         // Base black fill
         ctx.fillStyle = '#050505'
@@ -3439,7 +3895,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           hx += col.w + 6
         })
 
-        // ── Rows ──
+        // -- Rows --
         trades.forEach((trade, i) => {
           const rY = TITLE_H + HEADER_H + i * ROW_H
           ctx.fillStyle = i % 2 === 0 ? '#050505' : '#0c0c0c'
@@ -3464,7 +3920,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), rx, mid)
           rx += cols[0].w + 6
 
-          // SYMBOL — orange ticker style matching the UI
+          // SYMBOL � orange ticker style matching the UI
           ctx.fillStyle = '#ff8500'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(trade.underlying_ticker, rx, mid)
@@ -3483,7 +3939,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(`$${trade.strike}`, rx, mid)
           rx += cols[3].w + 6
 
-          // SIZE — "1,234 @ 3.40 A"
+          // SIZE � "1,234 @ 3.40 A"
           const sizeStr = trade.trade_size.toLocaleString()
           const priceStr = trade.premium_per_contract.toFixed(2)
           ctx.fillStyle = '#00ccff'
@@ -3516,14 +3972,14 @@ Stock Reaction: ${scores.stockReaction}/15`
           rx += cols[6].w + 6
 
           // SPOT >> CURRENT
-          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '—'}`
+          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '�'}`
           ctx.fillStyle = '#ffffff'
           ctx.fillText(spotStr, rx, mid)
           const spW = ctx.measureText(spotStr).width
           ctx.fillStyle = '#ffffff'
           ctx.fillText(' >> ', rx + spW, mid)
           const arrW = ctx.measureText(' >> ').width
-          const curStr = curPx ? `$${curPx.toFixed(2)}` : '—'
+          const curStr = curPx ? `$${curPx.toFixed(2)}` : '�'
           ctx.fillStyle = curPx > trade.spot_price ? '#00ff88' : '#ff3333'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(curStr, rx + spW + arrW, mid)
@@ -3571,7 +4027,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
               ctx.textAlign = 'left'
-              ctx.fillText('—', rx, mid)
+              ctx.fillText('�', rx, mid)
             }
             rx += gradeCol.w + 6
           }
@@ -3605,7 +4061,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             } else {
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('—', rx, mid)
+              ctx.fillText('�', rx, mid)
             }
             rx += targetsCol.w + 6
           }
@@ -3618,10 +4074,10 @@ Stock Reaction: ${scores.stockReaction}/15`
               // Build combined price+expiry strings so no measureText font mismatch
               const magnetVal = zones.golden != null
                 ? `$${zones.golden}${zones.goldenExpiry ? '  ' + zones.goldenExpiry.slice(5).replace('-', '/') : ''}`
-                : '—'
+                : '�'
               const pivotVal = zones.purple != null
                 ? `$${zones.purple}${zones.purpleExpiry ? '  ' + zones.purpleExpiry.slice(5).replace('-', '/') : ''}`
-                : '—'
+                : '�'
               ctx.font = 'bold 11px "Courier New", monospace'
               ctx.fillStyle = '#FFD700'
               ctx.fillText('MAGNET', rx, mid - 8)
@@ -3635,12 +4091,12 @@ Stock Reaction: ${scores.stockReaction}/15`
             } else {
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('—', rx, mid)
+              ctx.fillText('�', rx, mid)
             }
           }
         })
 
-        // ── Footer ──
+        // -- Footer --
         const fY = TITLE_H + HEADER_H + trades.length * ROW_H
         ctx.fillStyle = '#080808'
         ctx.fillRect(0, fY, totalW, FOOTER_H)
@@ -3651,9 +4107,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.font = '14px "Courier New", monospace'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText('EFI TRADING  •  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
+        ctx.fillText('EFI TRADING  �  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
 
-        // ── Download ──
+        // -- Download --
         const dataUrl = canvas.toDataURL('image/png')
         const link = document.createElement('a')
         link.download = totalPages > 1
@@ -3982,7 +4438,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     border: '1px solid rgba(255,255,255,0.15)',
                   }}
                 >
-                  ×
+                  �
                 </button>
               </div>
 
@@ -3990,7 +4446,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
               {isMobileView && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {/* ── OPTIONS + TYPE ── */}
+                  {/* -- OPTIONS + TYPE -- */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     {/* OPTIONS */}
                     <div
@@ -4286,14 +4742,16 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
                   </div>
 
-                  {/* ── PREMIUM ── */}
+                  {/* -- PREMIUM -- */}
                   <div
                     style={{
                       background: '#000',
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '12px',
-                      padding: '12px',
+                      padding: '10px',
                       boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                      alignSelf: 'flex-start',
+                      width: '100%',
                     }}
                   >
                     <div
@@ -4301,8 +4759,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
-                        marginBottom: '10px',
-                        paddingBottom: '8px',
+                        marginBottom: '8px',
+                        paddingBottom: '6px',
                         borderBottom: '1px solid rgba(255,255,255,0.08)',
                       }}
                     >
@@ -4330,15 +4788,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr',
-                        gap: '6px',
-                        marginBottom: '10px',
+                        gap: '5px',
+                        marginBottom: '6px',
                       }}
                     >
                       {[
-                        { label: '≥ $50K', value: '50000' },
-                        { label: '≥ $99K', value: '99000' },
-                        { label: '≥ $200K', value: '200000' },
-                        { label: '≥ $1M', value: '1000000' },
+                        { label: '= $50K', value: '50000' },
+                        { label: '= $99K', value: '99000' },
+                        { label: '= $200K', value: '200000' },
+                        { label: '= $1M', value: '1000000' },
                       ].map(({ label, value }) => {
                         const active = selectedPremiumFilters.includes(value)
                         return (
@@ -4350,7 +4808,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                               )
                             }
                             style={{
-                              padding: '9px 6px',
+                              padding: '6px 4px',
                               borderRadius: '8px',
                               border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.06)'}`,
                               background: active
@@ -4376,8 +4834,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr',
-                        gap: '8px',
-                        paddingTop: '10px',
+                        gap: '5px',
+                        paddingTop: '6px',
                         borderTop: '1px solid rgba(255,255,255,0.05)',
                       }}
                     >
@@ -4405,8 +4863,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                             width: '100%',
                             paddingLeft: '38px',
                             paddingRight: '8px',
-                            paddingTop: '9px',
-                            paddingBottom: '9px',
+                            paddingTop: '6px',
+                            paddingBottom: '6px',
                             background: '#000',
                             border: '1px solid rgba(255,255,255,0.15)',
                             borderRadius: '8px',
@@ -4437,13 +4895,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                           type="number"
                           value={customMaxPremium}
                           onChange={(e) => setCustomMaxPremium(e.target.value)}
-                          placeholder="$∞"
+                          placeholder="$8"
                           style={{
                             width: '100%',
                             paddingLeft: '40px',
                             paddingRight: '8px',
-                            paddingTop: '9px',
-                            paddingBottom: '9px',
+                            paddingTop: '6px',
+                            paddingBottom: '6px',
                             background: '#000',
                             border: '1px solid rgba(255,255,255,0.15)',
                             borderRadius: '8px',
@@ -4458,7 +4916,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
                   </div>
 
-                  {/* ── TICKER + SPECIAL ── */}
+                  {/* -- TICKER + SPECIAL -- */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     {/* TICKER */}
                     <div
@@ -4657,7 +5115,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
                   </div>
 
-                  {/* ── BLACKLIST ── */}
+                  {/* -- BLACKLIST -- */}
                   <div
                     style={{
                       background: '#000',
@@ -4729,7 +5187,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </div>
                   </div>
 
-                  {/* ── EXPIRATION ── */}
+                  {/* -- EXPIRATION -- */}
                   <div
                     style={{
                       background: '#000',
@@ -4854,156 +5312,69 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <div
                     style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
                   >
-                    {/* OPTIONS TYPE */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
+                    {/* OPTIONS TYPE + UNIQUE FILTERS */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
                         }}
                       >
                         <div
                           style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #10b981, #ef4444)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
                           }}
                         >
-                          Options Type
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {[
-                          {
-                            label: 'CALLS',
-                            value: 'call',
-                            color: '#10b981',
-                            glow: 'rgba(16,185,129,0.25)',
-                          },
-                          {
-                            label: 'PUTS',
-                            value: 'put',
-                            color: '#ef4444',
-                            glow: 'rgba(239,68,68,0.25)',
-                          },
-                        ].map(({ label, value, color, glow }) => {
-                          const active = selectedOptionTypes.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedOptionTypes((prev) =>
-                                  active ? prev.filter((t) => t !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '8px',
-                                padding: '10px 12px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
-                                background: active
-                                  ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)`
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active
-                                  ? `0 0 14px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
-                                  : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  background: active ? color : '#374151',
-                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
-                                  transition: 'all 0.15s ease',
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '15px',
-                                  fontWeight: 800,
-                                  letterSpacing: '1.5px',
-                                  color: active ? color : '#ffffff',
-                                }}
-                              >
-                                {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div
-                        style={{
-                          marginTop: '8px',
-                          paddingTop: '8px',
-                          borderTop: '1px solid rgba(255,255,255,0.07)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '11px',
-                            fontWeight: 800,
-                            letterSpacing: '1.5px',
-                            color: '#94a3b8',
-                            marginBottom: '6px',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          Order Side
-                        </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div
+                            style={{
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #10b981, #ef4444)',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              letterSpacing: '2px',
+                              textTransform: 'uppercase',
+                              color: '#ffffff',
+                            }}
+                          >
+                            Options Type
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {[
                             {
-                              label: 'BUY (A/AA)',
-                              value: 'buy',
-                              color: '#22d3ee',
-                              glow: 'rgba(34,211,238,0.25)',
+                              label: 'CALLS',
+                              value: 'call',
+                              color: '#10b981',
+                              glow: 'rgba(16,185,129,0.25)',
                             },
                             {
-                              label: 'SELL (B/BB)',
-                              value: 'sell',
-                              color: '#f97316',
-                              glow: 'rgba(249,115,22,0.25)',
+                              label: 'PUTS',
+                              value: 'put',
+                              color: '#ef4444',
+                              glow: 'rgba(239,68,68,0.25)',
                             },
                           ].map(({ label, value, color, glow }) => {
-                            const active = selectedOrderSides.includes(value)
+                            const active = selectedOptionTypes.includes(value)
                             return (
                               <button
                                 key={value}
                                 onClick={() =>
-                                  setSelectedOrderSides((prev) =>
-                                    active ? prev.filter((s) => s !== value) : [...prev, value]
+                                  setSelectedOptionTypes((prev) =>
+                                    active ? prev.filter((t) => t !== value) : [...prev, value]
                                   )
                                 }
                                 style={{
@@ -5011,13 +5382,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   gap: '8px',
-                                  padding: '9px 12px',
+                                  padding: '10px 12px',
                                   borderRadius: '8px',
                                   border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
                                   background: active
                                     ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)`
                                     : 'rgba(255,255,255,0.02)',
-                                  boxShadow: active ? `0 0 14px ${glow}` : 'none',
+                                  boxShadow: active
+                                    ? `0 0 14px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                                    : 'none',
                                   cursor: 'pointer',
                                   transition: 'all 0.15s ease',
                                   width: '100%',
@@ -5036,9 +5409,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 />
                                 <span
                                   style={{
-                                    fontSize: '13px',
+                                    fontSize: '15px',
                                     fontWeight: 800,
-                                    letterSpacing: '1px',
+                                    letterSpacing: '1.5px',
                                     color: active ? color : '#ffffff',
                                   }}
                                 >
@@ -5048,541 +5421,646 @@ Stock Reaction: ${scores.stockReaction}/15`
                             )
                           })}
                         </div>
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            paddingTop: '8px',
+                            borderTop: '1px solid rgba(255,255,255,0.07)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: 'block',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              letterSpacing: '1.5px',
+                              color: '#94a3b8',
+                              marginBottom: '6px',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Order Side
+                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {[
+                              {
+                                label: 'BUY (A/AA)',
+                                value: 'buy',
+                                color: '#22d3ee',
+                                glow: 'rgba(34,211,238,0.25)',
+                              },
+                              {
+                                label: 'SELL (B/BB)',
+                                value: 'sell',
+                                color: '#f97316',
+                                glow: 'rgba(249,115,22,0.25)',
+                              },
+                            ].map(({ label, value, color, glow }) => {
+                              const active = selectedOrderSides.includes(value)
+                              return (
+                                <button
+                                  key={value}
+                                  onClick={() =>
+                                    setSelectedOrderSides((prev) =>
+                                      active ? prev.filter((s) => s !== value) : [...prev, value]
+                                    )
+                                  }
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    padding: '9px 12px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
+                                    background: active
+                                      ? `linear-gradient(135deg, ${color}25 0%, ${color}12 100%)`
+                                      : 'rgba(255,255,255,0.02)',
+                                    boxShadow: active ? `0 0 14px ${glow}` : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    width: '100%',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: '8px',
+                                      height: '8px',
+                                      borderRadius: '50%',
+                                      background: active ? color : '#374151',
+                                      boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                      transition: 'all 0.15s ease',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      fontSize: '13px',
+                                      fontWeight: 800,
+                                      letterSpacing: '1px',
+                                      color: active ? color : '#ffffff',
+                                    }}
+                                  >
+                                    {label}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-
-                    {/* PREMIUM */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
+                      {/* UNIQUE FILTERS */}
                       <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
                         }}
                       >
                         <div
                           style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #10b981, #059669)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
                           }}
                         >
-                          Premium
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr',
-                          gap: '7px',
-                          marginBottom: '10px',
-                        }}
-                      >
-                        {[
-                          { label: '≥ $50K', value: '50000' },
-                          { label: '≥ $99K', value: '99000' },
-                          { label: '≥ $200K', value: '200000' },
-                          { label: '≥ $1M', value: '1000000' },
-                        ].map(({ label, value }) => {
-                          const active = selectedPremiumFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedPremiumFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                padding: '10px 8px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.08)'}`,
-                                background: active
-                                  ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)'
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active ? '0 0 12px rgba(16,185,129,0.2)' : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                fontSize: '14px',
-                                fontWeight: 800,
-                                letterSpacing: '0.5px',
-                                color: active ? '#10b981' : '#ffffff',
-                              }}
-                            >
-                              {label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr',
-                          gap: '8px',
-                          paddingTop: '10px',
-                          borderTop: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div style={{ position: 'relative' }}>
-                          <span
+                          <div
                             style={{
-                              position: 'absolute',
-                              left: '10px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              fontSize: '12px',
-                              color: '#94a3b8',
-                              pointerEvents: 'none',
-                              fontWeight: 700,
-                            }}
-                          >
-                            MIN
-                          </span>
-                          <input
-                            type="number"
-                            value={customMinPremium}
-                            onChange={(e) => setCustomMinPremium(e.target.value)}
-                            placeholder="$0"
-                            style={{
-                              width: '100%',
-                              paddingLeft: '40px',
-                              paddingRight: '8px',
-                              paddingTop: '10px',
-                              paddingBottom: '10px',
-                              background: '#000',
-                              border: '1px solid rgba(255,255,255,0.15)',
-                              borderRadius: '8px',
-                              color: '#ffffff',
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              outline: 'none',
-                              boxSizing: 'border-box',
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #f59e0b, #fbbf24)',
                             }}
                           />
-                        </div>
-                        <div style={{ position: 'relative' }}>
                           <span
                             style={{
-                              position: 'absolute',
-                              left: '10px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              fontSize: '12px',
-                              color: '#94a3b8',
-                              pointerEvents: 'none',
-                              fontWeight: 700,
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              letterSpacing: '2px',
+                              textTransform: 'uppercase',
+                              color: '#ffffff',
                             }}
                           >
-                            MAX
+                            Unique Filters
                           </span>
-                          <input
-                            type="number"
-                            value={customMaxPremium}
-                            onChange={(e) => setCustomMaxPremium(e.target.value)}
-                            placeholder="$∞"
-                            style={{
-                              width: '100%',
-                              paddingLeft: '40px',
-                              paddingRight: '8px',
-                              paddingTop: '10px',
-                              paddingBottom: '10px',
-                              background: '#000',
-                              border: '1px solid rgba(255,255,255,0.15)',
-                              borderRadius: '8px',
-                              color: '#ffffff',
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              outline: 'none',
-                              boxSizing: 'border-box',
-                            }}
-                          />
                         </div>
-                      </div>
-                    </div>
-
-                    {/* TICKER FILTER */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                          }}
-                        >
-                          Ticker Filter
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                        {[
-                          { label: 'ETF Only', value: 'ETF_ONLY' },
-                          { label: 'Stock Only', value: 'STOCK_ONLY' },
-                          { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
-                          { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
-                        ].map(({ label, value }) => {
-                          const active = selectedTickerFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedTickerFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '9px 10px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`,
-                                background: active
-                                  ? 'rgba(59,130,246,0.12)'
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
+                          {[
+                            { label: 'ITM', value: 'ITM', color: '#f59e0b' },
+                            { label: 'OTM', value: 'OTM', color: '#f59e0b' },
+                            { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#f59e0b' },
+                            { label: 'Block Only', value: 'BLOCK_ONLY', color: '#f59e0b' },
+                            { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
+                            { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f59e0b' },
+                            { label: 'Mini Only', value: 'MINI_ONLY', color: '#10b981' },
+                          ].map(({ label, value, color }) => {
+                            const active = selectedUniqueFilters.includes(value)
+                            return (
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedUniqueFilters((prev) =>
+                                    active ? prev.filter((f) => f !== value) : [...prev, value]
+                                  )
+                                }
                                 style={{
-                                  width: '7px',
-                                  height: '7px',
-                                  borderRadius: '50%',
-                                  background: active ? '#3b82f6' : '#374151',
-                                  boxShadow: active ? '0 0 5px #3b82f6' : 'none',
-                                  flexShrink: 0,
+                                  padding: '7px 8px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
+                                  background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
+                                  boxShadow: active ? `0 0 10px ${color}33` : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  fontSize: '13px',
+                                  fontWeight: 800,
+                                  letterSpacing: '0.5px',
+                                  color: active ? color : '#ffffff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '7px',
                                 }}
-                              />
-                              <span
+                              >
+                                <span style={{
+                                  width: '14px',
+                                  height: '14px',
+                                  borderRadius: '3px',
+                                  border: `1.5px solid ${active ? color : 'rgba(255,255,255,0.3)'}`,
+                                  background: active ? color : 'transparent',
+                                  flexShrink: 0,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'all 0.15s ease',
+                                  fontSize: '10px',
+                                  fontWeight: 900,
+                                  color: '#000',
+                                  lineHeight: 1,
+                                }}>
+                                  {active ? '✓' : ''}
+                                </span>
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>{/* end OPTIONS TYPE + UNIQUE FILTERS */}
+
+                    {/* PREMIUM + BLACK LIST stacked */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {/* PREMIUM */}
+                      <div
+                        style={{
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                          alignSelf: 'start',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #10b981, #059669)',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              letterSpacing: '2px',
+                              textTransform: 'uppercase',
+                              color: '#ffffff',
+                            }}
+                          >
+                            Premium
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '6px',
+                            marginBottom: '7px',
+                          }}
+                        >
+                          {[
+                            { label: '= $50K', value: '50000' },
+                            { label: '= $99K', value: '99000' },
+                            { label: '= $200K', value: '200000' },
+                            { label: '= $1M', value: '1000000' },
+                          ].map(({ label, value }) => {
+                            const active = selectedPremiumFilters.includes(value)
+                            return (
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedPremiumFilters((prev) =>
+                                    active ? prev.filter((f) => f !== value) : [...prev, value]
+                                  )
+                                }
                                 style={{
+                                  padding: '7px 8px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.08)'}`,
+                                  background: active
+                                    ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)'
+                                    : 'rgba(255,255,255,0.02)',
+                                  boxShadow: active ? '0 0 12px rgba(16,185,129,0.2)' : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
                                   fontSize: '14px',
                                   fontWeight: 800,
                                   letterSpacing: '0.5px',
-                                  color: active ? '#93c5fd' : '#ffffff',
+                                  color: active ? '#10b981' : '#ffffff',
                                 }}
                               >
                                 {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Unique Filters | Black List | Options Expiration */}
-                  <div
-                    style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
-                  >
-                    {/* UNIQUE FILTERS */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
+                              </button>
+                            )
+                          })}
+                        </div>
                         <div
                           style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #f59e0b, #fbbf24)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '6px',
+                            paddingTop: '7px',
+                            borderTop: '1px solid rgba(255,255,255,0.08)',
                           }}
                         >
-                          Unique Filters
-                        </span>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
-                        {[
-                          { label: 'ITM', value: 'ITM', color: '#f59e0b' },
-                          { label: 'OTM', value: 'OTM', color: '#f59e0b' },
-                          { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#f59e0b' },
-                          { label: 'Block Only', value: 'BLOCK_ONLY', color: '#f59e0b' },
-                          { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
-                          { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f59e0b' },
-                          { label: 'Mini Only', value: 'MINI_ONLY', color: '#10b981' },
-                        ].map(({ label, value, color }) => {
-                          const active = selectedUniqueFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedUniqueFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
+                          <div style={{ position: 'relative' }}>
+                            <span
                               style={{
-                                padding: '9px 6px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
-                                background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
-                                boxShadow: active ? `0 0 10px ${color}33` : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                fontSize: '13px',
-                                fontWeight: 800,
-                                letterSpacing: '0.5px',
-                                color: active ? color : '#ffffff',
+                                position: 'absolute',
+                                left: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: '12px',
+                                color: '#94a3b8',
+                                pointerEvents: 'none',
+                                fontWeight: 700,
                               }}
                             >
-                              {label}
-                            </button>
-                          )
-                        })}
+                              MIN
+                            </span>
+                            <input
+                              type="number"
+                              value={customMinPremium}
+                              onChange={(e) => setCustomMinPremium(e.target.value)}
+                              placeholder="$0"
+                              style={{
+                                width: '100%',
+                                paddingLeft: '40px',
+                                paddingRight: '8px',
+                                paddingTop: '7px',
+                                paddingBottom: '7px',
+                                background: '#000',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '8px',
+                                color: '#ffffff',
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                          <div style={{ position: 'relative' }}>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                left: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: '12px',
+                                color: '#94a3b8',
+                                pointerEvents: 'none',
+                                fontWeight: 700,
+                              }}
+                            >
+                              MAX
+                            </span>
+                            <input
+                              type="number"
+                              value={customMaxPremium}
+                              onChange={(e) => setCustomMaxPremium(e.target.value)}
+                              placeholder="$8"
+                              style={{
+                                width: '100%',
+                                paddingLeft: '40px',
+                                paddingRight: '8px',
+                                paddingTop: '7px',
+                                paddingBottom: '7px',
+                                background: '#000',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '8px',
+                                color: '#ffffff',
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* BLACK LIST */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
+                      {/* BLACK LIST */}
                       <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
                         }}
                       >
                         <div
                           style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #ef4444, #b91c1c)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
                           }}
                         >
-                          Black List
-                        </span>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
-                        {blacklistedTickers.map((ticker, index) => (
-                          <input
-                            key={index}
-                            type="text"
-                            value={ticker}
-                            onChange={(e) => {
-                              const t = [...blacklistedTickers]
-                              t[index] = e.target.value.toUpperCase()
-                              setBlacklistedTickers(t)
-                            }}
-                            placeholder={`#${index + 1}`}
-                            maxLength={6}
+                          <div
                             style={{
-                              padding: '9px 8px',
-                              textAlign: 'center',
-                              background: '#000',
-                              border: '1px solid rgba(239,68,68,0.3)',
-                              borderRadius: '8px',
-                              color: '#fca5a5',
-                              fontSize: '14px',
-                              fontWeight: 800,
-                              letterSpacing: '1px',
-                              outline: 'none',
-                              width: '100%',
-                              boxSizing: 'border-box',
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #ef4444, #b91c1c)',
                             }}
                           />
-                        ))}
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              letterSpacing: '2px',
+                              textTransform: 'uppercase',
+                              color: '#ffffff',
+                            }}
+                          >
+                            Black List
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
+                          {blacklistedTickers.map((ticker, index) => (
+                            <input
+                              key={index}
+                              type="text"
+                              value={ticker}
+                              onChange={(e) => {
+                                const t = [...blacklistedTickers]
+                                t[index] = e.target.value.toUpperCase()
+                                setBlacklistedTickers(t)
+                              }}
+                              placeholder={`#${index + 1}`}
+                              maxLength={6}
+                              style={{
+                                padding: '9px 8px',
+                                textAlign: 'center',
+                                background: '#000',
+                                border: '1px solid rgba(239,68,68,0.3)',
+                                borderRadius: '8px',
+                                color: '#fca5a5',
+                                fontSize: '14px',
+                                fontWeight: 800,
+                                letterSpacing: '1px',
+                                outline: 'none',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          ))}
+                        </div>
                       </div>
-                    </div>
-
-                    {/* OPTIONS EXPIRATION */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
+                    </div>{/* end PREMIUM + BLACK LIST column */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '12px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
                         }}
                       >
                         <div
                           style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
                           }}
                         >
-                          Options Expiration
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div>
-                          <span
+                          <div
                             style={{
-                              display: 'block',
-                              fontSize: '12px',
-                              fontWeight: 800,
-                              letterSpacing: '1.5px',
-                              color: '#94a3b8',
-                              marginBottom: '6px',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            Start Date
-                          </span>
-                          <input
-                            type="date"
-                            value={expirationStartDate}
-                            onChange={(e) => setExpirationStartDate(e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 10px',
-                              background: '#000',
-                              border: '1px solid rgba(168,85,247,0.3)',
-                              borderRadius: '8px',
-                              color: '#e9d5ff',
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              outline: 'none',
-                              boxSizing: 'border-box',
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
                             }}
                           />
-                        </div>
-                        <div>
                           <span
                             style={{
-                              display: 'block',
-                              fontSize: '12px',
+                              fontSize: '13px',
                               fontWeight: 800,
-                              letterSpacing: '1.5px',
-                              color: '#94a3b8',
-                              marginBottom: '6px',
+                              letterSpacing: '2px',
                               textTransform: 'uppercase',
+                              color: '#ffffff',
                             }}
                           >
-                            End Date
+                            Ticker Filter
                           </span>
-                          <input
-                            type="date"
-                            value={expirationEndDate}
-                            onChange={(e) => setExpirationEndDate(e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 10px',
-                              background: '#000',
-                              border: '1px solid rgba(168,85,247,0.3)',
-                              borderRadius: '8px',
-                              color: '#e9d5ff',
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              outline: 'none',
-                              boxSizing: 'border-box',
-                            }}
-                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                          {[
+                            { label: 'ETF Only', value: 'ETF_ONLY' },
+                            { label: 'Stock Only', value: 'STOCK_ONLY' },
+                            { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
+                            { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
+                          ].map(({ label, value }) => {
+                            const active = selectedTickerFilters.includes(value)
+                            return (
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedTickerFilters((prev) =>
+                                    active ? prev.filter((f) => f !== value) : [...prev, value]
+                                  )
+                                }
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '9px 10px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`,
+                                  background: active
+                                    ? 'rgba(59,130,246,0.12)'
+                                    : 'rgba(255,255,255,0.02)',
+                                  boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  width: '100%',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: '7px',
+                                    height: '7px',
+                                    borderRadius: '50%',
+                                    background: active ? '#3b82f6' : '#374151',
+                                    boxShadow: active ? '0 0 5px #3b82f6' : 'none',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: '14px',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.5px',
+                                    color: active ? '#93c5fd' : '#ffffff',
+                                  }}
+                                >
+                                  {label}
+                                </span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
-                    </div>
+                      {/* OPTIONS EXPIRATION */}
+                      <div
+                        style={{
+                          background: '#000',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px',
+                          padding: '14px',
+                          boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '12px',
+                            paddingBottom: '8px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: '3px',
+                              height: '14px',
+                              borderRadius: '2px',
+                              background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: 800,
+                              letterSpacing: '2px',
+                              textTransform: 'uppercase',
+                              color: '#ffffff',
+                            }}
+                          >
+                            Options Expiration
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div>
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '12px',
+                                fontWeight: 800,
+                                letterSpacing: '1.5px',
+                                color: '#94a3b8',
+                                marginBottom: '6px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Start Date
+                            </span>
+                            <input
+                              type="date"
+                              value={expirationStartDate}
+                              onChange={(e) => setExpirationStartDate(e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '10px 10px',
+                                background: '#000',
+                                border: '1px solid rgba(168,85,247,0.3)',
+                                borderRadius: '8px',
+                                color: '#e9d5ff',
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '12px',
+                                fontWeight: 800,
+                                letterSpacing: '1.5px',
+                                color: '#94a3b8',
+                                marginBottom: '6px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              End Date
+                            </span>
+                            <input
+                              type="date"
+                              value={expirationEndDate}
+                              onChange={(e) => setExpirationEndDate(e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '10px 10px',
+                                background: '#000',
+                                border: '1px solid rgba(168,85,247,0.3)',
+                                borderRadius: '8px',
+                                color: '#e9d5ff',
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                outline: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>{/* end TICKER + OPTIONS EXPIRATION */}
                   </div>
                 </div>
               )}
@@ -5751,34 +6229,38 @@ Stock Reaction: ${scores.stockReaction}/15`
                   NO SAVED SESSIONS
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {savedFlowDates.map((flow, i) => {
-                    const d = new Date(flow.date)
-                    const localDate = new Date(
-                      d.getUTCFullYear(),
-                      d.getUTCMonth(),
-                      d.getUTCDate(),
-                      12
-                    )
-                    const dateLabel = localDate.toLocaleDateString('en-US', {
+                    // Parse date string directly (YYYY-MM-DD) to avoid any timezone shifting.
+                    const dateStr = typeof flow.date === 'string'
+                      ? flow.date.slice(0, 10)
+                      : new Date(flow.date).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                    const [yr, mo, dy] = dateStr.split('-').map(Number)
+                    const tradingDate = new Date(yr, mo - 1, dy) // local midnight � no shift
+                    const dateLabel = tradingDate.toLocaleDateString('en-US', {
                       weekday: 'short',
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
+                      timeZone: 'America/Los_Angeles',
                     })
-                    const timeLabel = new Date(flow.createdAt).toLocaleTimeString('en-US', {
+                    // Time label from createdAt in PST/PDT
+                    const savedAt = new Date(flow.createdAt)
+                    const timeLabel = savedAt.toLocaleTimeString('en-US', {
                       hour: '2-digit',
                       minute: '2-digit',
                       hour12: true,
+                      timeZone: 'America/Los_Angeles',
                     })
                     const tradeCount: number | null = (flow as any).tradeCount ?? null
                     return (
                       <div
                         key={flow.date}
                         style={{
-                          background: '#0a0a0a',
-                          border: '1px solid #1a1a1a',
-                          padding: '10px 14px',
+                          background: 'linear-gradient(135deg, #111111 0%, #0a0a0a 50%, #131313 100%)',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.8)',
+                          border: '1px solid #1e1e1e',
+                          padding: '13px 18px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
@@ -5790,10 +6272,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                           <div
                             style={{
                               color: '#ffffff',
-                              fontSize: '15px',
+                              fontSize: '19px',
                               fontWeight: 700,
                               letterSpacing: '0.5px',
-                              marginBottom: '4px',
+                              marginBottom: '5px',
                             }}
                           >
                             {dateLabel}
@@ -5802,19 +6284,19 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <span
                               style={{
                                 color: '#ff6600',
-                                fontSize: '12px',
+                                fontSize: '15px',
                                 fontWeight: 700,
                                 letterSpacing: '1px',
                               }}
                             >
                               {tradeCount != null
                                 ? `${tradeCount.toLocaleString()} TRADES`
-                                : '— TRADES'}
+                                : '� TRADES'}
                             </span>
                             <span
                               style={{
                                 color: '#00e5ff',
-                                fontSize: '12px',
+                                fontSize: '15px',
                                 fontWeight: 700,
                                 letterSpacing: '0.5px',
                               }}
@@ -5825,16 +6307,17 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </div>
 
                         {/* Right: actions */}
-                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                           <button
                             onClick={() => handleDownloadFlowExcel(flow.date, dateLabel)}
                             title="Download as Excel"
                             style={{
-                              background: 'rgba(0,229,100,0.12)',
+                              background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
                               color: '#00e564',
-                              border: '1px solid rgba(0,229,100,0.35)',
-                              padding: '6px 12px',
-                              fontSize: '11px',
+                              border: '1px solid #00e564',
+                              padding: '9px 15px',
+                              fontSize: '14px',
                               fontWeight: 700,
                               letterSpacing: '1.5px',
                               cursor: 'pointer',
@@ -5843,17 +6326,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                               gap: '5px',
                             }}
                           >
-                            ↓ XLS
+                            ? XLS
                           </button>
                           <button
                             onClick={() => handleLoadFlow(flow.date)}
                             disabled={loadingFlowDate === flow.date}
                             style={{
-                              background: '#ff6600',
-                              color: '#000',
-                              border: 'none',
-                              padding: '6px 14px',
-                              fontSize: '11px',
+                              background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
+                              color: '#ff6600',
+                              border: '1px solid #ff6600',
+                              padding: '9px 17px',
+                              fontSize: '14px',
                               fontWeight: 700,
                               letterSpacing: '1.5px',
                               cursor: 'pointer',
@@ -5893,22 +6377,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                           <button
                             onClick={() => handleDeleteFlow(flow.date)}
                             style={{
-                              background: 'transparent',
-                              color: '#555',
-                              border: '1px solid #222',
-                              padding: '6px 10px',
-                              fontSize: '11px',
+                              background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
+                              color: '#ff2222',
+                              border: '1px solid #ff2222',
+                              padding: '9px 13px',
+                              fontSize: '14px',
                               fontWeight: 700,
                               letterSpacing: '1px',
                               cursor: 'pointer',
-                            }}
-                            onMouseEnter={(e) => {
-                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#ff3333'
-                                ; (e.currentTarget as HTMLButtonElement).style.color = '#ff3333'
-                            }}
-                            onMouseLeave={(e) => {
-                              ; (e.currentTarget as HTMLButtonElement).style.borderColor = '#222'
-                                ; (e.currentTarget as HTMLButtonElement).style.color = '#555'
                             }}
                           >
                             DEL
@@ -6034,6 +6511,44 @@ Stock Reaction: ${scores.stockReaction}/15`
               {/* Right side buttons */}
 
               <div className="flex items-center gap-2">
+                {/* LEAP Button - mobile */}
+                <button
+                  onClick={async () => {
+                    const newState = !leapActive
+                    setLeapActive(newState)
+                    if (efiHighlightsActive) setEfiHighlightsActive(false)
+                    if (newState) {
+                      const rsData = await calculateLeapRS(filteredAndSortedData)
+                      setLeapRsData(rsData)
+                      const tickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))]
+                      const [wkData, seasonData] = await Promise.all([
+                        fetchLeap52wkData(tickers),
+                        fetchLeapSeasonalData(tickers),
+                      ])
+                      setLeap52wkData(wkData)
+                      setLeapSeasonalData(seasonData)
+                    }
+                  }}
+                  className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                  style={{
+                    height: '40px',
+                    background: leapActive
+                      ? 'linear-gradient(180deg, #00c9ff 0%, #0099cc 50%, #007aa3 100%)'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: leapActive ? '1px solid #00e5ff' : '2px solid #2a2a2a',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: leapActive
+                      ? 'inset 0 1px 0 rgba(255,255,255,0.4), 0 0 10px rgba(0,200,255,0.4)'
+                      : 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                    color: leapActive ? '#000000' : '#00c9ff',
+                  }}
+                >
+                  LEAP
+                </button>
+
                 {/* Highlights Button */}
 
                 <button
@@ -6041,6 +6556,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     const newState = !efiHighlightsActive
                     setEfiHighlightsActive(newState)
                     if (newState) {
+                      setLeapActive(false)
                       const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
                       const rsData = await calculateRelativeStrength(efiTrades)
                       setRelativeStrengthData(rsData)
@@ -6472,9 +6988,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                     {savingFlow
                       ? 'SAVING...'
                       : saveStatus === 'success'
-                        ? 'SAVED ✓'
+                        ? 'SAVED ?'
                         : saveStatus === 'error'
-                          ? 'ERROR ✗'
+                          ? 'ERROR ?'
                           : 'SAVE'}
                   </span>
                 </button>
@@ -6804,23 +7320,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: selectedOptionTypes.length === 1 && selectedOptionTypes[0] === 'call' ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '15px',
-
                           letterSpacing: '1.2px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: selectedOptionTypes.length === 1 && selectedOptionTypes[0] === 'call' ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#84cc16',
                         }}
                       >
@@ -6834,23 +7341,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: selectedOptionTypes.length === 1 && selectedOptionTypes[0] === 'put' ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '15px',
-
                           letterSpacing: '1.2px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: selectedOptionTypes.length === 1 && selectedOptionTypes[0] === 'put' ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#dc2626',
                         }}
                       >
@@ -6925,31 +7423,20 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <button
                         onClick={() => {
                           setInputTicker('ETF')
-
                           onTickerChange('ETF')
-
                           onRefresh?.('ETF')
                         }}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: inputTicker === 'ETF' ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '15px',
-
                           letterSpacing: '1.2px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: inputTicker === 'ETF' ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#ff8500',
                         }}
                       >
@@ -6959,31 +7446,20 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <button
                         onClick={() => {
                           setInputTicker('MAG7')
-
                           onTickerChange('MAG7')
-
                           onRefresh?.('MAG7')
                         }}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: inputTicker === 'MAG7' ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '15px',
-
                           letterSpacing: '1.2px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: inputTicker === 'MAG7' ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#a855f7',
                         }}
                       >
@@ -6993,31 +7469,20 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <button
                         onClick={() => {
                           setInputTicker('ALL')
-
                           onTickerChange('ALL')
-
                           onRefresh?.('ALL')
                         }}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: inputTicker === 'ALL' ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '15px',
-
                           letterSpacing: '1.2px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: inputTicker === 'ALL' ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#ffffff',
                         }}
                       >
@@ -7136,29 +7601,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                   ) : (
                     <>
                       <button
-                        onClick={() => {
-                          setQuickFilters((prev) => ({ ...prev, otm: !prev.otm }))
-                        }}
+                        onClick={() => setQuickFilters((prev) => ({ ...prev, otm: !prev.otm }))}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: quickFilters.otm ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '12px',
-
                           letterSpacing: '1px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: quickFilters.otm ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#3b82f6',
                         }}
                       >
@@ -7166,29 +7620,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </button>
 
                       <button
-                        onClick={() => {
-                          setQuickFilters((prev) => ({ ...prev, premium100k: !prev.premium100k }))
-                        }}
+                        onClick={() => setQuickFilters((prev) => ({ ...prev, premium100k: !prev.premium100k }))}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: quickFilters.premium100k ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '12px',
-
                           letterSpacing: '1px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: quickFilters.premium100k ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#22c55e',
                         }}
                       >
@@ -7196,29 +7639,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </button>
 
                       <button
-                        onClick={() => {
-                          setQuickFilters((prev) => ({ ...prev, weekly: !prev.weekly }))
-                        }}
+                        onClick={() => setQuickFilters((prev) => ({ ...prev, weekly: !prev.weekly }))}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: quickFilters.weekly ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '12px',
-
                           letterSpacing: '1px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: quickFilters.weekly ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#ef4444',
                         }}
                       >
@@ -7226,29 +7658,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </button>
 
                       <button
-                        onClick={() => {
-                          setQuickFilters((prev) => ({ ...prev, sweep: !prev.sweep }))
-                        }}
+                        onClick={() => setQuickFilters((prev) => ({ ...prev, sweep: !prev.sweep }))}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: quickFilters.sweep ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '12px',
-
                           letterSpacing: '1px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: quickFilters.sweep ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#fbbf24',
                         }}
                       >
@@ -7256,29 +7677,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </button>
 
                       <button
-                        onClick={() => {
-                          setQuickFilters((prev) => ({ ...prev, block: !prev.block }))
-                        }}
+                        onClick={() => setQuickFilters((prev) => ({ ...prev, block: !prev.block }))}
                         className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           height: '48px',
-
                           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-
-                          border: '2px solid #2a2a2a',
-
+                          border: quickFilters.block ? '2px solid #ff6600' : '2px solid #2a2a2a',
                           borderRadius: '4px',
-
                           fontSize: '12px',
-
                           letterSpacing: '1px',
-
                           fontWeight: '900',
-
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
+                          boxShadow: quickFilters.block ? 'inset 0 2px 8px rgba(0,0,0,0.9), 0 0 10px rgba(255,102,0,0.6)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                           outline: 'none',
-
                           color: '#a855f7',
                         }}
                       >
@@ -7329,6 +7739,44 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{ width: '1px', height: '48px', background: '#2a2a2a' }}
                 ></div>
 
+                {/* LEAP Toggle */}
+                <button
+                  onClick={async () => {
+                    const newState = !leapActive
+                    setLeapActive(newState)
+                    if (efiHighlightsActive) setEfiHighlightsActive(false)
+                    if (newState) {
+                      const rsData = await calculateLeapRS(filteredAndSortedData)
+                      setLeapRsData(rsData)
+                      const tickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))]
+                      const [wkData, seasonData] = await Promise.all([
+                        fetchLeap52wkData(tickers),
+                        fetchLeapSeasonalData(tickers),
+                      ])
+                      setLeap52wkData(wkData)
+                      setLeapSeasonalData(seasonData)
+                    }
+                  }}
+                  className="px-4 md:px-6 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                  style={{
+                    height: '48px',
+                    background: leapActive
+                      ? 'linear-gradient(180deg, #00c9ff 0%, #0099cc 50%, #007aa3 100%)'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: leapActive ? '1px solid #00e5ff' : '2px solid #2a2a2a',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    letterSpacing: '1.5px',
+                    fontWeight: '900',
+                    boxShadow: leapActive
+                      ? 'inset 0 1px 0 rgba(255,255,255,0.4), 0 0 12px rgba(0,200,255,0.4)'
+                      : 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                    color: leapActive ? '#000000' : '#00c9ff',
+                  }}
+                >
+                  LEAP
+                </button>
+
                 {/* Premium EFI Highlights Toggle */}
 
                 <button
@@ -7336,6 +7784,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     const newState = !efiHighlightsActive
                     setEfiHighlightsActive(newState)
                     if (newState) {
+                      setLeapActive(false)
                       const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
                       const rsData = await calculateRelativeStrength(efiTrades)
                       setRelativeStrengthData(rsData)
@@ -7469,7 +7918,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         className="text-orange-400 hover:text-white hover:bg-orange-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold transition-all duration-200"
                         title="Clear filter"
                       >
-                        ×
+                        �
                       </button>
                     </div>
                   </div>
@@ -7561,7 +8010,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                             />
                           </svg>
 
-                          <span>REFRESH</span>
                         </>
                       )}
                     </button>
@@ -7700,8 +8148,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                           <button
                             onClick={() => {
-                              setIsHistoryDialogOpen(true)
-
+                              loadFlowHistory()
                               setMobileMenuOpen(false)
                             }}
                             disabled={loadingHistory}
@@ -7833,9 +8280,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                       {savingFlow
                         ? 'SAVING...'
                         : saveStatus === 'success'
-                          ? 'SAVED ✓'
+                          ? 'SAVED ?'
                           : saveStatus === 'error'
-                            ? 'ERROR ✗'
+                            ? 'ERROR ?'
                             : 'SAVE'}
                     </span>
                   </button>
@@ -8114,7 +8561,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           disabled={currentPage === 1}
                           className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
                         >
-                          ←
+                          ?
                         </button>
 
                         {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -8149,7 +8596,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           disabled={currentPage === totalPages}
                           className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
                         >
-                          →
+                          ?
                         </button>
                       </div>
                     )}
@@ -8211,7 +8658,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                       <span className="hidden md:inline">Time</span>
 
-                      {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8219,7 +8666,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       onClick={() => handleSort('underlying_ticker')}
                     >
                       Symbol{' '}
-                      {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8230,14 +8677,14 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                       <span className="hidden md:inline">Call/Put</span>
 
-                      {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'type' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
                       className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('strike')}
                     >
-                      Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      Strike {sortField === 'strike' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8248,7 +8695,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                       <span className="hidden md:inline">Size</span>
 
-                      {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'trade_size' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8256,7 +8703,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       onClick={() => handleSort('total_premium')}
                     >
                       Premium{' '}
-                      {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'total_premium' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8267,7 +8714,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                       <span className="hidden md:inline">Expiration</span>
 
-                      {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'expiry' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th
@@ -8278,7 +8725,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                       <span className="md:hidden">Spot</span>
 
-                      {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      {sortField === 'spot_price' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     <th className="hidden md:table-cell text-center md:text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700">
@@ -8289,7 +8736,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                       onClick={() => handleSort('trade_type')}
                     >
-                      Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '?' : '?')}
                     </th>
 
                     {notableFilterActive && (
@@ -8303,18 +8750,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </th>
                     )}
 
-                    {efiHighlightsActive && (
+                    {(efiHighlightsActive || leapActive) && (
                       <th
                         className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                         onClick={() => {
-                          handleSort('positioning_grade')
+                          handleSort(leapActive ? 'leap_grade' : 'positioning_grade')
                         }}
                       >
                         <span className="md:hidden">Grade</span>
 
-                        <span className="hidden md:inline">Position</span>
+                        <span className="hidden md:inline">{leapActive ? 'LEAP' : 'Position'}</span>
 
-                        {sortField === 'positioning_grade' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        {(sortField === (leapActive ? 'leap_grade' : 'positioning_grade')) && (sortDirection === 'asc' ? '?' : '?')}
                       </th>
                     )}
                   </tr>
@@ -8358,13 +8805,33 @@ Stock Reaction: ${scores.stockReaction}/15`
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
                       >
                         <tr
-                          className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
+                          className="border-b border-slate-700/50 transition-all duration-150"
                           onClick={() => {
                             if (isNotablePick) openNotableAnalysis(trade)
                           }}
+                          onMouseEnter={(e) => {
+                            const el = e.currentTarget
+                            el.style.transform = 'scaleY(1.12) translateZ(0)'
+                            el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.95), 0 0 12px rgba(255,102,0,0.18)'
+                            el.style.zIndex = '2'
+                            el.style.position = 'relative'
+                            el.style.background = 'linear-gradient(to right, #1a1400, #111100, #0d0d0d)'
+                            el.style.borderLeft = isEfiHighlight ? el.style.borderLeft : '2px solid #ff6600'
+                            el.style.fontSize = '115%'
+                          }}
+                          onMouseLeave={(e) => {
+                            const el = e.currentTarget
+                            el.style.transform = 'scaleY(1) translateZ(0)'
+                            el.style.boxShadow = 'none'
+                            el.style.zIndex = '1'
+                            el.style.borderLeft = ''
+                            el.style.fontSize = ''
+                            if (!isEfiHighlight) {
+                              el.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a'
+                            }
+                          }}
                           style={{
                             cursor: isNotablePick ? 'pointer' : 'default',
-
                             ...(isEfiHighlight
                               ? isBullishEfi
                                 ? {
@@ -8739,14 +9206,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </span>
                           </td>
 
-                          {/* ── Targets column ── */}
+                          {/* -- Targets column -- */}
                           {notableFilterActive &&
                             (() => {
                               const isCall = trade.type === 'call'
                               const fillStyle = trade.fill_style || ''
                               const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
-                              // A/AA: directional — calls go up, puts go down
-                              // B/BB: inversed  — calls go down (sold call = bearish), puts go up (sold put = bullish)
+                              // A/AA: directional � calls go up, puts go down
+                              // B/BB: inversed  � calls go down (sold call = bearish), puts go up (sold put = bullish)
                               const targetIsUpside =
                                 (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
                               const cacheKeyT = trade.underlying_ticker
@@ -8847,13 +9314,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                                       </div>
                                     </div>
                                   ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>—</span>
+                                    <span style={{ color: '#333', fontSize: '12px' }}>�</span>
                                   )}
                                 </td>
                               )
                             })()}
 
-                          {/* ── Dealer column ── */}
+                          {/* -- Dealer column -- */}
                           {notableFilterActive &&
                             (() => {
                               const cacheKey = trade.underlying_ticker
@@ -8898,7 +9365,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                               letterSpacing: '-0.5px',
                                             }}
                                           >
-                                            {zones.golden != null ? `$${zones.golden}` : '—'}
+                                            {zones.golden != null ? `$${zones.golden}` : '�'}
                                           </span>
                                           {zones.goldenExpiry && (
                                             <span
@@ -8938,7 +9405,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                               letterSpacing: '-0.5px',
                                             }}
                                           >
-                                            {zones.purple != null ? `$${zones.purple}` : '—'}
+                                            {zones.purple != null ? `$${zones.purple}` : '�'}
                                           </span>
                                           {zones.purpleExpiry && (
                                             <span
@@ -8965,13 +9432,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                                       </span>
                                     )
                                   ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>—</span>
+                                    <span style={{ color: '#333', fontSize: '12px' }}>�</span>
                                   )}
                                 </td>
                               )
                             })()}
 
-                          {efiHighlightsActive &&
+                          {(efiHighlightsActive || leapActive) &&
                             (() => {
                               const expiry = trade.expiry.replace(/-/g, '').slice(2)
 
@@ -9162,8 +9629,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                                         ></div>
 
                                         <span
-                                          onMouseEnter={() => setHoveredGradeIndex(index)}
-                                          onMouseLeave={() => setHoveredGradeIndex(null)}
                                           style={{
                                             color: scoreColor,
 
@@ -9193,14 +9658,12 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                             WebkitTextStroke: `0.5px ${scoreColor}`,
 
-                                            cursor: 'help',
-
                                             position: 'relative',
                                           }}
                                         >
                                           {grade}
 
-                                          {hoveredGradeIndex === index &&
+                                          {false &&
                                             (index < 3 ? (
                                               <div
                                                 style={{
@@ -9255,207 +9718,71 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                   pointerEvents: 'none',
                                                 }}
                                               >
-                                                <div
-                                                  style={{
-                                                    marginBottom: '8px',
-                                                    fontWeight: 'bold',
-                                                    fontSize: '16px',
-                                                  }}
-                                                >
-                                                  Score:{' '}
-                                                  <span style={{ color: scoreColor }}>
-                                                    {gradeData.score}/100
-                                                  </span>
+                                                <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
+                                                  {leapActive ? 'LEAP' : ''} Score:{' '}
+                                                  <span style={{ color: scoreColor }}>{gradeData.score}/75</span>
                                                 </div>
 
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Expiration:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.expiration === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.expiration === 25
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.expiration}/25
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Rel. Strength:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.relativeStrength === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.relativeStrength === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.relativeStrength}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Contract P&L:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.contractPrice === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.contractPrice === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.contractPrice}/15
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Combo Trade:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.combo === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.combo === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.combo}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Price Action:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.priceAction === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.priceAction === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.priceAction}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Volume vs OI:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.volumeOI === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.volumeOI === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.volumeOI}/15
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Stock Reaction:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.stockReaction === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.stockReaction === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.stockReaction}/15
-                                                  </span>
-                                                </div>
-
-                                                {gradeData.stdDevError && (
-                                                  <div
-                                                    style={{
-                                                      color: '#ef4444',
-                                                      fontSize: '12px',
-                                                      marginTop: '4px',
-                                                      fontStyle: 'italic',
-                                                    }}
-                                                  >
-                                                    ⚠ StdDev fetch failed — Price Action unscored
-                                                  </div>
+                                                {leapActive ? (
+                                                  <>
+                                                    {([['Contract P&L', gradeData.scores.contractPrice, 15], ['Rel. Strength', gradeData.scores.relativeStrength, 30], ['Vol / OI', gradeData.scores.volumeOI, 15], ['Stock Reaction', gradeData.scores.stockReaction, 15]] as [string, number, number][]).map(([label, val, max]) => (
+                                                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                                        <span>{label}</span>
+                                                        <span style={{ color: val <= 0 ? '#ff0000' : val >= max ? '#00ff00' : '#fbbf24' }}>
+                                                          {val}/{max}
+                                                        </span>
+                                                      </div>
+                                                    ))}
+                                                    {(gradeData.scores as any).bonus52w > 0 && (
+                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#00e5ff' }}>
+                                                        <span>52W Breakout Bonus</span>
+                                                        <span>+{(gradeData.scores as any).bonus52w}</span>
+                                                      </div>
+                                                    )}
+                                                    {(gradeData.scores as any).seasonalBonus > 0 && (
+                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#a78bfa' }}>
+                                                        <span>Seasonality Bonus</span>
+                                                        <span>+{(gradeData.scores as any).seasonalBonus}</span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Expiration:</span>
+                                                      <span style={{ color: (gradeData.scores as any).expiration === 0 ? '#ff0000' : (gradeData.scores as any).expiration === 25 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).expiration}/25</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Rel. Strength:</span>
+                                                      <span style={{ color: gradeData.scores.relativeStrength === 0 ? '#ff0000' : gradeData.scores.relativeStrength === 10 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.relativeStrength}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Contract P&L:</span>
+                                                      <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.contractPrice}/15</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Combo Trade:</span>
+                                                      <span style={{ color: (gradeData.scores as any).combo === 0 ? '#ff0000' : (gradeData.scores as any).combo === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).combo}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Price Action:</span>
+                                                      <span style={{ color: (gradeData.scores as any).priceAction === 0 ? '#ff0000' : (gradeData.scores as any).priceAction === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).priceAction}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Volume vs OI:</span>
+                                                      <span style={{ color: gradeData.scores.volumeOI === 0 ? '#ff0000' : gradeData.scores.volumeOI === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.volumeOI}/15</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Stock Reaction:</span>
+                                                      <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.stockReaction}/15</span>
+                                                    </div>
+                                                    {gradeData.stdDevError && (
+                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed &#8212; Price Action unscored</div>
+                                                    )}
+                                                  </>
                                                 )}
 
-                                                <div
-                                                  style={{
-                                                    position: 'absolute',
-
-                                                    top: '-10px',
-
-                                                    left: '50%',
-
-                                                    transform: 'translateX(-50%)',
-
-                                                    width: 0,
-
-                                                    height: 0,
-
-                                                    borderLeft: '10px solid transparent',
-
-                                                    borderRight: '10px solid transparent',
-
-                                                    borderBottom: `10px solid ${scoreColor}`,
-                                                  }}
-                                                ></div>
+                                                <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderBottom: `10px solid ${scoreColor}` }}></div>
                                               </div>
                                             ) : (
                                               <div
@@ -9511,207 +9838,71 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                   pointerEvents: 'none',
                                                 }}
                                               >
-                                                <div
-                                                  style={{
-                                                    marginBottom: '8px',
-                                                    fontWeight: 'bold',
-                                                    fontSize: '16px',
-                                                  }}
-                                                >
-                                                  Score:{' '}
-                                                  <span style={{ color: scoreColor }}>
-                                                    {gradeData.score}/100
-                                                  </span>
+                                                <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
+                                                  {leapActive ? 'LEAP' : ''} Score:{' '}
+                                                  <span style={{ color: scoreColor }}>{gradeData.score}/75</span>
                                                 </div>
 
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Expiration:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.expiration === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.expiration === 25
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.expiration}/25
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Rel. Strength:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.relativeStrength === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.relativeStrength === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.relativeStrength}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Contract P&L:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.contractPrice === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.contractPrice === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.contractPrice}/15
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Combo Trade:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.combo === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.combo === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.combo}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Price Action:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.priceAction === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.priceAction === 10
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.priceAction}/10
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Volume vs OI:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.volumeOI === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.volumeOI === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.volumeOI}/15
-                                                  </span>
-                                                </div>
-
-                                                <div
-                                                  style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                  }}
-                                                >
-                                                  <span>Stock Reaction:</span>
-
-                                                  <span
-                                                    style={{
-                                                      color:
-                                                        gradeData.scores.stockReaction === 0
-                                                          ? '#ff0000'
-                                                          : gradeData.scores.stockReaction === 15
-                                                            ? '#00ff00'
-                                                            : '#ffffff',
-                                                    }}
-                                                  >
-                                                    {gradeData.scores.stockReaction}/15
-                                                  </span>
-                                                </div>
-
-                                                {gradeData.stdDevError && (
-                                                  <div
-                                                    style={{
-                                                      color: '#ef4444',
-                                                      fontSize: '12px',
-                                                      marginTop: '4px',
-                                                      fontStyle: 'italic',
-                                                    }}
-                                                  >
-                                                    ⚠ StdDev fetch failed — Price Action unscored
-                                                  </div>
+                                                {leapActive ? (
+                                                  <>
+                                                    {([['Contract P&L', gradeData.scores.contractPrice, 15], ['Rel. Strength', gradeData.scores.relativeStrength, 30], ['Vol / OI', gradeData.scores.volumeOI, 15], ['Stock Reaction', gradeData.scores.stockReaction, 15]] as [string, number, number][]).map(([label, val, max]) => (
+                                                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                                        <span>{label}</span>
+                                                        <span style={{ color: val <= 0 ? '#ff0000' : val >= max ? '#00ff00' : '#fbbf24' }}>
+                                                          {val}/{max}
+                                                        </span>
+                                                      </div>
+                                                    ))}
+                                                    {(gradeData.scores as any).bonus52w > 0 && (
+                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#00e5ff' }}>
+                                                        <span>52W Breakout Bonus</span>
+                                                        <span>+{(gradeData.scores as any).bonus52w}</span>
+                                                      </div>
+                                                    )}
+                                                    {(gradeData.scores as any).seasonalBonus > 0 && (
+                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#a78bfa' }}>
+                                                        <span>Seasonality Bonus</span>
+                                                        <span>+{(gradeData.scores as any).seasonalBonus}</span>
+                                                      </div>
+                                                    )}
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Expiration:</span>
+                                                      <span style={{ color: (gradeData.scores as any).expiration === 0 ? '#ff0000' : (gradeData.scores as any).expiration === 25 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).expiration}/25</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Rel. Strength:</span>
+                                                      <span style={{ color: gradeData.scores.relativeStrength === 0 ? '#ff0000' : gradeData.scores.relativeStrength === 10 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.relativeStrength}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Contract P&L:</span>
+                                                      <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.contractPrice}/15</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Combo Trade:</span>
+                                                      <span style={{ color: (gradeData.scores as any).combo === 0 ? '#ff0000' : (gradeData.scores as any).combo === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).combo}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Price Action:</span>
+                                                      <span style={{ color: (gradeData.scores as any).priceAction === 0 ? '#ff0000' : (gradeData.scores as any).priceAction === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).priceAction}/10</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Volume vs OI:</span>
+                                                      <span style={{ color: gradeData.scores.volumeOI === 0 ? '#ff0000' : gradeData.scores.volumeOI === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.volumeOI}/15</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                      <span>Stock Reaction:</span>
+                                                      <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.stockReaction}/15</span>
+                                                    </div>
+                                                    {gradeData.stdDevError && (
+                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed � Price Action unscored</div>
+                                                    )}
+                                                  </>
                                                 )}
 
-                                                <div
-                                                  style={{
-                                                    position: 'absolute',
-
-                                                    bottom: '-10px',
-
-                                                    left: '50%',
-
-                                                    transform: 'translateX(-50%)',
-
-                                                    width: 0,
-
-                                                    height: 0,
-
-                                                    borderLeft: '10px solid transparent',
-
-                                                    borderRight: '10px solid transparent',
-
-                                                    borderTop: `10px solid ${scoreColor}`,
-                                                  }}
-                                                ></div>
+                                                <div style={{ position: 'absolute', bottom: '-10px', left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderTop: `10px solid ${scoreColor}` }}></div>
                                               </div>
                                             ))}
                                         </span>
@@ -9762,7 +9953,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                         </tr>
 
-                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot — only for notable picks on mobile */}
+                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot � only for notable picks on mobile */}
                         {isMobileView &&
                           isNotablePick &&
                           (() => {
@@ -9846,7 +10037,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t1m ? `$${t1m.toFixed(2)}` : '—'}
+                                        {t1m ? `$${t1m.toFixed(2)}` : '�'}
                                       </span>
                                     </div>
                                     {/* T2 */}
@@ -9880,7 +10071,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t2m ? `$${t2m.toFixed(2)}` : '—'}
+                                        {t2m ? `$${t2m.toFixed(2)}` : '�'}
                                       </span>
                                     </div>
                                     {/* Magnet */}
@@ -9914,7 +10105,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#FFD700',
                                         }}
                                       >
-                                        {zones2?.golden != null ? `$${zones2.golden}` : '…'}
+                                        {zones2?.golden != null ? `$${zones2.golden}` : '�'}
                                         {zones2?.goldenExpiry && (
                                           <span
                                             style={{
@@ -9959,7 +10150,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#dd44ff',
                                         }}
                                       >
-                                        {zones2?.purple != null ? `$${zones2.purple}` : '…'}
+                                        {zones2?.purple != null ? `$${zones2.purple}` : '�'}
                                         {zones2?.purpleExpiry && (
                                           <span
                                             style={{

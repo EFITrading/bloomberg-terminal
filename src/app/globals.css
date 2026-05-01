@@ -46,6 +46,21 @@ body {
     /* Use rem for browser zoom compatibility */
 }
 
+/* Hide native browser clear (✕) button on text/number inputs */
+input::-ms-clear,
+input::-ms-reveal {
+    display: none;
+}
+
+input::-webkit-search-cancel-button,
+input::-webkit-search-decoration,
+input::-webkit-inner-spin-button,
+input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
 /* Global scrollbar hiding */
 * {
     scrollbar-width: none;

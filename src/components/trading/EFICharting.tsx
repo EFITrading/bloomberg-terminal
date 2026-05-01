@@ -1220,37 +1220,23 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
 }
 
 // Retry utility function for API calls with automatic retry on failure
-const fetchWithRetry = async (url: string, maxRetries: number = 2): Promise<Response> => {
+const fetchWithRetry = async (url: string, maxRetries: number = 3): Promise<Response> => {
   let lastError: any
+  const retryDelays = [500, 800, 1200]
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(url)
-
-      // If successful, return immediately
-      if (response.ok) {
-        return response
-      }
-
-      // If not ok and not last attempt, retry
+      if (response.ok) return response
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Wait 500ms before retry
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt - 1]))
         continue
       }
-
-      // Last attempt failed with non-ok status
       return response
     } catch (error) {
       lastError = error
-
-      // Silently retry on connection errors - no logging
-      // Only throw on final attempt
-      if (attempt === maxRetries) {
-        throw error
-      }
-
-      // Retry after short delay
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      if (attempt === maxRetries) throw error
+      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt - 1]))
     }
   }
 
@@ -5014,6 +5000,64 @@ const FlowPanel = React.memo(
 
 FlowPanel.displayName = 'FlowPanel'
 
+// ── Contraction detection helpers (copied from StraddleTownScreener) ─────────
+const _MIN_AVG_HV = 1.5
+const _CONTRACTION_THRESHOLD = 40
+
+function _calcHV4D(bars: { high: number; low: number }[], lookback = 120): number {
+  if (bars.length < lookback) return 0
+  const rb = bars.slice(-lookback)
+  const moves: number[] = []
+  for (let i = 4; i < rb.length; i++) {
+    const h = Math.max(...rb.slice(i - 4, i + 1).map((b) => b.high))
+    const l = Math.min(...rb.slice(i - 4, i + 1).map((b) => b.low))
+    moves.push(((h - l) / l) * 100)
+  }
+  return moves.length ? moves.reduce((s, m) => s + m, 0) / moves.length : 0
+}
+
+function _detectContraction(bars: { high: number; low: number; close: number }[]): { qualifies: boolean; compressionPct: number } {
+  if (bars.length < 120) return { qualifies: false, compressionPct: 0 }
+  const lb = bars.slice(-4)
+  if (lb.length < 4) return { qualifies: false, compressionPct: 0 }
+  const avgHV = _calcHV4D(bars)
+  if (!avgHV || avgHV < _MIN_AVG_HV) return { qualifies: false, compressionPct: 0 }
+  const high = Math.max(...lb.map((b) => b.high))
+  const low = Math.min(...lb.map((b) => b.low))
+  const currentRange = high - low
+  const rangePercent = (currentRange / low) * 100
+  const compressionPct = ((avgHV - rangePercent) / avgHV) * 100
+  const netMove = Math.abs(lb[lb.length - 1].close - lb[0].close)
+  const notTrending = currentRange > 0 ? netMove / currentRange < 0.8 : false
+  const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
+  const curBarTight = avgBarRange > 0 && lb[lb.length - 1].high - lb[lb.length - 1].low <= avgBarRange * 2.0
+  const qualifies = compressionPct > _CONTRACTION_THRESHOLD && notTrending && curBarTight
+  return { qualifies, compressionPct }
+}
+
+function _scanHistory(allBars: { date: string; high: number; low: number; close: number }[]): { date: string; compressionPct: number }[] {
+  const events: { date: string; compressionPct: number }[] = []
+  let inC = false, peakC = 0, lastIdx = -1
+  const emit = () => {
+    if (!inC || lastIdx < 0) return
+    events.push({ date: allBars[lastIdx].date, compressionPct: peakC })
+    inC = false; peakC = 0; lastIdx = -1
+  }
+  for (let i = 120; i < allBars.length; i++) {
+    const r = _detectContraction(allBars.slice(0, i + 1))
+    if (r.qualifies) {
+      if (!inC) { inC = true; peakC = r.compressionPct }
+      else if (r.compressionPct > peakC) peakC = r.compressionPct
+      lastIdx = i
+    } else {
+      if (inC) emit()
+    }
+  }
+  if (inC) emit()
+  return events
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function TradingViewChart({
   symbol,
   initialTimeframe = '1d',
@@ -5320,10 +5364,11 @@ export default function TradingViewChart({
   const trackingFetchedRef = useRef(false)
   const trackingScrollRef = useRef<HTMLDivElement>(null)
 
-  // Flow tab state – historical monthly ETF fund flows
+  // Flow tab state – full 5Y weekly dataset fetched once, filtered client-side per range
   const [flowTabData, setFlowTabData] = useState<
-    Record<string, Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>>
+    Record<string, Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>>
   >({})
+  const [flowTabBaseAUM, setFlowTabBaseAUM] = useState<Record<string, number>>({})
   const [flowTabLoading, setFlowTabLoading] = useState(false)
   const flowTabFetchedRef = useRef(false)
   const [flowTabRange, setFlowTabRange] = useState<'1M' | '4M' | '1Y' | '3Y' | '5Y'>('1Y')
@@ -9338,6 +9383,7 @@ export default function TradingViewChart({
   const [showDarkPoolIndicator, setShowDarkPoolIndicator] = useState(false)
   const [darkPoolLoading, setDarkPoolLoading] = useState(false)
   const [darkPoolProgress, setDarkPoolProgress] = useState(0) // 0-100 fetch progress
+  const [contractionEvents, setContractionEvents] = useState<{ date: string; compressionPct: number }[]>([])
   // Persistent cache: keyed by "symbol:YYYY-MM-DD" — survives timeframe switches
   const darkPoolCacheRef = useRef<Record<string, any>>({})
   const darkPoolCacheSymbolRef = useRef<string>('')
@@ -10939,61 +10985,52 @@ export default function TradingViewChart({
     }
   }, [watchlistLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch historical weekly ETF flow data for the Flow tab
-  const fetchETFFlowHistory = useCallback(async () => {
+  // Fetch ETF fund flow data for a specific range — max plan: all parallel, no throttling
+  const fetchETFFlows = useCallback(async () => {
     if (flowTabFetchedRef.current) return
     flowTabFetchedRef.current = true
     setFlowTabLoading(true)
 
     const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
     const ETF_TICKERS = [
-      'SPY',
-      'QQQ',
-      'IWM',
-      'XLK',
-      'XLF',
-      'XLY',
-      'XLV',
-      'XLE',
-      'XLU',
-      'XLP',
-      'XLI',
-      'XLB',
-      'XLC',
-      'XLRE',
+      // Broad market
+      'SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'MDY', 'IJR',
+      // Sector SPDR + Vanguard
+      'XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE',
+      'VGT', 'VFH', 'VCR', 'VHT', 'VDE', 'VPU', 'VDC', 'VIS', 'VAW', 'VOX',
+      // Fixed income
+      'TLT', 'IEF', 'SHY', 'HYG', 'LQD', 'AGG', 'BND', 'TIP',
+      // Commodities
+      'GLD', 'SLV', 'GDX', 'GDXJ', 'USO', 'UNG', 'DBC', 'PDBC',
+      // Leveraged / inverse
+      'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'UVXY', 'SVXY',
+      // International
+      'EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG',
+      // Thematic
+      'ARKK', 'ARKG', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ',
+      'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB',
     ]
 
-    // Variable-density intervals: dense recent, sparse historical
+    // Fetch full 5Y at weekly resolution — all ranges filter client-side (no re-fetch on tab switch)
+    const days = 365 * 5
+    const step = 7  // weekly → ~260 points, captures every creation/redemption event
+
     const getDateStr = (daysBack: number) => {
       const d = new Date()
       d.setDate(d.getDate() - daysBack)
-      while (d.getDay() === 0) d.setDate(d.getDate() - 2)
-      while (d.getDay() === 6) d.setDate(d.getDate() - 1)
+      if (d.getDay() === 0) d.setDate(d.getDate() - 2)
+      if (d.getDay() === 6) d.setDate(d.getDate() - 1)
       return d.toISOString().split('T')[0]
     }
 
-    const daysOffsets: number[] = []
-    for (let i = 0; i <= 120; i += 3) daysOffsets.push(i) // last 4M: every 3 days (~40 pts)
-    for (let i = 127; i <= 365; i += 7) daysOffsets.push(i) // 4M-1Y: every 7 days (~34 pts)
-    for (let i = 379; i <= 365 * 3; i += 14) daysOffsets.push(i) // 1Y-3Y: every 14 days (~52 pts)
-    for (let i = 365 * 3 + 30; i <= 365 * 5; i += 30) daysOffsets.push(i) // 3Y-5Y: monthly (~24 pts)
-    const dateStrings = daysOffsets.map(getDateStr)
+    const dateStrings: string[] = []
+    for (let i = 0; i <= days; i += step) dateStrings.push(getDateStr(i))
+    // Always include most-recent trading day
+    const latest = getDateStr(0)
+    if (!dateStrings.includes(latest)) dateStrings.unshift(latest)
+    dateStrings.sort() // ascending
 
-    const fetchShares = async (ticker: string, date: string): Promise<number | null> => {
-      try {
-        const res = await fetch(
-          `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLY_KEY}`,
-          { headers: { Accept: 'application/json' } }
-        )
-        if (!res.ok) return null
-        const json = await res.json()
-        return json.results?.share_class_shares_outstanding ?? null
-      } catch {
-        return null
-      }
-    }
-
-    // Fetch current prices once
+    // Current prices — single call
     const priceMap: Record<string, number> = {}
     try {
       const snapRes = await fetch(
@@ -11007,53 +11044,94 @@ export default function TradingViewChart({
             if (p) priceMap[t.ticker] = p
           })
       }
-    } catch {
-      /* ignore */
+    } catch { /* ignore */ }
+
+    // Concurrency-limited fetch pool — max 15 simultaneous HTTP/2 streams
+    const results: Record<string, Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>> = {}
+
+    const CONCURRENCY = 15
+    let active = 0
+    const queue: Array<() => void> = []
+    const runNext = () => {
+      while (active < CONCURRENCY && queue.length > 0) {
+        active++
+        const task = queue.shift()!
+        task()
+      }
     }
-
-    const results: Record<
-      string,
-      Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>
-    > = {}
-
-    // Process tickers in batches of 3 to avoid rate limits
-    const BATCH_SIZE = 3
-    for (let b = 0; b < ETF_TICKERS.length; b += BATCH_SIZE) {
-      const batch = ETF_TICKERS.slice(b, b + BATCH_SIZE)
-      await Promise.all(
-        batch.map(async (ticker) => {
-          const price = priceMap[ticker] || 100
-          // Fetch dates in batches of 8 sequentially to avoid connection resets
-          const sharesArr: (number | null)[] = []
-          for (let i = 0; i < dateStrings.length; i += 8) {
-            const chunk = dateStrings.slice(i, i + 8)
-            const chunkResults = await Promise.all(chunk.map((d) => fetchShares(ticker, d)))
-            sharesArr.push(...chunkResults)
-            if (i + 8 < dateStrings.length) await new Promise((r) => setTimeout(r, 120))
+    const throttledFetch = (url: string): Promise<any> =>
+      new Promise((resolve) => {
+        const task = async () => {
+          const delays = [500, 1000]
+          for (let attempt = 0; attempt <= delays.length; attempt++) {
+            try {
+              const r = await fetch(url, { headers: { Accept: 'application/json' } })
+              if (r.ok) {
+                const json = await r.json()
+                active--
+                runNext()
+                resolve(json)
+                return
+              }
+            } catch { /* network error — retry */ }
+            if (attempt < delays.length) {
+              await new Promise<void>((res) => setTimeout(res, delays[attempt]))
+            }
           }
+          active--
+          runNext()
+          resolve(null)
+        }
+        queue.push(task)
+        runNext()
+      })
 
-          const points: Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }> =
-            []
-          let cumFlow = 0
-          for (let i = sharesArr.length - 1; i >= 1; i--) {
-            const olderShares = sharesArr[i]
-            const newerShares = sharesArr[i - 1]
-            if (olderShares == null || newerShares == null) continue
-            const monthlyFlow = (newerShares - olderShares) * price
-            cumFlow += monthlyFlow
-            const [y, m, d] = dateStrings[i - 1].split('-')
-            const time = Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d))
-            points.push({ time, date: dateStrings[i - 1], weeklyFlow: monthlyFlow, cumFlow })
-          }
-          results[ticker] = points
-        })
-      )
-      if (b + BATCH_SIZE < ETF_TICKERS.length) await new Promise((r) => setTimeout(r, 200))
-    }
+    const baseAUM: Record<string, number> = {}
 
+    await Promise.all(
+      ETF_TICKERS.map(async (ticker) => {
+        const price = priceMap[ticker] || 100
+
+        const sharesArr = await Promise.all(
+          dateStrings.map(async (date) => {
+            const json = await throttledFetch(
+              `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLY_KEY}`
+            )
+            return json?.results?.share_class_shares_outstanding ?? null
+          })
+        )
+
+        // baseAUM = first valid shares × price
+        const firstShares = sharesArr.find(s => s != null) ?? 1
+        baseAUM[ticker] = firstShares * price
+
+        // periodFlow = (newerShares − olderShares) × price
+        const points: Array<{ time: number; date: string; periodFlow: number; cumFlow: number }> = []
+        let cumFlow = 0
+        for (let i = 1; i < dateStrings.length; i++) {
+          const older = sharesArr[i - 1]
+          const newer = sharesArr[i]
+          if (older == null || newer == null) continue
+          const periodFlow = (newer - older) * price
+          cumFlow += periodFlow
+          const [y, m, dd] = dateStrings[i].split('-')
+          const time = Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(dd))
+          points.push({ time, date: dateStrings[i], periodFlow, cumFlow })
+        }
+        results[ticker] = points
+      })
+    )
+
+    setFlowTabBaseAUM(baseAUM)
     setFlowTabData(results)
     setFlowTabLoading(false)
   }, [])
+
+  // Auto-fetch ETF flow history on mount (same pattern as other autoscans)
+  useEffect(() => {
+    if (disableSidebarAutoScan) return // analysis-suite: skip Money tab autoscan
+    fetchETFFlows()
+  }, [disableSidebarAutoScan, fetchETFFlows])
 
   // Fetch data for Tracking tab - auto-fetch on mount
   useEffect(() => {
@@ -12675,6 +12753,7 @@ export default function TradingViewChart({
       darkPoolCacheRef.current = {}
       darkPoolCacheSymbolRef.current = ''
       setDarkPoolData({})
+      setContractionEvents([])
       return
     }
 
@@ -12689,6 +12768,17 @@ export default function TradingViewChart({
     if (darkPoolCacheSymbolRef.current !== config.symbol) {
       darkPoolCacheRef.current = {}
       darkPoolCacheSymbolRef.current = config.symbol
+    }
+
+    // ── Run contraction scan on the full daily data immediately ─────────────
+    {
+      const bars = data.map((c) => ({
+        date: new Date(c.timestamp).toISOString().split('T')[0],
+        high: c.high,
+        low: c.low,
+        close: c.close,
+      }))
+      setContractionEvents(_scanHistory(bars))
     }
 
     // Always scan the last 90 calendar days from today — fixed window, never changes with zoom/scroll/timeframe.
@@ -12750,21 +12840,32 @@ export default function TradingViewChart({
 
     type RawTrade = { sip_timestamp: number; price: number; size: number; exchange: number }
 
-    // Fetch ALL pages for one day, following next_url cursor.
-    // Always uses midnight→midnight UTC so the window is a full calendar day regardless of timeframe.
-    // Fetch one time-window slice of a day (start..end in ns), returning all trades in that slice
-    const fetchWindow = async (urlStart: string): Promise<RawTrade[]> => {
-      const trades: RawTrade[] = []
-      let url: string | null = urlStart
-      while (url && !aborted) {
-        const res: Response = await fetch(url)
-        if (!res.ok) break
-        const json: { results?: RawTrade[]; next_url?: string } = await res.json()
-        const page: RawTrade[] = json.results || []
-        for (const t of page) trades.push(t)
-        url = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
+    // Streaming fetch — matches StraddleTown scanDPDays exactly:
+    // • Fetches ONE page per window (no cursor pagination — nextUrl is intentionally discarded)
+    // • Processes trades inline, accumulates top-50 by notional (memory bounded)
+    // • Returns aggregated top-50 prints + total window notional
+    const fetchWindow = async (urlStart: string): Promise<{ prints: Array<{ price: number; size: number; ts: number }>; windowNotional: number }> => {
+      let top: Array<{ price: number; size: number; ts: number }> = []
+      let windowNotional = 0
+      if (aborted) return { prints: top, windowNotional }
+      let res: Response | null = null
+      try { res = await fetch(urlStart) } catch { return { prints: top, windowNotional } }
+      if (!res || !res.ok) return { prints: top, windowNotional }
+      let json: { results?: RawTrade[] }
+      try { json = await res.json() } catch { return { prints: top, windowNotional } }
+      for (const t of (json.results || []) as RawTrade[]) {
+        const notional = t.size * t.price
+        const isDarkPool = DARK_POOL_EXCHANGES.has(t.exchange)
+        if (isDarkPool || notional >= LIT_BLOCK_MIN_NOTIONAL) {
+          windowNotional += notional
+          top.push({ price: t.price, size: t.size, ts: Math.floor(t.sip_timestamp / 1_000_000) })
+        }
       }
-      return trades
+      // Trim to top-50 by notional — never grows unbounded
+      if (top.length > 50) {
+        top = top.sort((a, b) => b.size * b.price - a.size * a.price).slice(0, 50)
+      }
+      return { prints: top, windowNotional }
     }
 
     const fetchDayAll = async (candle: (typeof data)[0]) => {
@@ -12790,63 +12891,41 @@ export default function TradingViewChart({
       const rthStartNs = (dayStartMs + rthOpenUtcMs) * 1_000_000
       const rthEndNs = (dayStartMs + rthCloseUtcMs) * 1_000_000
 
-      // ── Split RTH into 4 parallel windows ~1.6h each ─────────────────────
-      const WIN = 4
+      // ── Split RTH into 3 sequential windows ~2.25h each — matches StraddleTown exactly ─
+      // Windows run one-at-a-time per day (no parallel per-day windows) so the global
+      // concurrency limit of 35 day-workers remains the actual parallelism ceiling.
+      const WIN = 3
       const rthDurationNs = rthEndNs - rthStartNs
       const winNs = rthDurationNs / WIN
       const windowUrls = Array.from({ length: WIN }, (_, i) => {
         const wStartNs = rthStartNs + i * winNs
         const wEndNs = rthStartNs + (i + 1) * winNs
-        return `https://api.polygon.io/v3/trades/${config.symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=50000&order=asc&apiKey=${API_KEY}`
+        return `https://api.polygon.io/v3/trades/${config.symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=10000&order=asc&apiKey=${API_KEY}`
       })
 
       try {
-        // All 4 windows fire simultaneously
-        const windowResults = await Promise.all(windowUrls.map(fetchWindow))
-        const allTrades: RawTrade[] = ([] as RawTrade[]).concat(...windowResults)
-
-        if (allTrades.length === 0) return null
-
-        const dpTrades: RawTrade[] = []
-        for (const t of allTrades) {
-          const isDp = DARK_POOL_EXCHANGES.has(t.exchange)
-          // Also capture large lit-exchange blocks (NYSE/Nasdaq/Arca/CBOE etc.) by notional threshold
-          const isLitBlock = !isDp && t.size * t.price >= LIT_BLOCK_MIN_NOTIONAL
-          if (isDp || isLitBlock) dpTrades.push(t)
+        // Run windows sequentially — matches StraddleTown's sequential window fetch
+        const winResults: Array<{ prints: Array<{ price: number; size: number; ts: number }>; windowNotional: number }> = []
+        for (const url of windowUrls) {
+          if (aborted) break
+          winResults.push(await fetchWindow(url))
         }
-        if (dpTrades.length === 0) return null
 
-        // Total notional for the day — used to rank days in the POI overlay
-        const totalNotional = dpTrades.reduce((sum, t) => sum + t.size * t.price, 0)
-
-        // Sort once; reuse for top10 and topPrint
-        const sortedByNotional = dpTrades
-          .slice()
+        // Merge top-50 from every window, rerank, take final top-10
+        const allPrints = winResults
+          .flatMap(w => w.prints)
           .sort((a, b) => b.size * b.price - a.size * a.price)
 
+        if (allPrints.length === 0) return null
+
+        // Sum true total notional tracked per-window across all qualified trades
+        const totalNotional = winResults.reduce((s, w) => s + w.windowNotional, 0)
+
+        const top10 = allPrints.slice(0, 10)
+
         // Largest single print of the day — used as the price/time anchor for the day bubble
-        const rawTop = sortedByNotional[0]
-        const topPrint = {
-          price: rawTop.price,
-          size: rawTop.size,
-          ts: Math.floor(rawTop.sip_timestamp / 1_000_000),
-        }
-
-        const top10 = sortedByNotional.slice(0, 10).map((t) => ({
-          price: t.price,
-          size: t.size,
-          ts: Math.floor(t.sip_timestamp / 1_000_000),
-        }))
-
-        if (config.symbol === 'MAGS') {
-          console.log('[POI-BTN][MAGS] fetchDayAll result', dateKey, {
-            allTradesCount: allTrades.length,
-            dpTradesCount: dpTrades.length,
-            totalNotional,
-            topPrint,
-            top10,
-          })
-        }
+        const rawTop = top10[0]
+        const topPrint = { price: rawTop.price, size: rawTop.size, ts: rawTop.ts }
 
         return { dateKey, result: { top10, totalNotional, topPrint } }
       } catch {
@@ -14953,7 +15032,7 @@ export default function TradingViewChart({
       const candleDurationMs =
         visibleData.length >= 2 ? visibleData[1].timestamp - visibleData[0].timestamp : 86_400_000
 
-      // Rank DAYS by total notional, take top 5 — bubble placed at each day's largest single print
+      // Rank DAYS by total notional, take top 3 — matches StraddleTown exactly
       type DayEntry = {
         price: number
         size: number
@@ -14964,17 +15043,27 @@ export default function TradingViewChart({
       const daysSorted = Object.values(darkPoolData)
         .filter((dp) => dp?.totalNotional > 0 && dp?.topPrint)
         .sort((a, b) => b.totalNotional - a.totalNotional)
-      const globalTop5: DayEntry[] = daysSorted.slice(0, 5).map((dp, i) => ({
+      const globalTop3: DayEntry[] = daysSorted.slice(0, 3).map((dp, i) => ({
         price: dp.topPrint.price,
         size: dp.topPrint.size,
         ts: dp.topPrint.ts,
         notional: dp.totalNotional,
         globalRank: i,
       }))
-      const globalMaxNotional = globalTop5.length > 0 ? globalTop5[0].notional : 1
+      const globalMaxNotional = globalTop3.length > 0 ? globalTop3[0].notional : 1
 
-      // Draw whichever of the top-5 fall within the current visible window
-      for (const print of globalTop5) {
+      // Notional label formatter — matches StraddleTown fmtBubbleNotional exactly
+      const fmtBubbleNotional = (n: number): string => {
+        const B = 1_000_000_000
+        const v = n / B
+        if (v < 1) return v.toFixed(2) + 'X'
+        if (v < 10) return v.toFixed(2) + 'Y'
+        if (v < 100) return v.toFixed(2) + 'Z'
+        return Math.round(v) + 'Z'
+      }
+
+      // Draw whichever of the top-3 fall within the current visible window
+      for (const print of globalTop3) {
         const idx = visibleData.findIndex(
           (c) => print.ts >= c.timestamp && print.ts < c.timestamp + candleDurationMs
         )
@@ -15075,8 +15164,81 @@ export default function TradingViewChart({
         ctx.arc(cx, printY, Math.max(2, r * 0.17), 0, Math.PI * 2)
         ctx.fillStyle = s.dot
         ctx.fill()
+        // Notional label below bubble — matches StraddleTown fmtBubbleNotional label
+        const label = fmtBubbleNotional(print.notional)
+        const fontSize = Math.max(9, Math.min(14, r * 0.85))
+        ctx.font = `700 ${fontSize}px "JetBrains Mono",monospace`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'top'
+        const labelW = ctx.measureText(label).width
+        ctx.fillStyle = 'rgba(0,0,0,0.65)'
+        ctx.fillRect(cx - labelW / 2 - 2, printY + r + 2, labelW + 4, fontSize + 2)
+        ctx.fillStyle = print.globalRank === 0 ? '#FFD700' : print.globalRank === 1 ? '#41B6F6' : '#CCCCCC'
+        ctx.fillText(label, cx, printY + r + 3)
       }
 
+      ctx.restore()
+    }
+
+    // ── CONTRACTION DIAMOND OVERLAY ──────────────────────────────────────────
+    if (showDarkPoolIndicator && contractionEvents.length > 0) {
+      ctx.save()
+      // Map each visible candle date → its index
+      const dateToIdx = new Map<string, number>()
+      for (let i = 0; i < visibleData.length; i++) {
+        const d = new Date(visibleData[i].timestamp).toISOString().split('T')[0]
+        dateToIdx.set(d, i)
+      }
+      const maxComp = Math.max(...contractionEvents.map((e) => e.compressionPct))
+      for (const ev of contractionEvents) {
+        const idx = dateToIdx.get(ev.date)
+        if (idx === undefined) continue
+        const cx = 40 + idx * candleSpacing + candleSpacing / 2
+        const candleLowY =
+          priceChartHeight -
+          ((visibleData[idx].low - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
+        const norm = Math.sqrt(ev.compressionPct / maxComp)
+        const r = Math.max(5, Math.min(22, norm * 22))
+        const cy = candleLowY + r + 4
+        if (cy - r < 0 || cy > priceChartHeight + r) continue
+        // Fill
+        const baseG = ctx.createLinearGradient(cx, cy - r, cx, cy + r)
+        baseG.addColorStop(0, 'rgba(255,200,60,0.95)')
+        baseG.addColorStop(0.5, 'rgba(255,120,0,0.80)')
+        baseG.addColorStop(1, 'rgba(180,50,0,0.60)')
+        ctx.beginPath()
+        ctx.moveTo(cx, cy - r)
+        ctx.lineTo(cx + r, cy)
+        ctx.lineTo(cx, cy + r)
+        ctx.lineTo(cx - r, cy)
+        ctx.closePath()
+        ctx.fillStyle = baseG
+        ctx.fill()
+        // Rim
+        ctx.strokeStyle = 'rgba(255,220,80,0.95)'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+        // Gloss
+        const gloss = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.3, r * 0.05, cx, cy - r * 0.1, r * 0.6)
+        gloss.addColorStop(0, 'rgba(255,255,255,0.65)')
+        gloss.addColorStop(0.5, 'rgba(255,255,255,0.15)')
+        gloss.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.beginPath()
+        ctx.moveTo(cx, cy - r)
+        ctx.lineTo(cx + r, cy)
+        ctx.lineTo(cx, cy + r)
+        ctx.lineTo(cx - r, cy)
+        ctx.closePath()
+        ctx.fillStyle = gloss
+        ctx.fill()
+        // Label
+        const fs = Math.max(9, r * 0.85)
+        ctx.fillStyle = '#000'
+        ctx.font = `900 ${fs}px "JetBrains Mono",monospace`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(`${ev.compressionPct.toFixed(0)}%`, cx, cy)
+      }
       ctx.restore()
     }
 
@@ -17266,7 +17428,7 @@ export default function TradingViewChart({
       renderChart()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [darkPoolData, showDarkPoolIndicator, chartLayout])
+  }, [darkPoolData, contractionEvents, showDarkPoolIndicator, chartLayout])
 
   // Re-render when drawings change
   useEffect(() => {
@@ -19785,7 +19947,6 @@ export default function TradingViewChart({
                   key={tab}
                   onClick={() => {
                     setActiveTab(tab)
-                    if (tab === 'Money') fetchETFFlowHistory()
                   }}
                   className="md:text-[16px] text-[11px]"
                   style={{
@@ -20649,18 +20810,14 @@ export default function TradingViewChart({
         {activeTab === 'Money' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-black">
             {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-between">
-              <div>
-                <div className="text-white font-black uppercase tracking-widest text-sm">
-                  INSTITUTIONAL ETF MONEY
-                </div>
-                <div className="text-gray-400 text-xs mt-0.5">Monthly net fund flows</div>
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-end flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {(['1M', '4M', '1Y', '3Y', '5Y'] as const).map((r) => (
                   <button
                     key={r}
-                    onClick={() => setFlowTabRange(r)}
+                    onClick={() => {
+                      setFlowTabRange(r)
+                    }}
                     className="font-mono font-bold text-xs px-3 py-1 rounded"
                     style={{
                       background: flowTabRange === r ? '#FF6600' : '#1a1a1a',
@@ -20672,8 +20829,17 @@ export default function TradingViewChart({
                     {r}
                   </button>
                 ))}
+                <button
+                  onClick={() => {
+                    flowTabFetchedRef.current = false
+                    fetchETFFlows()
+                  }}
+                  className="font-mono font-bold text-xs px-2 py-1 rounded"
+                  style={{ background: '#1a1a1a', color: '#555', border: '1px solid #333', cursor: 'pointer' }}
+                  title="Refresh"
+                >↺</button>
                 {flowTabLoading && (
-                  <div className="flex items-center gap-1 text-yellow-400 text-xs ml-2">
+                  <div className="flex items-center gap-1 text-yellow-400 text-xs ml-1">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400" />
                     Loading…
                   </div>
@@ -20686,306 +20852,294 @@ export default function TradingViewChart({
               style={{ scrollbarWidth: 'thin', scrollbarColor: '#FF6600 #1a1a1a' }}
             >
               {flowTabLoading && Object.keys(flowTabData).length === 0 ? (
-                <div className="flex items-center justify-center h-64">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-400 mx-auto mb-3" />
-                    <div className="text-gray-400 text-sm">Loading institutional flow data…</div>
+                <div className="flex items-center justify-center" style={{ minHeight: 420 }}>
+                  <div className="flex flex-col items-center gap-6">
+                    {/* Multi-ring spinner */}
+                    <div style={{ position: 'relative', width: 100, height: 100 }}>
+                      {/* Outer ring — orange */}
+                      <svg width="100" height="100" style={{ position: 'absolute', top: 0, left: 0, animation: 'spin 1.4s linear infinite' }}>
+                        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes spinR { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } } @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }`}</style>
+                        <circle cx="50" cy="50" r="46" fill="none" stroke="#FF6600" strokeWidth="5" strokeDasharray="200 90" strokeLinecap="round" />
+                      </svg>
+                      {/* Mid ring — white */}
+                      <svg width="100" height="100" style={{ position: 'absolute', top: 0, left: 0, animation: 'spinR 1s linear infinite' }}>
+                        <circle cx="50" cy="50" r="34" fill="none" stroke="#ffffff" strokeWidth="4" strokeDasharray="130 80" strokeLinecap="round" />
+                      </svg>
+                      {/* Inner ring — green */}
+                      <svg width="100" height="100" style={{ position: 'absolute', top: 0, left: 0, animation: 'spin 0.7s linear infinite' }}>
+                        <circle cx="50" cy="50" r="22" fill="none" stroke="#00ff00" strokeWidth="3" strokeDasharray="70 60" strokeLinecap="round" />
+                      </svg>
+                      {/* Center dot */}
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 10, height: 10, borderRadius: '50%', background: '#FF6600', animation: 'pulse 1.4s ease-in-out infinite' }} />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 18, color: '#FF6600', letterSpacing: '3px', textTransform: 'uppercase' }}>
+                        Loading Money Flow Index Data
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 10 }}>
+                        {['■', '■', '■'].map((s, i) => (
+                          <span key={i} style={{ color: i === 0 ? '#FF6600' : i === 1 ? '#ffffff' : '#00ff00', fontSize: 10, animation: `pulse ${0.6 + i * 0.2}s ease-in-out infinite` }}>{s}</span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
                 (() => {
+                  // Filter full dataset client-side by selected range — no re-fetch
+                  const rangeDaysMap: Record<string, number> = { '1M': 30, '4M': 120, '1Y': 365, '3Y': 365 * 3, '5Y': 365 * 5 }
+                  const cutoffMs = Date.now() - rangeDaysMap[flowTabRange] * 86400000
+                  const filterToRange = (pts: Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>) => {
+                    const filtered = pts.filter(p => p.time >= cutoffMs)
+                    let cum = 0
+                    return filtered.map(p => { cum += p.periodFlow; return { ...p, cumFlow: cum } })
+                  }
+                  const rangeData: Record<string, Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>> = {}
+                  Object.entries(flowTabData).forEach(([t, pts]) => { rangeData[t] = filterToRange(pts) })
+
                   const formatFlow = (v: number) => {
                     const abs = Math.abs(v)
                     const sign = v >= 0 ? '+' : '-'
-                    if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`
+                    if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`
                     if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(0)}M`
                     return `${sign}$${(abs / 1e3).toFixed(0)}K`
                   }
 
-                  const renderFlowChart = (
-                    ticker: string,
-                    points: Array<{
-                      time: number
-                      date: string
-                      weeklyFlow: number
-                      cumFlow: number
-                    }>,
-                    isLarge: boolean
-                  ) => {
-                    if (!points || points.length < 2)
-                      return (
-                        <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-                          No data
-                        </div>
-                      )
+                  const formatDate = (d: string) => {
+                    const dt = new Date(d + 'T00:00:00Z')
+                    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
+                  }
 
-                    const chartH = isLarge ? 240 : 160
+                  // ── Multi-line overview chart ────────────────────────────────
+                  const renderMultiLineChart = (
+                    title: string,
+                    tickers: string[],
+                    accentColor: string,
+                    palette: string[]
+                  ) => {
+                    const available = tickers.filter(t => rangeData[t] && rangeData[t].length >= 2)
+                    if (available.length === 0) return null
                     const chartW = 1000
-                    const padL = 70
-                    const padR = 20
-                    const padT = 10
-                    const padB = 32
+                    const chartH = 300
+                    const padL = 72
+                    const padR = 16
+                    const padT = 12
+                    const padB = 36
                     const innerW = chartW - padL - padR
                     const innerH = chartH - padT - padB
 
-                    const flows = points.map((p) => p.cumFlow)
-                    const minF = Math.min(...flows)
-                    const maxF = Math.max(...flows)
-                    const rangeF = maxF - minF || 1
-                    const zeroY = padT + ((maxF - 0) / rangeF) * innerH
+                    // Normalize each ticker as % of its baseAUM
+                    const series = available.map((ticker, idx) => {
+                      const pts = rangeData[ticker]
+                      const aum = flowTabBaseAUM[ticker] || 1
+                      const baseline = pts[0].cumFlow
+                      return {
+                        ticker,
+                        pts: pts.map(p => ({ time: p.time, date: p.date, pct: ((p.cumFlow - baseline) / aum) * 100 })),
+                        color: palette[idx % palette.length],
+                      }
+                    })
+
+                    let globalMin = Infinity, globalMax = -Infinity
+                    series.forEach(s => s.pts.forEach(p => {
+                      if (p.pct < globalMin) globalMin = p.pct
+                      if (p.pct > globalMax) globalMax = p.pct
+                    }))
+                    const valRange = globalMax - globalMin || 1
+                    const zeroY = padT + (globalMax / valRange) * innerH
                     const clampedZeroY = Math.max(padT, Math.min(padT + innerH, zeroY))
-
-                    const toSvgX = (i: number) => padL + (i / (points.length - 1)) * innerW
-                    const toSvgY = (v: number) => padT + ((maxF - v) / rangeF) * innerH
-
-                    const polyPoints = points
-                      .map((p, i) => `${toSvgX(i).toFixed(1)},${toSvgY(p.cumFlow).toFixed(1)}`)
-                      .join(' ')
-
-                    // Build fill polygon: follow the line then close via zero line
-                    const fillAbove =
-                      `${padL},${clampedZeroY} ` +
-                      points
-                        .map((p, i) => {
-                          const y = toSvgY(p.cumFlow)
-                          return y <= clampedZeroY
-                            ? `${toSvgX(i).toFixed(1)},${y.toFixed(1)}`
-                            : null
-                        })
-                        .filter(Boolean)
-                        .join(' ') +
-                      ` ${padL + innerW},${clampedZeroY}`
-
-                    // Color line based on last value vs start
-                    const lastFlow = flows[flows.length - 1]
-                    const lineColor = lastFlow >= 0 ? '#10b981' : '#ef4444'
-
-                    // Y-axis labels
-                    const yLabels = [maxF, (maxF + minF) / 2, minF]
-
-                    // X-axis: show ~4 evenly-spaced dates
-                    const xTicks = [
-                      0,
-                      Math.floor(points.length / 3),
-                      Math.floor((2 * points.length) / 3),
-                      points.length - 1,
-                    ]
-                    const formatDate = (d: string) => {
-                      const dt = new Date(d + 'T00:00:00Z')
-                      return dt.toLocaleDateString('en-US', {
-                        month: 'short',
-                        year: '2-digit',
-                        timeZone: 'UTC',
-                      })
-                    }
+                    const toX = (i: number, total: number) => padL + (i / Math.max(total - 1, 1)) * innerW
+                    const toY = (v: number) => padT + ((globalMax - v) / valRange) * innerH
+                    const refPts = series[0]?.pts || []
+                    const xTicks = refPts.length > 0 ? [0, Math.floor(refPts.length / 3), Math.floor(2 * refPts.length / 3), refPts.length - 1] : []
+                    const yLabels = [globalMax, globalMax / 2, 0, globalMin / 2, globalMin].filter(v => {
+                      const y = toY(v)
+                      return y >= padT - 4 && y <= padT + innerH + 4
+                    }).filter((v, i, arr) => arr.findIndex(x => Math.abs(x - v) < 0.001) === i)
+                    const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 
                     return (
-                      <div
-                        style={{
-                          width: '100%',
-                          background: '#050505',
-                          borderRadius: '4px',
-                          border: '1px solid #1a1a1a',
-                          padding: '8px',
-                        }}
-                      >
-                        {/* Ticker + current flow badge */}
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-mono font-black text-orange-400 text-sm tracking-widest">
-                            {ticker}
-                          </span>
-                          <span
-                            className="font-mono font-bold text-xs px-2 py-0.5 rounded"
-                            style={{
-                              color: lastFlow >= 0 ? '#10b981' : '#ef4444',
-                              background:
-                                lastFlow >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                              border: `1px solid ${lastFlow >= 0 ? '#10b98144' : '#ef444444'}`,
-                            }}
-                          >
-                            {lastFlow >= 0 ? '▲ INFLOWS' : '▼ OUTFLOWS'} {formatFlow(lastFlow)}
-                          </span>
+                      <div style={{ background: '#000', border: `1px solid ${accentColor}44`, borderRadius: 8, padding: '14px 8px 8px', boxShadow: `0 0 24px ${accentColor}18, inset 0 1px 0 rgba(255,255,255,0.04)`, marginBottom: 24 }}>
+                        <div style={{ textAlign: 'center', fontFamily: 'monospace', fontWeight: 900, fontSize: 20, color: accentColor, letterSpacing: '5px', marginBottom: 10, textTransform: 'uppercase' }}>
+                          {title}
                         </div>
-
-                        <svg
-                          viewBox={`0 0 ${chartW} ${chartH}`}
-                          width="100%"
-                          height={chartH}
-                          preserveAspectRatio="none"
-                          style={{ display: 'block' }}
-                        >
-                          <defs>
-                            <linearGradient
-                              id={`flowGradAbove-${ticker}`}
-                              x1="0"
-                              y1="0"
-                              x2="0"
-                              y2="1"
-                            >
-                              <stop offset="0%" stopColor="#10b981" stopOpacity="0.18" />
-                              <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
-                            </linearGradient>
-                            <linearGradient
-                              id={`flowGradBelow-${ticker}`}
-                              x1="0"
-                              y1="0"
-                              x2="0"
-                              y2="1"
-                            >
-                              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.02" />
-                              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.18" />
-                            </linearGradient>
-                          </defs>
-
-                          {/* Y-axis grid lines + labels */}
-                          {yLabels.map((v, i) => {
-                            const y = toSvgY(v)
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', justifyContent: 'center', marginBottom: 8 }}>
+                          {series.map(s => {
+                            const lastPct = s.pts[s.pts.length - 1]?.pct ?? 0
                             return (
-                              <g key={`y-${i}`}>
-                                <line
-                                  x1={padL}
-                                  y1={y}
-                                  x2={padL + innerW}
-                                  y2={y}
-                                  stroke={v === 0 ? '#555' : '#1a1a1a'}
-                                  strokeWidth={v === 0 ? 1.5 : 1}
-                                  strokeDasharray={v === 0 ? '4,3' : '2,4'}
-                                />
-                                <text
-                                  x={padL - 3}
-                                  y={y + 5}
-                                  textAnchor="end"
-                                  fill="#ffffff"
-                                  fontSize="14"
-                                  fontFamily="monospace"
-                                  fontWeight="800"
-                                  style={{ userSelect: 'none' }}
-                                >
-                                  {formatFlow(v)}
-                                </text>
-                              </g>
+                              <span key={s.ticker} style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: s.color, whiteSpace: 'nowrap' }}>
+                                ── {s.ticker}{' '}
+                                <span style={{ fontSize: 11, color: lastPct >= 0 ? '#00ff00' : '#ff0000' }}>{fmtPct(lastPct)}</span>
+                              </span>
                             )
                           })}
-
-                          {/* Zero baseline — only needed if yLabels doesn't include 0 */}
-
-                          {/* Green fill above zero */}
-                          <polygon
-                            points={
-                              points
-                                .map(
-                                  (p, i) =>
-                                    `${toSvgX(i).toFixed(1)},${Math.min(toSvgY(p.cumFlow), clampedZeroY).toFixed(1)}`
-                                )
-                                .join(' ') +
-                              ` ${(padL + innerW).toFixed(1)},${clampedZeroY.toFixed(1)} ${padL},${clampedZeroY.toFixed(1)}`
-                            }
-                            fill={`url(#flowGradAbove-${ticker})`}
-                          />
-
-                          {/* Red fill below zero */}
-                          <polygon
-                            points={
-                              points
-                                .map(
-                                  (p, i) =>
-                                    `${toSvgX(i).toFixed(1)},${Math.max(toSvgY(p.cumFlow), clampedZeroY).toFixed(1)}`
-                                )
-                                .join(' ') +
-                              ` ${(padL + innerW).toFixed(1)},${clampedZeroY.toFixed(1)} ${padL},${clampedZeroY.toFixed(1)}`
-                            }
-                            fill={`url(#flowGradBelow-${ticker})`}
-                          />
-
-                          {/* Main flow line */}
-                          <polyline
-                            fill="none"
-                            stroke={lineColor}
-                            strokeWidth="2.5"
-                            points={polyPoints}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-
-                          {/* X-axis date labels */}
-                          {xTicks
-                            .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
-                            .map((idx, pos) => {
-                              const p = points[idx]
-                              if (!p) return null
-                              return (
-                                <text
-                                  key={`x-tick-${pos}`}
-                                  x={toSvgX(idx)}
-                                  y={chartH - 4}
-                                  textAnchor="middle"
-                                  fill="#ffffff"
-                                  fontSize="13"
-                                  fontFamily="monospace"
-                                  fontWeight="700"
-                                >
-                                  {formatDate(p.date)}
-                                </text>
-                              )
-                            })}
+                        </div>
+                        <svg viewBox={`0 0 ${chartW} ${chartH}`} width="100%" height={chartH} preserveAspectRatio="none" style={{ display: 'block', background: '#000' }}>
+                          <line x1={padL} y1={clampedZeroY} x2={padL + innerW} y2={clampedZeroY} stroke="#ffffff" strokeWidth="1" strokeOpacity="0.2" />
+                          {yLabels.map((v, i) => (
+                            <text key={`yl-${i}`} x={padL - 4} y={toY(v) + 5} textAnchor="end" fill="#ffffff" fontSize="14" fontFamily="monospace" fontWeight="700">
+                              {fmtPct(v)}
+                            </text>
+                          ))}
+                          {series.map(s => (
+                            <polyline key={s.ticker} fill="none" stroke={s.color} strokeWidth="2.5"
+                              points={s.pts.map((p, i) => `${toX(i, s.pts.length).toFixed(1)},${toY(p.pct).toFixed(1)}`).join(' ')}
+                              strokeLinecap="round" strokeLinejoin="round" strokeOpacity="1" />
+                          ))}
+                          {xTicks.map((idx, pos) => {
+                            const p = refPts[idx]
+                            if (!p) return null
+                            return (
+                              <text key={`xt-${pos}`} x={toX(idx, refPts.length)} y={chartH - 4} textAnchor="middle" fill="#ffffff" fontSize="14" fontFamily="monospace" fontWeight="700">
+                                {formatDate(p.date)}
+                              </text>
+                            )
+                          })}
                         </svg>
                       </div>
                     )
                   }
 
-                  // Filter points by selected timeframe
-                  const rangeDays: Record<string, number> = {
-                    '1M': 30,
-                    '4M': 120,
-                    '1Y': 365,
-                    '3Y': 365 * 3,
-                    '5Y': 365 * 5,
-                  }
-                  const cutoffMs = Date.now() - rangeDays[flowTabRange] * 24 * 60 * 60 * 1000
-                  const filterPoints = (
-                    pts: Array<{ time: number; date: string; weeklyFlow: number; cumFlow: number }>
+                  // ── Individual ticker chart ──────────────────────────────────
+                  const renderFlowChart = (
+                    ticker: string,
+                    points: Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>,
+                    isLarge: boolean,
+                    accentColor: string
                   ) => {
-                    const filtered = pts.filter((p) => p.time >= cutoffMs)
-                    // Recompute cumFlow from zero for the filtered window
-                    let cum = 0
-                    return filtered.map((p) => {
-                      cum += p.weeklyFlow
-                      return { ...p, cumFlow: cum }
-                    })
+                    if (!points || points.length < 2)
+                      return <div className="flex items-center justify-center h-full text-white text-xs">No data</div>
+
+                    const cumH = isLarge ? 200 : 140
+                    const barH = isLarge ? 80 : 60
+                    const totalH = cumH + barH + 8
+                    const chartW = 1000
+                    const padL = 88, padR = 16, padT = 10, padB = 32
+                    const innerW = chartW - padL - padR
+                    const cumInnerH = cumH - padT - 4
+                    const cumFlows = points.map(p => p.cumFlow)
+                    const cumMin = Math.min(...cumFlows), cumMax = Math.max(...cumFlows)
+                    const cumRange = cumMax - cumMin || 1
+                    const cumZeroY = padT + ((cumMax - 0) / cumRange) * cumInnerH
+                    const clampedCumZeroY = Math.max(padT, Math.min(padT + cumInnerH, cumZeroY))
+                    const toLineX = (i: number) => padL + (i / (points.length - 1)) * innerW
+                    const toLineY = (v: number) => padT + ((cumMax - v) / cumRange) * cumInnerH
+                    const lineStr = points.map((p, i) => `${toLineX(i).toFixed(1)},${toLineY(p.cumFlow).toFixed(1)}`).join(' ')
+                    const lastCum = cumFlows[cumFlows.length - 1]
+                    const lineColor = lastCum >= 0 ? '#00ff00' : '#ff0000'
+                    const barTop = cumH + 8
+                    const barInnerH = barH - padB
+                    const periods = points.map(p => p.periodFlow)
+                    const maxAbs = Math.max(...periods.map(Math.abs), 1)
+                    const barWidth = Math.max(2, (innerW / points.length) * 0.72)
+                    const toBarX = (i: number) => padL + (i / (points.length - 1)) * innerW
+                    const toBarH = (v: number) => (Math.abs(v) / maxAbs) * barInnerH
+                    const barZeroY = barTop + barInnerH
+                    const xTicks = [0, Math.floor(points.length / 3), Math.floor((2 * points.length) / 3), points.length - 1]
+                    const cumYLabels = [cumMax, (cumMax + cumMin) / 2, cumMin]
+                    const lastPeriod = periods[periods.length - 1] ?? 0
+
+                    return (
+                      <div style={{ width: '100%', background: '#000', borderRadius: 4, border: `1px solid ${accentColor}33`, padding: 8, boxShadow: '0 0 12px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+                        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                          <span className="font-mono font-black tracking-widest" style={{ fontSize: 15, color: accentColor }}>{ticker}</span>
+                          <span className="font-mono font-black px-2 py-0.5 rounded" style={{ fontSize: 13, color: lastPeriod >= 0 ? '#00ff00' : '#ff0000', background: '#000', border: `1px solid ${lastPeriod >= 0 ? '#00ff00' : '#ff0000'}` }}>
+                            {lastPeriod >= 0 ? '▲' : '▼'} LAST {formatFlow(lastPeriod)}
+                          </span>
+                        </div>
+                        <svg viewBox={`0 0 ${chartW} ${totalH}`} width="100%" height={totalH} preserveAspectRatio="none" style={{ display: 'block', background: '#000' }}>
+                          {cumYLabels.map((v, i) => (
+                            <text key={`cy-${i}`} x={padL - 6} y={toLineY(v) + 5} textAnchor="end" fill="#ffffff" fontSize="17" fontFamily="monospace" fontWeight="900">{formatFlow(v)}</text>
+                          ))}
+                          <line x1={padL} y1={clampedCumZeroY} x2={padL + innerW} y2={clampedCumZeroY} stroke="#ffffff" strokeWidth="1" strokeOpacity="0.3" />
+                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.min(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill="#00ff00" fillOpacity="0.12" />
+                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.max(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill="#ff0000" fillOpacity="0.12" />
+                          <polyline fill="none" stroke={lineColor} strokeWidth="3" points={lineStr} strokeLinecap="round" strokeLinejoin="round" strokeOpacity="1" />
+                          <line x1={padL} y1={cumH + 4} x2={padL + innerW} y2={cumH + 4} stroke="#333" strokeWidth="1" />
+                          <text x={padL} y={cumH + 16} fill="#ffffff" fontSize="13" fontFamily="monospace" fontWeight="700" fillOpacity="0.5">PERIOD FLOWS</text>
+                          {points.map((p, i) => {
+                            const bx = toBarX(i), bh = toBarH(p.periodFlow)
+                            const by = p.periodFlow >= 0 ? barZeroY - bh : barZeroY
+                            return <rect key={`bar-${i}`} x={(bx - barWidth / 2).toFixed(1)} y={by.toFixed(1)} width={barWidth.toFixed(1)} height={Math.max(1, bh).toFixed(1)} fill={p.periodFlow >= 0 ? '#00ff00' : '#ff0000'} fillOpacity="1" />
+                          })}
+                          <line x1={padL} y1={barZeroY} x2={padL + innerW} y2={barZeroY} stroke="#ffffff" strokeWidth="1" strokeOpacity="0.3" />
+                          {xTicks.map((idx, pos) => {
+                            const p = points[idx]
+                            if (!p) return null
+                            return <text key={`xt-${pos}`} x={toBarX(idx)} y={totalH - 4} textAnchor="middle" fill="#ffffff" fontSize="16" fontFamily="monospace" fontWeight="700">{formatDate(p.date)}</text>
+                          })}
+                        </svg>
+                      </div>
+                    )
                   }
 
-                  const spyPoints = filterPoints(flowTabData['SPY'] || [])
-                  const sectorTickers = [
-                    'QQQ',
-                    'IWM',
-                    'XLK',
-                    'XLF',
-                    'XLY',
-                    'XLV',
-                    'XLE',
-                    'XLU',
-                    'XLP',
-                    'XLI',
-                    'XLB',
-                    'XLC',
-                    'XLRE',
+                  const GROUP_COLORS: Record<string, string> = {
+                    'BROAD MARKET': '#00aaff',
+                    'SECTOR SPDR': '#ff6600',
+                    'SECTOR VANGUARD': '#aa44ff',
+                    'FIXED INCOME': '#00ffcc',
+                    'COMMODITIES': '#ffcc00',
+                    'LEVERAGED / INVERSE': '#ff2244',
+                    'INTERNATIONAL': '#44ff88',
+                    'THEMATIC': '#ff44cc',
+                  }
+
+                  const ETF_GROUPS: Array<{ label: string; tickers: string[] }> = [
+                    { label: 'BROAD MARKET', tickers: ['SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'MDY', 'IJR'] },
+                    { label: 'SECTOR SPDR', tickers: ['XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE'] },
+                    { label: 'SECTOR VANGUARD', tickers: ['VGT', 'VFH', 'VCR', 'VHT', 'VDE', 'VPU', 'VDC', 'VIS', 'VAW', 'VOX'] },
+                    { label: 'FIXED INCOME', tickers: ['TLT', 'IEF', 'SHY', 'HYG', 'LQD', 'AGG', 'BND', 'TIP'] },
+                    { label: 'COMMODITIES', tickers: ['GLD', 'SLV', 'GDX', 'GDXJ', 'USO', 'UNG', 'DBC', 'PDBC'] },
+                    { label: 'LEVERAGED / INVERSE', tickers: ['TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'UVXY', 'SVXY'] },
+                    { label: 'INTERNATIONAL', tickers: ['EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG'] },
+                    { label: 'THEMATIC', tickers: ['ARKK', 'ARKG', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ', 'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB'] },
                   ]
+
+                  const BROAD_PALETTE = ['#00aaff', '#ff6600', '#00ff88', '#ff44cc', '#ffcc00', '#aa44ff', '#ff2244', '#00ffcc', '#88ff00']
+                  const SECTOR_PALETTE = ['#ff6600', '#ffaa00', '#ff3333', '#00cc88', '#00aaff', '#ff44cc', '#aa44ff', '#ffff00', '#00ffcc', '#ff8844', '#88aaff']
+                  const ALTS_PALETTE = ['#ffcc00', '#00ffcc', '#44ff88', '#ff2244', '#aa44ff', '#ff44cc', '#00aaff', '#ff8844']
 
                   return (
                     <>
-                      {/* SPY – large prominent chart */}
-                      {renderFlowChart('SPY', spyPoints, true)}
+                      {/* ── 3 multi-line overview charts ── */}
+                      {renderMultiLineChart('BROAD MARKET', ['SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'MDY', 'IJR'], '#00aaff', BROAD_PALETTE)}
+                      {renderMultiLineChart('SECTORS', ['XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE'], '#ff6600', SECTOR_PALETTE)}
+                      {renderMultiLineChart('COMMODITIES & ALTS', ['GLD', 'SLV', 'TLT', 'IEF', 'EEM', 'EFA', 'ARKK', 'SOXX'], '#ffcc00', ALTS_PALETTE)}
 
-                      {/* Sector ETFs – 2-column grid */}
-                      <div className="grid grid-cols-2 gap-3">
-                        {sectorTickers.map((t) =>
-                          flowTabData[t] ? (
-                            <div key={t}>
-                              {renderFlowChart(t, filterPoints(flowTabData[t]), false)}
+                      {/* ── Individual ETF groups ── */}
+                      {ETF_GROUPS.map((group) => {
+                        const accentColor = GROUP_COLORS[group.label] || '#ff6600'
+                        const available = group.tickers.filter(t => rangeData[t])
+                        if (available.length === 0) return null
+                        return (
+                          <div key={group.label} style={{ marginBottom: 8 }}>
+                            {/* Centered section header with colored dividers */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                              <div style={{ flex: 1, height: 1, background: `${accentColor}55` }} />
+                              <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 16, color: accentColor, letterSpacing: '5px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                                {group.label}
+                              </span>
+                              <div style={{ flex: 1, height: 1, background: `${accentColor}55` }} />
                             </div>
-                          ) : null
-                        )}
-                      </div>
+                            {group.label === 'BROAD MARKET' ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {renderFlowChart('SPY', rangeData['SPY'] || [], true, accentColor)}
+                                <div className="grid grid-cols-2 gap-2">
+                                  {available.filter(t => t !== 'SPY').map(t => (
+                                    <div key={t}>{renderFlowChart(t, rangeData[t], false, accentColor)}</div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-2">
+                                {available.map(t => (
+                                  <div key={t}>{renderFlowChart(t, rangeData[t], false, accentColor)}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </>
                   )
                 })()

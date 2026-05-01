@@ -7,7 +7,6 @@ export type EventCategory =
   | 'Pandemic & Health'
   | 'Monetary Policy'
   | 'Geopolitical Shock'
-  | 'Terror & Disaster'
   | 'Trade War'
   | 'Debt Crisis'
   | 'Market Crash'
@@ -21,6 +20,12 @@ export interface KeyMover {
   note: string           // short explanation
 }
 
+export interface KeyDate {
+  label: string  // e.g. "Greenspan — Last Meeting"
+  date: string   // YYYY-MM-DD
+  note?: string  // e.g. "FFR 4.25%→4.50%"
+}
+
 export interface MarketEvent {
   id: string
   name: string
@@ -29,6 +34,7 @@ export interface MarketEvent {
   endDate: string   // YYYY-MM-DD
   description: string
   severity: 'low' | 'medium' | 'high' | 'extreme'
+  keyDates?: KeyDate[]
   keyMovers?: KeyMover[]
 }
 
@@ -301,24 +307,6 @@ export const MARKET_EVENTS: MarketEvent[] = [
 
   // ─── PANDEMIC & HEALTH ─────────────────────────────────────────────────────
   {
-    id: 'swine-flu-2009',
-    name: 'H1N1 Swine Flu',
-    category: 'Pandemic & Health',
-    startDate: '2009-04-01',
-    endDate: '2009-08-31',
-    description: 'WHO declares pandemic; limited market impact vs GFC recovery, airline/pork stocks temporarily hit.',
-    severity: 'low',
-  },
-  {
-    id: 'ebola-2014',
-    name: 'Ebola Outbreak – West Africa',
-    category: 'Pandemic & Health',
-    startDate: '2014-03-01',
-    endDate: '2015-06-30',
-    description: 'Largest Ebola outbreak ever; airline stocks, travel, and West Africa investments pressured.',
-    severity: 'low',
-  },
-  {
     id: 'covid19-crash',
     name: 'COVID-19 Pandemic Crash',
     category: 'Pandemic & Health',
@@ -485,61 +473,6 @@ export const MARKET_EVENTS: MarketEvent[] = [
       { asset: 'Gold', ticker: 'GLD', direction: 'up', magnitude: '5-15%', note: 'Safe haven demand surges; gold hits successive all-time highs' },
       { asset: 'Emerging Markets', ticker: 'EEM', direction: 'down', magnitude: '5-15%', note: 'Export-dependent EMs hit hard by tariff shock' },
     ],
-  },
-
-  // ─── TERROR & DISASTER ─────────────────────────────────────────────────────
-  {
-    id: 'madrid-bombings',
-    name: 'Madrid Train Bombings',
-    category: 'Terror & Disaster',
-    startDate: '2004-03-11',
-    endDate: '2004-03-14',
-    description: '191 killed in Madrid bombings; Spain reverses Iraq War support, Ibex-35 -4% on Monday open.',
-    severity: 'medium',
-  },
-  {
-    id: 'london-bombings-2005',
-    name: 'London Bombings 7/7',
-    category: 'Terror & Disaster',
-    startDate: '2005-07-07',
-    endDate: '2005-07-12',
-    description: 'Suicide bombings on London transport network; FTSE opens -1.5%, sterling falls, quick recovery.',
-    severity: 'medium',
-  },
-  {
-    id: 'paris-attacks-2015',
-    name: 'Paris Terror Attacks',
-    category: 'Terror & Disaster',
-    startDate: '2015-11-13',
-    endDate: '2015-11-20',
-    description: '130 killed in Paris attacks; mild market reaction given resilience since 9/11, EUR weakens briefly.',
-    severity: 'medium',
-  },
-  {
-    id: 'fukushima-disaster',
-    name: 'Fukushima Nuclear Disaster',
-    category: 'Terror & Disaster',
-    startDate: '2011-03-11',
-    endDate: '2011-04-15',
-    description: 'Japan earthquake/tsunami triggers nuclear meltdown; Nikkei falls 17% in two days, nuclear stocks globally crushed.',
-    severity: 'high',
-    keyMovers: [
-      { asset: 'Japanese Equities', ticker: 'EWJ', direction: 'down', magnitude: '15-30%', note: 'Nikkei -17% in 2 days; worst crash since 1987' },
-      { asset: 'Nuclear Stocks', direction: 'down', magnitude: '30%+', note: 'Exelon, Cameco, Uranium stocks collapse globally' },
-      { asset: 'Natural Gas', ticker: 'UNG', direction: 'up', magnitude: '5-15%', note: 'Germany shuts nuclear plants; gas demand surges' },
-      { asset: 'Solar / Renewables', direction: 'up', magnitude: '15-30%', note: 'Anti-nuclear sentiment drives renewable investment' },
-      { asset: 'Yen (JPY)', direction: 'up', magnitude: '5-15%', note: 'Repatriation of insurance capital drives yen surge' },
-      { asset: 'Gold', ticker: 'GLD', direction: 'up', magnitude: '5-15%', note: 'Safe haven bid amid nuclear uncertainty' },
-    ],
-  },
-  {
-    id: 'hurricane-katrina',
-    name: 'Hurricane Katrina',
-    category: 'Terror & Disaster',
-    startDate: '2005-08-29',
-    endDate: '2005-09-15',
-    description: 'Katrina devastates Gulf Coast; oil refineries offline, energy prices spike, insurance sector hit with $45B losses.',
-    severity: 'high',
   },
 
   // ─── TRADE WAR ─────────────────────────────────────────────────────────────
@@ -1969,6 +1902,55 @@ export const MARKET_EVENTS: MarketEvent[] = [
       { asset: 'Volume Spike', ticker: 'IWM', direction: 'volatile', magnitude: '5-15%', note: '3-5x normal volume on rebalance Friday; single highest volume day for many small-cap stocks' },
     ],
   },
+
+  // ─── FED CHAIR TRANSITION EVENTS ──────────────────────────────────────────
+  {
+    id: 'fed-chair-last-meeting-performance',
+    name: 'Fed Chair Last FOMC Meeting — Historical Market Reactions',
+    category: 'Monetary Policy',
+    startDate: '2006-01-31',
+    endDate: '2026-01-28',
+    description: 'Markets historically show a slight negative bias in the week of a Fed Chair\'s final meeting, with a stronger recovery over the following quarter as the new policy path becomes clear. Volatility runs elevated for ~60 days around the handoff and the yield curve re-prices as markets assess continuity.',
+    severity: 'medium',
+    keyDates: [
+      { label: 'Greenspan — Last Meeting', date: '2006-01-31', note: '' },
+      { label: 'Bernanke — Reappointment', date: '2010-01-27', note: '' },
+      { label: 'Bernanke — Last Meeting', date: '2014-01-29', note: '' },
+      { label: 'Yellen — Last Meeting', date: '2018-01-31', note: '' },
+      { label: 'Powell — Reappointment', date: '2022-01-26', note: '' },
+      { label: 'Powell — Last Meeting', date: '2026-01-28', note: '' },
+    ],
+    keyMovers: [
+      { asset: 'S&P 500', ticker: 'SPY', direction: 'volatile', magnitude: '1-5%', note: 'Slight negative bias in the week of the last meeting; recovers strongly within a quarter as new policy path clarifies' },
+      { asset: 'US Treasuries', ticker: 'TLT', direction: 'volatile', magnitude: '5-15%', note: 'Yield curve re-prices sharply as markets adjust expectations for the incoming chair\'s rate path' },
+      { asset: 'VIX', ticker: 'VXX', direction: 'up', magnitude: '5-15%', note: 'Volatility runs elevated for ~60 days around the handoff as policy uncertainty peaks' },
+      { asset: 'USD', ticker: 'UUP', direction: 'volatile', magnitude: '1-5%', note: 'Dollar direction hinges on whether markets read the transition as hawkish or dovish continuity' },
+      { asset: 'Gold', ticker: 'GLD', direction: 'up', magnitude: '1-5%', note: 'Safe-haven bid tends to build during the uncertainty window around a chair transition' },
+    ],
+  },
+  {
+    id: 'new-fed-chair-first-year-performance',
+    name: 'New Fed Chair — First-Year Stock Market Performance',
+    category: 'Monetary Policy',
+    startDate: '2026-02-05',
+    endDate: '2027-02-05',
+    description: 'Historical S&P 500 performance under each new Fed Chair in year one. Greenspan Year 1 (Aug 1987–Aug 1988): Black Monday crash -34% in October 1987 within 2 months; year-end recovery left S&P -2.7% for his first 12M — worst new-chair debut on record. Bernanke Year 1 (Feb 2006–Feb 2007): S&P +14.4%; housing cracks forming but equity markets still booming. Yellen Year 1 (Feb 2014–Feb 2015): S&P +13.0%; Janet Yellen inherits calm recovery, no major shocks, steady. Powell Year 1 (Feb 2018–Feb 2019): S&P -5.5% — worst year since GFC; \'autopilot\' comment triggers Q4 crash -20%, rate hikes + trade war combined. Average new-chair Year 1 S&P return: +4.8%. Average ex-Greenspan crash: +7.3%. Next chair inherits: rates at multi-decade highs, AI-driven market, and massive fiscal deficit — unique macro backdrop.',
+    severity: 'medium',
+    keyDates: [
+      { label: 'Greenspan — Confirmed', date: '1987-08-11', note: 'Year 1: S&P -2.7% · Black Monday crash -34% within 2 months' },
+      { label: 'Bernanke — Confirmed', date: '2006-02-01', note: 'Year 1: S&P +14.4% · Inherited Greenspan boom; subprime cracks forming' },
+      { label: 'Yellen — Confirmed', date: '2014-02-03', note: 'Year 1: S&P +13.0% · Smoothest new-chair start on record' },
+      { label: 'Powell — Confirmed', date: '2018-02-05', note: 'Year 1: S&P -5.5% · Autopilot speech → Q4 crash -20%' },
+      { label: 'Next Chair — Projected Start', date: '2026-02-05', note: 'Inherits multi-decade high rates + AI market + massive fiscal deficit' },
+    ],
+    keyMovers: [
+      { asset: 'S&P 500', ticker: 'SPY', direction: 'volatile', magnitude: '5-15%', note: 'High dispersion across chair tenures — avg Year 1 return positive but outcomes vary widely based on inherited macro conditions' },
+      { asset: 'US Treasuries', ticker: 'TLT', direction: 'volatile', magnitude: '5-15%', note: 'New chair\'s first dot-plot and press conference sets the 2–10Y yield trajectory for the year; high sensitivity period' },
+      { asset: 'Financials', ticker: 'XLF', direction: 'volatile', magnitude: '5-15%', note: 'Banks highly sensitive to new chair\'s rate path guidance; steepener vs flattener determines net interest margin outlook' },
+      { asset: 'Gold', ticker: 'GLD', direction: 'up', magnitude: '5-15%', note: 'Tends to rally in the first 6 months of a new chair tenure as uncertainty premium stays elevated' },
+      { asset: 'NASDAQ', ticker: 'QQQ', direction: 'volatile', magnitude: '5-15%', note: 'Long-duration tech most sensitive to new chair rate signals; biggest swings of any sector in Year 1' },
+    ],
+  },
 ]
 
 export const EVENT_CATEGORIES: EventCategory[] = [
@@ -1980,7 +1962,6 @@ export const EVENT_CATEGORIES: EventCategory[] = [
   'Pandemic & Health',
   'Monetary Policy',
   'Geopolitical Shock',
-  'Terror & Disaster',
   'Trade War',
   'Debt Crisis',
   'Market Crash',
@@ -1996,7 +1977,6 @@ export const CATEGORY_COLORS: Record<EventCategory, string> = {
   'Pandemic & Health': '#22c55e',
   'Monetary Policy': '#a855f7',
   'Geopolitical Shock': '#06b6d4',
-  'Terror & Disaster': '#f43f5e',
   'Trade War': '#fb923c',
   'Debt Crisis': '#facc15',
   'Market Crash': '#ff2d55',

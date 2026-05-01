@@ -59,13 +59,23 @@ export async function POST(request: NextRequest) {
       `💾 Compressing flow: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${((compressedSize / originalSize) * 100).toFixed(1)}% of original)`
     )
 
+    const exactDateISO = dateObj.toISOString()
+    console.log(`[SaveFlow] Upserting — exact date key: ${exactDateISO} | tradeCount: ${tradeCount}`)
+
     // Upsert the flow data (store compressed, size field stores trade count)
+    // Also update createdAt so the history timestamp reflects the latest save time
     const flow = await prisma.flow.upsert({
       where: { date: dateObj.toISOString() },
-      update: { data: compressedBase64, size: tradeCount },
+      update: { data: compressedBase64, size: tradeCount, createdAt: new Date() },
       create: { date: dateObj.toISOString(), data: compressedBase64, size: tradeCount },
-      select: { id: true, date: true, size: true }, // Only return minimal data
+      select: { id: true, date: true, size: true, createdAt: true },
     })
+
+    console.log(`[SaveFlow] Upsert done — id: ${flow.id} | stored date: ${(flow as any).date} | size: ${flow.size}`)
+
+    // Verify it's actually in the DB now
+    const totalFlows = await prisma.flow.count()
+    console.log(`[SaveFlow] Total flows in DB now: ${totalFlows}`)
 
     return NextResponse.json({ success: true, flow })
   } catch (error) {
