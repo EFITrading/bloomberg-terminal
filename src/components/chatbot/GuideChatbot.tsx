@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
+import { useChatStore } from '@/store/chatStore';
+import { X, Send, Sparkles, User, Bot, Trash2, Copy, Check, TrendingUp, DollarSign, Calendar, Zap, BarChart3, Activity } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import SeasonaxMainChart from '@/components/analytics/SeasonaxMainChart';
 import remarkGfm from 'remark-gfm';
@@ -43,7 +45,7 @@ export default function GuideChatbot() {
 
     const userMessage = input.trim();
     setInput('');
-    
+
     // Add user message
     addMessage({
       role: 'user',
@@ -87,7 +89,7 @@ export default function GuideChatbot() {
     if (!query.trim() || isLoading) return;
 
     setInput('');
-    
+
     // Add user message
     addMessage({
       role: 'user',
@@ -148,7 +150,7 @@ export default function GuideChatbot() {
         }}>
           {/* Animated background */}
           <div className="absolute inset-0 bg-gradient-to-r from-orange-500/5 via-amber-500/10 to-orange-500/5 animate-pulse"></div>
-          
+
           <div className="flex items-center gap-4 relative z-10">
             <div className="w-14 h-14 rounded-full relative overflow-hidden" style={{
               boxShadow: '0 0 30px rgba(255, 102, 0, 0.4), inset 0 0 20px rgba(255, 102, 0, 0.1)'
@@ -170,7 +172,7 @@ export default function GuideChatbot() {
               }}>Your intelligent trading assistant</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3 relative z-[10001]">
             {messages.length > 0 && (
               <button
@@ -181,7 +183,7 @@ export default function GuideChatbot() {
                 <Trash2 className="w-5 h-5 text-gray-400 group-hover:text-red-400 transition-colors" />
               </button>
             )}
-            
+
             <button
               onClick={() => setIsOpen(false)}
               className="p-2 hover:bg-gray-800/50 rounded-lg transition-all duration-200 border border-transparent hover:border-gray-700"
@@ -227,15 +229,14 @@ export default function GuideChatbot() {
               )}
 
               <div className={`flex-1 ${message.role === 'user' ? 'flex justify-end' : ''}`}>
-                <div className={`max-w-[95%] relative overflow-hidden ${
-                  message.role === 'user'
+                <div className={`max-w-[95%] relative overflow-hidden ${message.role === 'user'
                     ? 'text-white rounded-2xl rounded-tr-sm px-5 py-4'
                     : 'bg-[#0a0a0a] text-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 border border-gray-800/50'
-                }`} style={message.role === 'user' ? {
-                  background: 'linear-gradient(135deg, #1a0a00 0%, #331100 25%, #4d1a00 50%, #331100 75%, #1a0a00 100%)',
-                  border: '2px solid rgba(255, 102, 0, 0.4)',
-                  boxShadow: '0 0 25px rgba(255, 102, 0, 0.3), inset 0 0 20px rgba(255, 102, 0, 0.05), 0 8px 20px rgba(0, 0, 0, 0.6)'
-                } : {}}>
+                  }`} style={message.role === 'user' ? {
+                    background: 'linear-gradient(135deg, #1a0a00 0%, #331100 25%, #4d1a00 50%, #331100 75%, #1a0a00 100%)',
+                    border: '2px solid rgba(255, 102, 0, 0.4)',
+                    boxShadow: '0 0 25px rgba(255, 102, 0, 0.3), inset 0 0 20px rgba(255, 102, 0, 0.05), 0 8px 20px rgba(0, 0, 0, 0.6)'
+                  } : {}}>
                   {message.role === 'user' && (
                     <>
                       {/* Animated border glow */}
@@ -295,107 +296,107 @@ export default function GuideChatbot() {
                       // Not JSON or not seasonal data, render as markdown
                     }
                     return (
-                    <div className="prose prose-invert max-w-none overflow-hidden" style={{ maxWidth: '100%' }}>
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[rehypeKatex, rehypeRaw]}
-                        components={{
-                          code({ inline, className, children, ...props }: any) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            return !inline && match ? (
-                              <SyntaxHighlighter
-                                style={vscDarkPlus}
-                                language={match[1]}
-                                PreTag="div"
-                                className="rounded-lg mt-2 mb-2 text-xs"
-                                customStyle={{ fontSize: '11px', maxWidth: '100%', overflowX: 'auto' }}
-                                {...props}
-                              >
-                                {String(children).replace(/\n$/, '')}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className="bg-black px-1.5 py-0.5 rounded text-xs text-blue-400 border border-gray-800" {...props}>
+                      <div className="prose prose-invert max-w-none overflow-hidden" style={{ maxWidth: '100%' }}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[rehypeKatex, rehypeRaw]}
+                          components={{
+                            code({ inline, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              return !inline && match ? (
+                                <SyntaxHighlighter
+                                  style={vscDarkPlus}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  className="rounded-lg mt-2 mb-2 text-xs"
+                                  customStyle={{ fontSize: '11px', maxWidth: '100%', overflowX: 'auto' }}
+                                  {...props}
+                                >
+                                  {String(children).replace(/\n$/, '')}
+                                </SyntaxHighlighter>
+                              ) : (
+                                <code className="bg-black px-1.5 py-0.5 rounded text-xs text-blue-400 border border-gray-800" {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                            p: ({ children }) => <p className="text-sm leading-relaxed break-words">{children}</p>,
+                            ul: ({ children }) => <ul className="list-disc list-inside mb-3 space-y-1 text-sm">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal list-inside mb-3 space-y-1 text-sm">{children}</ol>,
+                            li: ({ children }) => <li className="text-sm leading-relaxed break-words">{children}</li>,
+                            h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-4 break-words">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 break-words">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-bold mb-2 mt-2 break-words">{children}</h3>,
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-4 border-gray-600 pl-4 italic my-3 text-sm">{children}</blockquote>
+                            ),
+                            a: ({ children, href }) => (
+                              <a href={href} className="text-blue-400 hover:underline text-sm break-all" target="_blank" rel="noopener noreferrer">
                                 {children}
-                              </code>
-                            );
-                          },
-                          p: ({ children }) => <p className="text-sm leading-relaxed break-words">{children}</p>,
-                          ul: ({ children }) => <ul className="list-disc list-inside mb-3 space-y-1 text-sm">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal list-inside mb-3 space-y-1 text-sm">{children}</ol>,
-                          li: ({ children }) => <li className="text-sm leading-relaxed break-words">{children}</li>,
-                          h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-4 break-words">{children}</h1>,
-                          h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 break-words">{children}</h2>,
-                          h3: ({ children }) => <h3 className="text-sm font-bold mb-2 mt-2 break-words">{children}</h3>,
-                          blockquote: ({ children }) => (
-                            <blockquote className="border-l-4 border-gray-600 pl-4 italic my-3 text-sm">{children}</blockquote>
-                          ),
-                          a: ({ children, href }) => (
-                            <a href={href} className="text-blue-400 hover:underline text-sm break-all" target="_blank" rel="noopener noreferrer">
-                              {children}
-                            </a>
-                          ),
-                          img: ({ src, alt }) => (
-                            <img 
-                              src={src} 
-                              alt={alt} 
-                              className="max-w-full h-auto rounded-lg my-2"
-                              style={{ maxWidth: '100%', height: 'auto', objectFit: 'contain' }}
-                            />
-                          ),
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto my-4 max-w-full">
-                              <div style={{
-                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 133, 0, 0.3), inset 0 0 20px rgba(255, 133, 0, 0.05)',
-                                borderRadius: '8px',
-                                background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-                                maxWidth: '100%'
-                              }}>
-                                <table className="w-full border-collapse text-xs" style={{ fontSize: '10px' }}>{children}</table>
+                              </a>
+                            ),
+                            img: ({ src, alt }) => (
+                              <img
+                                src={src}
+                                alt={alt}
+                                className="max-w-full h-auto rounded-lg my-2"
+                                style={{ maxWidth: '100%', height: 'auto', objectFit: 'contain' }}
+                              />
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-4 max-w-full">
+                                <div style={{
+                                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 133, 0, 0.3), inset 0 0 20px rgba(255, 133, 0, 0.05)',
+                                  borderRadius: '8px',
+                                  background: 'linear-gradient(145deg, #0a0a0a, #000000)',
+                                  maxWidth: '100%'
+                                }}>
+                                  <table className="w-full border-collapse text-xs" style={{ fontSize: '10px' }}>{children}</table>
+                                </div>
                               </div>
-                            </div>
-                          ),
-                          thead: ({ children }) => (
-                            <thead className="bg-black border-b-2 border-orange-500" style={{
-                              boxShadow: 'inset 0 -2px 0 rgba(255, 133, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.5)',
-                              background: '#000000',
-                              transform: 'translateZ(10px)',
-                              position: 'relative',
-                            }}>{children}</thead>
-                          ),
-                          tbody: ({ children }) => <tbody className="bg-black" style={{ transform: 'translateZ(0)' }}>{children}</tbody>,
-                          tr: ({ children }) => <tr className="border-b border-gray-900 hover:bg-gray-950 transition-all" style={{
-                            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 2px 4px rgba(0, 0, 0, 0.5)',
-                            transform: 'translateZ(2px)',
-                            transition: 'all 0.2s ease',
-                          }}>{children}</tr>,
-                          th: ({ children }) => (
-                            <th className="px-2 py-2 text-center text-xs font-black uppercase tracking-wider border-r border-gray-800 last:border-r-0 whitespace-nowrap" style={{
-                              color: '#ff8500',
-                              textShadow: '0 0 8px rgba(255, 133, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.8)',
-                              transform: 'translateZ(5px)',
-                              fontSize: '9px'
-                            }}>
-                              {children}
-                            </th>
-                          ),
-                          td: ({ children }) => (
-                            <td className="px-2 py-2 text-xs text-gray-200 border-r border-gray-900 last:border-r-0 text-center whitespace-nowrap" style={{
-                              textShadow: '0 2px 4px rgba(0, 0, 0, 0.9)',
-                              background: 'linear-gradient(180deg, rgba(10, 10, 10, 0.8) 0%, rgba(0, 0, 0, 0.9) 100%)',
-                              fontSize: '10px'
-                            }}>
-                              {children}
-                            </td>
-                          ),
-                        }}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
+                            ),
+                            thead: ({ children }) => (
+                              <thead className="bg-black border-b-2 border-orange-500" style={{
+                                boxShadow: 'inset 0 -2px 0 rgba(255, 133, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                                background: '#000000',
+                                transform: 'translateZ(10px)',
+                                position: 'relative',
+                              }}>{children}</thead>
+                            ),
+                            tbody: ({ children }) => <tbody className="bg-black" style={{ transform: 'translateZ(0)' }}>{children}</tbody>,
+                            tr: ({ children }) => <tr className="border-b border-gray-900 hover:bg-gray-950 transition-all" style={{
+                              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 2px 4px rgba(0, 0, 0, 0.5)',
+                              transform: 'translateZ(2px)',
+                              transition: 'all 0.2s ease',
+                            }}>{children}</tr>,
+                            th: ({ children }) => (
+                              <th className="px-2 py-2 text-center text-xs font-black uppercase tracking-wider border-r border-gray-800 last:border-r-0 whitespace-nowrap" style={{
+                                color: '#ff8500',
+                                textShadow: '0 0 8px rgba(255, 133, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.8)',
+                                transform: 'translateZ(5px)',
+                                fontSize: '9px'
+                              }}>
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-2 py-2 text-xs text-gray-200 border-r border-gray-900 last:border-r-0 text-center whitespace-nowrap" style={{
+                                textShadow: '0 2px 4px rgba(0, 0, 0, 0.9)',
+                                background: 'linear-gradient(180deg, rgba(10, 10, 10, 0.8) 0%, rgba(0, 0, 0, 0.9) 100%)',
+                                fontSize: '10px'
+                              }}>
+                                {children}
+                              </td>
+                            ),
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
                     );
                   })()}
                 </div>
-                
+
                 {message.role === 'assistant' && (
                   <button
                     onClick={() => handleCopy(message.content, message.id)}
@@ -442,13 +443,13 @@ export default function GuideChatbot() {
             background: 'linear-gradient(90deg, transparent, rgba(255, 102, 0, 0.6), transparent)',
             animation: 'shimmer 3s infinite'
           }}></div>
-          
+
           {/* Quick Search Shortcuts - Only show after ticker + space */}
           {(() => {
             const match = input.match(/^([a-zA-Z]+)\s+$/);
             if (!match) return null;
             const ticker = match[1].toUpperCase();
-            
+
             return (
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-xs font-semibold uppercase tracking-wider mr-1" style={{
@@ -523,14 +524,14 @@ export default function GuideChatbot() {
               </div>
             );
           })()}
-          
+
           <form onSubmit={handleSubmit} className="relative">
             <div className="relative group">
               {/* Glow effect */}
               <div className="absolute inset-0 rounded-2xl blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{
                 background: 'radial-gradient(circle at center, rgba(255, 102, 0, 0.15), transparent 70%)'
               }}></div>
-              
+
               {/* Input container */}
               <div className="relative flex items-center bg-black rounded-2xl transition-all duration-300" style={{
                 border: '2px solid rgba(255, 102, 0, 0.3)',
@@ -563,7 +564,7 @@ export default function GuideChatbot() {
                   disabled={!input.trim() || isLoading}
                   className="flex-shrink-0 mr-3 p-4 text-white rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed relative overflow-hidden group"
                   style={{
-                    background: input.trim() && !isLoading 
+                    background: input.trim() && !isLoading
                       ? 'linear-gradient(135deg, #FF6600 0%, #FF8833 50%, #FF6600 100%)'
                       : 'linear-gradient(135deg, #333 0%, #222 100%)',
                     boxShadow: input.trim() && !isLoading

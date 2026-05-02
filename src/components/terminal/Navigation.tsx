@@ -573,40 +573,40 @@ export default function Navigation() {
               {isClient && (
                 <>
                   {isAuthenticated ? (
-                      <button
-                        onClick={() => router.push('/account')}
-                        style={{
-                          background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
-                          border: '1px solid rgba(255, 184, 0, 0.5)',
-                          color: '#000',
-                          padding: '12px 28px',
-                          borderRadius: '10px',
-                          fontSize: '14px',
-                          fontWeight: '700',
-                          letterSpacing: '1px',
-                          textTransform: 'uppercase',
-                          cursor: 'pointer',
-                          boxShadow:
-                            '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
-                          transition: 'all 0.3s ease',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          minWidth: '100px',
-                          whiteSpace: 'nowrap',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px)'
-                          e.currentTarget.style.boxShadow =
-                            '0 6px 20px rgba(255, 133, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)'
-                          e.currentTarget.style.boxShadow =
-                            '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-                        }}
-                      >
-                        Member
-                      </button>
+                    <button
+                      onClick={() => router.push('/account')}
+                      style={{
+                        background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
+                        border: '1px solid rgba(255, 184, 0, 0.5)',
+                        color: '#000',
+                        padding: '12px 28px',
+                        borderRadius: '10px',
+                        fontSize: '14px',
+                        fontWeight: '700',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        cursor: 'pointer',
+                        boxShadow:
+                          '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                        transition: 'all 0.3s ease',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        minWidth: '100px',
+                        whiteSpace: 'nowrap',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)'
+                        e.currentTarget.style.boxShadow =
+                          '0 6px 20px rgba(255, 133, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)'
+                        e.currentTarget.style.boxShadow =
+                          '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+                      }}
+                    >
+                      Member
+                    </button>
                   ) : (
                     <button
                       onClick={() => {
