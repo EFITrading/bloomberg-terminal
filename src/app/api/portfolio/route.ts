@@ -1,15 +1,9 @@
-import { getServerSession } from 'next-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
 
 async function getPortfolioKey(): Promise<string> {
-    try {
-        const session = await getServerSession()
-        return session?.user?.email ?? 'default'
-    } catch {
-        return 'default'
-    }
+    return 'default'
 }
 
 export async function GET() {

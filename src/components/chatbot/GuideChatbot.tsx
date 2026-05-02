@@ -1,9 +1,6 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
-import { useChatStore } from '@/store/chatStore';
-import { X, Send, Sparkles, User, Bot, Trash2, Copy, Check, TrendingUp, DollarSign, Calendar, Zap, BarChart3, Activity } from 'lucide-react';
-import { useSession } from 'next-auth/react';
 import ReactMarkdown from 'react-markdown';
 import SeasonaxMainChart from '@/components/analytics/SeasonaxMainChart';
 import remarkGfm from 'remark-gfm';
@@ -15,7 +12,6 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import 'katex/dist/katex.min.css';
 
 export default function GuideChatbot() {
-  const { data: session } = useSession();
   const { isOpen, messages, isLoading, model, setIsOpen, addMessage, setIsLoading, clearMessages, setModel } = useChatStore();
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -217,17 +213,9 @@ export default function GuideChatbot() {
             >
               {/* User Avatar */}
               {message.role === 'user' ? (
-                session?.user?.image ? (
-                  <img 
-                    src={session.user.image} 
-                    alt="Your profile" 
-                    className="flex-shrink-0 w-8 h-8 rounded-full border-2 border-blue-500/50"
-                  />
-                ) : (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                    <User className="w-4 h-4 text-white" />
-                  </div>
-                )
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                  <User className="w-4 h-4 text-white" />
+                </div>
               ) : (
                 /* AI Avatar - Animated Gold/Purple Gradient */
                 <div className="flex-shrink-0 w-8 h-8 rounded-full relative overflow-hidden">

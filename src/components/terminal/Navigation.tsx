@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 
-import { signOut, useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
@@ -13,7 +12,6 @@ import FearGreedGauge from './FearGreedGauge'
 import TickerScroller from './TickerScroller'
 
 export default function Navigation() {
-  const { data: session } = useSession()
   const { regimes, regimeAnalysis } = useMarketRegime()
   const [currentTime, setCurrentTime] = useState('')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -52,13 +50,12 @@ export default function Navigation() {
       const cookies = document.cookie.split(';')
       const authCookie = cookies.find((cookie) => cookie.trim().startsWith('efi-auth='))
       const isAuth = authCookie && authCookie.includes('authenticated')
-      const hasDiscordAuth = (session as any)?.hasAccess
-      setIsAuthenticated(!!isAuth || !!hasDiscordAuth)
+      setIsAuthenticated(!!isAuth)
     }
 
     checkAuth()
     // Check auth status when pathname changes
-  }, [pathname, isClient, session])
+  }, [pathname, isClient])
 
   const navLinks = [
     { name: 'Market Overview', path: '/market-overview' },
@@ -576,51 +573,6 @@ export default function Navigation() {
               {isClient && (
                 <>
                   {isAuthenticated ? (
-                    session?.user?.image ? (
-                      <button
-                        onClick={() => router.push('/account')}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          padding: '0',
-                          cursor: 'pointer',
-                          position: 'relative',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '42px',
-                            height: '42px',
-                            borderRadius: '50%',
-                            border: '2px solid rgba(255, 133, 0, 0.5)',
-                            padding: '2px',
-                            background:
-                              'linear-gradient(135deg, rgba(255, 133, 0, 0.1) 0%, rgba(255, 184, 0, 0.1) 100%)',
-                            boxShadow: '0 0 20px rgba(255, 133, 0, 0.3)',
-                            transition: 'all 0.3s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.boxShadow = '0 0 30px rgba(255, 133, 0, 0.6)'
-                            e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.8)'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.boxShadow = '0 0 20px rgba(255, 133, 0, 0.3)'
-                            e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.5)'
-                          }}
-                        >
-                          <img
-                            src={session.user.image}
-                            alt="Profile"
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              borderRadius: '50%',
-                              objectFit: 'cover',
-                            }}
-                          />
-                        </div>
-                      </button>
-                    ) : (
                       <button
                         onClick={() => router.push('/account')}
                         style={{
@@ -655,7 +607,6 @@ export default function Navigation() {
                       >
                         Member
                       </button>
-                    )
                   ) : (
                     <button
                       onClick={() => {
