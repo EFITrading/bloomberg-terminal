@@ -125,14 +125,3 @@ export default function AccountPage() {
     </div>
   );
 }
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-8 text-center text-sm text-gray-500">
-          <p className="font-mono">Â© 2025 EFI TRADING INTELLIGENCE</p>
-        </div>
-      </div>
-    </div>
-  );
-}
