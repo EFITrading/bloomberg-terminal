@@ -866,7 +866,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.scale(dpr, dpr)
 
     // CRITICAL: 70px bottom padding ensures x-axis labels never get cropped
-    const PADDING = { top: 20, right: 10, bottom: 70, left: 60 }
+    const isMobileView = width < 768
+    const PADDING = isMobileView
+      ? { top: 20, right: 65, bottom: 70, left: 10 }
+      : { top: 20, right: 10, bottom: 70, left: 60 }
     const chartWidth = width - PADDING.left - PADDING.right
     const chartHeight = height - PADDING.top - PADDING.bottom
 
@@ -991,7 +994,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.lineWidth = 1
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 16px "JetBrains Mono", monospace'
-    ctx.textAlign = 'right'
+    ctx.textAlign = isMobileView ? 'left' : 'right'
 
     const numHLines = 8
     for (let i = 0; i <= numHLines; i++) {
@@ -1002,7 +1005,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       ctx.stroke()
 
       const value = maxValue - ((maxValue - minValue) / numHLines) * i
-      ctx.fillText(`${value.toFixed(1)}%`, PADDING.left - 8, y + 5)
+      if (isMobileView) {
+        ctx.fillText(`${value.toFixed(1)}%`, width - PADDING.right + 8, y + 5)
+      } else {
+        ctx.fillText(`${value.toFixed(1)}%`, PADDING.left - 8, y + 5)
+      }
     }
 
     // Draw zero line
@@ -1206,13 +1213,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       ctx.textAlign = 'center'
       ctx.fillText('DETAILS', detailsX + detailsWidth / 2, detailsY + 4)
 
-      // Store button position for click detection
-      ;(canvas as any).patternDetailsButton = {
-        x: detailsX,
-        y: detailsY - detailsHeight / 2,
-        width: detailsWidth,
-        height: detailsHeight,
-      }
+        // Store button position for click detection
+        ; (canvas as any).patternDetailsButton = {
+          x: detailsX,
+          y: detailsY - detailsHeight / 2,
+          width: detailsWidth,
+          height: detailsHeight,
+        }
 
       // Add "Day 0" label at start
       ctx.fillStyle = '#00CED1'

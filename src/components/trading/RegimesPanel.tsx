@@ -1589,6 +1589,12 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     Record<string, Array<{ price: number; etMinutes: number; time: number }>>
   >({})
   const sparkFetchedRef = useRef<string>('')
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const preset = SCAN_PRESETS.find((p) => p.id === activePreset) ?? SCAN_PRESETS[0]
 
@@ -1940,7 +1946,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     const openXPct = openI >= 0 ? (openI / (n - 1)) * 100 : -1
     const closeXPct = closeI >= 0 ? (closeI / (n - 1)) * 100 : -1
 
-    const svgHeight = compact ? 52 : 72
+    const svgHeight = compact ? (isMobile ? 85 : 52) : (isMobile ? 118 : 72)
 
     return (
       <div style={{ width: '100%', minWidth: 0 }}>
@@ -1984,7 +1990,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
               <div style={{ position: 'relative', height: 13 }}>
                 {openXPct >= 0 && (
                   <span style={{
-                    position: 'absolute', fontSize: 8, color: '#FFAA00', fontWeight: 700,
+                    position: 'absolute', fontSize: isMobile ? 10 : 8, color: '#FFAA00', fontWeight: 700,
                     fontFamily: '"Courier New",monospace', left: `${openXPct}%`, transform: 'translateX(-50%)'
                   }}>
                     6:30
@@ -1992,7 +1998,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                 )}
                 {closeXPct >= 0 && (
                   <span style={{
-                    position: 'absolute', fontSize: 8, color: '#00AAEE', fontWeight: 700,
+                    position: 'absolute', fontSize: isMobile ? 10 : 8, color: '#00AAEE', fontWeight: 700,
                     fontFamily: '"Courier New",monospace', left: `${closeXPct}%`, transform: 'translateX(-50%)'
                   }}>
                     1 PM
@@ -2005,12 +2011,12 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
           {!compact && (
             <div style={{
               width: 38, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              paddingBottom: 13, fontSize: 8, textAlign: 'right',
+              paddingBottom: 13, fontSize: isMobile ? 13 : 8, textAlign: 'right',
               fontFamily: '"Courier New",monospace', gap: 0
             }}>
-              <span style={{ color: 'rgba(255,255,255,0.35)' }}>{fmtP(sMax)}</span>
+              <span style={{ color: '#ffffff' }}>{fmtP(sMax)}</span>
               <span style={{ color: lineColor, fontWeight: 900 }}>{fmtP(curP)}</span>
-              <span style={{ color: 'rgba(255,255,255,0.35)' }}>{fmtP(sMin)}</span>
+              <span style={{ color: '#ffffff' }}>{fmtP(sMin)}</span>
             </div>
           )}
         </div>
@@ -2100,51 +2106,34 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
             </button>
           )
         })}
-      </div>
-
-      {/* ── Active Scan Header ───────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 14px',
-        borderBottom: '1px solid #1a1a1a',
-        flexShrink: 0,
-        background: '#000000',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-          <span style={{ fontSize: '12px', fontWeight: 800, color: '#FF6B00', letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-            {preset.label}
-          </span>
-          <span style={{ fontSize: '10px', color: '#FFFFFF', opacity: 0.45, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {preset.description}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-          {rows.length > 0 && (
-            <span style={{ fontSize: '11px', color: '#FF6B00', fontWeight: 800 }}>
-              {rows.length}
-            </span>
-          )}
-          <button
-            onClick={() => runScan(preset, true)}
-            style={{
-              padding: '5px 12px', borderRadius: '2px', cursor: 'pointer',
-              fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em',
-              background: 'transparent', border: '1px solid #FF6B00',
-              color: '#FF6B00', fontFamily: '"Courier New",monospace',
-              transition: 'all 0.1s', whiteSpace: 'nowrap',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#FF6B00'
-              e.currentTarget.style.color = '#000'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = '#FF6B00'
-            }}
-          >
-            ↺ {lastFetch ? lastFetch.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'SCAN'}
-          </button>
-        </div>
+        {/* ── Refresh cell ── */}
+        <button
+          onClick={() => runScan(preset, true)}
+          style={{
+            padding: '10px 4px',
+            cursor: 'pointer',
+            fontFamily: '"Courier New",monospace',
+            textAlign: 'center',
+            background: '#000000',
+            border: 'none',
+            borderBottom: '2px solid transparent',
+            color: '#FF6B00',
+            transition: 'all 0.1s',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#111' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#000000' }}
+          title="Refresh scan"
+        >
+          <div style={{ fontSize: '22px', lineHeight: 1 }}>↺</div>
+          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+            REFRESH
+          </div>
+        </button>
       </div>
 
       {/* ── Progress bar ─────────────────────────────────────────────────────── */}
@@ -2197,7 +2186,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                     >
                       {/* Top row: rank | symbol | change */}
                       <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 92px', gap: '0 6px', alignItems: 'center', marginBottom: 4 }}>
-                        <div style={{ fontSize: '10px', color: '#444', textAlign: 'right', fontWeight: 600 }}>{i + 1}</div>
+                        <div style={{ fontSize: '10px', color: isMobile ? '#FFFFFF' : '#444', textAlign: 'right', fontWeight: 600 }}>{i + 1}</div>
                         <div style={{ fontSize: '14px', fontWeight: 900, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.symbol}</div>
                         <div style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px',
@@ -2211,7 +2200,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                       </div>
                       {/* Full-width sparkline */}
                       <div style={{ width: '100%' }}>
-                        {spark && spark.length > 1 ? renderSparkline(spark) : <div style={{ height: 85 }} />}
+                        {spark && spark.length > 1 ? renderSparkline(spark) : <div style={{ height: isMobile ? 134 : 85 }} />}
                       </div>
                     </div>
                   )
@@ -2251,8 +2240,8 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                 { l: 'V/AVG', align: 'center' as const },
               ].map(({ l, align }) => (
                 <div key={l} style={{
-                  fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em',
-                  color: '#FFFFFF', opacity: 0.4, textAlign: align,
+                  fontSize: isMobile ? '13px' : '10px', fontWeight: 700, letterSpacing: '0.12em',
+                  color: isMobile ? '#FF6B00' : '#FFFFFF', opacity: isMobile ? 1 : 0.4, textAlign: align,
                 }}>
                   {l}
                 </div>
@@ -2281,7 +2270,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
             {!loading && rows.length === 0 && (
               <div style={{
                 padding: '80px 20px', textAlign: 'center',
-                fontSize: '12px', color: '#444', letterSpacing: '0.14em',
+                fontSize: '12px', color: isMobile ? '#FFFFFF' : '#444', letterSpacing: '0.14em',
               }}>
                 NO SIGNALS DETECTED
               </div>
@@ -2295,7 +2284,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
               const signal = renderSignal(row)
               const vr = row.volRatio ?? 0
               const vrLabel = row.volRatio != null ? `${row.volRatio.toFixed(1)}×` : '—'
-              const vrClr = vr >= 3 ? '#FF6B00' : vr >= 2 ? '#FFCC00' : vr >= 1.3 ? '#00E87B' : '#555'
+              const vrClr = vr >= 3 ? '#FF6B00' : vr >= 2 ? '#FFCC00' : vr >= 1.3 ? '#00E87B' : (isMobile ? '#FFFFFF' : '#555')
 
               return (
                 <div
@@ -2322,7 +2311,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                     marginBottom: 4,
                   }}>
                     {/* Rank */}
-                    <div style={{ fontSize: '11px', color: '#444', textAlign: 'right', fontWeight: 600 }}>
+                    <div style={{ fontSize: '11px', color: isMobile ? '#FFFFFF' : '#444', textAlign: 'right', fontWeight: 600 }}>
                       {i + 1}
                     </div>
 
@@ -2382,7 +2371,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                   <div style={{ width: '100%' }}>
                     {spark && spark.length > 1
                       ? renderSparkline(spark)
-                      : <div style={{ height: 85 }} />}
+                      : <div style={{ height: isMobile ? 134 : 85 }} />}
                   </div>
                 </div>
               )
@@ -2410,13 +2399,13 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
           {([['#FF6B00', '3×+'], ['#FFCC00', '2×+'], ['#00E87B', '1.3×+']] as [string, string][]).map(([c, l]) => (
             <div key={l} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <div style={{ width: '8px', height: '2px', background: c, borderRadius: '1px' }} />
-              <span style={{ fontSize: '9px', color: '#FFFFFF', opacity: 0.35, letterSpacing: '0.1em' }}>
+              <span style={{ fontSize: '9px', color: '#FFFFFF', opacity: isMobile ? 1 : 0.35, letterSpacing: '0.1em' }}>
                 VOL {l}
               </span>
             </div>
           ))}
         </div>
-        <div style={{ fontSize: '10px', color: '#FFFFFF', opacity: 0.2, letterSpacing: '0.08em' }}>
+        <div style={{ fontSize: '10px', color: '#FFFFFF', opacity: isMobile ? 1 : 0.2, letterSpacing: '0.08em' }}>
           {lastFetch ? lastFetch.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
         </div>
       </div>
@@ -2461,8 +2450,15 @@ export default function RegimesPanel({
   scanAllScoredRef,
 }: RegimesPanelProps) {
   const [mainTab, setMainTab] = useState<'regimes' | 'scanner'>('regimes')
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const scrollRef = useRef<HTMLDivElement>(null)
   const savedScroll = useRef<number>(0)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const getCurrentTimeframeData = useCallback(() => {
     if (!marketRegimeData) return null
@@ -2653,241 +2649,107 @@ export default function RegimesPanel({
           }}
         />
 
-        <div style={{ padding: '20px 20px 18px' }}>
-          {/* Row 1: ticker + direction + score + star all in one row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <span
-              style={{
-                fontFamily: '"Courier New",monospace',
-                fontWeight: 900,
-                fontSize: '2rem',
-                color: '#f59e0b',
-                letterSpacing: '-0.02em',
-                lineHeight: 1,
-              }}
-            >
-              {symbol}
-            </span>
-            <span
-              style={{
-                fontFamily: '"Courier New",monospace',
-                fontSize: '22px',
-                fontWeight: 800,
-                color: '#fff',
-              }}
-            >
-              ${trade.strike?.toFixed(0)}
-            </span>
-            <span
-              style={{
-                fontFamily: '"Courier New",monospace',
-                fontSize: '22px',
-                fontWeight: 800,
-                color: accentClr,
-              }}
-            >
-              {isBullish ? 'Calls' : 'Puts'}
-            </span>
-            <span
-              style={{
-                fontFamily: '"Courier New",monospace',
-                fontSize: '22px',
-                fontWeight: 700,
-                color: '#ffffff',
-              }}
-            >
-              {trade.expiration
-                ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', {
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                  timeZone: 'UTC',
-                })
-                : ''}
-            </span>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <div style={{ textAlign: 'right' }}>
-                <div
-                  style={{
-                    fontFamily: '"Courier New",monospace',
-                    fontSize: '13px',
-                    color: 'rgba(255,255,255,0.85)',
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    marginBottom: '1px',
-                  }}
-                >
-                  Score
+        {isMobile ? (
+          /* ── MOBILE: 3-row compact layout ── */
+          <div style={{ padding: '7px 7px 6px' }}>
+            {/* Header: ticker + score + star */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '14px', color: '#f59e0b', letterSpacing: '-0.01em' }}>{symbol}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontSize: '7px', color: '#ffffff', letterSpacing: '0.12em', textTransform: 'uppercase' }}>SCORE</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '14px', color: accentClr, lineHeight: 1 }}>{Math.round(trade.score)}</div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: '"Courier New",monospace',
-                    fontWeight: 900,
-                    fontSize: '24px',
-                    color: accentClr,
-                    lineHeight: 1,
-                    textShadow: `0 0 12px ${accentClr}66`,
-                  }}
-                >
-                  {Math.round(trade.score)}
-                </div>
+                <button onClick={handleStar} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: inWatchlist ? '#FFD700' : '#ffffff', fontSize: '14px' }} title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}>
+                  {inWatchlist ? <TbStarFilled /> : <TbStar />}
+                </button>
               </div>
-              <button
-                onClick={handleStar}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  color: inWatchlist ? '#FFD700' : 'rgba(255,255,255,0.6)',
-                  fontSize: '18px',
-                }}
-                title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
-              >
-                {inWatchlist ? <TbStarFilled /> : <TbStar />}
-              </button>
+            </div>
+            {/* Row 1: contract — $strike Calls/Puts Date */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '5px', overflow: 'hidden' }}>
+              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '12px', color: '#fff', flexShrink: 0 }}>${trade.strike?.toFixed(0)}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '12px', color: accentClr, flexShrink: 0 }}>{isBullish ? 'Calls' : 'Puts'}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 600, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+              </span>
+            </div>
+            {/* Row 2: Premium / IV / Decay */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden', marginBottom: '1px' }}>
+              {[
+                { l: 'Premium', v: typeof trade.contractPrice === 'number' ? `$${trade.contractPrice.toFixed(2)}` : '—', c: '#fff' },
+                { l: 'IV', v: `${trade.impliedVolatility || '—'}%`, c: '#00d4ff' },
+                { l: 'Θ Decay', v: typeof trade.thetaDecay === 'number' ? `-$${Math.abs(trade.thetaDecay).toFixed(2)}` : '—', c: '#ff8c42' },
+              ].map((m) => (
+                <div key={m.l} style={{ background: 'rgba(0,0,0,0.5)', padding: '4px 2px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '8px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>{m.l}</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '11px', color: m.c }}>{m.v}</div>
+                </div>
+              ))}
+            </div>
+            {/* Row 3: Target 1 / Target 2 / Stop Loss */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+              {[
+                { l: 'Target 1', v: typeof trade.stockTarget80 === 'number' ? `$${trade.stockTarget80.toFixed(2)}` : '—', c: accentClr, bg: isBullish ? 'rgba(0,255,136,0.06)' : 'rgba(255,51,68,0.06)' },
+                { l: 'Target 2', v: typeof trade.stockTarget90 === 'number' ? `$${trade.stockTarget90.toFixed(2)}` : '—', c: accentClr, bg: isBullish ? 'rgba(0,255,136,0.04)' : 'rgba(255,51,68,0.04)' },
+                { l: 'Stop Loss', v: typeof trade.stopLoss === 'number' ? `$${trade.stopLoss.toFixed(2)}` : '—', c: '#ff3344', bg: 'rgba(255,51,68,0.06)' },
+              ].map((m) => (
+                <div key={m.l} style={{ background: m.bg, padding: '4px 2px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '8px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>{m.l}</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '11px', color: m.c }}>{m.v}</div>
+                </div>
+              ))}
             </div>
           </div>
-
-          {/* Industry */}
-          <div
-            style={{
-              fontFamily: 'system-ui,sans-serif',
-              fontSize: '15px',
-              color: '#f59e0b',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-              marginBottom: '12px',
-            }}
-          >
-            {trade.industry}
-          </div>
-
-          {/* Stats grid */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr',
-              gap: '1px',
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: '5px',
-              overflow: 'hidden',
-              marginBottom: '1px',
-            }}
-          >
-            {[
-              {
-                l: 'Premium',
-                v:
-                  typeof trade.contractPrice === 'number'
-                    ? `$${trade.contractPrice.toFixed(2)}`
-                    : '—',
-                c: '#fff',
-              },
-              { l: 'IV', v: `${trade.impliedVolatility || '—'}%`, c: '#00d4ff' },
-              {
-                l: 'Θ Decay',
-                v:
-                  typeof trade.thetaDecay === 'number'
-                    ? `-$${Math.abs(trade.thetaDecay).toFixed(2)}`
-                    : '—',
-                c: '#ff8c42',
-              },
-            ].map((m) => (
-              <div
-                key={m.l}
-                style={{ background: 'rgba(0,0,0,0.5)', padding: '10px 8px', textAlign: 'center' }}
-              >
-                <div
-                  style={{
-                    fontFamily: 'system-ui,sans-serif',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    color: 'rgba(255,255,255,0.85)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.12em',
-                    marginBottom: '5px',
-                  }}
-                >
-                  {m.l}
+        ) : (
+          /* ── DESKTOP: original full layout ── */
+          <div style={{ padding: '20px 20px 18px' }}>
+            {/* Row 1: ticker + direction + score + star all in one row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '2rem', color: '#f59e0b', letterSpacing: '-0.02em', lineHeight: 1 }}>{symbol}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 800, color: '#fff' }}>${trade.strike?.toFixed(0)}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 800, color: accentClr }}>{isBullish ? 'Calls' : 'Puts'}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 700, color: '#ffffff' }}>
+                {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+              </span>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontSize: '13px', color: 'rgba(255,255,255,0.85)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '1px' }}>Score</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '24px', color: accentClr, lineHeight: 1, textShadow: `0 0 12px ${accentClr}66` }}>{Math.round(trade.score)}</div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: '"Courier New",monospace',
-                    fontWeight: 800,
-                    fontSize: '18px',
-                    color: m.c,
-                  }}
-                >
-                  {m.v}
-                </div>
+                <button onClick={handleStar} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: inWatchlist ? '#FFD700' : 'rgba(255,255,255,0.6)', fontSize: '18px' }} title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}>
+                  {inWatchlist ? <TbStarFilled /> : <TbStar />}
+                </button>
               </div>
-            ))}
-          </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr',
-              gap: '1px',
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: '5px',
-              overflow: 'hidden',
-            }}
-          >
-            {[
-              {
-                l: 'Target 1',
-                v:
-                  typeof trade.stockTarget80 === 'number'
-                    ? `$${trade.stockTarget80.toFixed(2)}`
-                    : '—',
-                c: accentClr,
-                bg: isBullish ? 'rgba(0,255,136,0.06)' : 'rgba(255,51,68,0.06)',
-              },
-              {
-                l: 'Target 2',
-                v:
-                  typeof trade.stockTarget90 === 'number'
-                    ? `$${trade.stockTarget90.toFixed(2)}`
-                    : '—',
-                c: accentClr,
-                bg: isBullish ? 'rgba(0,255,136,0.04)' : 'rgba(255,51,68,0.04)',
-              },
-              {
-                l: 'Stop Loss',
-                v: typeof trade.stopLoss === 'number' ? `$${trade.stopLoss.toFixed(2)}` : '—',
-                c: '#ff3344',
-                bg: 'rgba(255,51,68,0.06)',
-              },
-            ].map((m) => (
-              <div key={m.l} style={{ background: m.bg, padding: '10px 8px', textAlign: 'center' }}>
-                <div
-                  style={{
-                    fontFamily: 'system-ui,sans-serif',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    color: 'rgba(255,255,255,0.85)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.12em',
-                    marginBottom: '5px',
-                  }}
-                >
-                  {m.l}
+            </div>
+            {/* Industry */}
+            <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '15px', color: '#f59e0b', fontWeight: 600, letterSpacing: '0.04em', marginBottom: '12px' }}>{trade.industry}</div>
+            {/* Stats grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '5px', overflow: 'hidden', marginBottom: '1px' }}>
+              {[
+                { l: 'Premium', v: typeof trade.contractPrice === 'number' ? `$${trade.contractPrice.toFixed(2)}` : '—', c: '#fff' },
+                { l: 'IV', v: `${trade.impliedVolatility || '—'}%`, c: '#00d4ff' },
+                { l: 'Θ Decay', v: typeof trade.thetaDecay === 'number' ? `-$${Math.abs(trade.thetaDecay).toFixed(2)}` : '—', c: '#ff8c42' },
+              ].map((m) => (
+                <div key={m.l} style={{ background: 'rgba(0,0,0,0.5)', padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '18px', color: m.c }}>{m.v}</div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: '"Courier New",monospace',
-                    fontWeight: 800,
-                    fontSize: '18px',
-                    color: m.c,
-                  }}
-                >
-                  {m.v}
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '5px', overflow: 'hidden' }}>
+              {[
+                { l: 'Target 1', v: typeof trade.stockTarget80 === 'number' ? `$${trade.stockTarget80.toFixed(2)}` : '—', c: accentClr, bg: isBullish ? 'rgba(0,255,136,0.06)' : 'rgba(255,51,68,0.06)' },
+                { l: 'Target 2', v: typeof trade.stockTarget90 === 'number' ? `$${trade.stockTarget90.toFixed(2)}` : '—', c: accentClr, bg: isBullish ? 'rgba(0,255,136,0.04)' : 'rgba(255,51,68,0.04)' },
+                { l: 'Stop Loss', v: typeof trade.stopLoss === 'number' ? `$${trade.stopLoss.toFixed(2)}` : '—', c: '#ff3344', bg: 'rgba(255,51,68,0.06)' },
+              ].map((m) => (
+                <div key={m.l} style={{ background: m.bg, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '18px', color: m.c }}>{m.v}</div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     )
   }
@@ -2917,101 +2779,154 @@ export default function RegimesPanel({
             flexShrink: 0,
           }}
         >
-          {/* Top row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '14px 20px 0',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                <h1
+          {/* Top row — desktop: title + close. Mobile: tabs + close in one row */}
+          {isMobile ? (
+            <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              {(['regimes', 'REGIMES'], ['scanner', 'SCANNER']).length > 0 && (
+                [['regimes', 'REGIMES'], ['scanner', 'SCANNER']] as const
+              ).map(([t, label]) => (
+                <button
+                  key={t}
+                  onClick={() => setMainTab(t)}
                   style={{
-                    fontFamily: "'Inter', system-ui, sans-serif",
-                    fontWeight: 900,
-                    letterSpacing: '-0.01em',
-                    lineHeight: '1.75rem',
-                    margin: 0,
-                    color: '#fff',
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '12px 0',
+                    fontSize: '13px',
+                    fontWeight: mainTab === t ? 900 : 600,
+                    fontFamily: '"Courier New",monospace',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    background: mainTab === t ? '#000' : 'transparent',
+                    border: 'none',
+                    borderBottom: mainTab === t ? '3px solid #f59e0b' : '3px solid transparent',
+                    color: mainTab === t ? '#f59e0b' : '#ffffff',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
                   }}
                 >
-                  Market <span style={{ color: '#f59e0b' }}>Intelligence</span>
-                </h1>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveSidebarPanel(null)}
-              style={{
-                width: '28px',
-                height: '28px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: '50%',
-                color: 'rgba(255,255,255,0.85)',
-                cursor: 'pointer',
-                fontSize: '14px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-                e.currentTarget.style.color = '#fff'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-                e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
-              }}
-              aria-label="Close"
-            >
-              <TbX size={14} />
-            </button>
-          </div>
-
-          {/* Tab bar */}
-          <div
-            style={{
-              display: 'flex',
-              marginTop: '32px',
-              borderBottom: '1px solid rgba(255,255,255,0.1)',
-            }}
-          >
-            {(
-              [
-                ['regimes', 'Regimes'],
-                ['scanner', 'Scanner'],
-              ] as const
-            ).map(([t, label]) => (
+                  {label}
+                </button>
+              ))}
               <button
-                key={t}
-                onClick={() => setMainTab(t)}
+                onClick={() => setActiveSidebarPanel(null)}
                 style={{
-                  flex: 1,
+                  width: '48px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '18px 0',
-                  fontSize: '20px',
-                  fontWeight: mainTab === t ? 900 : 600,
-                  fontFamily: '"Courier New",monospace',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.15em',
-                  background: mainTab === t ? '#000' : 'transparent',
+                  background: 'rgba(220,50,50,0.15)',
                   border: 'none',
-                  borderBottom: mainTab === t ? '3px solid #f59e0b' : '3px solid transparent',
-                  color: mainTab === t ? '#f59e0b' : '#ffffff',
+                  borderLeft: '1px solid rgba(255,255,255,0.07)',
+                  borderBottom: '3px solid transparent',
+                  color: '#ff7070',
                   cursor: 'pointer',
-                  transition: 'all 0.15s',
+                  flexShrink: 0,
+                }}
+                aria-label="Close"
+              >
+                <TbX size={18} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '14px 20px 0',
                 }}
               >
-                {label}
-              </button>
-            ))}
-          </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    <h1
+                      style={{
+                        fontFamily: "'Inter', system-ui, sans-serif",
+                        fontWeight: 900,
+                        letterSpacing: '-0.01em',
+                        lineHeight: '1.75rem',
+                        margin: 0,
+                        color: '#fff',
+                      }}
+                    >
+                      Market <span style={{ color: '#f59e0b' }}>Intelligence</span>
+                    </h1>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveSidebarPanel(null)}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '50%',
+                    color: 'rgba(255,255,255,0.85)',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    transition: 'all 0.15s',
+                    flexShrink: 0,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                    e.currentTarget.style.color = '#fff'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                    e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
+                  }}
+                  aria-label="Close"
+                >
+                  <TbX size={14} />
+                </button>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  marginTop: '32px',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                }}
+              >
+                {(
+                  [
+                    ['regimes', 'REGIMES'],
+                    ['scanner', 'SCANNER'],
+                  ] as const
+                ).map(([t, label]) => (
+                  <button
+                    key={t}
+                    onClick={() => setMainTab(t)}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '18px 0',
+                      fontSize: '20px',
+                      fontWeight: mainTab === t ? 900 : 600,
+                      fontFamily: '"Courier New",monospace',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.15em',
+                      background: mainTab === t ? '#000' : 'transparent',
+                      border: 'none',
+                      borderBottom: mainTab === t ? '3px solid #f59e0b' : '3px solid transparent',
+                      color: mainTab === t ? '#f59e0b' : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Progress bar */}
@@ -3101,7 +3016,7 @@ export default function RegimesPanel({
                 </div>
               </div>
             ) : (
-              <div style={{ padding: '16px 16px 32px' }}>
+              <div style={{ padding: isMobile ? '8px 8px 24px' : '16px 16px 32px' }}>
                 {/* Streaming indicator */}
                 {isLoadingRegimes && (
                   <div
@@ -3139,7 +3054,7 @@ export default function RegimesPanel({
                   </div>
                 )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '32px' }}>
                   {/* Short Term section */}
                   {[
                     { label: 'SHORT TERM', bull: shortTermBullish, bear: shortTermBearish },
@@ -3153,8 +3068,8 @@ export default function RegimesPanel({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          marginBottom: '16px',
-                          padding: '10px 0',
+                          marginBottom: isMobile ? '8px' : '16px',
+                          padding: isMobile ? '6px 0' : '10px 0',
                         }}
                       >
                         <div
@@ -3204,30 +3119,30 @@ export default function RegimesPanel({
                         </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isMobile ? '6px' : '20px' }}>
                         {/* Bullish section */}
                         <div>
                           <div
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '10px',
-                              padding: '10px 14px',
+                              gap: isMobile ? '4px' : '10px',
+                              padding: isMobile ? '6px 8px' : '10px 14px',
                               background: 'rgba(0,255,136,0.06)',
                               border: '1px solid rgba(0,255,136,0.15)',
                               borderLeft: '3px solid #00ff88',
                               borderRadius: '5px',
-                              marginBottom: '12px',
+                              marginBottom: isMobile ? '6px' : '12px',
                             }}
                           >
-                            <TbTrendingUp size={18} color="#00ff88" />
+                            <TbTrendingUp size={isMobile ? 12 : 18} color="#00ff88" />
                             <span
                               style={{
                                 fontFamily: '"Courier New",monospace',
                                 fontWeight: 900,
-                                fontSize: '22px',
+                                fontSize: isMobile ? '13px' : '22px',
                                 color: '#00ff88',
-                                letterSpacing: '0.2em',
+                                letterSpacing: isMobile ? '0.06em' : '0.2em',
                                 textTransform: 'uppercase',
                               }}
                             >
@@ -3237,11 +3152,11 @@ export default function RegimesPanel({
                               style={{
                                 marginLeft: 'auto',
                                 fontFamily: '"Courier New",monospace',
-                                fontSize: '14px',
+                                fontSize: isMobile ? '11px' : '14px',
                                 fontWeight: 700,
                                 color: '#00ff88',
                                 background: 'rgba(0,255,136,0.14)',
-                                padding: '2px 10px',
+                                padding: isMobile ? '1px 5px' : '2px 10px',
                                 borderRadius: '10px',
                               }}
                             >
@@ -3275,23 +3190,23 @@ export default function RegimesPanel({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '10px',
-                              padding: '10px 14px',
+                              gap: isMobile ? '4px' : '10px',
+                              padding: isMobile ? '6px 8px' : '10px 14px',
                               background: 'rgba(255,51,68,0.06)',
                               border: '1px solid rgba(255,51,68,0.15)',
                               borderLeft: '3px solid #ff3344',
                               borderRadius: '5px',
-                              marginBottom: '12px',
+                              marginBottom: isMobile ? '6px' : '12px',
                             }}
                           >
-                            <TbTrendingDown size={18} color="#ff3344" />
+                            <TbTrendingDown size={isMobile ? 12 : 18} color="#ff3344" />
                             <span
                               style={{
                                 fontFamily: '"Courier New",monospace',
                                 fontWeight: 900,
-                                fontSize: '22px',
+                                fontSize: isMobile ? '13px' : '22px',
                                 color: '#ff3344',
-                                letterSpacing: '0.2em',
+                                letterSpacing: isMobile ? '0.06em' : '0.2em',
                                 textTransform: 'uppercase',
                               }}
                             >
@@ -3301,11 +3216,11 @@ export default function RegimesPanel({
                               style={{
                                 marginLeft: 'auto',
                                 fontFamily: '"Courier New",monospace',
-                                fontSize: '14px',
+                                fontSize: isMobile ? '11px' : '14px',
                                 fontWeight: 700,
                                 color: '#ff3344',
                                 background: 'rgba(255,51,68,0.14)',
-                                padding: '2px 10px',
+                                padding: isMobile ? '1px 5px' : '2px 10px',
                                 borderRadius: '10px',
                               }}
                             >

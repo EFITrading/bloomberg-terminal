@@ -192,6 +192,37 @@ function ChainPanel({
     watchlist: true,
   })
 
+  // ── Mobile layout ────────────────────────────────────────────────────────────
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const mobileChainBodyRef = React.useRef<HTMLDivElement>(null)
+
+  // Auto-scroll mobile chain so STRIKE column is centered in the viewport on load
+  useEffect(() => {
+    if (!isMobile || callOptions.length === 0) return
+    const doScroll = () => {
+      const el = mobileChainBodyRef.current
+      if (!el) return
+      const MCW = 60
+      const MBW = 74
+      const MSW = 110
+      const containerW = el.getBoundingClientRect().width || el.offsetWidth
+      if (containerW === 0) { requestAnimationFrame(doScroll); return }
+      const extraCols = [
+        visibleColumns.watchlist,
+        visibleColumns.openInterest,
+        visibleColumns.volume,
+        visibleColumns.iv,
+        visibleColumns.change,
+        visibleColumns.breakeven,
+      ].filter(Boolean).length
+      const callSideWidth = extraCols * MCW + (visibleColumns.bid ? MBW : 0) + (visibleColumns.ask ? MBW : 0)
+      // Scroll so STRIKE center aligns with container center
+      el.scrollLeft = callSideWidth - (containerW / 2) + (MSW / 2)
+    }
+    requestAnimationFrame(doScroll)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, callOptions.length])
+
   // Sync symbol when initialSymbol changes
 
   useEffect(() => {
@@ -1326,9 +1357,9 @@ function ChainPanel({
         <ChainCalculator initialSymbol={symbol} onClose={() => setShowCalculator(false)} />
       ) : (
         <>
-          {/* Header */}
+          {/* Header — desktop only on mobile we strip this to save space */}
 
-          <div
+          {!isMobile && <div
             className="relative px-4 py-3 overflow-hidden"
             style={{
               background: 'linear-gradient(180deg, #111111 0%, #0d0d0d 100%)',
@@ -1376,7 +1407,8 @@ function ChainPanel({
             )}
 
             <div className="flex items-center gap-3 pr-8">
-              {/* Icon badge */}
+              {/* Icon badge — desktop only */}
+              {!isMobile && (
               <div
                 className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
                 style={{
@@ -1398,20 +1430,23 @@ function ChainPanel({
                   <line x1="9" y1="21" x2="9" y2="9" />
                 </svg>
               </div>
+              )}
 
               <div className="flex flex-col leading-none">
+                {!isMobile && (
                 <span
                   className="text-[9px] font-bold tracking-[0.4em] uppercase mb-0.5"
                   style={{ color: 'rgba(245,158,11,0.7)' }}
                 >
                   Derivatives
                 </span>
+                )}
 
-                <h1 className="text-xl font-black" style={{ letterSpacing: '-0.01em' }}>
+                {/* Use div not h1 — globals.css sets h1 { font-size: 72px } */}
+                <div className="font-black" style={{ fontSize: isMobile ? '14px' : '20px', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
                   <span className="text-white">Options </span>
-
                   <span style={{ color: '#f59e0b' }}>Chain</span>
-                </h1>
+                </div>
               </div>
 
               {/* Ticker badge */}
@@ -1449,7 +1484,7 @@ function ChainPanel({
                 </span>
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Enhanced Header */}
 
@@ -1463,7 +1498,145 @@ function ChainPanel({
           >
             {/* Top Bar */}
 
-            <div className="px-4 pt-4 pb-3">
+            {isMobile ? (
+              /* ── MOBILE compact 2-row controls ─────────────────────── */
+              <div style={{ padding: '8px 8px 6px' }}>
+                {/* Row 1: search · spot · live · watchlist · refresh */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  {/* Search */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 8px', flexShrink: 0 }}>
+                    <input
+                      type="text"
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && searchInput.trim()) {
+                          setSymbol(searchInput.trim().toUpperCase())
+                          setSelectedExpiration('')
+                          setCallOptions([])
+                          setPutOptions([])
+                          setError(null)
+                        }
+                      }}
+                      style={{ background: 'transparent', border: 'none', outline: 'none', width: 28, fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '0.5px' }}
+                      placeholder="SYM"
+                    />
+                  </div>
+                  {/* Spot */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, padding: '4px 8px', flexShrink: 0 }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#f59e0b', letterSpacing: '0.05em' }}>SP</span>
+                    <span style={{ fontSize: 11, fontWeight: 900, color: '#fff', fontFamily: 'monospace' }}>${stockPrice.toFixed(2)}</span>
+                  </div>
+                  {/* Live dot */}
+                  <span className="relative flex" style={{ width: 8, height: 8, flexShrink: 0 }}>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: '#22c55e' }} />
+                    <span className="relative inline-flex rounded-full" style={{ width: 8, height: 8, backgroundColor: '#22c55e' }} />
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  {/* Watchlist */}
+                  <button
+                    onClick={() => setShowWatchlist(!showWatchlist)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 3, background: showWatchlist ? 'rgba(245,158,11,0.12)' : '#161616', border: `1px solid ${showWatchlist ? '#f59e0b' : 'rgba(255,255,255,0.15)'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <TbEye style={{ width: 14, height: 14, color: showWatchlist ? '#f59e0b' : '#fff' }} />
+                    {watchlist.length > 0 && (
+                      <span style={{ fontSize: 9, fontWeight: 900, background: '#f59e0b', color: '#000', borderRadius: 9999, padding: '1px 4px' }}>{watchlist.length}</span>
+                    )}
+                  </button>
+                  {/* Refresh */}
+                  <button
+                    onClick={() => { fetchStockPrice(); fetchOptionsChain() }}
+                    disabled={loading}
+                    style={{ display: 'flex', alignItems: 'center', background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0, opacity: loading ? 0.4 : 1 }}
+                  >
+                    <TbRefresh className={`${loading ? 'animate-spin' : ''}`} style={{ width: 14, height: 14, color: '#fff' }} />
+                  </button>
+                  {/* Close */}
+                  {onClose && (
+                    <button
+                      onClick={onClose}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(145deg,rgba(127,29,29,0.85),rgba(69,10,10,0.95))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {/* Row 2: expiry · OTM · filter · calc */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {/* Expiry */}
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <select
+                      value={selectedExpiration}
+                      onChange={(e) => setSelectedExpiration(e.target.value)}
+                      disabled={expirationDates.length === 0}
+                      style={{ width: '100%', background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 20px 4px 8px', fontSize: 11, fontWeight: 700, color: '#fff', appearance: 'none', cursor: 'pointer' }}
+                    >
+                      {expirationDates.length === 0 ? (
+                        <option>Loading...</option>
+                      ) : (
+                        expirationDates.map((date) => {
+                          const dte = Math.ceil((new Date(date).getTime() - Date.now()) / 86400000)
+                          return <option key={date} value={date} className="bg-gray-900">{date} ({dte}d)</option>
+                        })
+                      )}
+                    </select>
+                    <div style={{ position: 'absolute', right: 5, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666', fontSize: 9 }}>▼</div>
+                  </div>
+                  {/* OTM */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <select
+                      value={otmRange}
+                      onChange={(e) => setOtmRange(Number(e.target.value))}
+                      style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 18px 4px 8px', fontSize: 11, fontWeight: 700, color: '#fff', appearance: 'none', cursor: 'pointer' }}
+                    >
+                      {[2,3,5,10,15,20,30,50,80,100,200].map((v) => <option key={v} value={v} className="bg-gray-900">±{v}%</option>)}
+                    </select>
+                    <div style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666', fontSize: 9 }}>▼</div>
+                  </div>
+                  {/* Filter */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <button
+                      onClick={() => setShowColumnFilter(!showColumnFilter)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 3, background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616', border: `1px solid ${showColumnFilter ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.15)'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff' }}
+                    >
+                      <svg style={{ width: 13, height: 13 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                      </svg>
+                    </button>
+                    {showColumnFilter && (
+                      <div className="absolute top-full right-0 mt-1 rounded-lg border border-orange-500/30 z-50" style={{ background: 'linear-gradient(145deg, #0f0f0f, #000)', boxShadow: '0 20px 40px rgba(0,0,0,0.9)', width: 200 }}>
+                        <div style={{ padding: 12 }}>
+                          <div style={{ color: '#f97316', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #1f2937' }}>Columns</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {[{key:'watchlist',label:'★ Watchlist'},{key:'openInterest',label:'OI'},{key:'volume',label:'VOL'},{key:'iv',label:'IV%'},{key:'change',label:'CHG%'},{key:'breakeven',label:'B/E%'},{key:'bid',label:'Bid'},{key:'ask',label:'Ask'}].map(({key, label}) => (
+                              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}>
+                                <input type="checkbox" checked={visibleColumns[key as keyof typeof visibleColumns]} onChange={(e) => setVisibleColumns((p) => ({...p, [key]: e.target.checked}))} style={{ width: 12, height: 12, cursor: 'pointer' }} />
+                                <span style={{ color: '#fff', fontSize: 11 }}>{label}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #1f2937' }}>
+                            <button onClick={() => setVisibleColumns({openInterest:true,volume:true,delta:false,theta:false,iv:true,change:true,breakeven:true,bid:true,ask:true,watchlist:true})} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#374151', border: 'none', borderRadius: 4, cursor: 'pointer' }}>ALL</button>
+                            <button onClick={() => setShowColumnFilter(false)} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#ea580c', border: 'none', borderRadius: 4, cursor: 'pointer' }}>CLOSE</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {/* Calc */}
+                  <button
+                    onClick={() => setShowCalculator(!showCalculator)}
+                    style={{ display: 'flex', alignItems: 'center', background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <TbCalculator style={{ width: 14, height: 14, color: '#fff' }} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── DESKTOP full controls ──────────────────────────────── */
+              <div className="px-4 pt-4 pb-3">
               {/* Row 1: Search Bar, Price, Expiration, and Actions */}
 
               <div className="flex items-center justify-between mb-4">
@@ -1888,10 +2061,11 @@ function ChainPanel({
                 style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
               ></div>
             </div>
+            )} {/* end isMobile ternary */}
 
-            {/* Column Headers */}
+            {/* Column Headers — desktop only; mobile chain has its own sticky header */}
 
-            {!showWatchlist && (
+            {!showWatchlist && !isMobile && (
               <div
                 className="grid grid-cols-[1fr_auto_1fr] gap-0 text-sm font-black tracking-[0.1em] uppercase"
                 style={{
@@ -1995,7 +2169,7 @@ function ChainPanel({
           {/* Options Chain Body */}
 
           <div
-            className="flex-1 overflow-y-auto custom-scrollbar"
+            className={`flex-1 custom-scrollbar ${isMobile ? 'overflow-hidden' : 'overflow-y-auto'}`}
             style={{ background: '#0a0a0a' }}
           >
             {error ? (
@@ -2444,6 +2618,104 @@ function ChainPanel({
                   </div>
                 )}
               </div>
+            ) : isMobile ? (
+              /* ── MOBILE: horizontal-scroll chain ────────────────────── */
+              (() => {
+                const MCW = 60   // extra col width (sized for 15px font)
+                const MBW = 74   // bid/ask col width
+                const MSW = 110  // strike col width
+                const mhc = (w: number, extra: React.CSSProperties = {}): React.CSSProperties => ({
+                  width: w, minWidth: w, flexShrink: 0,
+                  fontSize: '15px', fontWeight: 700,
+                  padding: '6px 3px', textAlign: 'center' as const,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'monospace', ...extra,
+                })
+                return (
+                  <div ref={mobileChainBodyRef} style={{ overflowX: 'auto', overflowY: 'auto', height: '100%', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', background: '#0a0a0a' }}>
+                    {/* Sticky column header row */}
+                    <div style={{ display: 'flex', minWidth: 'max-content', position: 'sticky', top: 0, zIndex: 20, background: '#111111', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      {/* Call extra headers — row-reversed so BID/ASK are closest to STRIKE */}
+                      <div style={{ display: 'flex', flexDirection: 'row-reverse' }}>
+                        {visibleColumns.watchlist && <div style={mhc(MCW, { color: '#6b7280' })}>★</div>}
+                        {visibleColumns.openInterest && <div style={mhc(MCW, { color: '#22c55e' })}>OI</div>}
+                        {visibleColumns.volume && <div style={mhc(MCW, { color: '#22c55e' })}>VOL</div>}
+                        {visibleColumns.iv && <div style={mhc(MCW, { color: '#a855f7' })}>IV%</div>}
+                        {visibleColumns.change && <div style={mhc(MCW, { color: '#22c55e' })}>CHG</div>}
+                        {visibleColumns.breakeven && <div style={mhc(MCW, { color: '#22c55e' })}>B/E</div>}
+                      </div>
+                      {visibleColumns.bid && <div style={mhc(MBW, { color: '#22c55e', borderLeft: '1px solid rgba(34,197,94,0.25)' })}>BID</div>}
+                      {visibleColumns.ask && <div style={mhc(MBW, { color: '#22c55e' })}>ASK</div>}
+                      {/* STRIKE — sticky left:0 so it’s always visible once scroll is set */}
+                      <div style={{ ...mhc(MSW, { color: '#f59e0b', letterSpacing: '0.06em', justifyContent: 'center' }), position: 'sticky', left: 0, zIndex: 30, background: 'rgba(12,12,12,0.97)', borderLeft: '1px solid rgba(245,158,11,0.4)', borderRight: '1px solid rgba(245,158,11,0.4)' }}>STRIKE</div>
+                      {visibleColumns.ask && <div style={mhc(MBW, { color: '#ef4444' })}>ASK</div>}
+                      {visibleColumns.bid && <div style={mhc(MBW, { color: '#ef4444', borderRight: '1px solid rgba(239,68,68,0.25)' })}>BID</div>}
+                      {visibleColumns.breakeven && <div style={mhc(MCW, { color: '#ef4444' })}>B/E</div>}
+                      {visibleColumns.change && <div style={mhc(MCW, { color: '#ef4444' })}>CHG</div>}
+                      {visibleColumns.iv && <div style={mhc(MCW, { color: '#a855f7' })}>IV%</div>}
+                      {visibleColumns.volume && <div style={mhc(MCW, { color: '#ef4444' })}>VOL</div>}
+                      {visibleColumns.openInterest && <div style={mhc(MCW, { color: '#ef4444' })}>OI</div>}
+                      {visibleColumns.watchlist && <div style={mhc(MCW, { color: '#6b7280' })}>★</div>}
+                    </div>
+                    {/* Data rows */}
+                    <div>
+                      {allStrikes.map((strike) => {
+                        const call = callOptions.find((c) => c.strike_price === strike)
+                        const put = putOptions.find((p) => p.strike_price === strike)
+                        const callITM = isITM(strike, 'call')
+                        const putITM = isITM(strike, 'put')
+                        const atm = isATM(strike)
+                        const probType = getProbabilityType(strike).type
+                        const fmtNum = (n: number) => n >= 1000 ? (n / 1000).toFixed(0) + 'k' : String(n)
+                        return (
+                          <div key={strike} style={{ display: 'flex', minWidth: 'max-content', borderBottom: '1px solid rgba(255,255,255,0.04)', background: atm ? 'rgba(245,158,11,0.03)' : probType === '80call' || probType === '80put' ? 'rgba(22,163,74,0.06)' : probType === '90call' || probType === '90put' ? 'rgba(21,128,61,0.04)' : undefined }}>
+                            {/* Call extras — row-reversed */}
+                            <div style={{ display: 'flex', flexDirection: 'row-reverse', background: callITM ? 'rgba(34,197,94,0.03)' : undefined }}>
+                              {visibleColumns.watchlist && (
+                                <div style={mhc(MCW)}>
+                                  {call && <button onClick={() => isInWatchlist(call.ticker) ? removeFromWatchlist(watchlist.find((w) => w.ticker === call.ticker)?.id || '') : addToWatchlist(call)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                                    {isInWatchlist(call.ticker) ? <TbStarFilled className="w-3 h-3 text-orange-400" /> : <TbStar className="w-3 h-3 text-gray-500" />}
+                                  </button>}
+                                </div>
+                              )}
+                              {visibleColumns.openInterest && <div style={mhc(MCW, { color: '#9ca3af' })}>{call?.open_interest ? fmtNum(call.open_interest) : '—'}</div>}
+                              {visibleColumns.volume && <div style={mhc(MCW, { color: '#9ca3af' })}>{call?.volume ? fmtNum(call.volume) : '—'}</div>}
+                              {visibleColumns.iv && <div style={mhc(MCW, { color: '#a855f7', fontWeight: 900 })}>{call?.implied_volatility ? (call.implied_volatility * 100).toFixed(0) + '%' : '—'}</div>}
+                              {visibleColumns.change && <div style={mhc(MCW, { color: call?.change_percent !== undefined && call.change_percent !== 0 ? (call.change_percent >= 0 ? '#22c55e' : '#ef4444') : '#4b5563' })}>{call?.change_percent !== undefined && call.change_percent !== 0 ? call.change_percent.toFixed(0) + '%' : '—'}</div>}
+                              {visibleColumns.breakeven && <div style={mhc(MCW, { color: call?.ask && stockPrice > 0 ? (((strike + call.ask - stockPrice) / stockPrice) * 100 > 0 ? '#ef4444' : '#22c55e') : '#4b5563' })}>{call?.ask && stockPrice > 0 ? (((strike + call.ask - stockPrice) / stockPrice) * 100).toFixed(0) + '%' : '—'}</div>}
+                            </div>
+                            {/* Call BID */}
+                            {visibleColumns.bid && <div style={mhc(MBW, { color: '#22c55e', fontWeight: 900, background: callITM ? 'rgba(34,197,94,0.07)' : undefined, borderLeft: '1px solid rgba(34,197,94,0.15)' })}>{call?.bid ? call.bid.toFixed(2) : '—'}</div>}
+                            {/* Call ASK */}
+                            {visibleColumns.ask && <div style={mhc(MBW, { color: '#22c55e', fontWeight: 900, background: callITM ? 'rgba(34,197,94,0.07)' : undefined })}>{call?.ask ? call.ask.toFixed(2) : '—'}</div>}
+                            {/* STRIKE — sticky left:0 */}
+                            <div style={{ ...mhc(MSW, { fontSize: '16px', fontWeight: 900, justifyContent: 'center', color: '#ffffff', background: atm ? 'rgba(245,158,11,0.22)' : probType === '80call' || probType === '80put' ? 'rgba(22,163,74,0.2)' : probType === '90call' || probType === '90put' ? 'rgba(21,128,61,0.16)' : 'rgba(10,10,10,0.97)', outline: atm ? '1px solid rgba(245,158,11,0.5)' : probType ? `1px solid ${probType.startsWith('80') ? 'rgba(22,163,74,0.5)' : 'rgba(21,128,61,0.4)'}` : 'none', outlineOffset: '-1px' }), position: 'sticky', left: 0, zIndex: 10, borderLeft: '1px solid rgba(245,158,11,0.2)', borderRight: '1px solid rgba(245,158,11,0.2)' }}>
+                              ${strike.toFixed(2)}
+                            </div>
+                            {/* Put ASK */}
+                            {visibleColumns.ask && <div style={mhc(MBW, { color: '#ef4444', fontWeight: 900, background: putITM ? 'rgba(239,68,68,0.07)' : undefined })}>{put?.ask ? put.ask.toFixed(2) : '—'}</div>}
+                            {/* Put BID */}
+                            {visibleColumns.bid && <div style={mhc(MBW, { color: '#ef4444', fontWeight: 900, background: putITM ? 'rgba(239,68,68,0.07)' : undefined, borderRight: '1px solid rgba(239,68,68,0.15)' })}>{put?.bid ? put.bid.toFixed(2) : '—'}</div>}
+                            {/* Put extras */}
+                            {visibleColumns.breakeven && <div style={mhc(MCW, { color: put?.ask && stockPrice > 0 ? (((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0 ? '#ef4444' : '#22c55e') : '#4b5563' })}>{put?.ask && stockPrice > 0 ? (((stockPrice - (strike - put.ask)) / stockPrice) * 100).toFixed(0) + '%' : '—'}</div>}
+                            {visibleColumns.change && <div style={mhc(MCW, { color: put?.change_percent !== undefined && put.change_percent !== 0 ? (put.change_percent >= 0 ? '#22c55e' : '#ef4444') : '#4b5563' })}>{put?.change_percent !== undefined && put.change_percent !== 0 ? put.change_percent.toFixed(0) + '%' : '—'}</div>}
+                            {visibleColumns.iv && <div style={mhc(MCW, { color: '#a855f7', fontWeight: 900 })}>{put?.implied_volatility ? (put.implied_volatility * 100).toFixed(0) + '%' : '—'}</div>}
+                            {visibleColumns.volume && <div style={mhc(MCW, { color: '#9ca3af' })}>{put?.volume ? fmtNum(put.volume) : '—'}</div>}
+                            {visibleColumns.openInterest && <div style={mhc(MCW, { color: '#9ca3af' })}>{put?.open_interest ? fmtNum(put.open_interest) : '—'}</div>}
+                            {visibleColumns.watchlist && (
+                              <div style={mhc(MCW)}>
+                                {put && <button onClick={() => isInWatchlist(put.ticker) ? removeFromWatchlist(watchlist.find((w) => w.ticker === put.ticker)?.id || '') : addToWatchlist(put)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                                  {isInWatchlist(put.ticker) ? <TbStarFilled className="w-3 h-3 text-orange-400" /> : <TbStar className="w-3 h-3 text-gray-500" />}
+                                </button>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()
             ) : (
               <div className="divide-y divide-gray-900/50">
                 {allStrikes.map((strike) => {

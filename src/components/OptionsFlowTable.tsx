@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
@@ -4376,7 +4376,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           <div
             className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
-              top: typeof window !== 'undefined' && window.innerWidth < 768 ? '180px' : '224px',
+              top: typeof window !== 'undefined' && window.innerWidth < 768 ? '130px' : '224px',
               background:
                 typeof window !== 'undefined' && window.innerWidth < 768 ? '#000000' : '#000',
               border:
@@ -4438,7 +4438,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     border: '1px solid rgba(255,255,255,0.15)',
                   }}
                 >
-                  �
+                  &#x2715;
                 </button>
               </div>
 
@@ -6443,7 +6443,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               <div
                 className="relative"
                 style={{
-                  width: efiHighlightsActive ? '90px' : '150px',
+                  width: efiHighlightsActive ? '54px' : '90px',
                   flexShrink: 0,
                   transition: 'width 0.2s',
                 }}
@@ -8642,7 +8642,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div
               className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto"
               style={{
-                height: 'calc(100vh - 240px)',
+                height: 'calc(100vh - 160px)',
                 paddingBottom: '100px',
                 scrollBehavior: 'smooth',
               }}
@@ -8651,92 +8651,92 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-[1] border-b-2 border-gray-600 shadow-2xl">
                   <tr>
                     <th
-                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('trade_timestamp')}
                     >
                       <span className="md:hidden">Symbol</span>
 
                       <span className="hidden md:inline">Time</span>
 
-                      {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('underlying_ticker')}
                     >
                       Symbol{' '}
-                      {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                       onClick={() => handleSort('type')}
                     >
                       <span className="md:hidden">Strike</span>
 
                       <span className="hidden md:inline">Call/Put</span>
 
-                      {sortField === 'type' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('strike')}
                     >
-                      Strike {sortField === 'strike' && (sortDirection === 'asc' ? '?' : '?')}
+                      Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('trade_size')}
                     >
                       <span className="md:hidden">Size</span>
 
                       <span className="hidden md:inline">Size</span>
 
-                      {sortField === 'trade_size' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('total_premium')}
                     >
                       Premium{' '}
-                      {sortField === 'total_premium' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('expiry')}
                     >
                       <span className="md:hidden">Expiry / Type</span>
 
                       <span className="hidden md:inline">Expiration</span>
 
-                      {sortField === 'expiry' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     <th
-                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('spot_price')}
                     >
                       <span className="hidden md:inline">Spot {'>>'} Current</span>
 
                       <span className="md:hidden">Spot</span>
 
-                      {sortField === 'spot_price' && (sortDirection === 'asc' ? '?' : '?')}
+                      {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
-                    <th className="hidden md:table-cell text-center md:text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700">
+                    <th className="hidden md:table-cell text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700">
                       VOL/OI
                     </th>
 
                     <th
-                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+                      className="hidden md:table-cell text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                       onClick={() => handleSort('trade_type')}
                     >
-                      Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '?' : '?')}
+                      Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
 
                     {notableFilterActive && (
@@ -8752,7 +8752,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {(efiHighlightsActive || leapActive) && (
                       <th
-                        className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                        className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                         onClick={() => {
                           handleSort(leapActive ? 'leap_grade' : 'positioning_grade')
                         }}
@@ -8761,7 +8761,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                         <span className="hidden md:inline">{leapActive ? 'LEAP' : 'Position'}</span>
 
-                        {(sortField === (leapActive ? 'leap_grade' : 'positioning_grade')) && (sortDirection === 'asc' ? '?' : '?')}
+                        {(sortField === (leapActive ? 'leap_grade' : 'positioning_grade')) && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
                     )}
                   </tr>
@@ -8812,11 +8812,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                           onMouseEnter={(e) => {
                             const el = e.currentTarget
                             el.style.transform = 'scaleY(1.12) translateZ(0)'
-                            el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.95), 0 0 12px rgba(255,102,0,0.18)'
+                            el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.95)'
                             el.style.zIndex = '2'
                             el.style.position = 'relative'
                             el.style.background = 'linear-gradient(to right, #1a1400, #111100, #0d0d0d)'
-                            el.style.borderLeft = isEfiHighlight ? el.style.borderLeft : '2px solid #ff6600'
+                            el.style.borderLeft = '2px solid #ff6600'
                             el.style.fontSize = '115%'
                           }}
                           onMouseLeave={(e) => {
@@ -8826,32 +8826,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                             el.style.zIndex = '1'
                             el.style.borderLeft = ''
                             el.style.fontSize = ''
-                            if (!isEfiHighlight) {
-                              el.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a'
-                            }
+                            el.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a'
                           }}
                           style={{
                             cursor: isNotablePick ? 'pointer' : 'default',
-                            ...(isEfiHighlight
-                              ? isBullishEfi
-                                ? {
-                                  background: `linear-gradient(to right, rgba(0, 255, 0, 0.04), transparent 40%)`,
-                                  borderLeft: '3px solid rgba(0, 255, 0, 0.5)',
-                                }
-                                : {
-                                  background: `linear-gradient(to right, rgba(255, 0, 0, 0.04), transparent 40%)`,
-                                  borderLeft: '3px solid rgba(255, 0, 0, 0.5)',
-                                }
-                              : {
-                                backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
-                              }),
+                            backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
 
                             position: 'relative' as const,
 
                             zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
                           }}
                         >
-                          <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-center">
+                          <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-left">
                             {/* Mobile: Ticker + Time stacked */}
 
                             <div className="md:hidden flex flex-col items-center space-y-1">
@@ -8947,7 +8933,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           </td>
 
                           <td
-                            className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}
+                            className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-left ${getCallPutColor(trade.type)}`}
                           >
                             {/* Mobile: Strike + Call/Put stacked */}
 
@@ -8984,7 +8970,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             ${trade.strike}
                           </td>
 
-                          <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-center">
+                          <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-left">
                             {/* Mobile: Size@Price+Grade + Premium stacked */}
 
                             <div className="md:hidden flex flex-col items-center space-y-1">
@@ -9084,7 +9070,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             {formatCurrency(trade.total_premium)}
                           </td>
 
-                          <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-center">
+                          <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-left">
                             {/* Mobile: Expiry + Type stacked */}
 
                             <div className="md:hidden flex flex-col items-center space-y-1">
@@ -9117,7 +9103,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </div>
                           </td>
 
-                          <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-center">
+                          <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-left">
                             {/* Mobile: Spot + Current stacked vertically */}
 
                             <div className="md:hidden flex flex-col items-center space-y-1">

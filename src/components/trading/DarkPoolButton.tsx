@@ -25,7 +25,6 @@ export default function DarkPoolButton({
           borderRadius: '4px',
           overflow: 'hidden',
         }}
-        title="Dark Pool prints — FINRA TRF off-exchange block trades"
       >
         {/* Progress bar fill behind the text */}
         {isLoading && (

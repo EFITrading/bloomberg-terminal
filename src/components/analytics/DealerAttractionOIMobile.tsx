@@ -232,37 +232,24 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
       {/* MOBILE: Scrollable Charts Container */}
       <div
         style={{
-          height: 'calc(100vh - 200px)',
+          flex: 1,
           overflowY: 'scroll',
           overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
           marginTop: '4px',
         }}
       >
-        {/* MOBILE: Scaled Charts */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '0px',
+            gap: '8px',
             paddingBottom: '100px',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              height: '320px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                transform: 'scale(0.66)',
-                transformOrigin: 'top left',
-                width: '769px',
-                height: '484px',
-              }}
-            >
+          {/* OI Chart — scaleX only keeps full 484px height, reduces width */}
+          <div style={{ width: '100%', height: '333px', overflow: 'hidden' }}>
+            <div style={{ transform: 'scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: '484px' }}>
               <DealerOpenInterestChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -276,26 +263,14 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
                 onExpectedRangePCRatioChange={setExpectedRangePCRatio}
                 onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
                 onExpectedRange90Change={setExpectedRange90}
+                svgHeight={484}
               />
             </div>
           </div>
 
-          <div
-            className="w-full"
-            style={{
-              width: '100%',
-              height: '320px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                transform: 'scale(0.66)',
-                transformOrigin: 'top left',
-                width: '769px',
-                height: '484px',
-              }}
-            >
+          {/* GEX Chart — same approach */}
+          <div style={{ width: '100%', height: '333px', overflow: 'hidden' }}>
+            <div style={{ transform: 'scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: '484px' }}>
               <DealerGEXChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -307,6 +282,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
                 showNetGamma={showNetGamma}
                 showAttrax={showAITowers}
                 expectedRange90={expectedRange90}
+                svgHeight={484}
               />
             </div>
           </div>

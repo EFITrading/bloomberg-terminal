@@ -209,12 +209,22 @@ class ChartDataCache {
   }
 
   private setToStorage(key: string, entry: CacheEntry): void {
+    const serialized = JSON.stringify(entry)
     try {
-      localStorage.setItem(this.storagePrefix + key, JSON.stringify(entry))
+      localStorage.setItem(this.storagePrefix + key, serialized)
     } catch (error) {
-      console.warn('Storage cache write failed:', error)
-      // Clear some space and try again
-      this.clearOldStorageEntries()
+      if (error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+        // Evict oldest entries until we make room, then retry
+        const evicted = this.evictOldestStorageEntries(key)
+        if (evicted > 0) {
+          try {
+            localStorage.setItem(this.storagePrefix + key, serialized)
+            return
+          } catch {
+            // Storage too small even after eviction — skip persistence
+          }
+        }
+      }
     }
   }
 
@@ -244,29 +254,37 @@ class ChartDataCache {
     console.log(` PRUNED ${toRemove} cache entries`)
   }
 
-  private clearOldStorageEntries(): void {
-    try {
-      const keysToRemove: string[] = []
+  private evictOldestStorageEntries(skipKey?: string): number {
+    const entries: Array<{ key: string; timestamp: number; expired: boolean }> = []
 
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key?.startsWith(this.storagePrefix)) {
-          try {
-            const entry: CacheEntry = JSON.parse(localStorage.getItem(key)!)
-            if (Date.now() > entry.expiry) {
-              keysToRemove.push(key)
-            }
-          } catch {
-            keysToRemove.push(key)
-          }
+    for (let i = 0; i < localStorage.length; i++) {
+      const storageKey = localStorage.key(i)
+      if (storageKey?.startsWith(this.storagePrefix) && storageKey !== this.storagePrefix + skipKey) {
+        try {
+          const entry: CacheEntry = JSON.parse(localStorage.getItem(storageKey)!)
+          entries.push({ key: storageKey, timestamp: entry.timestamp ?? 0, expired: Date.now() > entry.expiry })
+        } catch {
+          entries.push({ key: storageKey, timestamp: 0, expired: true })
         }
       }
-
-      keysToRemove.forEach((key) => localStorage.removeItem(key))
-      console.log(` CLEARED ${keysToRemove.length} expired storage entries`)
-    } catch (error) {
-      console.warn('Storage cleanup failed:', error)
     }
+
+    // Remove expired entries first, then oldest by timestamp
+    entries.sort((a, b) => {
+      if (a.expired !== b.expired) return a.expired ? -1 : 1
+      return a.timestamp - b.timestamp
+    })
+
+    const toRemove = Math.max(1, Math.ceil(entries.length / 2))
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
+      localStorage.removeItem(entries[i].key)
+    }
+
+    return Math.min(toRemove, entries.length)
+  }
+
+  private clearOldStorageEntries(): void {
+    this.evictOldestStorageEntries()
   }
 
   // CACHE MANAGEMENT

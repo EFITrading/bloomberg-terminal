@@ -18,12 +18,17 @@ export default function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
   const [isClient, setIsClient] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
 
   // Fix hydration - only run on client
   useEffect(() => {
     setIsClient(true)
+    setIsMobile(window.innerWidth <= 768)
+    const handleResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   useEffect(() => {
@@ -102,10 +107,10 @@ export default function Navigation() {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '0 24px',
-            height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '90px' : '90px',
+            height: isMobile ? '60px' : '90px',
             position: 'relative',
             zIndex: 1,
-            paddingTop: typeof window !== 'undefined' && window.innerWidth <= 768 ? '20px' : '0',
+            paddingTop: '0',
           }}
         >
           <div className="nav-brand">
@@ -126,7 +131,7 @@ export default function Navigation() {
                 >
                   <span
                     style={{
-                      fontSize: '22px',
+                      fontSize: isMobile ? '15px' : '22px',
                       fontWeight: '800',
                       letterSpacing: '1.5px',
                       background: 'linear-gradient(135deg, #FFFFFF 0%, #999999 100%)',
@@ -139,7 +144,7 @@ export default function Navigation() {
                   </span>
                   <span
                     style={{
-                      fontSize: '22px',
+                      fontSize: isMobile ? '15px' : '22px',
                       fontWeight: '800',
                       letterSpacing: '1.5px',
                       background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
@@ -161,7 +166,7 @@ export default function Navigation() {
                 />
                 <div
                   style={{
-                    fontSize: '9px',
+                    fontSize: isMobile ? '7px' : '9px',
                     fontWeight: '700',
                     letterSpacing: '3px',
                     color: '#999',

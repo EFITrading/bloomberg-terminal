@@ -230,8 +230,8 @@ export default function GuideChatbot() {
 
               <div className={`flex-1 ${message.role === 'user' ? 'flex justify-end' : ''}`}>
                 <div className={`max-w-[95%] relative overflow-hidden ${message.role === 'user'
-                    ? 'text-white rounded-2xl rounded-tr-sm px-5 py-4'
-                    : 'bg-[#0a0a0a] text-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 border border-gray-800/50'
+                  ? 'text-white rounded-2xl rounded-tr-sm px-5 py-4'
+                  : 'bg-[#0a0a0a] text-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 border border-gray-800/50'
                   }`} style={message.role === 'user' ? {
                     background: 'linear-gradient(135deg, #1a0a00 0%, #331100 25%, #4d1a00 50%, #331100 75%, #1a0a00 100%)',
                     border: '2px solid rgba(255, 102, 0, 0.4)',

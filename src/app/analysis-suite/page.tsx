@@ -112,7 +112,19 @@ export default function AnalysisSuitePage() {
 
   // Layout drag-to-reposition
   const [isEditMode, setIsEditMode] = useState(false)
-  const [panelOffsets, setPanelOffsets] = useState<Record<string, { x: number; y: number }>>({})
+  const [panelOffsets, setPanelOffsets] = useState<Record<string, { x: number; y: number }>>({
+    searchBar: { x: -20, y: 17 },
+    leadership: { x: 533, y: -62 },
+    rsStatus: { x: 435, y: -66 },
+    efiFlow: { x: 1306, y: 313 },
+    efiChart: { x: 7, y: 4 },
+    seasonality: { x: -1103, y: -767 },
+    oiGex: { x: -952, y: 44 },
+    ivCharts: { x: 2424, y: -1371 },
+    liquidPanel: { x: -346, y: -504 },
+    consolidationPOI: { x: 1819, y: -250 },
+    otmPremiumHistory: { x: -35, y: -1086 },
+  })
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [layoutSaved, setLayoutSaved] = useState(false)
   const dragState = useRef<{
@@ -206,7 +218,7 @@ export default function AnalysisSuitePage() {
         if (data?.panelOffsets) setPanelOffsets(data.panelOffsets)
         if (data?.panelEnabled) setPanelEnabled(data.panelEnabled)
       })
-      .catch(() => {})
+      .catch(() => { })
   }, [])
 
   const saveLayout = async () => {
@@ -933,6 +945,49 @@ export default function AnalysisSuitePage() {
   const efiDisplayedTrades = efiNotableFilterActive
     ? optionsFlowData.filter(efiMeetsNotableCriteria)
     : optionsFlowData
+
+  // Debug: log every panel's base CSS position + current offset + effective final position
+  const dumpLayout = () => {
+    const BASE_POSITIONS: Record<string, { top?: string | number; left?: string | number; right?: string | number; bottom?: string | number; width?: string }> = {
+      searchBar: { top: '-50px', left: '20px' },
+      leadership: { top: '30px', left: '20px', width: '368px' },
+      rsStatus: { top: '30px', left: '490px' },
+      efiFlow: { top: '180px', left: '20px' },
+      efiChart: { top: '-50px', right: '20px', width: '25%' },
+      seasonality: { top: '695px', right: '20px', width: '32%' },
+      oiGex: { top: '30px', left: '960px' },
+      ivCharts: { bottom: '260px', left: '20px', width: '550px' },
+      liquidPanel: { top: '570px', left: '960px' },
+      consolidationPOI: { top: '1490px', left: '20px' },
+      otmPremiumHistory: { top: '2195px', left: '20px' },
+      straddleTown: { top: '2520px', left: '20px' },
+    }
+    console.group('%c[AnalysisSuite] Layout dump', 'color:#FF6600;font-weight:900;font-size:14px')
+    console.log('%cCurrent panelOffsets (saved state):', 'color:#aaa', JSON.stringify(panelOffsets, null, 2))
+    console.log('\n%cPanel-by-panel breakdown:', 'color:#aaa')
+    Object.entries(BASE_POSITIONS).forEach(([id, base]) => {
+      const offset = panelOffsets[id] || { x: 0, y: 0 }
+      const ref = (panelRefs as any)[id]?.current as HTMLDivElement | null
+      const rect = ref?.getBoundingClientRect()
+      const scrollY = window.scrollY || document.documentElement.scrollTop
+      const finalTop = rect ? rect.top + scrollY : '?'
+      const finalLeft = rect ? rect.left : '?'
+      const finalW = rect ? Math.round(rect.width) : '?'
+      const finalH = rect ? Math.round(rect.height) : '?'
+      console.log(
+        `%c${id.padEnd(20)}%c base=${JSON.stringify(base)}  offset=${JSON.stringify(offset)}  %cfinalRect={top:${finalTop}, left:${finalLeft}, w:${finalW}, h:${finalH}}`,
+        'color:#FF6600;font-weight:700', 'color:#ccc', 'color:#00ff88'
+      )
+    })
+    console.log('\n%cTo hardcode these as defaults, set panelOffsets initial state to:', 'color:#ffcc00;font-weight:700')
+    const defaultOffsets: Record<string, { x: number; y: number }> = {}
+    Object.keys(BASE_POSITIONS).forEach(id => {
+      const o = panelOffsets[id]
+      if (o && (o.x !== 0 || o.y !== 0)) defaultOffsets[id] = o
+    })
+    console.log(JSON.stringify(defaultOffsets, null, 2))
+    console.groupEnd()
+  }
 
   return (
     <div
@@ -1835,15 +1890,14 @@ export default function AnalysisSuitePage() {
                             : '#ff073a',
                     fontWeight: '800',
                     fontSize: '13.2px',
-                    textShadow: `0 0 12px ${
-                      rsSignals.classification === 'LEADING'
+                    textShadow: `0 0 12px ${rsSignals.classification === 'LEADING'
                         ? '#00ff41'
                         : rsSignals.classification === 'IMPROVING'
                           ? '#00d4ff'
                           : rsSignals.classification === 'WEAKENING'
                             ? '#ffff00'
                             : '#ff073a'
-                    }60, 0 1px 0 rgba(0, 0, 0, 0.8)`,
+                      }60, 0 1px 0 rgba(0, 0, 0, 0.8)`,
                     letterSpacing: '0.8px',
                     textTransform: 'uppercase',
                     WebkitFontSmoothing: 'antialiased',
@@ -2729,8 +2783,8 @@ export default function AnalysisSuitePage() {
                 showPuts={showPuts}
                 showNetOI={showNetOI}
                 showTowers={false}
-                onExpectedRangePCRatioChange={() => {}}
-                onCumulativePCRatio45DaysChange={() => {}}
+                onExpectedRangePCRatioChange={() => { }}
+                onCumulativePCRatio45DaysChange={() => { }}
                 onExpectedRange90Change={setExpectedRange90}
                 style={{
                   background: 'linear-gradient(145deg, #020B14, #000508)',
@@ -3562,6 +3616,24 @@ export default function AnalysisSuitePage() {
           }}
         >
           {layoutSaved ? '✓ SAVED' : layoutSaving ? '...' : '💾 SAVE'}
+        </button>
+        <button
+          onClick={dumpLayout}
+          style={{
+            background: 'rgba(0,0,0,0.9)',
+            border: '1px solid rgba(255,200,0,0.5)',
+            color: '#ffd700',
+            padding: '8px 14px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: '700',
+            fontFamily: 'monospace',
+            letterSpacing: '1px',
+            display: isEditMode ? undefined : 'none',
+          }}
+        >
+          🔍 DUMP POS
         </button>
         <button
           onClick={() => setIsEditMode((prev) => !prev)}

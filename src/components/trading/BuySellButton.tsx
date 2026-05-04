@@ -17,9 +17,8 @@ export default function BuySellButton({ isActive, onClick }: BuySellButtonProps)
                     fontSize: '13px',
                     borderRadius: '4px',
                 }}
-                title="Buy / Sell pressure indicator"
             >
-                <span style={{ color: '#FF8500' }}>BUY/SELL</span>
+                <span style={{ color: '#FF8500' }}><span className="hidden md:inline">BUY/SELL</span><span className="md:hidden">B/S</span></span>
                 {isActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '6px' }}>✓</span>}
             </button>
         </div>

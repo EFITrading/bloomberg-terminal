@@ -22,10 +22,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, router])
 
-  const publicPaths = ['/login', '/']
-  if (publicPaths.includes(pathname) || getCookieAuth()) {
-    return <>{children}</>
-  }
-
-  return null
+  // Always render children on initial render so server HTML matches client HTML.
+  // The useEffect above handles unauthenticated redirects after hydration.
+  return <>{children}</>
 }

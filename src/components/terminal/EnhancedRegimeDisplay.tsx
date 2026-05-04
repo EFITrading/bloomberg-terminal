@@ -37,7 +37,7 @@ export function prefetchCompositeHistory() {
         _historyCacheTs = Date.now()
       }
     })
-    .catch(() => {})
+    .catch(() => { })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   historyError,
   tfRange,
   setTfRange,
+  isMobile,
 }: {
   historyData: {
     date: string
@@ -70,6 +71,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   historyError: string | null
   tfRange: '1Y' | '3Y' | '5Y'
   setTfRange: (v: '1Y' | '3Y' | '5Y') => void
+  isMobile?: boolean
 }) {
   const overlayRef = useRef<SVGGElement>(null)
   // Keep a stable ref to the latest sliced data so the callback never needs to change
@@ -344,6 +346,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
           height={H}
           preserveAspectRatio="none"
           style={{ display: 'block', cursor: 'crosshair', overflow: 'visible' }}
+          height={isMobile ? 204 : H}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -500,13 +503,13 @@ function EnhancedRegimeDisplay({
     try {
       const s = localStorage.getItem('compositeTfRange')
       if (s === '1Y' || s === '3Y' || s === '5Y') return s
-    } catch {}
+    } catch { }
     return '1Y'
   })
   const handleSetTfRange = useCallback((v: '1Y' | '3Y' | '5Y') => {
     try {
       localStorage.setItem('compositeTfRange', v)
-    } catch {}
+    } catch { }
     setTfRange(v)
   }, [])
 
@@ -528,11 +531,18 @@ function EnhancedRegimeDisplay({
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [chartHover, setChartHover] = useState<number | null>(null) // kept for TS — unused after memo extraction
 
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   // Persist view choice
   const handleSetCompositeView = (v: 'gauge' | 'chart' | 'ratio') => {
     try {
       localStorage.setItem('compositeView', v)
-    } catch {}
+    } catch { }
     setCompositeView(v)
   }
 
@@ -577,14 +587,14 @@ function EnhancedRegimeDisplay({
       try {
         const res = await fetch(
           'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=' +
-            (process.env.NEXT_PUBLIC_POLYGON_API_KEY || '')
+          (process.env.NEXT_PUBLIC_POLYGON_API_KEY || '')
         )
         const data = await res.json()
         if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {
           const price = data.results[0].underlying_asset.value
           setVixPrice(price)
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     fetchVix()
     // Refresh VIX every 5 minutes
@@ -914,33 +924,37 @@ function EnhancedRegimeDisplay({
             }}
           />
 
-          {/* Labels */}
-          <div
-            style={{
-              position: 'absolute',
-              bottom: labelOffset,
-              left: -10,
-              fontSize: '14px',
-              color: '#ef4444',
-              fontWeight: '900',
-              fontFamily: 'monospace',
-            }}
-          >
-            DEFENSIVE
-          </div>
-          <div
-            style={{
-              position: 'absolute',
-              bottom: labelOffset,
-              right: -10,
-              fontSize: '14px',
-              color: '#22c55e',
-              fontWeight: '900',
-              fontFamily: 'monospace',
-            }}
-          >
-            GROWTH
-          </div>
+          {/* Labels — only shown for large gauges to avoid overlap */}
+          {size > 100 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: labelOffset,
+                left: -10,
+                fontSize: size > 200 ? '14px' : '11px',
+                color: '#ef4444',
+                fontWeight: '900',
+                fontFamily: 'monospace',
+              }}
+            >
+              DEFENSIVE
+            </div>
+          )}
+          {size > 100 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: labelOffset,
+                right: -10,
+                fontSize: size > 200 ? '14px' : '11px',
+                color: '#22c55e',
+                fontWeight: '900',
+                fontFamily: 'monospace',
+              }}
+            >
+              GROWTH
+            </div>
+          )}
         </div>
       </div>
     )
@@ -961,48 +975,43 @@ function EnhancedRegimeDisplay({
       }}
     >
       {/* MAIN COMPOSITE GAUGE - Large Central Display */}
-      <div
-        style={{
-          overflow: window.innerWidth < 768 ? 'hidden' : 'visible',
-          height: window.innerWidth < 768 ? '200px' : 'auto',
-        }}
-      >
+      <div>
         <div
-          className="md:scale-100 scale-[0.41]"
           style={{
             display: 'grid',
-            gridTemplateColumns: compositeView === 'gauge' ? '300px 1fr' : '1fr',
-            gap: '20px',
-            padding: '20px',
+            gridTemplateColumns: compositeView === 'gauge' && !isMobile ? '300px 1fr' : compositeView === 'gauge' && isMobile ? '1fr 1fr' : '1fr',
+            gap: isMobile ? '6px' : '20px',
+            padding: isMobile ? '4px 8px' : '20px',
             background: '#000000',
             border: `3px solid #ffffff`,
             borderRadius: '2px',
             boxShadow: `inset 0 2px 0 rgba(255, 255, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.9), 0 0 30px ${compositeColor}30`,
-            alignItems: 'center',
-            transformOrigin: 'top left',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            overflow: 'hidden',
           }}
         >
           {/* Left: Large Gauge / History Chart */}
           <div
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: isMobile ? '2px' : '12px', minWidth: 0 }}
           >
             {/* Header row: COMPOSITE label + GAUGE|CHART toggle */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
+                gap: isMobile ? '4px' : '10px',
                 width: '100%',
                 justifyContent: 'center',
+                flexWrap: 'wrap',
               }}
             >
               <div
                 style={{
-                  fontSize: '16px',
+                  fontSize: isMobile ? '14px' : '16px',
                   color: '#ff6600',
                   fontWeight: '900',
                   fontFamily: 'monospace',
-                  letterSpacing: '0.3em',
+                  letterSpacing: isMobile ? '0.1em' : '0.3em',
                   textTransform: 'uppercase',
                 }}
               >
@@ -1017,21 +1026,21 @@ function EnhancedRegimeDisplay({
                   overflow: 'hidden',
                 }}
               >
-                {(['gauge', 'chart', 'ratio'] as const).map((v) => (
+                {(['gauge', 'chart', 'ratio'] as const).filter(v => !(isMobile && v === 'ratio')).map((v) => (
                   <button
                     key={v}
                     onClick={() => handleSetCompositeView(v)}
                     style={{
-                      padding: '3px 10px',
-                      fontSize: '10px',
+                      padding: isMobile ? '2px 6px' : '3px 10px',
+                      fontSize: isMobile ? '10px' : '10px',
                       fontFamily: 'monospace',
                       fontWeight: '900',
                       letterSpacing: '0.1em',
                       textTransform: 'uppercase',
                       cursor: 'pointer',
                       border: 'none',
-                      background: compositeView === v ? '#ff6600' : '#000',
-                      color: compositeView === v ? '#000' : '#ff6600',
+                      background: '#000000',
+                      color: compositeView === v ? '#ff6600' : '#ffffff',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -1043,30 +1052,33 @@ function EnhancedRegimeDisplay({
 
             {compositeView === 'gauge' ? (
               <>
-                <RegimeGauge
-                  value={compositeSpread}
-                  label=""
-                  size={276}
-                  thickness={26}
-                  regime={compositeRegime}
-                  showValue={false}
-                  labelOffset={-15}
-                />
+                <div style={isMobile ? { transform: 'scaleY(1.4)', transformOrigin: 'top center', width: '100%', display: 'flex', justifyContent: 'center', marginTop: '18px' } : {}}>
+                  <RegimeGauge
+                    value={compositeSpread}
+                    label=""
+                    size={isMobile ? 184 : 276}
+                    thickness={isMobile ? 16 : 26}
+                    regime={compositeRegime}
+                    showValue={false}
+                    labelOffset={-15}
+                  />
+                </div>
 
                 <div
                   style={{
-                    padding: '10px 20px',
+                    padding: isMobile ? '4px 8px' : '10px 20px',
                     background: '#000000',
                     border: `2px solid ${compositeColor}`,
                     borderRadius: '2px',
                     boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 15px ${compositeColor}50`,
                     textAlign: 'center',
-                    marginTop: '20px',
+                    marginTop: isMobile ? '68px' : '20px',
+                    width: '100%',
                   }}
                 >
                   <div
                     style={{
-                      fontSize: '19px',
+                      fontSize: isMobile ? '11px' : '19px',
                       fontWeight: '900',
                       color: compositeColor,
                       fontFamily: 'monospace',
@@ -1078,12 +1090,12 @@ function EnhancedRegimeDisplay({
                   </div>
                   <div
                     style={{
-                      fontSize: '13px',
+                      fontSize: isMobile ? '9px' : '13px',
                       color: '#ff6600',
                       fontWeight: '800',
                       fontFamily: 'monospace',
-                      marginTop: '4px',
-                      letterSpacing: '0.15em',
+                      marginTop: '2px',
+                      letterSpacing: '0.1em',
                     }}
                   >
                     {compositeStrength} • {Math.round(compositeConfidence)}%
@@ -1102,23 +1114,30 @@ function EnhancedRegimeDisplay({
                 historyError={historyError}
                 tfRange={tfRange}
                 setTfRange={handleSetTfRange}
+                isMobile={isMobile}
               />
             ) : (
               /* ── P/C Ratio Chart ── */
-              <PutCallRatioChart chartHeight={240} embedded />
+              <PutCallRatioChart chartHeight={isMobile ? 204 : 240} embedded />
             )}
           </div>
 
-          {/* Right: Timeframe Gauges — only in gauge mode */}
+          {/* Right: Timeframe Gauges — desktop: all timeframes grid; mobile: 1D + 5D stacked */}
           {compositeView === 'gauge' && (
             <div
-              style={{
+              style={isMobile ? {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+                justifyContent: 'center',
+                height: '100%',
+              } : {
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: '12px',
               }}
             >
-              {timeframes.map((tf) => {
+              {(isMobile ? ['1d', '5d'] : timeframes).map((tf) => {
                 const tfAnalysis = regimeAnalysis[tf]
                 if (!tfAnalysis) return null
 
@@ -1130,7 +1149,7 @@ function EnhancedRegimeDisplay({
                     key={tf}
                     onClick={() => setSelectedTimeframe(tf)}
                     style={{
-                      padding: '12px 8px',
+                      padding: isMobile ? '4px 4px' : '12px 8px',
                       background: '#000000',
                       border: isSelected ? `2px solid #ff6600` : '2px solid #333333',
                       borderRadius: '2px',
@@ -1141,12 +1160,12 @@ function EnhancedRegimeDisplay({
                   >
                     <div
                       style={{
-                        fontSize: '14px',
+                        fontSize: isMobile ? '12px' : '14px',
                         color: '#ff6600',
                         fontWeight: '900',
                         fontFamily: 'monospace',
                         textAlign: 'center',
-                        marginBottom: '8px',
+                        marginBottom: isMobile ? '2px' : '8px',
                         letterSpacing: '0.1em',
                       }}
                     >
@@ -1163,19 +1182,19 @@ function EnhancedRegimeDisplay({
                     <RegimeGauge
                       value={tfSpread}
                       label=""
-                      size={168}
-                      thickness={16}
+                      size={isMobile ? 117 : 168}
+                      thickness={isMobile ? 13 : 16}
                       showValue={true}
                       regime={tfAnalysis.regime}
                     />
                     <div
                       style={{
-                        fontSize: '12px',
+                        fontSize: isMobile ? '11px' : '12px',
                         color: '#ffffff',
                         fontFamily: 'monospace',
                         textAlign: 'center',
-                        marginTop: '6px',
-                        marginBottom: '10px',
+                        marginTop: isMobile ? '10px' : '6px',
+                        marginBottom: isMobile ? '2px' : '10px',
                       }}
                     >
                       {tfAnalysis.regime}
@@ -1208,7 +1227,7 @@ function EnhancedRegimeDisplay({
                       const netScore = riskOnScore - valueScore
                       const fillPercent = Math.min(Math.abs(netScore) * 10, 50)
 
-                      return (
+                      return isMobile ? null : (
                         <div style={{ width: '100%', padding: '0 8px' }}>
                           <div
                             style={{

@@ -520,6 +520,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   })
   const [selectedCalDate, setSelectedCalDate] = useState<number | null>(null)
   const [weeklySubView, setWeeklySubView] = useState<'logos' | 'implied'>('logos')
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const [mobileDayIdx, setMobileDayIdx] = useState(() => {
+    const d = typeof window !== 'undefined' ? new Date().getDay() : 1
+    return d >= 1 && d <= 5 ? d - 1 : 0
+  })
   const [impliedMoves, setImpliedMoves] = useState<Record<string, number>>({})
   const [impliedModalDay, setImpliedModalDay] = useState<Date | null>(null)
   const impliedFetchedRef = useRef<Set<string>>(new Set())
@@ -1872,6 +1877,15 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
       const MAX_VISIBLE = 20
 
+      // Tickers that generate high community excitement/anticipation for earnings
+      const HYPED_TICKERS = new Set([
+        'NVDA', 'AMD', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'META', 'AMZN', 'NFLX',
+        'SHOP', 'COIN', 'PLTR', 'HOOD', 'RIVN', 'SNAP', 'RBLX', 'RDDT', 'UBER', 'ABNB',
+        'NKE', 'DIS', 'SBUX', 'GME', 'AMC', 'CRWD', 'DDOG', 'PANW', 'MDB', 'SNOW',
+        'TTD', 'ROKU', 'PYPL', 'SQ', 'MSTR', 'ARM', 'SMCI', 'INTC', 'QCOM', 'MU',
+        'CRM', 'NOW', 'ADBE', 'SPOT', 'AVGO', 'LCID', 'NIO', 'BABA', 'ORCL', 'IBM',
+      ])
+
       // ── IMPLIED MOVE chart view ──────────────────────────────────────────────
       if (weeklySubView === 'implied') {
         const LOGO_PX = 86
@@ -1948,12 +1962,12 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           const M_BUCKET_STEP = 2.0
           const M_LOGO_CELL = MODAL_LOGO + 8
           const buckets2: Record<number, number> = {}
-          const mSpread: { ticker: string; pct: number; isPre: boolean; xOffset: number; labelSide: 'above' | 'below' | 'left' | 'right' }[] = mItems.map(({ ticker, pct, isPre }) => {
+          const mSpread: { ticker: string; pct: number; isPre: boolean; xOffset: number; labelSide: 'above' | 'below' | 'left' | 'right'; isHyped: boolean }[] = mItems.map(({ ticker, pct, isPre }) => {
             const bucket = Math.round(pct / M_BUCKET_STEP)
             const slot = buckets2[bucket] ?? 0
             buckets2[bucket] = slot + 1
             const xOffset = (slot % 2 === 0 ? -1 : 1) * Math.ceil(slot / 2) * (M_LOGO_CELL + 16)
-            return { ticker, pct, isPre, xOffset, labelSide: 'below' as 'above' | 'below' | 'left' | 'right' }
+            return { ticker, pct, isPre, xOffset, labelSide: 'below' as 'above' | 'below' | 'left' | 'right', isHyped: HYPED_TICKERS.has(ticker) }
           })
           mSpread.forEach((item) => {
             if (item.xOffset < 0) {
@@ -1995,7 +2009,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   <div style={{ width: 48, flexShrink: 0, position: 'relative', borderRight: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
                     {mLabels.map((v) => (
                       <div key={v} style={{ position: 'absolute', bottom: `calc(${mToFrac(v) * 100}% - 8px)`, right: 4 }}>
-                        <span style={{ fontSize: 20, color: '#fff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
+                        <span style={{ fontSize: 26, color: '#fff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
                       </div>
                     ))}
                   </div>
@@ -2004,10 +2018,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     {mLabels.map((v) => (
                       <div key={v} style={{ position: 'absolute', left: 0, right: 0, bottom: `${mToFrac(v) * 100}%`, borderTop: '1px solid rgba(212,175,55,0.35)' }} />
                     ))}
-                    {mSpread.map(({ ticker, pct, isPre, xOffset, labelSide }) => {
+                    {mSpread.map(({ ticker, pct, isPre, xOffset, labelSide, isHyped }) => {
                       const isHoriz = labelSide === 'left' || labelSide === 'right'
                       const logoEl = (
-                        <div style={{ borderRadius: 6, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.7)' : 'rgba(0,174,239,0.7)'}` }}>
+                        <div style={{ borderRadius: 6, padding: 2, border: isHyped ? '2px solid #f97316' : `2px solid ${isPre ? 'rgba(251,191,36,0.7)' : 'rgba(0,174,239,0.7)'}`, boxShadow: isHyped ? '0 0 12px rgba(249,115,22,0.75), 0 0 24px rgba(249,115,22,0.25)' : 'none' }}>
                           <CompanyLogo ticker={ticker} size={MODAL_LOGO} />
                         </div>
                       )
@@ -2081,7 +2095,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 <div style={{ width: 44, flexShrink: 0, position: 'relative', borderRight: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
                   {yLabels.map((v) => (
                     <div key={v} style={{ position: 'absolute', bottom: `${toFrac(v) * 100}%`, right: 4, transform: 'translateY(50%)' }}>
-                      <span style={{ fontSize: 15, color: '#ffffff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
+                      <span style={{ fontSize: 20, color: '#ffffff', fontWeight: 900, fontFamily: 'var(--font-geist-mono, monospace)' }}>{v}%</span>
                     </div>
                   ))}
                 </div>
@@ -2139,8 +2153,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                         ))}
                         {/* logos at Y position */}
                         {spread.map(({ ticker, pct, placedPct, isPre, leftPct }) => {
+                          const isHyped = HYPED_TICKERS.has(ticker)
                           const logoEl = (
-                            <div style={{ borderRadius: 8, padding: 2, border: `2px solid ${isPre ? 'rgba(251,191,36,0.8)' : 'rgba(0,174,239,0.8)'}` }}>
+                            <div style={{ borderRadius: 8, padding: 2, border: isHyped ? '2px solid #f97316' : `2px solid ${isPre ? 'rgba(251,191,36,0.8)' : 'rgba(0,174,239,0.8)'}`, boxShadow: isHyped ? '0 0 10px rgba(249,115,22,0.7), 0 0 20px rgba(249,115,22,0.25)' : 'none' }}>
                               <CompanyLogo ticker={ticker} size={LOGO_PX} />
                             </div>
                           )
@@ -2174,10 +2189,74 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         )
       }
 
-      // ── LOGOS view (original, unchanged) ────────────────────────────────────
+      // ── LOGOS view ──────────────────────────────────────────────────────────
+      const mDay = weekDays[mobileDayIdx]
+      const mPre = isMobile ? getWeekEarnings(mDay, 'Pre-Market') : []
+      const mPost = isMobile ? getWeekEarnings(mDay, 'Post-Market') : []
       return (
         <div className="flex flex-col flex-1">
-          <div style={{ height: '20px' }} />
+          {/* MOBILE: single-day view */}
+          {isMobile && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '2px solid #d4af37', borderRight: '2px solid #d4af37' }}>
+              {/* PRE-MARKET */}
+              <div style={{ borderBottom: '2px solid #d4af37' }}>
+                <div style={{ padding: '8px 14px', background: 'rgba(251,191,36,0.07)', borderBottom: '1px solid rgba(251,191,36,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 900, color: '#fbbf24', letterSpacing: '0.1em', fontFamily: 'monospace', textTransform: 'uppercase' }}>Pre-Market</span>
+                  {mPre.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 700 }}>{mPre.length} co.</span>}
+                </div>
+                {mPre.length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '10px 12px' }}>
+                    {mPre.map((ev, ei) => {
+                      const ticker = extractTicker(ev.event)
+                      if (!ticker) return null
+                      const isHyped = HYPED_TICKERS.has(ticker)
+                      return (
+                        <div key={ei} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65)' } : undefined}>
+                            <CompanyLogo ticker={ticker} size={72} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 900, color: isHyped ? '#f97316' : '#fff', fontFamily: 'monospace' }}>{ticker}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              {/* AFTER-HOURS */}
+              <div>
+                <div style={{ padding: '8px 14px', background: 'rgba(0,174,239,0.07)', borderBottom: '1px solid rgba(0,174,239,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22d3ee', flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 900, color: '#22d3ee', letterSpacing: '0.1em', fontFamily: 'monospace', textTransform: 'uppercase' }}>After-Hours</span>
+                  {mPost.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 700 }}>{mPost.length} co.</span>}
+                </div>
+                {mPost.length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '10px 12px' }}>
+                    {mPost.map((ev, ei) => {
+                      const ticker = extractTicker(ev.event)
+                      if (!ticker) return null
+                      const isHyped = HYPED_TICKERS.has(ticker)
+                      return (
+                        <div key={ei} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65)' } : undefined}>
+                            <CompanyLogo ticker={ticker} size={72} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 900, color: isHyped ? '#f97316' : '#fff', fontFamily: 'monospace' }}>{ticker}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {/* DESKTOP: 5-column grid */}
+          {!isMobile && <div style={{ height: '20px' }} />}
+          {!isMobile && (
           <div
             className="flex-1 grid grid-cols-5"
             style={{ minHeight: '580px', borderLeft: '2px solid #d4af37' }}
@@ -2227,10 +2306,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           preEvs.map((ev, ei) => {
                             const ticker = extractTicker(ev.event)
                             if (!ticker) return null
+                            const isHyped = HYPED_TICKERS.has(ticker)
                             return (
                               <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                <CompanyLogo ticker={ticker} size={72} />
-                                <span className="text-[11px] font-black text-white">{ticker}</span>
+                                <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
+                                  <CompanyLogo ticker={ticker} size={72} />
+                                </div>
+                                <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
                               </div>
                             )
                           })
@@ -2244,10 +2326,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           postEvs.map((ev, ei) => {
                             const ticker = extractTicker(ev.event)
                             if (!ticker) return null
+                            const isHyped = HYPED_TICKERS.has(ticker)
                             return (
                               <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                <CompanyLogo ticker={ticker} size={72} />
-                                <span className="text-[11px] font-black text-white">{ticker}</span>
+                                <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
+                                  <CompanyLogo ticker={ticker} size={72} />
+                                </div>
+                                <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
                               </div>
                             )
                           })
@@ -2259,6 +2344,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               )
             })}
           </div>
+          )}
         </div>
       )
     }
@@ -2267,12 +2353,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     const renderMonthly = () => (
       <div className="flex-1">
         <div className="grid grid-cols-5" style={{ borderBottom: '2px solid #d4af37' }}>
-          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d) => (
+          {(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const).map((d, i) => (
             <div
               key={d}
-              className="py-3 text-center text-[18px] font-black text-white uppercase tracking-widest bg-[#060606]"
+              className="py-3 text-center font-black text-white uppercase bg-[#060606]"
+              style={{ fontSize: isMobile ? '11px' : '18px', letterSpacing: isMobile ? '0.04em' : '0.1em' }}
             >
-              {d}
+              {isMobile ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][i] : d}
             </div>
           ))}
         </div>
@@ -2341,6 +2428,37 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     const preEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Pre-Market'))
                     const postEvs = sortByImportance(earningEvs.filter((e) => e.time === 'Post-Market'))
 
+                    // ── MOBILE: top-6 combined, 2-col × 3-row, no headers ──────
+                    if (isMobile) {
+                      const allSorted = [...preEvs, ...postEvs]
+                      const top8 = allSorted.slice(0, 8)
+                      const overflow = earningEvs.length - top8.length
+                      return (
+                        <div style={{ overflow: 'hidden' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gridTemplateRows: 'repeat(4, auto)', gap: '2px' }}>
+                            {top8.map((ev, ei) => {
+                              const ticker = extractTicker(ev.event)
+                              if (!ticker) return <div key={ei} style={{ aspectRatio: '1/1' }} />
+                              const isPre = ev.time === 'Pre-Market'
+                              return (
+                                <div key={ei} className="relative" style={{ aspectRatio: '1/1' }}>
+                                  <CompanyLogo ticker={ticker} fluid />
+                                  <div className="absolute top-0 left-0 w-1 h-full" style={{ background: isPre ? '#f59e0b' : '#6366f1', opacity: 0.8 }} />
+                                  <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', padding: '1px 0' }}>
+                                    <span className="text-white font-black leading-none truncate px-0.5" style={{ fontSize: '10px' }}>{ticker}</span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          {overflow > 0 && (
+                            <div className="text-[9px] font-black text-white/30 pl-0.5 pt-0.5">+{overflow}</div>
+                          )}
+                        </div>
+                      )
+                    }
+
+                    // ── DESKTOP: full 6-col pre/post layout ───────────────────
                     // Layout: 6-col grid per row — col 1-2 = pre-market, col 3-6 = post-market
                     const PRE_COLS = 2
                     const POST_COLS = 4
@@ -2450,8 +2568,100 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
         {/* ── HEADER ── */}
         <div className="px-5 pt-5 pb-4 border-b border-white/[0.06] bg-[#080808] sticky top-0 z-10">
+          {/* ── MOBILE: compact single-row calendar controls ── */}
+          {isMobile && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Row A: ◀ [title] ▶ */}
+              <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                <button
+                  onClick={() => {
+                    if (calViewMode === 'monthly') {
+                      setCalMonth(m => { const d = new Date(m.year, m.month - 1, 1); return { year: d.getFullYear(), month: d.getMonth() } })
+                    } else if (mobileDayIdx > 0) {
+                      setMobileDayIdx(mobileDayIdx - 1)
+                    } else { shiftWeek(-1); setMobileDayIdx(4) }
+                  }}
+                  style={{ padding: '7px 16px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '6px 0 0 6px', color: '#fff', fontSize: 15, cursor: 'pointer', flexShrink: 0, fontWeight: 900 }}
+                >◀</button>
+                <div style={{ flex: 1, textAlign: 'center', background: '#0d0d0d', borderTop: '1px solid #333', borderBottom: '1px solid #333', padding: '7px 8px', color: calViewMode === 'weekly' && weekDays[mobileDayIdx]?.toDateString() === new Date().toDateString() ? '#fb923c' : '#fff', fontWeight: 900, fontSize: 14, fontFamily: 'monospace', letterSpacing: '0.05em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {calViewMode === 'monthly'
+                    ? `${MONTH_NAMES[month]} ${year}`
+                    : weekDays[mobileDayIdx]?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).toUpperCase() ?? ''}
+                </div>
+                <button
+                  onClick={() => {
+                    if (calViewMode === 'monthly') {
+                      setCalMonth(m => { const d = new Date(m.year, m.month + 1, 1); return { year: d.getFullYear(), month: d.getMonth() } })
+                    } else if (mobileDayIdx < 4) {
+                      setMobileDayIdx(mobileDayIdx + 1)
+                    } else { shiftWeek(1); setMobileDayIdx(0) }
+                  }}
+                  style={{ padding: '7px 16px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '0 6px 6px 0', color: '#fff', fontSize: 15, cursor: 'pointer', flexShrink: 0, fontWeight: 900 }}
+                >▶</button>
+              </div>
+              {/* Row B: compact control pills */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'space-between' }}>
+                {/* MONTH / WEEK */}
+                <div style={{ display: 'flex', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: 8, overflow: 'hidden', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  {(['monthly', 'weekly'] as const).map((id, idx) => (
+                    <button key={id} onClick={() => setCalViewMode(id)}
+                      style={{ padding: '6px 13px', fontWeight: 900, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', border: 'none', borderLeft: idx > 0 ? '1px solid #333' : 'none', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', color: calViewMode === id ? '#FF6600' : '#ffffff', letterSpacing: '0.06em', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+                      {id === 'monthly' ? 'MONTH' : 'WEEK'}
+                    </button>
+                  ))}
+                </div>
+                {/* EARN / ECON */}
+                <div style={{ display: 'flex', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: 8, overflow: 'hidden', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  {(['earnings', 'events'] as const).map((id, idx) => (
+                    <button key={id} onClick={() => setCalView(id)}
+                      style={{ padding: '6px 13px', fontWeight: 900, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', border: 'none', borderLeft: idx > 0 ? '1px solid #333' : 'none', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', color: calView === id ? '#FF6600' : '#ffffff', letterSpacing: '0.06em', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+                      {id === 'earnings' ? 'EARN' : 'ECON'}
+                    </button>
+                  ))}
+                </div>
+                {/* LOGOS / IV — weekly only */}
+                {calViewMode === 'weekly' && (
+                  <div style={{ display: 'flex', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: 8, overflow: 'hidden', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                    {(['logos', 'implied'] as const).map((id, idx) => (
+                      <button key={id} onClick={() => setWeeklySubView(id)}
+                        style={{ padding: '6px 12px', fontWeight: 900, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', border: 'none', borderLeft: idx > 0 ? '1px solid #333' : 'none', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', color: weeklySubView === id ? '#FF6600' : '#ffffff', letterSpacing: '0.06em', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+                        {id === 'logos' ? 'LOGOS' : 'IV'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* SHOW filter dropdown */}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <button onClick={() => setShowFilterDropdown(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: 8, fontWeight: 900, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', color: '#ffffff', letterSpacing: '0.06em', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                    SHOW
+                    <svg style={{ width: 10, height: 10, flexShrink: 0, transform: showFilterDropdown ? 'rotate(180deg)' : undefined }} fill="none" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </button>
+                  {showFilterDropdown && (
+                    <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 50, background: '#111', border: '1px solid #333', borderRadius: 8, padding: 6, minWidth: 130, boxShadow: '0 8px 24px rgba(0,0,0,0.8)' }}>
+                      {([
+                        { id: 'critical' as const, label: 'Critical', color: '#ef4444' },
+                        { id: 'high' as const, label: 'High', color: '#f97316' },
+                        { id: 'medium' as const, label: 'Medium', color: '#f59e0b' },
+                        { id: 'low' as const, label: 'Low', color: 'rgba(255,255,255,0.25)' },
+                      ]).map(({ id, label, color }) => (
+                        <button key={id} onClick={() => toggleCalImp(id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 5, background: 'transparent', border: 'none', cursor: 'pointer', width: '100%' }}>
+                          <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${calImportanceFilter.has(id) ? '#FF6600' : '#555'}`, background: calImportanceFilter.has(id) ? '#FF6600' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {calImportanceFilter.has(id) && <svg style={{ width: 8, height: 8 }} fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                          </div>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, fontWeight: 900, color: '#fff', fontFamily: 'monospace' }}>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {/* Row 1: view toggles + nav */}
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap" style={{ display: isMobile ? 'none' : undefined }}>
             {/* Left toggles */}
             <div className="flex items-center gap-3 flex-wrap">
               {/* Importance filter dropdown */}
@@ -2825,7 +3035,43 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
   return (
     <div className="h-full flex flex-col bg-[#050505]">
-      {/* SCROLLING TICKER */}
+      {/* SCROLLING TICKER — desktop: single scrolling row with timer; mobile: fire icon + 2-row headline */}
+      {isMobile ? (
+        <div
+          style={{ background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 40%, #7f1d1d 100%)', flexShrink: 0, display: 'flex', alignItems: 'stretch', gap: 0, position: 'relative' }}
+        >
+          {/* fire badge */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px', background: 'linear-gradient(90deg, #b91c1c 0%, #991b1b 100%)', borderRight: '1px solid #ef4444', flexShrink: 0 }}>
+            <TbFlame className="w-6 h-6 text-white" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
+          </div>
+          {/* two-row text */}
+          <div style={{ flex: 1, padding: '5px 10px', overflow: 'hidden' }}>
+            {tickerText ? (
+              <>
+                <div style={{ color: '#fef2f2', fontWeight: 900, fontSize: 12, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {tickerText.split('●')[0]?.trim() || tickerText}
+                </div>
+                <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 11, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.8 }}>
+                  {tickerText.split('●')[1]?.trim() || ''}
+                </div>
+              </>
+            ) : (
+              <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 12, animation: 'pulse 1s ease-in-out infinite' }}>Loading…</div>
+            )}
+          </div>
+          {/* mobile X close button */}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close panel"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 14px', background: 'rgba(0,0,0,0.3)', border: 'none', borderLeft: '1px solid rgba(239,68,68,0.35)', cursor: 'pointer', flexShrink: 0, color: '#fca5a5' }}
+            >
+              <TbX style={{ width: 20, height: 20 }} />
+            </button>
+          )}
+        </div>
+      ) : (
       <div
         className="relative overflow-hidden h-10 shrink-0 flex items-center select-none"
         style={{ background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 40%, #7f1d1d 100%)' }}
@@ -2864,6 +3110,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           )}
         </div>
       </div>
+      )}
 
       {/* SEARCH BAR — hidden on calendar tab */}
       {activeTab !== 'calendar' && (

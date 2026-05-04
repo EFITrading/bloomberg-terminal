@@ -53,7 +53,7 @@ export default function DealerOpenInterestChart({
   style,
   hideViewModeToggle = false,
   analysisSuiteMode = false,
-  svgHeight = 605,
+  svgHeight = 575,
 }: DealerOpenInterestChartProps) {
   const [selectedExpiration, setSelectedExpiration] = useState<string>(propExpiration || '')
   const [expirationDates, setExpirationDates] = useState<string[]>([])
@@ -1043,8 +1043,8 @@ export default function DealerOpenInterestChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const totalSVGHeight =
-      typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+    const totalSVGHeight = isMobile ? 484 : svgHeight
     const height = totalSVGHeight - margin.top - margin.bottom
     const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
     const range80Color = analysisSuiteMode ? '#00FFFF' : '#3b82f6'
@@ -1156,7 +1156,7 @@ export default function DealerOpenInterestChart({
         xAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', '14px')
+          .style('font-size', isMobile ? '21px' : '18px')
           .style('font-weight', 'bold')
           .attr('transform', 'rotate(-35)')
           .style('text-anchor', 'end')
@@ -1216,7 +1216,7 @@ export default function DealerOpenInterestChart({
         yAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', '14px')
+          .style('font-size', isMobile ? '21px' : '18px')
           .style('font-weight', 'bold')
 
         yAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
@@ -1496,7 +1496,7 @@ export default function DealerOpenInterestChart({
       .call(xAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', '14px')
+      .style('font-size', isMobile ? '21px' : '18px')
       .style('font-weight', 'bold')
       .attr('transform', 'rotate(-35)')
       .style('text-anchor', 'end')
@@ -1553,7 +1553,7 @@ export default function DealerOpenInterestChart({
       .call(yAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', '14px')
+      .style('font-size', isMobile ? '21px' : '18px')
       .style('font-weight', 'bold')
 
     container
@@ -1569,7 +1569,7 @@ export default function DealerOpenInterestChart({
       .attr('y', -60)
       .attr('text-anchor', 'middle')
       .style('fill', '#ffffff')
-      .style('font-size', '13px')
+      .style('font-size', isMobile ? '20px' : '16px')
       .style('font-weight', '500')
       .text(viewMode === 'premium' ? 'Open Interest Premium ($)' : 'Open Interest (Contracts)')
 
@@ -1915,29 +1915,29 @@ export default function DealerOpenInterestChart({
           .attr('fill', '#ffffff')
           .attr('opacity', 0.3)
 
-        // Windows on middle section (glowing)
-        ;[
-          [-3, 0],
-          [3, 0],
-          [-3, 3],
-          [3, 3],
-        ].forEach(([x, y], idx) => {
-          iconGroup
-            .append('rect')
-            .attr('x', x - 1)
-            .attr('y', y - 0.5)
-            .attr('width', 2)
-            .attr('height', 1.5)
-            .attr('fill', accentColor)
-            .attr('opacity', 0.7)
-            .attr('rx', 0.2)
-            .append('animate')
-            .attr('attributeName', 'opacity')
-            .attr('values', '0.7;0.3;0.7')
-            .attr('dur', '2s')
-            .attr('begin', `${idx * 0.5}s`)
-            .attr('repeatCount', 'indefinite')
-        })
+          // Windows on middle section (glowing)
+          ;[
+            [-3, 0],
+            [3, 0],
+            [-3, 3],
+            [3, 3],
+          ].forEach(([x, y], idx) => {
+            iconGroup
+              .append('rect')
+              .attr('x', x - 1)
+              .attr('y', y - 0.5)
+              .attr('width', 2)
+              .attr('height', 1.5)
+              .attr('fill', accentColor)
+              .attr('opacity', 0.7)
+              .attr('rx', 0.2)
+              .append('animate')
+              .attr('attributeName', 'opacity')
+              .attr('values', '0.7;0.3;0.7')
+              .attr('dur', '2s')
+              .attr('begin', `${idx * 0.5}s`)
+              .attr('repeatCount', 'indefinite')
+          })
 
         // Tower top section with glass effect
         iconGroup
@@ -2006,34 +2006,34 @@ export default function DealerOpenInterestChart({
           .attr('dur', '1s')
           .attr('repeatCount', 'indefinite')
 
-        // Energy waves emanating from beacon
-        ;[3, 5, 7].forEach((radius, idx) => {
-          const wave = iconGroup
-            .append('circle')
-            .attr('cx', 0)
-            .attr('cy', -12)
-            .attr('r', radius)
-            .attr('fill', 'none')
-            .attr('stroke', accentColor)
-            .attr('stroke-width', 1)
-            .attr('opacity', 0)
+          // Energy waves emanating from beacon
+          ;[3, 5, 7].forEach((radius, idx) => {
+            const wave = iconGroup
+              .append('circle')
+              .attr('cx', 0)
+              .attr('cy', -12)
+              .attr('r', radius)
+              .attr('fill', 'none')
+              .attr('stroke', accentColor)
+              .attr('stroke-width', 1)
+              .attr('opacity', 0)
 
-          wave
-            .append('animate')
-            .attr('attributeName', 'opacity')
-            .attr('values', '0;0.6;0')
-            .attr('dur', '2s')
-            .attr('begin', `${idx * 0.7}s`)
-            .attr('repeatCount', 'indefinite')
+            wave
+              .append('animate')
+              .attr('attributeName', 'opacity')
+              .attr('values', '0;0.6;0')
+              .attr('dur', '2s')
+              .attr('begin', `${idx * 0.7}s`)
+              .attr('repeatCount', 'indefinite')
 
-          wave
-            .append('animate')
-            .attr('attributeName', 'r')
-            .attr('values', `${radius};${radius + 3};${radius + 3}`)
-            .attr('dur', '2s')
-            .attr('begin', `${idx * 0.7}s`)
-            .attr('repeatCount', 'indefinite')
-        })
+            wave
+              .append('animate')
+              .attr('attributeName', 'r')
+              .attr('values', `${radius};${radius + 3};${radius + 3}`)
+              .attr('dur', '2s')
+              .attr('begin', `${idx * 0.7}s`)
+              .attr('repeatCount', 'indefinite')
+          })
 
         // Add tooltip on hover
         iconGroup
@@ -2107,21 +2107,19 @@ export default function DealerOpenInterestChart({
             <div className="flex gap-3">
               <button
                 onClick={() => setViewMode('contracts')}
-                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                  viewMode === 'contracts'
-                    ? 'bg-orange-600 text-white border-2 border-orange-500'
-                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-                }`}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'contracts'
+                  ? 'bg-orange-600 text-white border-2 border-orange-500'
+                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                  }`}
               >
                 Contracts
               </button>
               <button
                 onClick={() => setViewMode('premium')}
-                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                  viewMode === 'premium'
-                    ? 'bg-orange-600 text-white border-2 border-orange-500'
-                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-                }`}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'premium'
+                  ? 'bg-orange-600 text-white border-2 border-orange-500'
+                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                  }`}
               >
                 Premium ($)
               </button>
@@ -2595,7 +2593,10 @@ export default function DealerOpenInterestChart({
         <svg
           ref={svgRef}
           width={chartWidth}
-          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight}
+          height={svgHeight}
+          viewBox={`0 0 ${chartWidth} ${svgHeight}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ width: '100%', height: 'auto' }}
         ></svg>
       )}
     </div>

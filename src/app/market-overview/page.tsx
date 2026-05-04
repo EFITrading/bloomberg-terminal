@@ -44,7 +44,7 @@ export default function MarketPage() {
 
     const updateHeight = () => {
       const isMobile = window.innerWidth <= 768
-      const navHeight = isMobile ? 80 : 120
+      const navHeight = isMobile ? 108 : 120
       const calculatedHeight = window.innerHeight - navHeight
       setChartHeight(Math.max(400, calculatedHeight))
     }

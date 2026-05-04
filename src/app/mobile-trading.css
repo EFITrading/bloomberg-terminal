@@ -460,14 +460,13 @@
   /* Fix chart height on mobile - add more padding to avoid navigation overlap */
   .market-overview-container {
     height: 100vh !important;
-    padding-top: 140px !important;
-    /* Increased from 80px to avoid nav overlap */
+    padding-top: 50px !important;
   }
 
   /* Ensure chart fills remaining space */
   .chart-container {
-    height: calc(100vh - 140px) !important;
-    min-height: calc(100vh - 140px) !important;
+    height: calc(100vh - 50px) !important;
+    min-height: calc(100vh - 50px) !important;
   }
 
   /* Push the chart toolbar down */
@@ -495,12 +494,11 @@
 
 @media (max-width: 768px) {
   .market-overview-container {
-    padding-top: 110px !important;
-    /* Reduced from 140px */
+    padding-top: 50px !important;
   }
 
   .chart-container {
-    height: calc(100vh - 90px) !important;
+    height: calc(100vh - 50px) !important;
   }
 
   /* Eliminate empty gray space below x-axis */
@@ -511,12 +509,11 @@
 
 @media (max-width: 640px) {
   .market-overview-container {
-    padding-top: 95px !important;
-    /* Reduced from 120px */
+    padding-top: 50px !important;
   }
 
   .chart-container {
-    height: calc(100vh - 75px) !important;
+    height: calc(100vh - 50px) !important;
   }
 
   canvas {
@@ -526,12 +523,11 @@
 
 @media (max-width: 480px) {
   .market-overview-container {
-    padding-top: 80px !important;
-    /* Reduced from original higher value */
+    padding-top: 50px !important;
   }
 
   .chart-container {
-    height: calc(100vh - 60px) !important;
+    height: calc(100vh - 50px) !important;
   }
 
   canvas {
@@ -880,8 +876,8 @@
 /* Reduce search bar width by 30% on mobile */
 @media (max-width: 768px) {
   .bg-transparent.border-0.outline-none[type="text"] {
-    width: 70px !important;
-    font-size: 14px !important;
+    width: 97px !important;
+    font-size: 13px !important;
   }
 }
 

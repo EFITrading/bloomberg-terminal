@@ -5293,21 +5293,43 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                 >
                   <button
                     onClick={() => setActiveTab('ATTRACTION')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'ATTRACTION' ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]' : 'relative text-gray-500 border-2 border-gray-700 hover:border-orange-500/50 hover:text-orange-400'}`}
-                    style={{ padding: '14px 16px', fontSize: '14px' }}
+                    className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
+                    style={{
+                      padding: '14px 16px',
+                      fontSize: '14px',
+                      color: activeTab === 'ATTRACTION' ? '#FF6600' : '#ffffff',
+                      border: activeTab === 'ATTRACTION' ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                      background: activeTab === 'ATTRACTION'
+                        ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                        : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                      boxShadow: activeTab === 'ATTRACTION'
+                        ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                        : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    }}
                   >
-                    {activeTab === 'ATTRACTION' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
-                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
+                    {activeTab === 'ATTRACTION' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none"></div>}
+                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
                       GREEK SUITE
                     </span>
                   </button>
                   <button
                     onClick={() => setActiveTab('DEALER_CLUSTER')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'DEALER_CLUSTER' ? 'relative text-purple-400 border-2 border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]' : 'relative text-gray-500 border-2 border-gray-700 hover:border-purple-500/50 hover:text-purple-400'}`}
-                    style={{ padding: '14px 16px', fontSize: '14px' }}
+                    className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
+                    style={{
+                      padding: '14px 16px',
+                      fontSize: '14px',
+                      color: activeTab === 'DEALER_CLUSTER' ? '#FF6600' : '#ffffff',
+                      border: activeTab === 'DEALER_CLUSTER' ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                      background: activeTab === 'DEALER_CLUSTER'
+                        ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                        : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                      boxShadow: activeTab === 'DEALER_CLUSTER'
+                        ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                        : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    }}
                   >
-                    {activeTab === 'DEALER_CLUSTER' && <div className="absolute inset-0 bg-gradient-to-b from-purple-500/20 to-transparent"></div>}
-                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
+                    {activeTab === 'DEALER_CLUSTER' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none"></div>}
+                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
                       DEALER CLUSTER
                     </span>
                   </button>
@@ -6377,6 +6399,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                     {/* GEX Timeline Scrubber - Show when showHistoricalGEX is true, ticker selected, and not in OI or ODTRIO mode */}
                     {!analysisSuiteMode &&
+                      !(typeof window !== 'undefined' && window.innerWidth < 768) &&
                       showHistoricalGEX &&
                       !showODTRIO &&
                       selectedTicker &&
@@ -7766,7 +7789,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(74.78vh - 225px)'
+                                          ? 'calc(90.49vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
@@ -7971,7 +7994,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(74.78vh - 225px)'
+                                          ? 'calc(90.49vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                         overflowX: 'auto',
@@ -8183,7 +8206,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(74.78vh - 225px)'
+                                          ? 'calc(90.49vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,

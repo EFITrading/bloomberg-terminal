@@ -44,7 +44,7 @@ export default function DealerGEXChart({
   showAttrax: propShowAttrax,
   expectedRange90,
   analysisSuiteMode = false,
-  svgHeight = 605,
+  svgHeight = 575,
   style,
 }: DealerGEXChartProps) {
   const [selectedExpiration, setSelectedExpiration] = useState<string>(propExpiration || '')
@@ -689,8 +689,8 @@ export default function DealerGEXChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const totalSVGHeight =
-      typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+    const totalSVGHeight = isMobile ? 484 : svgHeight
     const height = totalSVGHeight - margin.top - margin.bottom
     const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
 
@@ -810,7 +810,7 @@ export default function DealerGEXChart({
         xAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', '14px')
+          .style('font-size', isMobile ? '21px' : '18px')
           .style('font-weight', 'bold')
           .attr('transform', 'rotate(-35)')
           .style('text-anchor', 'end')
@@ -821,12 +821,13 @@ export default function DealerGEXChart({
 
         const yAxisFormat = (d: any) => {
           const value = Math.abs(d)
+          const sign = d < 0 ? '-' : ''
           if (value >= 1000000000) {
-            return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000000000).toFixed(1)}B`
+            return `${sign}${parseFloat((value / 1000000000).toFixed(1))}B`
           } else if (value >= 1000000) {
-            return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000000).toFixed(1)}M`
+            return `${sign}${parseFloat((value / 1000000).toFixed(1))}M`
           } else if (value >= 1000) {
-            return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000).toFixed(0)}k`
+            return `${sign}${parseFloat((value / 1000).toFixed(1))}k`
           } else {
             return d.toString()
           }
@@ -843,7 +844,7 @@ export default function DealerGEXChart({
         yAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', '14px')
+          .style('font-size', isMobile ? '21px' : '18px')
           .style('font-weight', 'bold')
 
         yAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
@@ -1053,7 +1054,7 @@ export default function DealerGEXChart({
       .call(xAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', '14px')
+      .style('font-size', isMobile ? '21px' : '18px')
       .style('font-weight', 'bold')
       .attr('transform', 'rotate(-35)')
       .style('text-anchor', 'end')
@@ -1068,12 +1069,13 @@ export default function DealerGEXChart({
     // Y-axis
     const yAxisFormat = (d: any) => {
       const value = Math.abs(d)
+      const sign = d < 0 ? '-' : ''
       if (value >= 1000000000) {
-        return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000000000).toFixed(1)}B`
+        return `${sign}${parseFloat((value / 1000000000).toFixed(1))}B`
       } else if (value >= 1000000) {
-        return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000000).toFixed(1)}M`
+        return `${sign}${parseFloat((value / 1000000).toFixed(1))}M`
       } else if (value >= 1000) {
-        return `${d >= 0 ? '' : '-'}${(Math.abs(d) / 1000).toFixed(0)}k`
+        return `${sign}${parseFloat((value / 1000).toFixed(1))}k`
       } else {
         return d.toString()
       }
@@ -1087,7 +1089,7 @@ export default function DealerGEXChart({
       .call(yAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', '14px')
+      .style('font-size', isMobile ? '21px' : '18px')
       .style('font-weight', 'bold')
 
     container
@@ -1103,7 +1105,7 @@ export default function DealerGEXChart({
       .attr('y', -60)
       .attr('text-anchor', 'middle')
       .style('fill', axisColor)
-      .style('font-size', '13px')
+      .style('font-size', isMobile ? '20px' : '16px')
       .style('font-weight', '500')
       .text(viewMode === 'premium' ? 'Gamma Premium ($)' : 'Gamma Exposure (GEX)')
 
@@ -1275,21 +1277,19 @@ export default function DealerGEXChart({
             <div className="flex gap-3">
               <button
                 onClick={() => setViewMode('gex')}
-                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                  viewMode === 'gex'
-                    ? 'bg-orange-600 text-white border-2 border-orange-500'
-                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-                }`}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'gex'
+                  ? 'bg-orange-600 text-white border-2 border-orange-500'
+                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                  }`}
               >
                 GEX
               </button>
               <button
                 onClick={() => setViewMode('premium')}
-                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${
-                  viewMode === 'premium'
-                    ? 'bg-orange-600 text-white border-2 border-orange-500'
-                    : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
-                }`}
+                className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'premium'
+                  ? 'bg-orange-600 text-white border-2 border-orange-500'
+                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                  }`}
               >
                 Premium ($)
               </button>
@@ -1520,7 +1520,10 @@ export default function DealerGEXChart({
         <svg
           ref={svgRef}
           width={chartWidth}
-          height={typeof window !== 'undefined' && window.innerWidth < 768 ? 484 : svgHeight}
+          height={svgHeight}
+          viewBox={`0 0 ${chartWidth} ${svgHeight}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ width: '100%', height: 'auto' }}
         ></svg>
       )}
     </div>

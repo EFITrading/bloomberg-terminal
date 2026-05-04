@@ -3,6 +3,24 @@
 import { RefreshCw } from 'lucide-react'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
+const GEX_SCAN_QUOTES = [
+  { body: "Gamma is the accelerator. Delta is just where you are.", author: '' },
+  { body: "The dealer\u2019s hedge today is tomorrow\u2019s price magnet.", author: '' },
+  { body: "Options flow is the shadow of informed money moving through walls.", author: '' },
+  { body: "The open interest never forgets. It remembers every position ever taken.", author: '' },
+  { body: "When the smart money speaks, it speaks in size.", author: '' },
+  { body: "Flow precedes price. Always follow the paper.", author: '' },
+  { body: "Unusual options activity isn\u2019t always smart money \u2014 but it\u2019s always worth watching.", author: '' },
+  { body: "The market moves toward max pain like a river to the sea.", author: '' },
+  { body: "Be fearful when others are greedy, and greedy when others are fearful.", author: '\u2014 Warren Buffett' },
+  { body: "Markets can remain irrational longer than you can remain solvent.", author: '\u2014 John Maynard Keynes' },
+  { body: "In the short run, the market is a voting machine. In the long run, it is a weighing machine.", author: '\u2014 Benjamin Graham' },
+  { body: "The trend is your friend until the end.", author: '\u2014 Ed Seykota' },
+  { body: "Cut your losses short and let your winners run.", author: '\u2014 Wall Street axiom' },
+  { body: "Risk comes from not knowing what you\u2019re doing.", author: '\u2014 Warren Buffett' },
+  { body: "Volatility is not risk. The permanent loss of capital is risk.", author: '\u2014 Howard Marks' },
+]
+
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
 
@@ -89,24 +107,31 @@ function fmtPremium(v: number): string {
 function ClusterCard({
   item,
   side,
-  expandedCard,
-  setExpandedCard,
+  expandedCards,
+  toggleExpandedCard,
   expirationFilter,
 }: {
   item: ClusterItem
   side: 'positive' | 'negative'
-  expandedCard: string | null
-  setExpandedCard: (k: string | null) => void
+  expandedCards: Set<string>
+  toggleExpandedCard: (k: string) => void
   expirationFilter: string
 }) {
   const isPos = side === 'positive'
   const accentColor = isPos ? '#ff4444' : '#00d264'
   const cardKey = `${side}-${item.ticker}`
-  const isExpanded = expandedCard === cardKey
+  const isExpanded = expandedCards.has(cardKey)
   const expiryParam = expirationFilter === 'Week' ? '7-days' : expirationFilter === 'Month' ? '30-days' : '45-days'
 
   type TF = '1d' | '1h' | '5m'
-  const [timeframe, setTimeframe] = useState<TF>('5m')
+  const [timeframe, setTimeframe] = useState<TF>('1h')
+  const [isMobileCard, setIsMobileCard] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobileCard(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // ── Fetch ──────────────────────────────────────────────────────
   type Bar = { t: number; o: number; h: number; l: number; c: number; v: number }
@@ -171,7 +196,7 @@ function ClusterCard({
   const PR = 46   // right price labels
   const plotW = VW - PL - PR  // 648
 
-  const priceH = 190  // price panel height
+  const priceH = isMobileCard ? 140 : 190  // price panel height
   const xAxisH = 22   // single-row x-axis
   const PT = 10   // top padding
   const VH = PT + priceH + xAxisH
@@ -199,78 +224,105 @@ function ClusterCard({
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     const DNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-    // Collision detection — skip if label center is within minGap of an already-placed label
-    const minGap = 50
-    const placed: number[] = []
-    const canPlace = (x: number) => placed.every(px => Math.abs(px - x) >= minGap)
+    // Separate placed pools: day labels need much more room than time ticks
+    // A trading day is ~6.5 bars on 1h, ~78 bars on 5m — ensure at least 1.5 day-widths between day labels
+    const BARS_PER_DAY = timeframe === '5m' ? 78 : timeframe === '1h' ? 6.5 : 1
+    const dayMinGap = Math.max(100, slotW * BARS_PER_DAY * 1.5)
+    const timeMinGap = Math.max(55, slotW * 4)
+
+    const dayPlaced: number[] = []
+    const timePlaced: number[] = []
+
+    const canPlaceDay = (x: number) => dayPlaced.every(px => Math.abs(px - x) >= dayMinGap)
+    // time labels must also stay clear of day labels
+    const canPlaceTime = (x: number) =>
+      timePlaced.every(px => Math.abs(px - x) >= timeMinGap) &&
+      dayPlaced.every(px => Math.abs(px - x) >= timeMinGap)
 
     const result: { i: number; lbl: string; isDay: boolean }[] = []
-    const tryPlace = (idx: number, lbl: string, isDay: boolean) => {
+
+    const tryPlaceDay = (idx: number, lbl: string) => {
       const x = PL + (idx + 0.5) * slotW
       if (x < PL || x > PL + plotW) return
-      if (!canPlace(x)) return
-      placed.push(x)
-      result.push({ i: idx, lbl, isDay })
+      if (!canPlaceDay(x)) return
+      dayPlaced.push(x)
+      result.push({ i: idx, lbl, isDay: true })
+    }
+    const tryPlaceTime = (idx: number, lbl: string) => {
+      const x = PL + (idx + 0.5) * slotW
+      if (x < PL || x > PL + plotW) return
+      if (!canPlaceTime(x)) return
+      timePlaced.push(x)
+      result.push({ i: idx, lbl, isDay: false })
     }
 
-    // helper: PST minutes using exact EFICharting approach — toLocaleString('en-US', America/Los_Angeles)
     const pstMinsOf = (ts: number) => {
-      const pstStr = new Date(ts).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-      const p = new Date(pstStr)
+      const p = new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }))
       return p.getHours() * 60 + p.getMinutes()
     }
-    // PST date key for day-boundary detection
-    const pstDayOf = (ts: number) => {
-      return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
-    }
+    const pstDayOf = (ts: number) =>
+      new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
+    const pstDateObj = (ts: number) =>
+      new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }))
 
     if (timeframe === '5m') {
-      // Pass 1: day labels at first bar of each PST calendar date
+      // Day labels first (higher priority / larger gap)
       let lastDay = ''
       intraBars.forEach((b, idx) => {
         const dayKey = pstDayOf(b.t)
-        if (dayKey !== lastDay) {
-          lastDay = dayKey
-          const p = new Date(new Date(b.t).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }))
-          const mo = p.getMonth() + 1
-          tryPlace(idx, `${mo}/${p.getDate()}`, true)
-        }
+        if (dayKey === lastDay) return
+        lastDay = dayKey
+        const p = pstDateObj(b.t)
+        tryPlaceDay(idx, `${DNAMES[p.getDay()]} ${MONTHS[p.getMonth()]} ${p.getDate()}`)
       })
-      // Pass 2: hourly time ticks in PST where there's room
+      // Time ticks — granularity scales with zoom
+      const tickMins = slotW >= 20 ? 15 : slotW >= 8 ? 30 : 60
       intraBars.forEach((b, idx) => {
         const pstM = pstMinsOf(b.t)
-        if (pstM % 60 !== 0) return
+        if (pstM % tickMins !== 0) return
         const hh = Math.floor(pstM / 60)
+        const mm = pstM % 60
         const h12 = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh
         const ampm = hh >= 12 ? 'PM' : 'AM'
-        tryPlace(idx, `${h12}${ampm}`, false)
+        tryPlaceTime(idx, mm === 0 ? `${h12}${ampm}` : `${h12}:${String(mm).padStart(2, '0')}${ampm}`)
       })
     } else if (timeframe === '1h') {
-      // Day labels at first bar of each PST calendar date
+      // Day labels first
       let lastDay = ''
       intraBars.forEach((b, idx) => {
         const dayKey = pstDayOf(b.t)
-        if (dayKey !== lastDay) {
-          lastDay = dayKey
-          const p = new Date(new Date(b.t).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }))
-          tryPlace(idx, `${DNAMES[p.getDay()]} ${p.getMonth() + 1}/${p.getDate()}`, true)
-        }
+        if (dayKey === lastDay) return
+        lastDay = dayKey
+        const p = pstDateObj(b.t)
+        tryPlaceDay(idx, `${DNAMES[p.getDay()]} ${p.getMonth() + 1}/${p.getDate()}`)
       })
+      // Hour ticks only when zoomed in enough (slotW ≥ 14px = lots of space per bar)
+      if (slotW >= 14) {
+        const hStep = slotW >= 22 ? 1 : 2
+        intraBars.forEach((b, idx) => {
+          const pstM = pstMinsOf(b.t)
+          const hh = Math.floor(pstM / 60)
+          if (hh % hStep !== 0) return
+          const h12 = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh
+          const ampm = hh >= 12 ? 'PM' : 'AM'
+          tryPlaceTime(idx, `${h12}${ampm}`)
+        })
+      }
     } else {
-      // 1d — month boundaries first (highest priority), then weekly Mondays
+      // 1d — month boundaries first, then weekly Mondays
       let lastMonth = -1
       intraBars.forEach((b, idx) => {
         const d = new Date(b.t)
         const month = d.getUTCMonth()
         if (month !== lastMonth) {
           lastMonth = month
-          tryPlace(idx, MONTHS[month], true)
+          tryPlaceDay(idx, MONTHS[month])
         }
       })
       intraBars.forEach((b, idx) => {
         const d = new Date(b.t)
         if (d.getUTCDay() === 1) {
-          tryPlace(idx, `${d.getUTCMonth() + 1}/${d.getUTCDate()}`, false)
+          tryPlaceTime(idx, `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`)
         }
       })
     }
@@ -343,7 +395,7 @@ function ClusterCard({
 
   return (
     <div
-      onClick={() => setExpandedCard(isExpanded ? null : cardKey)}
+      onClick={() => toggleExpandedCard(cardKey)}
       style={{
         background: '#000',
         border: `1px solid ${isExpanded ? accentColor : `${accentColor}33`}`,
@@ -406,35 +458,85 @@ function ClusterCard({
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
-        {/* Timeframe buttons */}
-        {(['1d', '1h', '5m'] as const).map(tf => (
-          <button
-            key={tf}
-            onClick={() => setTimeframe(tf)}
-            style={{
-              fontSize: 14,
-              fontFamily: 'monospace',
-              fontWeight: 800,
-              letterSpacing: '0.1em',
-              padding: '2px 8px',
-              border: `1px solid ${timeframe === tf ? '#ffffff' : 'rgba(255,255,255,0.2)'}`,
-              borderRadius: 2,
-              background: timeframe === tf
-                ? 'linear-gradient(180deg,#2a2a2a 0%,#0a0a0a 100%)'
-                : 'linear-gradient(180deg,#141414 0%,#030303 100%)',
-              color: '#ffffff',
-              cursor: 'pointer',
-              lineHeight: 1.4,
-              flexShrink: 0,
-              boxShadow: timeframe === tf ? `0 0 5px ${accentColor}55` : 'none',
-            }}
-          >{tf.toUpperCase()}</button>
-        ))}
+        {/* Timeframe buttons / dropdown */}
+        {isMobileCard ? (
+          isExpanded ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleExpandedCard(cardKey) }}
+              style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                fontWeight: 800,
+                letterSpacing: '0.12em',
+                padding: '3px 10px',
+                border: `1px solid ${accentColor}55`,
+                borderRadius: 2,
+                background: 'transparent',
+                color: accentColor,
+                cursor: 'pointer',
+                flexShrink: 0,
+                marginRight: 4,
+              }}
+            >✕ CLOSE</button>
+          ) : (
+            <select
+              value={timeframe}
+              onChange={e => setTimeframe(e.target.value as TF)}
+              style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                padding: '2px 6px',
+                border: '1px solid rgba(255,255,255,0.35)',
+                borderRadius: 2,
+                background: '#0a0a0a',
+                color: '#ffffff',
+                cursor: 'pointer',
+                flexShrink: 0,
+                appearance: 'none',
+                paddingRight: 18,
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23aaa' d='M4 6L0 2h8z'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 4px center',
+                backgroundSize: '6px',
+              }}
+            >
+              {(['1d', '1h', '5m'] as const).map(tf => (
+                <option key={tf} value={tf}>{tf.toUpperCase()}</option>
+              ))}
+            </select>
+          )
+        ) : (
+          (['1d', '1h', '5m'] as const).map(tf => (
+            <button
+              key={tf}
+              onClick={() => setTimeframe(tf)}
+              style={{
+                fontSize: 14,
+                fontFamily: 'monospace',
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                padding: '2px 8px',
+                border: `1px solid ${timeframe === tf ? '#ffffff' : 'rgba(255,255,255,0.2)'}`,
+                borderRadius: 2,
+                background: timeframe === tf
+                  ? 'linear-gradient(180deg,#2a2a2a 0%,#0a0a0a 100%)'
+                  : 'linear-gradient(180deg,#141414 0%,#030303 100%)',
+                color: '#ffffff',
+                cursor: 'pointer',
+                lineHeight: 1.4,
+                flexShrink: 0,
+                boxShadow: timeframe === tf ? `0 0 5px ${accentColor}55` : 'none',
+              }}
+            >{tf.toUpperCase()}</button>
+          ))
+        )}
       </div>
 
       <div
         ref={chartDivRef}
-        style={{ background: '#000', userSelect: 'none', cursor: dragRef.current ? 'grabbing' : 'grab' }}
+        style={{ background: '#000', userSelect: 'none', cursor: dragRef.current ? 'grabbing' : 'grab', display: isExpanded ? 'none' : 'block' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -565,36 +667,41 @@ function ClusterCard({
           style={{ borderTop: `1px solid ${accentColor}22`, padding: '14px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor }} />
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', color: accentColor }}>
-                CLUSTER ANALYSIS — {item.ticker} · {item.cluster.type.toUpperCase()} · ${item.cluster.centralStrike.toFixed(2)}
-              </span>
-            </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); setExpandedCard(null) }}
-              style={{
-                background: 'transparent',
-                border: `1px solid ${accentColor}55`,
-                color: accentColor,
-                fontSize: 11,
-                fontWeight: 800,
-                fontFamily: 'monospace',
-                letterSpacing: '0.12em',
-                padding: '3px 10px',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              ✕ CLOSE
-            </button>
+            {!isMobileCard && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentColor }} />
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', color: accentColor }}>
+                  CLUSTER ANALYSIS — {item.ticker} · {item.cluster.type.toUpperCase()} · ${item.cluster.centralStrike.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {!isMobileCard && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleExpandedCard(cardKey) }}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${accentColor}55`,
+                  color: accentColor,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.12em',
+                  padding: '3px 10px',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                ✕ CLOSE
+              </button>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', flexDirection: isMobileCard ? 'column' : 'row', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <DealerOpenInterestChart
                 selectedTicker={item.ticker} selectedExpiration={expiryParam}
                 hideAllControls={true} hideExpirationSelector={true}
                 compactMode={true} chartWidth={650}
+                svgHeight={isMobileCard ? 502 : 605}
                 showCalls={true} showPuts={true} showNetOI={false} showTowers={true}
               />
             </div>
@@ -603,6 +710,7 @@ function ClusterCard({
                 selectedTicker={item.ticker} selectedExpiration={expiryParam}
                 hideAllControls={true} hideExpirationSelector={true}
                 compactMode={true} chartWidth={650}
+                svgHeight={isMobileCard ? 502 : 605}
                 showPositiveGamma={true} showNegativeGamma={true} showNetGamma={true}
               />
             </div>
@@ -617,21 +725,40 @@ export default function DealerClusterScreener() {
   const [loading, setLoading] = useState(false)
   const [premiumLoading, setPremiumLoading] = useState(false)
   const [error, setError] = useState('')
-  const [positiveItems, setPositiveItems] = useState<ClusterItem[]>([])
-  const [negativeItems, setNegativeItems] = useState<ClusterItem[]>([])
+  const allEnrichedRef = useRef<ClusterItem[]>([])
+  const [enrichedVersion, setEnrichedVersion] = useState(0) // bump to trigger re-derive
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 })
   const [premiumProgress, setPremiumProgress] = useState({ current: 0, total: 0 })
   const [lastUpdate, setLastUpdate] = useState('')
   const [expirationFilter, setExpirationFilter] = useState('Default')
-  const [expandedCard, setExpandedCard] = useState<string | null>(null)
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [minPremium, setMinPremium] = useState(1_000_000)
+  const toggleExpandedCard = (k: string) => setExpandedCards(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileTower, setMobileTower] = useState<'call' | 'put'>('call')
+  const loadingQuoteRef = useRef(GEX_SCAN_QUOTES[Math.floor(Math.random() * GEX_SCAN_QUOTES.length)])
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+  // callback ref: observer attaches the moment the grid div mounts (after loading)
+  const gridCallbackRef = useRef((node: HTMLDivElement | null) => {
+    if (!node) return
+    const obs = new IntersectionObserver(([entry]) => setGridVisible(entry.isIntersecting), { threshold: 0.05 })
+    obs.observe(node)
+  }).current
+  const [gridVisible, setGridVisible] = useState(false)
 
   // Compute expiry date labels based on today
   const getExpiryOptions = () => {
     const today = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
     const fmt = (d: Date) => {
-      const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
-      return `${pad(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()}`
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const day = d.getDate()
+      const sfx = [11, 12, 13].includes(day) ? 'th' : day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th'
+      return `${months[d.getMonth()]} ${day}${sfx} ${d.getFullYear()}`
     }
     const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r }
 
@@ -709,8 +836,8 @@ export default function DealerClusterScreener() {
     setError('')
     setScanProgress({ current: 0, total: 0 })
     setPremiumProgress({ current: 0, total: 0 })
-    setPositiveItems([])
-    setNegativeItems([])
+    allEnrichedRef.current = []
+    setEnrichedVersion(v => v + 1)
 
     try {
       const response = await fetch(
@@ -788,16 +915,12 @@ export default function DealerClusterScreener() {
           item.cluster.type
         )
         setPremiumProgress({ current: i + 1, total: allRaw.length })
-        if (totalPremium < MIN_CLUSTER_PREMIUM) continue
+        if (totalPremium < 1_000_000) continue
         enriched.push({ ...item, strikePremiums, totalPremium })
       }
 
-      setPositiveItems(
-        enriched.filter((x) => x.cluster.type === 'call').sort((a, b) => (b.totalPremium || 0) - (a.totalPremium || 0))
-      )
-      setNegativeItems(
-        enriched.filter((x) => x.cluster.type === 'put').sort((a, b) => (b.totalPremium || 0) - (a.totalPremium || 0))
-      )
+      allEnrichedRef.current = enriched
+      setEnrichedVersion(v => v + 1)
       setLastUpdate(new Date().toLocaleTimeString())
       setPremiumLoading(false)
     } catch (err: any) {
@@ -807,8 +930,22 @@ export default function DealerClusterScreener() {
     }
   }
 
-  const hasData = positiveItems.length > 0 || negativeItems.length > 0
+  const positiveItems = useMemo(() =>
+    allEnrichedRef.current
+      .filter(x => x.cluster.type === 'call' && (x.totalPremium || 0) >= minPremium)
+      .sort((a, b) => (b.totalPremium || 0) - (a.totalPremium || 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enrichedVersion, minPremium]
+  )
+  const negativeItems = useMemo(() =>
+    allEnrichedRef.current
+      .filter(x => x.cluster.type === 'put' && (x.totalPremium || 0) >= minPremium)
+      .sort((a, b) => (b.totalPremium || 0) - (a.totalPremium || 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enrichedVersion, minPremium]
+  )
   const isAnyLoading = loading || premiumLoading
+  const hasData = positiveItems.length > 0 || negativeItems.length > 0
 
   return (
     <div style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 0, overflow: 'hidden', fontFamily: '"Bloomberg", "Roboto Mono", "IBM Plex Mono", monospace' }}>
@@ -818,6 +955,7 @@ export default function DealerClusterScreener() {
           ════════════════════════════════════════════════════════ */}
       <div
         style={{
+          display: isMobile ? 'none' : undefined,
           background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%)',
           borderBottom: '1px solid rgba(255,255,255,0.09)',
           padding: '0 24px',
@@ -828,52 +966,20 @@ export default function DealerClusterScreener() {
         {/* gloss shine strip */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 40%, rgba(255,255,255,0.18) 60%, transparent 100%)' }} />
 
-        {/* top meta strip */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingTop: 14, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,165,0,0.9)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>EFI TERMINAL</span>
-          <span style={{ fontSize: 14, color: '#fff', letterSpacing: '0.12em' }}>·</span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', letterSpacing: '0.14em' }}>GAMMA EXPOSURE CLUSTER SCREENER</span>
-          <div style={{ flex: 1 }} />
-          {lastUpdate && !isAnyLoading && (
-            <span style={{ fontSize: 14, color: '#fff', letterSpacing: '0.1em' }}>LAST RUN {lastUpdate}</span>
-          )}
-        </div>
-
         {/* main title row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 12, paddingBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 31, fontWeight: 900, color: '#ffffff', letterSpacing: '0.18em', lineHeight: 1, textTransform: 'uppercase' }}>DEALER CLUSTER</div>
-            <div style={{ fontSize: 14, color: '#fff', letterSpacing: '0.14em', marginTop: 3 }}>GAMMA WALL · OI TOWER · PREMIUM VALIDATION</div>
-          </div>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: isMobile ? 8 : 12, paddingBottom: isMobile ? 8 : 14 }}>
           <div style={{ flex: 1 }} />
-
-          {/* Scan status pills */}
-          {loading && scanProgress.total > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, padding: '5px 12px' }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', boxShadow: '0 0 6px #fff', animation: 'pulse 1s infinite' }} />
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: '0.12em' }}>GEX SCAN</span>
-              <span style={{ fontSize: 15, color: '#fff', fontWeight: 600 }}>{scanProgress.current}/{scanProgress.total}</span>
-            </div>
-          )}
-          {premiumLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,180,0,0.06)', border: '1px solid rgba(255,180,0,0.16)', borderRadius: 4, padding: '5px 12px' }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#ffb400', boxShadow: '0 0 6px #ffb400', animation: 'pulse 1s infinite' }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#ffb400', letterSpacing: '0.12em' }}>PREMIUM</span>
-              <span style={{ fontSize: 11, color: 'rgba(255,180,0,0.5)', fontWeight: 600 }}>{premiumProgress.current}/{premiumProgress.total}</span>
-            </div>
-          )}
 
           {/* Stat pills when data loaded */}
-          {hasData && !isAnyLoading && (
+          {hasData && !isAnyLoading && !isMobile && (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,68,68,0.06)', border: '1px solid rgba(255,68,68,0.14)', borderRadius: 4, padding: '5px 12px' }}>
-                <span style={{ fontSize: 10, color: 'rgba(255,68,68,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>CALL TOWERS</span>
-                <span style={{ fontSize: 15, fontWeight: 900, color: '#ff4444' }}>{positiveItems.length}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, background: 'rgba(255,68,68,0.06)', border: '1px solid rgba(255,68,68,0.14)', borderRadius: 4, padding: isMobile ? '4px 8px' : '5px 12px' }}>
+                <span style={{ fontSize: isMobile ? 8 : 10, color: 'rgba(255,68,68,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>CALL TOWERS</span>
+                <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 900, color: '#ff4444' }}>{positiveItems.length}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,210,100,0.06)', border: '1px solid rgba(0,210,100,0.14)', borderRadius: 4, padding: '5px 12px' }}>
-                <span style={{ fontSize: 10, color: 'rgba(0,210,100,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>PUT TOWERS</span>
-                <span style={{ fontSize: 15, fontWeight: 900, color: '#00d264' }}>{negativeItems.length}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, background: 'rgba(0,210,100,0.06)', border: '1px solid rgba(0,210,100,0.14)', borderRadius: 4, padding: isMobile ? '4px 8px' : '5px 12px' }}>
+                <span style={{ fontSize: isMobile ? 8 : 10, color: 'rgba(0,210,100,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>PUT TOWERS</span>
+                <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 900, color: '#00d264' }}>{negativeItems.length}</span>
               </div>
             </>
           )}
@@ -883,7 +989,7 @@ export default function DealerClusterScreener() {
       {/* ════════════════════════════════════════════════════════
            TOOLBAR
           ════════════════════════════════════════════════════════ */}
-      <div style={{ background: '#050505', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ background: '#050505', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: isMobile ? '8px 10px' : '10px 24px', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12 }}>
         <button
           onClick={handleScan}
           disabled={isAnyLoading}
@@ -891,10 +997,10 @@ export default function DealerClusterScreener() {
             background: isAnyLoading ? '#111' : '#000',
             border: isAnyLoading ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.22)',
             color: isAnyLoading ? '#444' : '#fff',
-            padding: '8px 20px',
+            padding: isMobile ? '6px 10px' : '8px 20px',
             borderRadius: 4,
             fontWeight: 800,
-            fontSize: 17,
+            fontSize: isMobile ? 12 : 17,
             letterSpacing: '0.14em',
             cursor: isAnyLoading ? 'not-allowed' : 'pointer',
             display: 'flex',
@@ -902,59 +1008,79 @@ export default function DealerClusterScreener() {
             gap: 8,
             textTransform: 'uppercase',
             boxShadow: isAnyLoading ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            flexShrink: 0,
           }}
         >
           <RefreshCw style={{ width: 12, height: 12 }} className={isAnyLoading ? 'animate-spin' : ''} />
-          {loading ? 'SCANNING GEX...' : premiumLoading ? 'VALIDATING PREMIUM...' : 'RUN SCAN'}
+          {isMobile ? (loading ? 'SCANNING...' : 'SCAN') : (loading ? 'SCANNING GEX...' : premiumLoading ? 'VALIDATING PREMIUM...' : 'RUN SCAN')}
         </button>
 
         {/* Divider */}
-        <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.07)' }} />
+        {!isMobile && <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.07)' }} />}
 
-        {/* Expiry selector — custom styled with date detail */}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 0 }}>
-          <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 1 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,165,0,0.7)', letterSpacing: '0.14em' }}>EXP</span>
-          </div>
+        {/* Expiry selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 0, position: 'relative' }}>
+          {isMobile && (
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#FF6600', letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>Expiry</span>
+          )}
+          {!isMobile && (
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,165,0,0.85)', letterSpacing: '0.12em', whiteSpace: 'nowrap', flexShrink: 0 }}>Expiration Range :</span>
+          )}
           <select
             value={expirationFilter}
             onChange={(e) => setExpirationFilter(e.target.value)}
-            style={{ ...selectStyle, paddingLeft: 38, paddingRight: 28, minWidth: 220 }}
+            style={{ ...selectStyle, paddingLeft: isMobile ? 8 : 12, paddingRight: isMobile ? 20 : 28, minWidth: isMobile ? 0 : 0, maxWidth: isMobile ? 160 : undefined, fontSize: isMobile ? 11 : 17, width: 'auto' }}
           >
             {expiryOptions.map(o => (
-              <option key={o.value} value={o.value}>{o.label} — {o.sub}</option>
+              <option key={o.value} value={o.value}>{o.label}  {o.sub}</option>
             ))}
           </select>
         </div>
 
-        {selectedExpLabel && (
+        {selectedExpLabel && !isMobile && (
           <span style={{ fontSize: 15, color: '#fff', letterSpacing: '0.1em', fontWeight: 600 }}>
             SCANNING THRU {selectedExpLabel.sub}
           </span>
         )}
 
+        {/* Mobile: single tower toggle */}
+        {isMobile && hasData && (
+          <button
+            onClick={() => setMobileTower(t => t === 'call' ? 'put' : 'call')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              background: mobileTower === 'call' ? 'rgba(255,34,34,0.15)' : 'rgba(0,210,100,0.1)',
+              border: mobileTower === 'call' ? '1px solid rgba(255,68,68,0.45)' : '1px solid rgba(0,210,100,0.35)',
+              borderRadius: 4, padding: '5px 10px', cursor: 'pointer',
+            }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 800, color: mobileTower === 'call' ? '#ff4444' : '#00d264', letterSpacing: '0.1em' }}>
+              {mobileTower === 'call' ? '▲ CALL' : '▼ PUT'}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 900, color: mobileTower === 'call' ? '#ff4444' : '#00d264' }}>
+              {mobileTower === 'call' ? positiveItems.length : negativeItems.length}
+            </span>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', marginLeft: 2 }}>TAP</span>
+          </button>
+        )}
+
         <div style={{ flex: 1 }} />
 
-        <span style={{ fontSize: 14, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, padding: '3px 8px' }}>
-          FLOOR FILTER · MIN $1M
-        </span>
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,165,0,0.85)', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>Floor Filter :</span>
+            <select
+              value={minPremium}
+              onChange={(e) => setMinPremium(Number(e.target.value))}
+              style={{ ...selectStyle, paddingLeft: 10, paddingRight: 24, fontSize: 14, width: 'auto' }}
+            >
+              <option value={1_000_000}>$1M</option>
+              <option value={10_000_000}>$10M</option>
+              <option value={100_000_000}>$100M</option>
+            </select>
+          </div>
+        )}
       </div>
-
-      {/* ── Progress bars ── */}
-      {loading && scanProgress.total > 0 && (
-        <div style={{ background: '#000' }}>
-          <div style={{ height: 2, background: '#0a0a0a', overflow: 'hidden' }}>
-            <div style={{ height: '100%', background: 'rgba(255,255,255,0.5)', width: `${(scanProgress.current / scanProgress.total) * 100}%`, transition: 'width 0.25s ease' }} />
-          </div>
-        </div>
-      )}
-      {premiumLoading && premiumProgress.total > 0 && (
-        <div style={{ background: '#000' }}>
-          <div style={{ height: 2, background: '#0a0a0a', overflow: 'hidden' }}>
-            <div style={{ height: '100%', background: '#ffb400', width: `${(premiumProgress.current / premiumProgress.total) * 100}%`, transition: 'width 0.25s ease' }} />
-          </div>
-        </div>
-      )}
 
       {error && (
         <div style={{ padding: '12px 24px', color: '#ff4444', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', background: 'rgba(255,0,0,0.05)', borderBottom: '1px solid rgba(255,0,0,0.1)' }}>
@@ -963,77 +1089,122 @@ export default function DealerClusterScreener() {
       )}
 
       {/* ════════════════════════════════════════════════════════
+           LOADING SCREEN
+          ════════════════════════════════════════════════════════ */}
+      {isAnyLoading && (
+        <div style={{ background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', minHeight: isMobile ? 'calc(100vh - 160px)' : 400 }}>
+          <RefreshCw style={{ width: isMobile ? 35 : 45, height: isMobile ? 35 : 45, color: '#ff6600', marginBottom: 24 }} className="animate-spin" />
+          <p style={{ color: '#ff6600', fontFamily: 'monospace', fontSize: isMobile ? 16 : 23, fontWeight: 900, letterSpacing: '0.25em', textTransform: 'uppercase', marginBottom: 24, textAlign: 'center' }}>
+            {premiumLoading ? 'Validating Premium Flow' : 'Scanning GEX Clusters'}
+          </p>
+          {/* Progress bar */}
+          <div style={{ width: isMobile ? '90%' : 288, marginBottom: 8 }}>
+            <div style={{ width: '100%', height: 2, background: '#111', overflow: 'hidden', borderRadius: 1 }}>
+              <div style={{
+                height: '100%',
+                background: premiumLoading ? '#ffb400' : '#ff6600',
+                width: premiumLoading
+                  ? `${premiumProgress.total > 0 ? Math.round((premiumProgress.current / premiumProgress.total) * 100) : 0}%`
+                  : `${scanProgress.total > 0 ? Math.round((scanProgress.current / scanProgress.total) * 100) : 0}%`,
+                transition: 'width 0.25s ease',
+              }} />
+            </div>
+            <p style={{ color: premiumLoading ? '#ffb400' : '#ff6600', fontFamily: 'monospace', fontSize: 16, fontWeight: 700, textAlign: 'right', marginTop: 6 }}>
+              {premiumLoading
+                ? `${premiumProgress.current} / ${premiumProgress.total}`
+                : `${scanProgress.current} / ${scanProgress.total}`}
+            </p>
+          </div>
+          {/* Quote */}
+          <div style={{ maxWidth: isMobile ? '100%' : 480, textAlign: 'center', marginTop: 24, padding: '0 8px' }}>
+            <p style={{ color: '#fff', fontSize: isMobile ? 16 : 20, fontWeight: 600, lineHeight: 1.6, textShadow: '0 0 20px rgba(255,255,255,0.12)' }}>
+              &ldquo;{loadingQuoteRef.current.body}&rdquo;
+            </p>
+            {loadingQuoteRef.current.author && (
+              <p style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', fontSize: isMobile ? 14 : 16, marginTop: 10 }}>
+                {loadingQuoteRef.current.author}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
            TWO-COLUMN GRID
           ════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+      {!isAnyLoading && <div ref={gridCallbackRef} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 0 }}>
 
         {/* ── POSITIVE / CALL TOWER column ── */}
-        <div style={{ borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-          {/* Column header */}
-          <div style={{
-            background: 'linear-gradient(180deg, #0f0000 0%, #000 100%)',
-            borderBottom: '2px solid rgba(255,55,55,0.35)',
-            padding: '12px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#ff4444', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▲ CALL TOWER</span>
-            <div style={{ width: 1, height: 14, background: 'rgba(255,68,68,0.2)' }} />
-            <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS LONG GAMMA · POSITIVE GEX</span>
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 18, fontWeight: 900, color: '#ff4444', background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
-              {positiveItems.length}
-            </span>
-          </div>
+        <div style={{ borderRight: '1px solid rgba(255,255,255,0.05)', display: isMobile && mobileTower !== 'call' ? 'none' : undefined }}>
+          {/* Column header — desktop only */}
+          {!isMobile && (
+            <div style={{
+              background: 'linear-gradient(180deg, #0f0000 0%, #000 100%)',
+              borderBottom: '2px solid rgba(255,55,55,0.35)',
+              padding: '12px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#ff4444', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▲ CALL TOWER</span>
+              <div style={{ width: 1, height: 14, background: 'rgba(255,68,68,0.2)' }} />
+              <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS LONG GAMMA · POSITIVE GEX</span>
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 18, fontWeight: 900, color: '#ff4444', background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
+                {positiveItems.length}
+              </span>
+            </div>
+          )}
 
           {/* Column body */}
-          <div style={{ padding: '12px 16px 24px' }}>
+          <div style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px' }}>
             {!hasData && !isAnyLoading && (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em' }}>
                 RUN SCAN TO POPULATE
               </div>
             )}
             {positiveItems.map((item) => (
-              <ClusterCard key={item.ticker} item={item} side="positive" expandedCard={expandedCard} setExpandedCard={setExpandedCard} expirationFilter={expirationFilter} />
+              <ClusterCard key={item.ticker} item={item} side="positive" expandedCards={expandedCards} toggleExpandedCard={toggleExpandedCard} expirationFilter={expirationFilter} />
             ))}
           </div>
         </div>
 
         {/* ── NEGATIVE / PUT TOWER column ── */}
-        <div>
-          {/* Column header */}
-          <div style={{
-            background: 'linear-gradient(180deg, #001208 0%, #000 100%)',
-            borderBottom: '2px solid rgba(0,210,100,0.3)',
-            padding: '12px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#00d264', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▼ PUT TOWER</span>
-            <div style={{ width: 1, height: 14, background: 'rgba(0,210,100,0.2)' }} />
-            <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS SHORT GAMMA · NEGATIVE GEX</span>
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 18, fontWeight: 900, color: '#00d264', background: 'rgba(0,210,100,0.08)', border: '1px solid rgba(0,210,100,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
-              {negativeItems.length}
-            </span>
-          </div>
+        <div style={{ display: isMobile && mobileTower !== 'put' ? 'none' : undefined }}>
+          {/* Column header — desktop only */}
+          {!isMobile && (
+            <div style={{
+              background: 'linear-gradient(180deg, #001208 0%, #000 100%)',
+              borderBottom: '2px solid rgba(0,210,100,0.3)',
+              padding: '12px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#00d264', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▼ PUT TOWER</span>
+              <div style={{ width: 1, height: 14, background: 'rgba(0,210,100,0.2)' }} />
+              <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS SHORT GAMMA · NEGATIVE GEX</span>
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 18, fontWeight: 900, color: '#00d264', background: 'rgba(0,210,100,0.08)', border: '1px solid rgba(0,210,100,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
+                {negativeItems.length}
+              </span>
+            </div>
+          )}
 
           {/* Column body */}
-          <div style={{ padding: '12px 16px 24px' }}>
+          <div style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px' }}>
             {!hasData && !isAnyLoading && (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em' }}>
                 RUN SCAN TO POPULATE
               </div>
             )}
             {negativeItems.map((item) => (
-              <ClusterCard key={item.ticker} item={item} side="negative" expandedCard={expandedCard} setExpandedCard={setExpandedCard} expirationFilter={expirationFilter} />
+              <ClusterCard key={item.ticker} item={item} side="negative" expandedCards={expandedCards} toggleExpandedCard={toggleExpandedCard} expirationFilter={expirationFilter} />
             ))}
           </div>
         </div>
 
-      </div>
+      </div>}
     </div>
   )
 }

@@ -687,12 +687,14 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
     }
   }
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+
   return (
     <div
       className="bg-black text-white overflow-y-auto"
-      style={{ height: 'calc(100vh - 180px)', minHeight: 0 }}
+      style={{ height: isMobile ? '100%' : 'calc(100vh - 180px)', minHeight: 0 }}
     >
-      <div className="px-6 py-1 border-b border-gray-800 bg-black relative">
+      {!isMobile && <div className="px-6 py-1 border-b border-gray-800 bg-black relative">
         {onClose && (
           <button
             onClick={onClose}
@@ -737,234 +739,206 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
             Calculator
           </h1>
         </div>
-      </div>
-      <div className="p-4">
-        <div className="relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-gray-600 shadow-2xl overflow-hidden mb-6">
+      </div>}
+      <div className={isMobile ? 'p-2' : 'p-4'}>
+        <div className={isMobile ? 'relative bg-black border border-gray-700 overflow-hidden mb-3' : 'relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-gray-600 shadow-2xl overflow-hidden mb-6'}>
           <div className="absolute inset-0 opacity-5 pointer-events-none">
             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-orange-600/10 to-transparent animate-pulse"></div>
           </div>
 
-          <div className="p-6 relative z-10">
-            <div className="grid grid-cols-12 gap-2 mb-4">
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      SYMBOL
-                    </label>
-                  </div>
-                  <div className="p-2 bg-black">
+          <div className={isMobile ? 'p-0 relative z-10' : 'p-6 relative z-10'}>
+            {isMobile ? (
+              /* ── MOBILE: compact 2-row pill bar ── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0, background: '#0a0a0a', border: '1px solid rgba(255,102,0,0.25)' }}>
+                {/* Row 1: SYM · STRIKE · EXP · ✕ */}
+                <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  {/* SYM */}
+                  <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.06)', minWidth: 0, flex: '0 0 22%' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#ff6600', fontFamily: 'monospace', letterSpacing: '0.08em', padding: '3px 6px 1px', textTransform: 'uppercase' }}>SYM</span>
                     <input
                       type="text"
                       value={symbol}
                       onChange={(e) => handleSymbolChange(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder="SPY"
-                      className="w-full px-3 py-2 text-white text-xl font-black uppercase focus:outline-none"
-                      style={{
-                        background: '#0d0d0d',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                      }}
+                      style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 14, fontWeight: 900, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%', textTransform: 'uppercase' }}
                     />
                   </div>
-                </div>
-              </div>
-
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      STRIKE
-                    </label>
-                  </div>
-                  <div className="p-2 bg-black">
+                  {/* STRIKE */}
+                  <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.06)', minWidth: 0, flex: '1 1 0' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#ff6600', fontFamily: 'monospace', letterSpacing: '0.08em', padding: '3px 6px 1px', textTransform: 'uppercase' }}>STRIKE</span>
                     <select
                       value={selectedStrike || ''}
                       onChange={(e) => {
                         const newStrike = e.target.value ? Number(e.target.value) : null
                         setSelectedStrike(newStrike)
                         setCustomPremium(null)
-                        if (newStrike && selectedExpiration) {
-                          fetchIndividualOptionData(newStrike, selectedExpiration, optionType)
-                        }
+                        if (newStrike && selectedExpiration) fetchIndividualOptionData(newStrike, selectedExpiration, optionType)
                       }}
-                      className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                      style={{
-                        background: '#0d0d0d',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                      }}
+                      style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%', appearance: 'none' as const }}
                     >
-                      <option value="">Select Strike</option>
-                      {strikes.map((strike) => (
-                        <option key={strike} value={strike}>
-                          ${strike}
-                        </option>
-                      ))}
+                      <option value="" style={{ background: '#111' }}>—</option>
+                      {strikes.map((s) => <option key={s} value={s} style={{ background: '#111' }}>${s}</option>)}
                     </select>
                   </div>
-                </div>
-              </div>
-
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg relative z-10">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      TYPE
-                    </label>
-                  </div>
-                  <div className="p-2 flex gap-1 bg-black relative z-20">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOptionType('call')
-                        setSelectedStrike(null)
-                        setCustomPremium(null)
-                      }}
-                      className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
-                      style={{
-                        background: optionType === 'call' ? 'rgba(34,197,94,0.15)' : '#0d0d0d',
-                        border:
-                          optionType === 'call'
-                            ? '1px solid #22c55e'
-                            : '1px solid rgba(255,255,255,0.15)',
-                        color: optionType === 'call' ? '#22c55e' : 'rgba(255,255,255,0.35)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)',
-                      }}
-                    >
-                      CALL
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOptionType('put')
-                        setSelectedStrike(null)
-                        setCustomPremium(null)
-                      }}
-                      className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
-                      style={{
-                        background: optionType === 'put' ? 'rgba(239,68,68,0.15)' : '#0d0d0d',
-                        border:
-                          optionType === 'put'
-                            ? '1px solid #ef4444'
-                            : '1px solid rgba(255,255,255,0.15)',
-                        color: optionType === 'put' ? '#ef4444' : 'rgba(255,255,255,0.35)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)',
-                      }}
-                    >
-                      PUT
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      EXPIRY
-                    </label>
-                  </div>
-                  <div className="p-2 bg-black">
+                  {/* EXPIRY */}
+                  <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.06)', minWidth: 0, flex: '1 1 0' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#ff6600', fontFamily: 'monospace', letterSpacing: '0.08em', padding: '3px 6px 1px', textTransform: 'uppercase' }}>EXP</span>
                     {availableExpirations.length > 0 ? (
                       <select
                         value={selectedExpiration}
                         onChange={(e) => {
                           const newExp = e.target.value
                           setSelectedExpiration(newExp)
-                          if (selectedStrike && newExp) {
-                            fetchIndividualOptionData(selectedStrike, newExp, optionType)
-                          }
+                          if (selectedStrike && newExp) fetchIndividualOptionData(selectedStrike, newExp, optionType)
                         }}
-                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                        style={{
-                          background: '#0d0d0d',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                        }}
+                        style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 12, fontWeight: 700, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%', appearance: 'none' as const }}
                       >
-                        <option value="">Select</option>
-                        {availableExpirations.map((exp) => (
-                          <option key={exp.date} value={exp.date}>
-                            {exp.date}
-                          </option>
-                        ))}
+                        <option value="" style={{ background: '#111' }}>—</option>
+                        {availableExpirations.map((exp) => <option key={exp.date} value={exp.date} style={{ background: '#111' }}>{exp.date}</option>)}
                       </select>
                     ) : (
-                      <input
-                        type="date"
-                        value={selectedExpiration}
-                        onChange={(e) => setSelectedExpiration(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none"
-                        style={{
-                          background: '#0d0d0d',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                        }}
-                      />
+                      <input type="date" value={selectedExpiration} onChange={(e) => setSelectedExpiration(e.target.value)} min={new Date().toISOString().split('T')[0]}
+                        style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%' }} />
                     )}
                   </div>
+                  {/* Close */}
+                  {onClose && (
+                    <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 36px', background: 'rgba(127,29,29,0.7)', border: 'none', borderLeft: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                  )}
                 </div>
-              </div>
-
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      PREMIUM
-                    </label>
+                {/* Row 2: CALL/PUT · PREMIUM · OTM */}
+                <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                  {/* CALL / PUT toggle */}
+                  <div style={{ display: 'flex', flex: '0 0 30%', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <button type="button" onClick={() => { setOptionType('call'); setSelectedStrike(null); setCustomPremium(null) }}
+                      style={{ flex: 1, padding: '7px 4px', fontSize: 12, fontWeight: 900, fontFamily: 'monospace', border: 'none', cursor: 'pointer', background: optionType === 'call' ? 'rgba(34,197,94,0.18)' : 'transparent', color: optionType === 'call' ? '#22c55e' : '#555', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                      CALL
+                    </button>
+                    <button type="button" onClick={() => { setOptionType('put'); setSelectedStrike(null); setCustomPremium(null) }}
+                      style={{ flex: 1, padding: '7px 4px', fontSize: 12, fontWeight: 900, fontFamily: 'monospace', border: 'none', cursor: 'pointer', background: optionType === 'put' ? 'rgba(239,68,68,0.18)' : 'transparent', color: optionType === 'put' ? '#ef4444' : '#555' }}>
+                      PUT
+                    </button>
                   </div>
-                  <div className="p-2 bg-black">
-                    <input
-                      type="number"
-                      value={customPremium || ''}
-                      onChange={(e) =>
-                        setCustomPremium(e.target.value ? Number(e.target.value) : null)
-                      }
-                      placeholder="6.9"
-                      step="0.01"
-                      min="0"
-                      className="w-full px-3 py-2 text-white text-xl font-black focus:outline-none"
-                      style={{
-                        background: '#0d0d0d',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                      }}
-                    />
+                  {/* PREMIUM */}
+                  <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.06)', minWidth: 0, flex: '1 1 0' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#ff6600', fontFamily: 'monospace', letterSpacing: '0.08em', padding: '3px 6px 1px', textTransform: 'uppercase' }}>PREM</span>
+                    <input type="number" value={customPremium || ''} onChange={(e) => setCustomPremium(e.target.value ? Number(e.target.value) : null)} placeholder="6.9" step="0.01" min="0"
+                      style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 14, fontWeight: 900, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%' }} />
                   </div>
-                </div>
-              </div>
-
-              <div className="col-span-2">
-                <div className="bg-black border border-gray-700 shadow-lg">
-                  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                    <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">
-                      OTM
-                    </label>
-                  </div>
-                  <div className="p-2 bg-black">
-                    <select
-                      value={otmPercentage}
-                      onChange={(e) => setOtmPercentage(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                      style={{
-                        background: '#0d0d0d',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-                      }}
-                    >
-                      <option value={2}>±2%</option>
-                      <option value={5}>±5%</option>
-                      <option value={10}>±10%</option>
-                      <option value={15}>±15%</option>
-                      <option value={20}>±20%</option>
+                  {/* OTM */}
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: '1 1 0' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#ff6600', fontFamily: 'monospace', letterSpacing: '0.08em', padding: '3px 6px 1px', textTransform: 'uppercase' }}>OTM</span>
+                    <select value={otmPercentage} onChange={(e) => setOtmPercentage(Number(e.target.value))}
+                      style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'monospace', padding: '2px 6px 5px', width: '100%', appearance: 'none' as const }}>
+                      <option value={2} style={{ background: '#111' }}>±2%</option>
+                      <option value={5} style={{ background: '#111' }}>±5%</option>
+                      <option value={10} style={{ background: '#111' }}>±10%</option>
+                      <option value={15} style={{ background: '#111' }}>±15%</option>
+                      <option value={20} style={{ background: '#111' }}>±20%</option>
                     </select>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-12 gap-2 mb-4">
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">SYMBOL</label>
+                    </div>
+                    <div className="p-2 bg-black">
+                      <input type="text" value={symbol} onChange={(e) => handleSymbolChange(e.target.value)} onKeyPress={handleKeyPress} placeholder="SPY"
+                        className="w-full px-3 py-2 text-white text-xl font-black uppercase focus:outline-none"
+                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">STRIKE</label>
+                    </div>
+                    <div className="p-2 bg-black">
+                      <select value={selectedStrike || ''} onChange={(e) => { const newStrike = e.target.value ? Number(e.target.value) : null; setSelectedStrike(newStrike); setCustomPremium(null); if (newStrike && selectedExpiration) fetchIndividualOptionData(newStrike, selectedExpiration, optionType) }}
+                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
+                        <option value="">Select Strike</option>
+                        {strikes.map((strike) => <option key={strike} value={strike}>${strike}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg relative z-10">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">TYPE</label>
+                    </div>
+                    <div className="p-2 flex gap-1 bg-black relative z-20">
+                      <button type="button" onClick={() => { setOptionType('call'); setSelectedStrike(null); setCustomPremium(null) }}
+                        className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
+                        style={{ background: optionType === 'call' ? 'rgba(34,197,94,0.15)' : '#0d0d0d', border: optionType === 'call' ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.15)', color: optionType === 'call' ? '#22c55e' : 'rgba(255,255,255,0.35)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>CALL</button>
+                      <button type="button" onClick={() => { setOptionType('put'); setSelectedStrike(null); setCustomPremium(null) }}
+                        className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
+                        style={{ background: optionType === 'put' ? 'rgba(239,68,68,0.15)' : '#0d0d0d', border: optionType === 'put' ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)', color: optionType === 'put' ? '#ef4444' : 'rgba(255,255,255,0.35)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>PUT</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">EXPIRY</label>
+                    </div>
+                    <div className="p-2 bg-black">
+                      {availableExpirations.length > 0 ? (
+                        <select value={selectedExpiration} onChange={(e) => { const newExp = e.target.value; setSelectedExpiration(newExp); if (selectedStrike && newExp) fetchIndividualOptionData(selectedStrike, newExp, optionType) }}
+                          className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                          style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
+                          <option value="">Select</option>
+                          {availableExpirations.map((exp) => <option key={exp.date} value={exp.date}>{exp.date}</option>)}
+                        </select>
+                      ) : (
+                        <input type="date" value={selectedExpiration} onChange={(e) => setSelectedExpiration(e.target.value)} min={new Date().toISOString().split('T')[0]}
+                          className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none"
+                          style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">PREMIUM</label>
+                    </div>
+                    <div className="p-2 bg-black">
+                      <input type="number" value={customPremium || ''} onChange={(e) => setCustomPremium(e.target.value ? Number(e.target.value) : null)} placeholder="6.9" step="0.01" min="0"
+                        className="w-full px-3 py-2 text-white text-xl font-black focus:outline-none"
+                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="bg-black border border-gray-700 shadow-lg">
+                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">OTM</label>
+                    </div>
+                    <div className="p-2 bg-black">
+                      <select value={otmPercentage} onChange={(e) => setOtmPercentage(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
+                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
+                        <option value={2}>±2%</option>
+                        <option value={5}>±5%</option>
+                        <option value={10}>±10%</option>
+                        <option value={15}>±15%</option>
+                        <option value={20}>±20%</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -985,898 +959,896 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
 
           return showHeatmap
         })() && (
-          <>
-            {(() => {
-              const expiration = availableExpirations.find((exp) => exp.date === selectedExpiration)
-              const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
-              const realOption = realOptionsData[key]
+            <>
+              {(() => {
+                const expiration = availableExpirations.find((exp) => exp.date === selectedExpiration)
+                const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
+                const realOption = realOptionsData[key]
 
-              return (
-                <div
-                  className="mb-4 bg-black border-2 p-0"
-                  style={{ borderColor: 'rgba(255,255,255,0.1)' }}
-                >
-                  <div className="grid grid-cols-4 gap-0">
-                    <div
-                      className="bg-black border-r-2 px-4 py-3"
-                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-green-400 text-sm font-black uppercase tracking-wider mb-1">
-                          DELTA
-                        </span>
-                        <span className="text-white text-xl font-black font-mono">
-                          {realOption?.delta !== null && realOption?.delta !== undefined
-                            ? realOption.delta.toFixed(3)
-                            : '--'}
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      className="bg-black border-r-2 px-4 py-3"
-                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-yellow-400 text-sm font-black uppercase tracking-wider mb-1">
-                          GAMMA
-                        </span>
-                        <span className="text-white text-xl font-black font-mono">
-                          {realOption?.gamma !== null && realOption?.gamma !== undefined
-                            ? realOption.gamma.toFixed(4)
-                            : '--'}
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      className="bg-black border-r-2 px-4 py-3"
-                      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-red-400 text-sm font-black uppercase tracking-wider mb-1">
-                          THETA
-                        </span>
-                        <span className="text-white text-xl font-black font-mono">
-                          {realOption?.theta !== null && realOption?.theta !== undefined
-                            ? realOption.theta.toFixed(2)
-                            : '--'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="bg-black px-4 py-3">
-                      <div className="flex flex-col">
-                        <span
-                          className="text-sm font-black uppercase tracking-wider mb-1"
-                          style={{ color: '#a855f7' }}
-                        >
-                          IV
-                        </span>
-                        <span className="text-xl font-black font-mono" style={{ color: '#a855f7' }}>
-                          {realOption?.impliedVolatility && realOption.impliedVolatility > 0
-                            ? `${(realOption.impliedVolatility * 100).toFixed(1)}%`
-                            : '--'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })()}
-
-            <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
-              <div
-                className="overflow-x-auto overflow-y-auto rounded-xl border-2 border-gray-700"
-                style={{ maxHeight: '78vh' }}
-              >
-                <div className="min-w-max bg-black">
+                return (
                   <div
-                    className="flex bg-black"
-                    style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+                    className="mb-4 bg-black border-2 p-0"
+                    style={{ borderColor: 'rgba(255,255,255,0.1)' }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('table')}
-                      className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
-                      style={{
-                        background: viewMode === 'table' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
-                        borderBottom:
-                          viewMode === 'table' ? '3px solid #22c55e' : '3px solid transparent',
-                        color: viewMode === 'table' ? '#22c55e' : 'rgba(255,255,255,0.35)',
-                      }}
-                    >
-                      {viewMode === 'table' && '● '}Table P/L
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('line')}
-                      className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
-                      style={{
-                        background: viewMode === 'line' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
-                        borderBottom:
-                          viewMode === 'line' ? '3px solid #22c55e' : '3px solid transparent',
-                        color: viewMode === 'line' ? '#22c55e' : 'rgba(255,255,255,0.35)',
-                      }}
-                    >
-                      {viewMode === 'line' && '● '}Line P/L
-                    </button>
+                    <div className="grid grid-cols-4 gap-0">
+                      <div
+                        className="bg-black border-r-2 px-4 py-3"
+                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-green-400 text-sm font-black uppercase tracking-wider mb-1">
+                            DELTA
+                          </span>
+                          <span className="text-white text-xl font-black font-mono">
+                            {realOption?.delta !== null && realOption?.delta !== undefined
+                              ? realOption.delta.toFixed(3)
+                              : '--'}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className="bg-black border-r-2 px-4 py-3"
+                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-yellow-400 text-sm font-black uppercase tracking-wider mb-1">
+                            GAMMA
+                          </span>
+                          <span className="text-white text-xl font-black font-mono">
+                            {realOption?.gamma !== null && realOption?.gamma !== undefined
+                              ? realOption.gamma.toFixed(4)
+                              : '--'}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className="bg-black border-r-2 px-4 py-3"
+                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-red-400 text-sm font-black uppercase tracking-wider mb-1">
+                            THETA
+                          </span>
+                          <span className="text-white text-xl font-black font-mono">
+                            {realOption?.theta !== null && realOption?.theta !== undefined
+                              ? realOption.theta.toFixed(2)
+                              : '--'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-black px-4 py-3">
+                        <div className="flex flex-col">
+                          <span
+                            className="text-sm font-black uppercase tracking-wider mb-1"
+                            style={{ color: '#a855f7' }}
+                          >
+                            IV
+                          </span>
+                          <span className="text-xl font-black font-mono" style={{ color: '#a855f7' }}>
+                            {realOption?.impliedVolatility && realOption.impliedVolatility > 0
+                              ? `${(realOption.impliedVolatility * 100).toFixed(1)}%`
+                              : '--'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                )
+              })()}
 
-                  {viewMode === 'table' && (
-                    <>
-                      <div className="text-center py-4 bg-black border-b border-gray-600">
-                        <span className="text-lg font-bold text-blue-300 uppercase tracking-wider">
-                          Time Till Expiration (Days)
-                        </span>
-                      </div>
+              <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
+                <div
+                  className="overflow-x-auto overflow-y-auto rounded-xl border-2 border-gray-700"
+                  style={{ maxHeight: '78vh' }}
+                >
+                  <div className="min-w-max bg-black">
+                    <div
+                      className="flex bg-black"
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('table')}
+                        className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
+                        style={{
+                          background: viewMode === 'table' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
+                          borderBottom:
+                            viewMode === 'table' ? '3px solid #22c55e' : '3px solid transparent',
+                          color: viewMode === 'table' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                        }}
+                      >
+                        {viewMode === 'table' && '● '}Table P/L
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('line')}
+                        className="relative flex-1 py-4 px-8 text-lg font-black uppercase tracking-wider transition-all duration-200 focus:outline-none"
+                        style={{
+                          background: viewMode === 'line' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
+                          borderBottom:
+                            viewMode === 'line' ? '3px solid #22c55e' : '3px solid transparent',
+                          color: viewMode === 'line' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                        }}
+                      >
+                        {viewMode === 'line' && '● '}Line P/L
+                      </button>
+                    </div>
 
-                      <div className="relative">
-                        <table className="w-full border-collapse bg-black">
-                          <thead>
-                            <tr>
-                              <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black text-white shadow-xl">
-                                <div className="drop-shadow-lg">Stock Price</div>
-                              </th>
-                              {heatMapTimeSeries.map((timePoint) => (
-                                <th
-                                  key={timePoint.days}
-                                  className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black px-1 text-white shadow-lg"
-                                >
-                                  <div className="text-lg font-black drop-shadow-md">
-                                    {timePoint.label}
-                                  </div>
-                                  {timePoint.days === 0 && (
-                                    <div className="text-xs text-gray-400 mt-1">
-                                      {selectedExpiration?.slice(5)}
-                                    </div>
-                                  )}
+                    {viewMode === 'table' && (
+                      <>
+                        <div className="text-center py-4 bg-black border-b border-gray-600">
+                          <span className="text-lg font-bold text-blue-300 uppercase tracking-wider">
+                            Time Till Expiration (Days)
+                          </span>
+                        </div>
+
+                        <div className="relative">
+                          <table className="w-full border-collapse bg-black">
+                            <thead>
+                              <tr>
+                                <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black text-white shadow-xl">
+                                  <div className="drop-shadow-lg">Stock Price</div>
                                 </th>
-                              ))}
-                            </tr>
-                          </thead>
-
-                          <tbody>
-                            {heatMapStrikes.map((strike) => {
-                              const isATM = strike === atmStrike
-
-                              return (
-                                <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
-                                  <td
-                                    className={`h-12 border border-gray-600 text-center font-black text-lg ${
-                                      isATM
-                                        ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
-                                        : 'bg-black text-white'
-                                    }`}
+                                {heatMapTimeSeries.map((timePoint) => (
+                                  <th
+                                    key={timePoint.days}
+                                    className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black px-1 text-white shadow-lg"
                                   >
-                                    ${strike} {isATM && '★'}
-                                  </td>
+                                    <div className="text-lg font-black drop-shadow-md">
+                                      {timePoint.label}
+                                    </div>
+                                    {timePoint.days === 0 && (
+                                      <div className="text-xs text-gray-400 mt-1">
+                                        {selectedExpiration?.slice(5)}
+                                      </div>
+                                    )}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
 
-                                  {heatMapTimeSeries.map((timePoint) => {
-                                    let pnlData = { dollarPnL: 0, percentPnL: 0, optionPrice: 0 }
-                                    let cellColor = 'bg-gray-800 text-gray-500'
-                                    let displayText = '--'
+                            <tbody>
+                              {heatMapStrikes.map((strike) => {
+                                const isATM = strike === atmStrike
 
-                                    if (
-                                      currentPrice > 0 &&
-                                      selectedStrike &&
-                                      customPremium &&
-                                      customPremium > 0
-                                    ) {
-                                      try {
-                                        const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
-                                        const realOption = realOptionsData[key]
-
-                                        if (
-                                          !realOption?.impliedVolatility ||
-                                          realOption.impliedVolatility <= 0
-                                        ) {
-                                          return null
-                                        }
-
-                                        const impliedVol = realOption.impliedVolatility
-                                        const expDate = new Date(selectedExpiration)
-                                        const today = new Date()
-                                        const currentDTE = Math.max(
-                                          0,
-                                          Math.ceil(
-                                            (expDate.getTime() - today.getTime()) /
-                                              (1000 * 60 * 60 * 24)
-                                          )
-                                        )
-                                        const currentTimeToExpiry = currentDTE / 365
-
-                                        const baselineOptionPrice = calculateBSPrice(
-                                          currentPrice,
-                                          selectedStrike,
-                                          currentTimeToExpiry,
-                                          0.045,
-                                          impliedVol,
-                                          0,
-                                          optionType === 'call'
-                                        )
-
-                                        const timeToExpiry = timePoint.days / 365
-                                        const simulatedOptionPrice = calculateBSPrice(
-                                          strike,
-                                          selectedStrike,
-                                          timeToExpiry,
-                                          0.045,
-                                          impliedVol,
-                                          0,
-                                          optionType === 'call'
-                                        )
-
-                                        const { dollarPnL, percentPnL } = calculatePnL(
-                                          simulatedOptionPrice,
-                                          baselineOptionPrice,
-                                          1
-                                        )
-
-                                        pnlData = {
-                                          dollarPnL,
-                                          percentPnL,
-                                          optionPrice: simulatedOptionPrice,
-                                        }
-
-                                        const absPercentPnL = Math.abs(percentPnL)
-
-                                        if (percentPnL > 0) {
-                                          if (absPercentPnL >= 100) {
-                                            cellColor = 'bg-green-600 text-white font-bold'
-                                          } else if (absPercentPnL >= 50) {
-                                            cellColor = 'bg-green-700 text-green-100 font-semibold'
-                                          } else if (absPercentPnL >= 25) {
-                                            cellColor = 'bg-green-800 text-green-200'
-                                          } else if (absPercentPnL >= 10) {
-                                            cellColor = 'bg-green-900 text-green-300'
-                                          } else if (absPercentPnL > 0) {
-                                            cellColor = 'bg-green-950 text-green-400'
-                                          }
-                                        } else if (percentPnL < 0) {
-                                          if (absPercentPnL >= 100) {
-                                            cellColor = 'bg-red-600 text-white font-bold'
-                                          } else if (absPercentPnL >= 50) {
-                                            cellColor = 'bg-red-700 text-red-100 font-semibold'
-                                          } else if (absPercentPnL >= 25) {
-                                            cellColor = 'bg-red-800 text-red-200'
-                                          } else if (absPercentPnL >= 10) {
-                                            cellColor = 'bg-red-900 text-red-300'
-                                          } else if (absPercentPnL > 0) {
-                                            cellColor = 'bg-red-950 text-red-400'
-                                          }
-                                        } else {
-                                          cellColor = 'bg-gray-700 text-gray-300 font-medium'
-                                        }
-
-                                        displayText = `$${dollarPnL.toFixed(0)}`
-                                        if (Math.abs(percentPnL) < 999) {
-                                          displayText += ` (${percentPnL > 0 ? '+' : ''}${percentPnL.toFixed(0)}%)`
-                                        }
-                                      } catch (error) {
-                                        displayText = 'ERR'
-                                        cellColor = 'bg-yellow-800 text-yellow-400'
-                                      }
-                                    }
-
-                                    return (
-                                      <td
-                                        key={`${strike}-${timePoint.days}`}
-                                        className={`h-12 border text-center text-base font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${
-                                          isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
+                                return (
+                                  <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
+                                    <td
+                                      className={`h-12 border border-gray-600 text-center font-black text-lg ${isATM
+                                          ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
+                                          : 'bg-black text-white'
                                         }`}
-                                        onClick={() => {
-                                          setSelectedStrike(strike)
-                                          setCustomPremium(null)
-                                        }}
-                                        title={`Stock @ $${strike} | Strike $${selectedStrike} | ${timePoint.days}d | P/L: ${displayText} | Option Price: $${pnlData.optionPrice.toFixed(2)}`}
-                                      >
-                                        <div className="text-sm leading-tight">{displayText}</div>
-                                      </td>
-                                    )
-                                  })}
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
+                                    >
+                                      ${strike} {isATM && '★'}
+                                    </td>
 
-                  {viewMode === 'line' &&
-                    (() => {
-                      if (!selectedStrike) return null
+                                    {heatMapTimeSeries.map((timePoint) => {
+                                      let pnlData = { dollarPnL: 0, percentPnL: 0, optionPrice: 0 }
+                                      let cellColor = 'bg-gray-800 text-gray-500'
+                                      let displayText = '--'
 
-                      const expDate = new Date(selectedExpiration)
-                      const today = new Date()
-                      const maxDTE = Math.max(
-                        0,
-                        Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-                      )
+                                      if (
+                                        currentPrice > 0 &&
+                                        selectedStrike &&
+                                        customPremium &&
+                                        customPremium > 0
+                                      ) {
+                                        try {
+                                          const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
+                                          const realOption = realOptionsData[key]
 
-                      const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
-                      const realOption = realOptionsData[key]
+                                          if (
+                                            !realOption?.impliedVolatility ||
+                                            realOption.impliedVolatility <= 0
+                                          ) {
+                                            return null
+                                          }
 
-                      if (!realOption?.impliedVolatility || realOption.impliedVolatility <= 0) {
-                        return null
-                      }
+                                          const impliedVol = realOption.impliedVolatility
+                                          const expDate = new Date(selectedExpiration)
+                                          const today = new Date()
+                                          const currentDTE = Math.max(
+                                            0,
+                                            Math.ceil(
+                                              (expDate.getTime() - today.getTime()) /
+                                              (1000 * 60 * 60 * 24)
+                                            )
+                                          )
+                                          const currentTimeToExpiry = currentDTE / 365
 
-                      const impliedVol = realOption.impliedVolatility
-                      const strikePrice = selectedStrike
+                                          const baselineOptionPrice = calculateBSPrice(
+                                            currentPrice,
+                                            selectedStrike,
+                                            currentTimeToExpiry,
+                                            0.045,
+                                            impliedVol,
+                                            0,
+                                            optionType === 'call'
+                                          )
 
-                      let purchasePrice = 0
-                      if (customPremium && customPremium > 0) {
-                        purchasePrice = customPremium
-                      } else if (realOption?.ask > 0) {
-                        purchasePrice = realOption.ask
-                      } else if (realOption?.lastPrice > 0) {
-                        purchasePrice = realOption.lastPrice
-                      } else if (realOption?.bid > 0) {
-                        purchasePrice = realOption.bid
-                      } else {
-                        return null
-                      }
+                                          const timeToExpiry = timePoint.days / 365
+                                          const simulatedOptionPrice = calculateBSPrice(
+                                            strike,
+                                            selectedStrike,
+                                            timeToExpiry,
+                                            0.045,
+                                            impliedVol,
+                                            0,
+                                            optionType === 'call'
+                                          )
 
-                      const numTimePoints = 50
-                      const chartData: Array<{
-                        daysToExp: number
-                        pnl: number
-                        pnlPercent: number
-                      }> = []
-                      let maxPnL = -Infinity
-                      let minPnL = Infinity
+                                          const { dollarPnL, percentPnL } = calculatePnL(
+                                            simulatedOptionPrice,
+                                            baselineOptionPrice,
+                                            1
+                                          )
 
-                      for (let i = 0; i <= numTimePoints; i++) {
-                        const daysToExp = maxDTE - (i * maxDTE) / numTimePoints
-                        const timeToExpiry = Math.max(0, daysToExp / 365)
+                                          pnlData = {
+                                            dollarPnL,
+                                            percentPnL,
+                                            optionPrice: simulatedOptionPrice,
+                                          }
 
-                        const priceAtThisPoint =
+                                          const absPercentPnL = Math.abs(percentPnL)
+
+                                          if (percentPnL > 0) {
+                                            if (absPercentPnL >= 100) {
+                                              cellColor = 'bg-green-600 text-white font-bold'
+                                            } else if (absPercentPnL >= 50) {
+                                              cellColor = 'bg-green-700 text-green-100 font-semibold'
+                                            } else if (absPercentPnL >= 25) {
+                                              cellColor = 'bg-green-800 text-green-200'
+                                            } else if (absPercentPnL >= 10) {
+                                              cellColor = 'bg-green-900 text-green-300'
+                                            } else if (absPercentPnL > 0) {
+                                              cellColor = 'bg-green-950 text-green-400'
+                                            }
+                                          } else if (percentPnL < 0) {
+                                            if (absPercentPnL >= 100) {
+                                              cellColor = 'bg-red-600 text-white font-bold'
+                                            } else if (absPercentPnL >= 50) {
+                                              cellColor = 'bg-red-700 text-red-100 font-semibold'
+                                            } else if (absPercentPnL >= 25) {
+                                              cellColor = 'bg-red-800 text-red-200'
+                                            } else if (absPercentPnL >= 10) {
+                                              cellColor = 'bg-red-900 text-red-300'
+                                            } else if (absPercentPnL > 0) {
+                                              cellColor = 'bg-red-950 text-red-400'
+                                            }
+                                          } else {
+                                            cellColor = 'bg-gray-700 text-gray-300 font-medium'
+                                          }
+
+                                          displayText = `$${dollarPnL.toFixed(0)}`
+                                          if (Math.abs(percentPnL) < 999) {
+                                            displayText += ` (${percentPnL > 0 ? '+' : ''}${percentPnL.toFixed(0)}%)`
+                                          }
+                                        } catch (error) {
+                                          displayText = 'ERR'
+                                          cellColor = 'bg-yellow-800 text-yellow-400'
+                                        }
+                                      }
+
+                                      return (
+                                        <td
+                                          key={`${strike}-${timePoint.days}`}
+                                          className={`h-12 border text-center text-base font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
+                                            }`}
+                                          onClick={() => {
+                                            setSelectedStrike(strike)
+                                            setCustomPremium(null)
+                                          }}
+                                          title={`Stock @ $${strike} | Strike $${selectedStrike} | ${timePoint.days}d | P/L: ${displayText} | Option Price: $${pnlData.optionPrice.toFixed(2)}`}
+                                        >
+                                          <div className="text-sm leading-tight">{displayText}</div>
+                                        </td>
+                                      )
+                                    })}
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    {viewMode === 'line' &&
+                      (() => {
+                        if (!selectedStrike) return null
+
+                        const expDate = new Date(selectedExpiration)
+                        const today = new Date()
+                        const maxDTE = Math.max(
+                          0,
+                          Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                        )
+
+                        const key = `${selectedStrike}-${selectedExpiration}-${optionType}`
+                        const realOption = realOptionsData[key]
+
+                        if (!realOption?.impliedVolatility || realOption.impliedVolatility <= 0) {
+                          return null
+                        }
+
+                        const impliedVol = realOption.impliedVolatility
+                        const strikePrice = selectedStrike
+
+                        let purchasePrice = 0
+                        if (customPremium && customPremium > 0) {
+                          purchasePrice = customPremium
+                        } else if (realOption?.ask > 0) {
+                          purchasePrice = realOption.ask
+                        } else if (realOption?.lastPrice > 0) {
+                          purchasePrice = realOption.lastPrice
+                        } else if (realOption?.bid > 0) {
+                          purchasePrice = realOption.bid
+                        } else {
+                          return null
+                        }
+
+                        const numTimePoints = 50
+                        const chartData: Array<{
+                          daysToExp: number
+                          pnl: number
+                          pnlPercent: number
+                        }> = []
+                        let maxPnL = -Infinity
+                        let minPnL = Infinity
+
+                        for (let i = 0; i <= numTimePoints; i++) {
+                          const daysToExp = maxDTE - (i * maxDTE) / numTimePoints
+                          const timeToExpiry = Math.max(0, daysToExp / 365)
+
+                          const priceAtThisPoint =
+                            isHoveringChart && hoveredPrice !== null ? hoveredPrice : currentPrice
+
+                          const theoreticalValue = calculateBSPrice(
+                            priceAtThisPoint,
+                            strikePrice,
+                            timeToExpiry,
+                            0.045,
+                            impliedVol,
+                            0,
+                            optionType === 'call'
+                          )
+
+                          const dollarPnL = theoreticalValue - purchasePrice
+                          let percentPnL =
+                            purchasePrice > 0
+                              ? ((theoreticalValue - purchasePrice) / purchasePrice) * 100
+                              : 0
+                          percentPnL = Math.max(percentPnL, -100)
+
+                          chartData.push({ daysToExp, pnl: dollarPnL, pnlPercent: percentPnL })
+                          maxPnL = Math.max(maxPnL, percentPnL)
+                          minPnL = Math.min(minPnL, percentPnL)
+                        }
+
+                        const simulatedStockPrice =
                           isHoveringChart && hoveredPrice !== null ? hoveredPrice : currentPrice
 
-                        const theoreticalValue = calculateBSPrice(
-                          priceAtThisPoint,
-                          strikePrice,
-                          timeToExpiry,
-                          0.045,
-                          impliedVol,
-                          0,
-                          optionType === 'call'
-                        )
+                        const pnlRange = maxPnL - minPnL
+                        const paddedMaxPnL = maxPnL + pnlRange * 0.1
+                        const paddedMinPnL = minPnL - pnlRange * 0.1
 
-                        const dollarPnL = theoreticalValue - purchasePrice
-                        let percentPnL =
-                          purchasePrice > 0
-                            ? ((theoreticalValue - purchasePrice) / purchasePrice) * 100
-                            : 0
-                        percentPnL = Math.max(percentPnL, -100)
+                        const chartWidth = 1200
+                        const chartHeight = 1225
+                        const padding = { top: 40, right: 80, bottom: 100, left: 80 }
+                        const plotWidth = chartWidth - padding.left - padding.right
+                        const plotHeight = chartHeight - padding.top - padding.bottom
 
-                        chartData.push({ daysToExp, pnl: dollarPnL, pnlPercent: percentPnL })
-                        maxPnL = Math.max(maxPnL, percentPnL)
-                        minPnL = Math.min(minPnL, percentPnL)
-                      }
+                        const xScale = (days: number) => {
+                          return padding.left + ((maxDTE - days) / maxDTE) * plotWidth
+                        }
 
-                      const simulatedStockPrice =
-                        isHoveringChart && hoveredPrice !== null ? hoveredPrice : currentPrice
+                        const yScale = (pnlPercent: number) => {
+                          return (
+                            padding.top +
+                            plotHeight -
+                            ((pnlPercent - paddedMinPnL) / (paddedMaxPnL - paddedMinPnL)) * plotHeight
+                          )
+                        }
 
-                      const pnlRange = maxPnL - minPnL
-                      const paddedMaxPnL = maxPnL + pnlRange * 0.1
-                      const paddedMinPnL = minPnL - pnlRange * 0.1
+                        const linePath = chartData
+                          .map((d, i) => {
+                            const x = xScale(d.daysToExp)
+                            const y = yScale(d.pnlPercent)
+                            return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`
+                          })
+                          .join(' ')
 
-                      const chartWidth = 1200
-                      const chartHeight = 1225
-                      const padding = { top: 40, right: 80, bottom: 100, left: 80 }
-                      const plotWidth = chartWidth - padding.left - padding.right
-                      const plotHeight = chartHeight - padding.top - padding.bottom
+                        const currentDayData =
+                          chartData.find((d) => Math.abs(d.daysToExp - maxDTE) < 1) || chartData[0]
+                        const currentX = xScale(maxDTE)
+                        const currentY = yScale(currentDayData.pnlPercent)
 
-                      const xScale = (days: number) => {
-                        return padding.left + ((maxDTE - days) / maxDTE) * plotWidth
-                      }
-
-                      const yScale = (pnlPercent: number) => {
                         return (
-                          padding.top +
-                          plotHeight -
-                          ((pnlPercent - paddedMinPnL) / (paddedMaxPnL - paddedMinPnL)) * plotHeight
-                        )
-                      }
+                          <div className="mb-6 bg-gradient-to-br from-gray-950 via-black to-gray-900 rounded-xl p-6 border-2 border-orange-500/50">
+                            <div className="relative bg-black rounded-lg border border-gray-700 overflow-hidden">
+                              <svg
+                                width={chartWidth}
+                                height={chartHeight}
+                                className="w-full h-auto"
+                                style={{
+                                  shapeRendering: 'crispEdges',
+                                  imageRendering: 'crisp-edges',
+                                }}
+                                preserveAspectRatio="xMidYMid meet"
+                                onMouseDown={(e) => {
+                                  const svg = e.currentTarget
+                                  const rect = svg.getBoundingClientRect()
+                                  const mouseX = e.clientX - rect.left
+                                  const relativeX = mouseX - padding.left
+                                  const sliderY = chartHeight - padding.bottom + 40
+                                  const mouseY = e.clientY - rect.top
+                                  const priceMin = Math.floor(currentPrice * 0.85)
+                                  const priceMax = Math.ceil(currentPrice * 1.15)
+                                  const priceRange = priceMax - priceMin
 
-                      const linePath = chartData
-                        .map((d, i) => {
-                          const x = xScale(d.daysToExp)
-                          const y = yScale(d.pnlPercent)
-                          return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`
-                        })
-                        .join(' ')
-
-                      const currentDayData =
-                        chartData.find((d) => Math.abs(d.daysToExp - maxDTE) < 1) || chartData[0]
-                      const currentX = xScale(maxDTE)
-                      const currentY = yScale(currentDayData.pnlPercent)
-
-                      return (
-                        <div className="mb-6 bg-gradient-to-br from-gray-950 via-black to-gray-900 rounded-xl p-6 border-2 border-orange-500/50">
-                          <div className="relative bg-black rounded-lg border border-gray-700 overflow-hidden">
-                            <svg
-                              width={chartWidth}
-                              height={chartHeight}
-                              className="w-full h-auto"
-                              style={{
-                                shapeRendering: 'crispEdges',
-                                imageRendering: 'crisp-edges',
-                              }}
-                              preserveAspectRatio="xMidYMid meet"
-                              onMouseDown={(e) => {
-                                const svg = e.currentTarget
-                                const rect = svg.getBoundingClientRect()
-                                const mouseX = e.clientX - rect.left
-                                const relativeX = mouseX - padding.left
-                                const sliderY = chartHeight - padding.bottom + 40
-                                const mouseY = e.clientY - rect.top
-                                const priceMin = Math.floor(currentPrice * 0.85)
-                                const priceMax = Math.ceil(currentPrice * 1.15)
-                                const priceRange = priceMax - priceMin
-
-                                if (
-                                  relativeX >= 0 &&
-                                  relativeX <= plotWidth &&
-                                  Math.abs(mouseY - sliderY) < 30
-                                ) {
-                                  const priceAtMouse =
-                                    priceMin + (relativeX / plotWidth) * priceRange
-                                  setHoveredPrice(priceAtMouse)
-                                  setIsHoveringChart(true)
-
-                                  const handleMouseMove = (e: MouseEvent) => {
-                                    const mouseX = e.clientX - rect.left
-                                    const relativeX = Math.max(
-                                      0,
-                                      Math.min(plotWidth, mouseX - padding.left)
-                                    )
+                                  if (
+                                    relativeX >= 0 &&
+                                    relativeX <= plotWidth &&
+                                    Math.abs(mouseY - sliderY) < 30
+                                  ) {
                                     const priceAtMouse =
                                       priceMin + (relativeX / plotWidth) * priceRange
                                     setHoveredPrice(priceAtMouse)
+                                    setIsHoveringChart(true)
+
+                                    const handleMouseMove = (e: MouseEvent) => {
+                                      const mouseX = e.clientX - rect.left
+                                      const relativeX = Math.max(
+                                        0,
+                                        Math.min(plotWidth, mouseX - padding.left)
+                                      )
+                                      const priceAtMouse =
+                                        priceMin + (relativeX / plotWidth) * priceRange
+                                      setHoveredPrice(priceAtMouse)
+                                    }
+
+                                    const handleMouseUp = () => {
+                                      document.removeEventListener('mousemove', handleMouseMove)
+                                      document.removeEventListener('mouseup', handleMouseUp)
+                                    }
+
+                                    document.addEventListener('mousemove', handleMouseMove)
+                                    document.addEventListener('mouseup', handleMouseUp)
                                   }
+                                }}
+                              >
+                                <defs>
+                                  <linearGradient
+                                    id="profitGradient"
+                                    x1="0%"
+                                    y1="0%"
+                                    x2="0%"
+                                    y2="100%"
+                                  >
+                                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+                                    <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                                  </linearGradient>
+                                  <linearGradient id="lossGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                    <stop offset="0%" stopColor="#ef4444" stopOpacity="0.0" />
+                                    <stop offset="100%" stopColor="#ef4444" stopOpacity="0.3" />
+                                  </linearGradient>
+                                </defs>
 
-                                  const handleMouseUp = () => {
-                                    document.removeEventListener('mousemove', handleMouseMove)
-                                    document.removeEventListener('mouseup', handleMouseUp)
+                                <g className="grid">
+                                  {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                                    const y = padding.top + plotHeight * ratio
+                                    return (
+                                      <line
+                                        key={`h-${ratio}`}
+                                        x1={padding.left}
+                                        y1={y}
+                                        x2={chartWidth - padding.right}
+                                        y2={y}
+                                        stroke="#2a2a2a"
+                                        strokeWidth="1"
+                                        shapeRendering="crispEdges"
+                                      />
+                                    )
+                                  })}
+
+                                  <line
+                                    x1={padding.left}
+                                    y1={yScale(0)}
+                                    x2={chartWidth - padding.right}
+                                    y2={yScale(0)}
+                                    stroke="#666"
+                                    strokeWidth="2"
+                                    shapeRendering="crispEdges"
+                                  />
+
+                                  {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                                    const x = padding.left + plotWidth * ratio
+                                    return (
+                                      <line
+                                        key={`v-${ratio}`}
+                                        x1={x}
+                                        y1={padding.top}
+                                        x2={x}
+                                        y2={chartHeight - padding.bottom}
+                                        stroke="#2a2a2a"
+                                        strokeWidth="1"
+                                        shapeRendering="crispEdges"
+                                      />
+                                    )
+                                  })}
+                                </g>
+
+                                {chartData.map((d, i) => {
+                                  if (i === 0) return null
+                                  const prevD = chartData[i - 1]
+                                  const x1 = xScale(prevD.daysToExp)
+                                  const y1 = yScale(prevD.pnlPercent)
+                                  const x2 = xScale(d.daysToExp)
+                                  const y2 = yScale(d.pnlPercent)
+                                  const zeroY = yScale(0)
+
+                                  const isProfit = d.pnlPercent >= 0 && prevD.pnlPercent >= 0
+                                  const isLoss = d.pnlPercent <= 0 && prevD.pnlPercent <= 0
+
+                                  if (isProfit) {
+                                    return (
+                                      <path
+                                        key={`fill-${i}`}
+                                        d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
+                                        fill="url(#profitGradient)"
+                                      />
+                                    )
+                                  } else if (isLoss) {
+                                    return (
+                                      <path
+                                        key={`fill-${i}`}
+                                        d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
+                                        fill="url(#lossGradient)"
+                                      />
+                                    )
                                   }
-
-                                  document.addEventListener('mousemove', handleMouseMove)
-                                  document.addEventListener('mouseup', handleMouseUp)
-                                }
-                              }}
-                            >
-                              <defs>
-                                <linearGradient
-                                  id="profitGradient"
-                                  x1="0%"
-                                  y1="0%"
-                                  x2="0%"
-                                  y2="100%"
-                                >
-                                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
-                                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                                </linearGradient>
-                                <linearGradient id="lossGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                                  <stop offset="0%" stopColor="#ef4444" stopOpacity="0.0" />
-                                  <stop offset="100%" stopColor="#ef4444" stopOpacity="0.3" />
-                                </linearGradient>
-                              </defs>
-
-                              <g className="grid">
-                                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                                  const y = padding.top + plotHeight * ratio
-                                  return (
-                                    <line
-                                      key={`h-${ratio}`}
-                                      x1={padding.left}
-                                      y1={y}
-                                      x2={chartWidth - padding.right}
-                                      y2={y}
-                                      stroke="#2a2a2a"
-                                      strokeWidth="1"
-                                      shapeRendering="crispEdges"
-                                    />
-                                  )
+                                  return null
                                 })}
 
+                                <path
+                                  d={linePath}
+                                  fill="none"
+                                  stroke={currentDayData.pnlPercent >= 0 ? '#10b981' : '#ef4444'}
+                                  strokeWidth="4"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  vectorEffect="non-scaling-stroke"
+                                  style={{ paintOrder: 'stroke' }}
+                                />
+
                                 <line
-                                  x1={padding.left}
-                                  y1={yScale(0)}
-                                  x2={chartWidth - padding.right}
-                                  y2={yScale(0)}
-                                  stroke="#666"
+                                  x1={currentX}
+                                  y1={padding.top}
+                                  x2={currentX}
+                                  y2={chartHeight - padding.bottom}
+                                  stroke="#3b82f6"
                                   strokeWidth="2"
                                   shapeRendering="crispEdges"
                                 />
 
-                                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                                  const x = padding.left + plotWidth * ratio
-                                  return (
-                                    <line
-                                      key={`v-${ratio}`}
-                                      x1={x}
-                                      y1={padding.top}
-                                      x2={x}
-                                      y2={chartHeight - padding.bottom}
-                                      stroke="#2a2a2a"
-                                      strokeWidth="1"
-                                      shapeRendering="crispEdges"
-                                    />
-                                  )
-                                })}
-                              </g>
-
-                              {chartData.map((d, i) => {
-                                if (i === 0) return null
-                                const prevD = chartData[i - 1]
-                                const x1 = xScale(prevD.daysToExp)
-                                const y1 = yScale(prevD.pnlPercent)
-                                const x2 = xScale(d.daysToExp)
-                                const y2 = yScale(d.pnlPercent)
-                                const zeroY = yScale(0)
-
-                                const isProfit = d.pnlPercent >= 0 && prevD.pnlPercent >= 0
-                                const isLoss = d.pnlPercent <= 0 && prevD.pnlPercent <= 0
-
-                                if (isProfit) {
-                                  return (
-                                    <path
-                                      key={`fill-${i}`}
-                                      d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
-                                      fill="url(#profitGradient)"
-                                    />
-                                  )
-                                } else if (isLoss) {
-                                  return (
-                                    <path
-                                      key={`fill-${i}`}
-                                      d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
-                                      fill="url(#lossGradient)"
-                                    />
-                                  )
-                                }
-                                return null
-                              })}
-
-                              <path
-                                d={linePath}
-                                fill="none"
-                                stroke={currentDayData.pnlPercent >= 0 ? '#10b981' : '#ef4444'}
-                                strokeWidth="4"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                vectorEffect="non-scaling-stroke"
-                                style={{ paintOrder: 'stroke' }}
-                              />
-
-                              <line
-                                x1={currentX}
-                                y1={padding.top}
-                                x2={currentX}
-                                y2={chartHeight - padding.bottom}
-                                stroke="#3b82f6"
-                                strokeWidth="2"
-                                shapeRendering="crispEdges"
-                              />
-
-                              <circle
-                                cx={currentX}
-                                cy={currentY}
-                                r="6"
-                                fill={currentDayData.pnl >= 0 ? '#10b981' : '#ef4444'}
-                                stroke="#fff"
-                                strokeWidth="2"
-                              />
-
-                              <g className="x-axis-labels">
-                                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                                  const days = Math.round(maxDTE * (1 - ratio))
-                                  const x = padding.left + plotWidth * ratio
-                                  const date = new Date(today)
-                                  date.setDate(date.getDate() + (maxDTE - days))
-                                  const dateLabel =
-                                    ratio === 1 ? 'EXP' : `${date.getMonth() + 1}/${date.getDate()}`
-
-                                  return (
-                                    <text
-                                      key={`x-${ratio}`}
-                                      x={x}
-                                      y={chartHeight - padding.bottom + 20}
-                                      fill="#ffffff"
-                                      fillOpacity="1"
-                                      fontSize="16"
-                                      textAnchor="middle"
-                                      fontWeight="600"
-                                    >
-                                      {dateLabel}
-                                    </text>
-                                  )
-                                })}
-                              </g>
-
-                              <g className="stock-price-ticks">
-                                {(() => {
-                                  const priceMin = Math.floor(currentPrice * 0.85)
-                                  const priceMax = Math.ceil(currentPrice * 1.15)
-                                  const priceRange = priceMax - priceMin
-                                  const tickInterval = priceRange > 50 ? 2 : 1
-                                  const ticks = []
-
-                                  for (
-                                    let price = priceMin;
-                                    price <= priceMax;
-                                    price += tickInterval
-                                  ) {
-                                    const x =
-                                      padding.left + ((price - priceMin) / priceRange) * plotWidth
-                                    const showLabel = (price - priceMin) % (tickInterval * 5) === 0
-
-                                    ticks.push(
-                                      <g key={`tick-${price}`}>
-                                        <line
-                                          x1={x}
-                                          y1={chartHeight - padding.bottom + 35}
-                                          x2={x}
-                                          y2={chartHeight - padding.bottom + 45}
-                                          stroke="#666"
-                                          strokeWidth="1"
-                                        />
-                                        {showLabel && (
-                                          <text
-                                            x={x}
-                                            y={chartHeight - padding.bottom + 58}
-                                            fill="#ffffff"
-                                            fillOpacity="1"
-                                            fontSize="16"
-                                            textAnchor="middle"
-                                            fontWeight="600"
-                                          >
-                                            {price}
-                                          </text>
-                                        )}
-                                      </g>
-                                    )
-                                  }
-                                  return ticks
-                                })()}
-
-                                <line
-                                  x1={padding.left}
-                                  y1={chartHeight - padding.bottom + 40}
-                                  x2={padding.left + plotWidth}
-                                  y2={chartHeight - padding.bottom + 40}
-                                  stroke="#666"
+                                <circle
+                                  cx={currentX}
+                                  cy={currentY}
+                                  r="6"
+                                  fill={currentDayData.pnl >= 0 ? '#10b981' : '#ef4444'}
+                                  stroke="#fff"
                                   strokeWidth="2"
                                 />
 
-                                <g>
-                                  <circle
-                                    cx={
-                                      padding.left +
-                                      ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth
-                                    }
-                                    cy={chartHeight - padding.bottom + 40}
-                                    r="8"
-                                    fill="#3b82f6"
-                                    stroke="#fff"
-                                    strokeWidth="2"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setIsEditingPrice(true)
-                                      setPriceInputValue(simulatedStockPrice.toFixed(2))
-                                    }}
-                                  />
+                                <g className="x-axis-labels">
+                                  {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                                    const days = Math.round(maxDTE * (1 - ratio))
+                                    const x = padding.left + plotWidth * ratio
+                                    const date = new Date(today)
+                                    date.setDate(date.getDate() + (maxDTE - days))
+                                    const dateLabel =
+                                      ratio === 1 ? 'EXP' : `${date.getMonth() + 1}/${date.getDate()}`
 
-                                  <rect
-                                    x={
-                                      padding.left +
-                                      ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth -
-                                      35
-                                    }
-                                    y={chartHeight - padding.bottom + 65}
-                                    width="70"
-                                    height="22"
-                                    fill="#3b82f6"
-                                    rx="4"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setIsEditingPrice(true)
-                                      setPriceInputValue(simulatedStockPrice.toFixed(2))
-                                    }}
-                                  />
-                                  <text
-                                    x={
-                                      padding.left +
-                                      ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth
-                                    }
-                                    y={chartHeight - padding.bottom + 79}
-                                    fill="white"
-                                    fillOpacity="1"
-                                    fontSize="12"
-                                    textAnchor="middle"
-                                    fontWeight="bold"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setIsEditingPrice(true)
-                                      setPriceInputValue(simulatedStockPrice.toFixed(2))
-                                    }}
-                                  >
-                                    ${simulatedStockPrice.toFixed(2)}
-                                  </text>
+                                    return (
+                                      <text
+                                        key={`x-${ratio}`}
+                                        x={x}
+                                        y={chartHeight - padding.bottom + 20}
+                                        fill="#ffffff"
+                                        fillOpacity="1"
+                                        fontSize="16"
+                                        textAnchor="middle"
+                                        fontWeight="600"
+                                      >
+                                        {dateLabel}
+                                      </text>
+                                    )
+                                  })}
                                 </g>
 
-                                <g>
+                                <g className="stock-price-ticks">
+                                  {(() => {
+                                    const priceMin = Math.floor(currentPrice * 0.85)
+                                    const priceMax = Math.ceil(currentPrice * 1.15)
+                                    const priceRange = priceMax - priceMin
+                                    const tickInterval = priceRange > 50 ? 2 : 1
+                                    const ticks = []
+
+                                    for (
+                                      let price = priceMin;
+                                      price <= priceMax;
+                                      price += tickInterval
+                                    ) {
+                                      const x =
+                                        padding.left + ((price - priceMin) / priceRange) * plotWidth
+                                      const showLabel = (price - priceMin) % (tickInterval * 5) === 0
+
+                                      ticks.push(
+                                        <g key={`tick-${price}`}>
+                                          <line
+                                            x1={x}
+                                            y1={chartHeight - padding.bottom + 35}
+                                            x2={x}
+                                            y2={chartHeight - padding.bottom + 45}
+                                            stroke="#666"
+                                            strokeWidth="1"
+                                          />
+                                          {showLabel && (
+                                            <text
+                                              x={x}
+                                              y={chartHeight - padding.bottom + 58}
+                                              fill="#ffffff"
+                                              fillOpacity="1"
+                                              fontSize="16"
+                                              textAnchor="middle"
+                                              fontWeight="600"
+                                            >
+                                              {price}
+                                            </text>
+                                          )}
+                                        </g>
+                                      )
+                                    }
+                                    return ticks
+                                  })()}
+
                                   <line
-                                    x1={
-                                      padding.left +
-                                      ((strikePrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth
-                                    }
-                                    y1={chartHeight - padding.bottom + 35}
-                                    x2={
-                                      padding.left +
-                                      ((strikePrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth
-                                    }
-                                    y2={chartHeight - padding.bottom + 45}
-                                    stroke="#fbbf24"
-                                    strokeWidth="3"
+                                    x1={padding.left}
+                                    y1={chartHeight - padding.bottom + 40}
+                                    x2={padding.left + plotWidth}
+                                    y2={chartHeight - padding.bottom + 40}
+                                    stroke="#666"
+                                    strokeWidth="2"
                                   />
-                                  <text
-                                    x={
-                                      padding.left +
-                                      ((strikePrice - Math.floor(currentPrice * 0.85)) /
-                                        (Math.ceil(currentPrice * 1.15) -
-                                          Math.floor(currentPrice * 0.85))) *
-                                        plotWidth
-                                    }
-                                    y={chartHeight - padding.bottom + 30}
-                                    fill="#fbbf24"
-                                    fillOpacity="1"
-                                    fontSize="11"
-                                    textAnchor="middle"
-                                    fontWeight="bold"
-                                  >
-                                    Strike
-                                  </text>
-                                </g>
-                              </g>
 
-                              <g className="y-axis-labels">
-                                {[0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => {
-                                  const pnl = minPnL + (maxPnL - minPnL) * (1 - ratio)
-                                  const y = padding.top + plotHeight * ratio
-                                  return (
+                                  <g>
+                                    <circle
+                                      cx={
+                                        padding.left +
+                                        ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth
+                                      }
+                                      cy={chartHeight - padding.bottom + 40}
+                                      r="8"
+                                      fill="#3b82f6"
+                                      stroke="#fff"
+                                      strokeWidth="2"
+                                      style={{ cursor: 'pointer' }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setIsEditingPrice(true)
+                                        setPriceInputValue(simulatedStockPrice.toFixed(2))
+                                      }}
+                                    />
+
+                                    <rect
+                                      x={
+                                        padding.left +
+                                        ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth -
+                                        35
+                                      }
+                                      y={chartHeight - padding.bottom + 65}
+                                      width="70"
+                                      height="22"
+                                      fill="#3b82f6"
+                                      rx="4"
+                                      style={{ cursor: 'pointer' }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setIsEditingPrice(true)
+                                        setPriceInputValue(simulatedStockPrice.toFixed(2))
+                                      }}
+                                    />
                                     <text
-                                      key={`y-${ratio}`}
-                                      x={chartWidth - padding.right + 10}
-                                      y={y + 4}
-                                      fill={pnl >= 0 ? '#10b981' : '#ef4444'}
+                                      x={
+                                        padding.left +
+                                        ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth
+                                      }
+                                      y={chartHeight - padding.bottom + 79}
+                                      fill="white"
                                       fillOpacity="1"
                                       fontSize="12"
-                                      textAnchor="start"
+                                      textAnchor="middle"
+                                      fontWeight="bold"
+                                      style={{ cursor: 'pointer' }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setIsEditingPrice(true)
+                                        setPriceInputValue(simulatedStockPrice.toFixed(2))
+                                      }}
+                                    >
+                                      ${simulatedStockPrice.toFixed(2)}
+                                    </text>
+                                  </g>
+
+                                  <g>
+                                    <line
+                                      x1={
+                                        padding.left +
+                                        ((strikePrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth
+                                      }
+                                      y1={chartHeight - padding.bottom + 35}
+                                      x2={
+                                        padding.left +
+                                        ((strikePrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth
+                                      }
+                                      y2={chartHeight - padding.bottom + 45}
+                                      stroke="#fbbf24"
+                                      strokeWidth="3"
+                                    />
+                                    <text
+                                      x={
+                                        padding.left +
+                                        ((strikePrice - Math.floor(currentPrice * 0.85)) /
+                                          (Math.ceil(currentPrice * 1.15) -
+                                            Math.floor(currentPrice * 0.85))) *
+                                        plotWidth
+                                      }
+                                      y={chartHeight - padding.bottom + 30}
+                                      fill="#fbbf24"
+                                      fillOpacity="1"
+                                      fontSize="11"
+                                      textAnchor="middle"
                                       fontWeight="bold"
                                     >
-                                      {pnl >= 0 ? '+' : ''}
-                                      {pnl.toFixed(1)}%
+                                      Strike
                                     </text>
-                                  )
-                                })}
-                              </g>
+                                  </g>
+                                </g>
 
-                              <text
-                                x={currentX}
-                                y={padding.top - 5}
-                                fill="#3b82f6"
-                                fontSize="11"
-                                textAnchor="middle"
-                                fontWeight="bold"
-                              >
-                                Now
-                              </text>
-                            </svg>
+                                <g className="y-axis-labels">
+                                  {[0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => {
+                                    const pnl = minPnL + (maxPnL - minPnL) * (1 - ratio)
+                                    const y = padding.top + plotHeight * ratio
+                                    return (
+                                      <text
+                                        key={`y-${ratio}`}
+                                        x={chartWidth - padding.right + 10}
+                                        y={y + 4}
+                                        fill={pnl >= 0 ? '#10b981' : '#ef4444'}
+                                        fillOpacity="1"
+                                        fontSize="12"
+                                        textAnchor="start"
+                                        fontWeight="bold"
+                                      >
+                                        {pnl >= 0 ? '+' : ''}
+                                        {pnl.toFixed(1)}%
+                                      </text>
+                                    )
+                                  })}
+                                </g>
 
-                            <div className="absolute top-2 right-2 bg-black/80 rounded-lg px-3 py-2 border border-gray-700">
-                              <div className="text-xs text-gray-400">Now</div>
-                              <div
-                                className={`text-lg font-bold ${currentDayData.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                              >
-                                {currentDayData.pnlPercent >= 0 ? '+' : ''}
-                                {currentDayData.pnlPercent.toFixed(2)}%
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                ${currentDayData.pnl >= 0 ? '+' : ''}
-                                {currentDayData.pnl.toFixed(2)}
-                              </div>
-                            </div>
-                          </div>
+                                <text
+                                  x={currentX}
+                                  y={padding.top - 5}
+                                  fill="#3b82f6"
+                                  fontSize="11"
+                                  textAnchor="middle"
+                                  fontWeight="bold"
+                                >
+                                  Now
+                                </text>
+                              </svg>
 
-                          {isEditingPrice && (
-                            <div
-                              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                              onClick={() => setIsEditingPrice(false)}
-                            >
-                              <div
-                                className="bg-gray-900 border border-gray-700 rounded-lg p-6 shadow-xl"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <h3 className="text-white font-bold text-lg mb-4">
-                                  Enter Stock Price
-                                </h3>
-                                <input
-                                  type="number"
-                                  value={priceInputValue}
-                                  onChange={(e) => setPriceInputValue(e.target.value)}
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter') {
-                                      const newPrice = parseFloat(priceInputValue)
-                                      if (!isNaN(newPrice) && newPrice > 0) {
-                                        setHoveredPrice(newPrice)
-                                        setIsHoveringChart(true)
-                                        setTimeout(() => {
-                                          setIsHoveringChart(false)
-                                          setHoveredPrice(null)
-                                        }, 100)
-                                      }
-                                      setIsEditingPrice(false)
-                                    }
-                                  }}
-                                  className="w-full px-4 py-2 bg-black border border-gray-600 rounded text-white text-lg font-bold focus:outline-none focus:border-blue-500"
-                                  placeholder="Enter price..."
-                                  autoFocus
-                                />
-                                <div className="flex gap-2 mt-4">
-                                  <button
-                                    onClick={() => {
-                                      const newPrice = parseFloat(priceInputValue)
-                                      if (!isNaN(newPrice) && newPrice > 0) {
-                                        setHoveredPrice(newPrice)
-                                        setIsHoveringChart(true)
-                                        setTimeout(() => {
-                                          setIsHoveringChart(false)
-                                          setHoveredPrice(null)
-                                        }, 100)
-                                      }
-                                      setIsEditingPrice(false)
-                                    }}
-                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
-                                  >
-                                    Apply
-                                  </button>
-                                  <button
-                                    onClick={() => setIsEditingPrice(false)}
-                                    className="flex-1 px-4 py-2 bg-gray-700 text-white rounded font-medium hover:bg-gray-600 transition-colors"
-                                  >
-                                    Cancel
-                                  </button>
+                              <div className="absolute top-2 right-2 bg-black/80 rounded-lg px-3 py-2 border border-gray-700">
+                                <div className="text-xs text-gray-400">Now</div>
+                                <div
+                                  className={`text-lg font-bold ${currentDayData.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                                >
+                                  {currentDayData.pnlPercent >= 0 ? '+' : ''}
+                                  {currentDayData.pnlPercent.toFixed(2)}%
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                  ${currentDayData.pnl >= 0 ? '+' : ''}
+                                  {currentDayData.pnl.toFixed(2)}
                                 </div>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      )
-                    })()}
+
+                            {isEditingPrice && (
+                              <div
+                                className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                                onClick={() => setIsEditingPrice(false)}
+                              >
+                                <div
+                                  className="bg-gray-900 border border-gray-700 rounded-lg p-6 shadow-xl"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <h3 className="text-white font-bold text-lg mb-4">
+                                    Enter Stock Price
+                                  </h3>
+                                  <input
+                                    type="number"
+                                    value={priceInputValue}
+                                    onChange={(e) => setPriceInputValue(e.target.value)}
+                                    onKeyPress={(e) => {
+                                      if (e.key === 'Enter') {
+                                        const newPrice = parseFloat(priceInputValue)
+                                        if (!isNaN(newPrice) && newPrice > 0) {
+                                          setHoveredPrice(newPrice)
+                                          setIsHoveringChart(true)
+                                          setTimeout(() => {
+                                            setIsHoveringChart(false)
+                                            setHoveredPrice(null)
+                                          }, 100)
+                                        }
+                                        setIsEditingPrice(false)
+                                      }
+                                    }}
+                                    className="w-full px-4 py-2 bg-black border border-gray-600 rounded text-white text-lg font-bold focus:outline-none focus:border-blue-500"
+                                    placeholder="Enter price..."
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-2 mt-4">
+                                    <button
+                                      onClick={() => {
+                                        const newPrice = parseFloat(priceInputValue)
+                                        if (!isNaN(newPrice) && newPrice > 0) {
+                                          setHoveredPrice(newPrice)
+                                          setIsHoveringChart(true)
+                                          setTimeout(() => {
+                                            setIsHoveringChart(false)
+                                            setHoveredPrice(null)
+                                          }, 100)
+                                        }
+                                        setIsEditingPrice(false)
+                                      }}
+                                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+                                    >
+                                      Apply
+                                    </button>
+                                    <button
+                                      onClick={() => setIsEditingPrice(false)}
+                                      className="flex-1 px-4 py-2 bg-gray-700 text-white rounded font-medium hover:bg-gray-600 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                  </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
 
         {loading && (
           <div className="mt-6 bg-black rounded-2xl p-8 border-2 border-blue-600 text-center">
