@@ -15,6 +15,7 @@ export default function MarketPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
   const [selectedTimeframe, setSelectedTimeframe] = useState('1d')
   const [chartHeight, setChartHeight] = useState(800)
+  const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
     // Disable scrolling on this page
@@ -43,10 +44,12 @@ export default function MarketPage() {
     document.addEventListener('wheel', preventScroll, { passive: false })
 
     const updateHeight = () => {
-      const isMobile = window.innerWidth <= 768
-      const navHeight = isMobile ? 108 : 120
+      const mobile = window.innerWidth <= 768
+      setIsMobile(mobile)
+      const navHeight = mobile ? 100 : 120
       const calculatedHeight = window.innerHeight - navHeight
-      setChartHeight(Math.max(400, calculatedHeight))
+      const finalHeight = Math.max(400, calculatedHeight)
+      setChartHeight(finalHeight)
     }
 
     updateHeight()
@@ -71,7 +74,7 @@ export default function MarketPage() {
   return (
     <div
       className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0"
-      style={{ paddingTop: '120px', overscrollBehavior: 'none' }}
+      style={{ paddingTop: isMobile ? '60px' : '120px', overscrollBehavior: 'none' }}
     >
       <div className="w-full h-full">
         <EFIChart

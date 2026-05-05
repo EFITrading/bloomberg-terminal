@@ -1,4 +1,4 @@
-﻿import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   AlertCircle,
@@ -1755,7 +1755,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
 }
 
 // Helper function to calculate Vanna using Black-Scholes formula
-// Vanna = -e^(-rT) � N'(d1) � d2/s
+// Vanna = -e^(-rT) ? N'(d1) ? d2/s
 const calculateVanna = (
   strike: number,
   spotPrice: number,
@@ -1777,7 +1777,7 @@ const calculateVanna = (
   // Calculate N'(d1) - standard normal probability density function
   const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1)
 
-  // Vanna = -e^(-rT) � N'(d1) � d2/s
+  // Vanna = -e^(-rT) ? N'(d1) ? d2/s
   const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma)
 
   return vanna
@@ -1791,7 +1791,7 @@ interface LiquidPanelProps {
 }
 
 const LIVE_QUOTES = [
-  "Real-time data doesn't remove uncertainty � it just makes you faster at being wrong.",
+  "Real-time data doesn't remove uncertainty ? it just makes you faster at being wrong.",
   'The tape never lies. Only the traders who read it do.',
   'Momentum is a fact. Direction is an opinion.',
   'Every print tells a story. Most traders skip to the last page.',
@@ -1803,49 +1803,49 @@ const LIVE_QUOTES = [
   'Live data is a weapon. Interpretation is the trigger.',
   "The dealer's hedge today is tomorrow's price magnet.",
   'In live markets, hesitation is a position.',
-  "Unusual options activity isn't always smart money � but it's always worth watching.",
+  "Unusual options activity isn't always smart money ? but it's always worth watching.",
   'The market moves toward max pain like a river to the sea.',
   "Size doesn't guarantee direction, but it always guarantees attention.",
   'The market is the only place where things go on sale and everyone runs out of the store.',
-  'Bulls make money, bears make money, pigs get slaughtered. � Wall Street proverb',
-  'Never confuse a bull market with brains. � Humphrey Neill',
-  "The time to buy is when there's blood in the streets. � Baron Rothschild",
-  'Compound interest is the eighth wonder of the world. � attributed to Einstein',
-  'Know what you own and know why you own it. � Peter Lynch',
-  'The market is not your enemy. Your emotions are. � anonymous',
-  "A stock doesn't know you own it. � anonymous",
-  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. � Mark Twain',
+  'Bulls make money, bears make money, pigs get slaughtered. ? Wall Street proverb',
+  'Never confuse a bull market with brains. ? Humphrey Neill',
+  "The time to buy is when there's blood in the streets. ? Baron Rothschild",
+  'Compound interest is the eighth wonder of the world. ? attributed to Einstein',
+  'Know what you own and know why you own it. ? Peter Lynch',
+  'The market is not your enemy. Your emotions are. ? anonymous',
+  "A stock doesn't know you own it. ? anonymous",
+  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. ? Mark Twain',
 ]
 
 const MARKET_QUOTES = [
-  'The market is a device for transferring money from the impatient to the patient. � Warren Buffett',
-  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. � Benjamin Graham',
-  "The four most dangerous words in investing are: 'This time it's different.' � Sir John Templeton",
-  "Risk comes from not knowing what you're doing. � Warren Buffett",
-  'The stock market is filled with individuals who know the price of everything, but the value of nothing. � Philip Fisher',
-  'Be fearful when others are greedy, and greedy when others are fearful. � Warren Buffett',
-  'Markets can remain irrational longer than you can remain solvent. � John Maynard Keynes',
-  'The trend is your friend until the end. � Ed Seykota',
-  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. � Warren Buffett',
-  'Everyone has a plan until the market punches them in the face. � adapted',
-  'Cut your losses short and let your winners run. � Wall Street axiom',
-  'The market can do anything. � Mark Douglas',
-  'Price is what you pay. Value is what you get. � Warren Buffett',
-  'Volatility is not risk. The permanent loss of capital is risk. � Howard Marks',
-  "If you don't know who the sucker at the table is, it's you. � Warren Buffett",
-  'An investment in knowledge pays the best interest. � Benjamin Franklin',
-  'Wide diversification is only required when investors do not understand what they are doing. � Warren Buffett',
-  'The goal of a successful trader is to make the best trades. Money is secondary. � Alexander Elder',
-  'In investing, what is comfortable is rarely profitable. � Robert Arnott',
-  'The biggest risk is not taking any risk. � Mark Zuckerberg',
-  "The stock market is a no-called-strike game. You don't have to swing at everything. � Warren Buffett",
-  'Investing is the intersection of economics and psychology. � Seth Klarman',
-  'The secret to investing is to figure out the value of something and then pay a lot less for it. � Joel Greenblatt',
-  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. � Peter Lynch",
-  'The time of maximum pessimism is the best time to buy. � Sir John Templeton',
-  'Successful investing is about managing risk, not avoiding it. � Benjamin Graham',
-  "It's not whether you're right or wrong that's important, but how much money you make when you're right. � George Soros",
-  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. � anonymous',
+  'The market is a device for transferring money from the impatient to the patient. ? Warren Buffett',
+  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. ? Benjamin Graham',
+  "The four most dangerous words in investing are: 'This time it's different.' ? Sir John Templeton",
+  "Risk comes from not knowing what you're doing. ? Warren Buffett",
+  'The stock market is filled with individuals who know the price of everything, but the value of nothing. ? Philip Fisher',
+  'Be fearful when others are greedy, and greedy when others are fearful. ? Warren Buffett',
+  'Markets can remain irrational longer than you can remain solvent. ? John Maynard Keynes',
+  'The trend is your friend until the end. ? Ed Seykota',
+  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. ? Warren Buffett',
+  'Everyone has a plan until the market punches them in the face. ? adapted',
+  'Cut your losses short and let your winners run. ? Wall Street axiom',
+  'The market can do anything. ? Mark Douglas',
+  'Price is what you pay. Value is what you get. ? Warren Buffett',
+  'Volatility is not risk. The permanent loss of capital is risk. ? Howard Marks',
+  "If you don't know who the sucker at the table is, it's you. ? Warren Buffett",
+  'An investment in knowledge pays the best interest. ? Benjamin Franklin',
+  'Wide diversification is only required when investors do not understand what they are doing. ? Warren Buffett',
+  'The goal of a successful trader is to make the best trades. Money is secondary. ? Alexander Elder',
+  'In investing, what is comfortable is rarely profitable. ? Robert Arnott',
+  'The biggest risk is not taking any risk. ? Mark Zuckerberg',
+  "The stock market is a no-called-strike game. You don't have to swing at everything. ? Warren Buffett",
+  'Investing is the intersection of economics and psychology. ? Seth Klarman',
+  'The secret to investing is to figure out the value of something and then pay a lot less for it. ? Joel Greenblatt',
+  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. ? Peter Lynch",
+  'The time of maximum pessimism is the best time to buy. ? Sir John Templeton',
+  'Successful investing is about managing risk, not avoiding it. ? Benjamin Graham',
+  "It's not whether you're right or wrong that's important, but how much money you make when you're right. ? George Soros",
+  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. ? anonymous',
 ]
 
 const LiquidPanel: React.FC<LiquidPanelProps> = ({
@@ -2081,7 +2081,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     }
   }, [activeTableCount, showOI, duoMode])
 
-  // ── Flow Live OI cache (from OptionsFlow page, stored in DB) ────────────────
+  // -- Flow Live OI cache (from OptionsFlow page, stored in DB) ----------------
   // Same PST-aware trading date logic as options-flow/page.tsx.
   const getFlowTradingDate = (): string => {
     const nowPST = new Date(
@@ -2106,7 +2106,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   const [liveOIFromFlowCache, setLiveOIFromFlowCache] = useState(false)
 
   // When the selected ticker changes, check the DB for a fresh cached live OI map.
-  // If found → restore it instantly and skip the scan.
+  // If found ? restore it instantly and skip the scan.
   useEffect(() => {
     if (!selectedTicker) return
     const tradingDate = getFlowTradingDate()
@@ -2131,7 +2131,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTicker])
-  // ─────────────────────────────────────────────────────────────────────────────
+  // -----------------------------------------------------------------------------
 
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
@@ -2175,7 +2175,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
           const allContracts = new Map()
 
-          // Fetch data for each expiration � paginate to get ALL contracts (SPX has >250 per expiry)
+          // Fetch data for each expiration ? paginate to get ALL contracts (SPX has >250 per expiry)
           for (let i = 0; i < uniqueExpirations.length; i++) {
             const expiry = uniqueExpirations[i]
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
@@ -2187,7 +2187,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               while (pageUrl) {
                 const response: Response = await fetch(pageUrl)
                 if (!response.ok) {
-                  console.warn(`?? [LIVE] Expiry ${expiryParam} � HTTP ${response.status}`)
+                  console.warn(`?? [LIVE] Expiry ${expiryParam} ? HTTP ${response.status}`)
                   break
                 }
                 const chainData: any = await response.json()
@@ -2230,7 +2230,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
           setLiveOIProgress(70) // 70% - trades enriched
 
           // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
-          // Same approach as AlgoFlowScreener & Options Flow page � fetches the bid/ask
+          // Same approach as AlgoFlowScreener & Options Flow page ? fetches the bid/ask
           // that existed at the moment the trade printed, not the current live snapshot.
 
           const normalizeTickerForOptions = (ticker: string) => {
@@ -2254,8 +2254,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
             return fillPrice >= midpoint ? 'A' : 'B'
           }
 
-          // Build deduplicated batch payload � unique by contract + second bucket (same as AlgoFlow)
-          // Use trade.ticker directly � it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C06560000)
+          // Build deduplicated batch payload ? unique by contract + second bucket (same as AlgoFlow)
+          // Use trade.ticker directly ? it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C06560000)
           // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for lookups
           type QuoteKey = string
           const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -2271,7 +2271,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
           }
 
-          // Single batch POST � server fans out Polygon /v3/quotes calls with timestamp.lte
+          // Single batch POST ? server fans out Polygon /v3/quotes calls with timestamp.lte
           // to get the exact bid/ask at the moment each trade printed (works for SPX too)
           const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
           const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
@@ -2295,7 +2295,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
             }
           } catch {
             // All trades fall through to N/A fill style
-            console.warn(`?? [LIVE] Historical quote batch failed � all fills will be N/A`)
+            console.warn(`?? [LIVE] Historical quote batch failed ? all fills will be N/A`)
           }
 
           setLiveOIProgress(78) // 78% - historical quotes fetched
@@ -2400,7 +2400,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
     eventSource.onerror = (error) => {
       if (scanComplete) {
-        // Stream closed normally after completion � not a real error
+        // Stream closed normally after completion ? not a real error
         eventSource.close()
         return
       }
@@ -2492,7 +2492,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
         eventSource.onerror = (error) => {
           if (odtrioScanComplete) {
-            // Stream closed normally after completion � not a real error
+            // Stream closed normally after completion ? not a real error
             eventSource.close()
             resolve()
             return
@@ -2539,7 +2539,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
           minStrike = Math.min(...putStrikes, ...callStrikes)
           maxStrike = Math.max(...putStrikes, ...callStrikes)
         } else {
-          // State data not loaded � use percentage-based range for SPX (�1.5%)
+          // State data not loaded ? use percentage-based range for SPX (?1.5%)
           minStrike = currentPrice * 0.985
           maxStrike = currentPrice * 1.015
         }
@@ -3645,7 +3645,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               vexByStrikeByExp[expDate][strikeNum].callVega = vega // Store vega for recalculation
               if (vega && vega !== 0) {
                 // Professional VEX Formula (Goldman Sachs style):
-                // VEX = Vega � OI � Spot � 100 � Moneyness_Weight � Time_Weight
+                // VEX = Vega ? OI ? Spot ? 100 ? Moneyness_Weight ? Time_Weight
 
                 const expirationDate = new Date(expDate)
                 const today = new Date()
@@ -3835,7 +3835,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               vexByStrikeByExp[expDate][strikeNum].putVega = vega // Store vega for recalculation
               if (vega) {
                 // Professional VEX Formula (Goldman Sachs style):
-                // VEX = -Vega � OI � Spot � 100 � Moneyness_Weight � Time_Weight
+                // VEX = -Vega ? OI ? Spot ? 100 ? Moneyness_Weight ? Time_Weight
 
                 const expirationDate = new Date(expDate)
                 const today = new Date()
@@ -3958,14 +3958,14 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
   // Auto-trigger data fetch when ticker or flow mode changes
   useEffect(() => {
-    // If cache was loaded from OptionsFlow, skip the auto-scan — data already applied.
+    // If cache was loaded from OptionsFlow, skip the auto-scan � data already applied.
     if (liveOIFromFlowCache) return
     if (selectedTicker && showFlowGEX && !liveMode) {
       // Flow Map enabled and not in live mode yet - trigger live scan
       setLiveMode(true)
       updateLiveOI()
     } else if (selectedTicker && liveMode) {
-      // Ticker changed while live mode is already on � fetch fresh base data first, then live scan
+      // Ticker changed while live mode is already on ? fetch fresh base data first, then live scan
       setLiveOIData(new Map())
       fetchOptionsData().then(() => updateLiveOI())
     } else if (selectedTicker && !showFlowGEX && !liveMode) {
@@ -4129,7 +4129,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   }, [dealerByStrikeByExpiration, currentPrice, expirations, liveMode, selectedTicker, liveOIData])
 
   // Flow-weighted Dealer data: base dealer GEX (70%) blended with live dealer GEX (30%)
-  // The fresh OI change from live flow is weighted 30% � prominent but not overriding the base position.
+  // The fresh OI change from live flow is weighted 30% ? prominent but not overriding the base position.
   // When not yet in live mode (base === live), result equals standard dealer values.
   const allFlowWeightedDealerData = useMemo(() => {
     const baseData = baseDealerByStrikeByExpiration
@@ -4279,7 +4279,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               const liveWeight =
                 Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta))
               callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult
-              // console.log(`  ?? Call: LiveOI ${liveCallOI} � gammaEff ${gammaEff.toFixed(6)} � liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
+              // console.log(`  ?? Call: LiveOI ${liveCallOI} ? gammaEff ${gammaEff.toFixed(6)} ? liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
             }
 
             if (
@@ -4297,7 +4297,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma
               const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta))
               putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult
-              // console.log(`  ?? Put: LiveOI ${livePutOI} � gammaEff ${gammaEff.toFixed(6)} � liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
+              // console.log(`  ?? Put: LiveOI ${livePutOI} ? gammaEff ${gammaEff.toFixed(6)} ? liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
             }
           } else {
             // Use standard GEX formula for live recalc
@@ -4305,13 +4305,13 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
             if (liveCallOI !== undefined && greeksData.callGamma) {
               callOI = liveCallOI
               callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100
-              // console.log(`  ?? Call: ${greeksData.callGamma} � ${liveCallOI} � ${currentPrice}� � 100 = ${callGEX.toFixed(2)}`);
+              // console.log(`  ?? Call: ${greeksData.callGamma} ? ${liveCallOI} ? ${currentPrice}? ? 100 = ${callGEX.toFixed(2)}`);
             }
 
             if (livePutOI !== undefined && greeksData.putGamma) {
               putOI = livePutOI
               putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100
-              // console.log(`  ?? Put: -${greeksData.putGamma} � ${livePutOI} � ${currentPrice}� � 100 = ${putGEX.toFixed(2)}`);
+              // console.log(`  ?? Put: -${greeksData.putGamma} ? ${livePutOI} ? ${currentPrice}? ? 100 = ${putGEX.toFixed(2)}`);
             }
           }
 
@@ -4843,8 +4843,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   const loadingQuoteRef = useRef(
     (() => {
       const q = MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]
-      const body = q.includes(' � ') ? q.split(' � ')[0] : q
-      const author = q.includes(' � ') ? '� ' + q.split(' � ')[1] : ''
+      const body = q.includes(' ? ') ? q.split(' ? ')[0] : q
+      const author = q.includes(' ? ') ? '? ' + q.split(' ? ')[1] : ''
       return { body, author }
     })()
   )
@@ -5393,7 +5393,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                       {/* LIVE */}
                       {liveOIFromFlowCache ? (
-                        // Cache loaded from OptionsFlow scan — show indicator, hide button
+                        // Cache loaded from OptionsFlow scan � show indicator, hide button
                         !showODTRIO && (
                           <div
                             style={{
@@ -5416,7 +5416,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             title={`Live OI loaded from OptionsFlow scan for ${selectedTicker}`}
                           >
                             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 5px #22c55e' }} />
-                            LIVE ✓
+                            LIVE ?
                           </div>
                         )
                       ) : (
@@ -5494,21 +5494,21 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="1%">±1%</option>
-                        <option value="2%">±2%</option>
-                        <option value="3%">±3%</option>
-                        <option value="5%">±5%</option>
-                        <option value="8%">±8%</option>
-                        <option value="10%">±10%</option>
-                        <option value="15%">±15%</option>
-                        <option value="20%">±20%</option>
-                        <option value="25%">±25%</option>
-                        <option value="40%">±40%</option>
-                        <option value="50%">±50%</option>
-                        <option value="100%">±100%</option>
+                        <option value="1%">�1%</option>
+                        <option value="2%">�2%</option>
+                        <option value="3%">�3%</option>
+                        <option value="5%">�5%</option>
+                        <option value="8%">�8%</option>
+                        <option value="10%">�10%</option>
+                        <option value="15%">�15%</option>
+                        <option value="20%">�20%</option>
+                        <option value="25%">�25%</option>
+                        <option value="40%">�40%</option>
+                        <option value="50%">�50%</option>
+                        <option value="100%">�100%</option>
                       </select>
 
-                      {/* Mode � custom dropdown mobile */}
+                      {/* Mode ? custom dropdown mobile */}
                       {(() => {
                         const modeValue =
                           showGEX && !showDealer && !showFlowGEX && !showODTRIO
@@ -5660,7 +5660,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                         )
                       })()}
 
-                      {/* Mode � native select desktop */}
+                      {/* Mode ? native select desktop */}
                       <select
                         value={
                           showGEX && !showDealer && !showFlowGEX && !showODTRIO
@@ -5794,7 +5794,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                         </button>
                       )}
 
-                      {/* LiveDte button � mobile only, shown when ODTRIO active, replaces LIVE */}
+                      {/* LiveDte button ? mobile only, shown when ODTRIO active, replaces LIVE */}
                       {showODTRIO && (
                         <button
                           onClick={() => {
@@ -6076,7 +6076,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                               {/* LIVE Checkbox */}
                               {liveOIFromFlowCache ? (
-                                // Cache loaded — show indicator, hide interactive button
+                                // Cache loaded � show indicator, hide interactive button
                                 <div
                                   className="relative flex items-center gap-2 px-3 py-1.5 rounded"
                                   style={{
@@ -6088,7 +6088,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                 >
                                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 6px #22c55e' }} />
                                   <span className={`${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]`}>
-                                    LIVE ✓
+                                    LIVE ?
                                   </span>
                                 </div>
                               ) : (
@@ -6176,18 +6176,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                 }
                                 className={`bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none ${analysisSuiteMode ? 'px-6 py-4 text-base min-w-[135px]' : 'px-4 py-2.5 text-sm min-w-[90px]'} pr-10 text-white font-bold uppercase appearance-none cursor-pointer transition-all`}
                               >
-                                <option value="1%">±1%</option>
-                                <option value="2%">±2%</option>
-                                <option value="3%">±3%</option>
-                                <option value="5%">±5%</option>
-                                <option value="8%">±8%</option>
-                                <option value="10%">±10%</option>
-                                <option value="15%">±15%</option>
-                                <option value="20%">±20%</option>
-                                <option value="25%">±25%</option>
-                                <option value="40%">±40%</option>
-                                <option value="50%">±50%</option>
-                                <option value="100%">±100%</option>
+                                <option value="1%">�1%</option>
+                                <option value="2%">�2%</option>
+                                <option value="3%">�3%</option>
+                                <option value="5%">�5%</option>
+                                <option value="8%">�8%</option>
+                                <option value="10%">�10%</option>
+                                <option value="15%">�15%</option>
+                                <option value="20%">�20%</option>
+                                <option value="25%">�25%</option>
+                                <option value="40%">�40%</option>
+                                <option value="50%">�50%</option>
+                                <option value="100%">�100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg
@@ -6710,7 +6710,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                           textShadow: '0 0 8px rgba(0,0,0,1)',
                                         }}
                                       >
-                                        � {tricoTicker} �
+                                        ? {tricoTicker} ?
                                       </h3>
                                       <div
                                         className="w-1.5 h-1.5 rounded-full"
@@ -7789,7 +7789,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(90.49vh - 225px)'
+                                          ? 'calc(81.44vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
@@ -7994,7 +7994,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(90.49vh - 225px)'
+                                          ? 'calc(81.44vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                         overflowX: 'auto',
@@ -8206,7 +8206,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(90.49vh - 225px)'
+                                          ? 'calc(81.44vh - 225px)'
                                           : 'calc(74.78vh - 270px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
@@ -8615,7 +8615,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                         </div>
                       )}
                   </div>
-                  {/* -- Trading Signal Gauges � hidden when OI mode or ODTRIO is active -- */}
+                  {/* -- Trading Signal Gauges ? hidden when OI mode or ODTRIO is active -- */}
                   {!showOI && !showODTRIO && (
                     <div
                       className="md:mt-0"

@@ -522,12 +522,12 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
           zoomLevel === 1
             ? currentYearSeries
             : currentYearSeries.filter((p) => {
-                const chartCenter = 0.5
-                const norm = p.dayOfYear / 365
-                const vis0 = (0 - panOffset - chartCenter) / zoomLevel + chartCenter
-                const vis1 = (1 - panOffset - chartCenter) / zoomLevel + chartCenter
-                return norm >= vis0 && norm <= vis1
-              })
+              const chartCenter = 0.5
+              const norm = p.dayOfYear / 365
+              const vis0 = (0 - panOffset - chartCenter) / zoomLevel + chartCenter
+              const vis1 = (1 - panOffset - chartCenter) / zoomLevel + chartCenter
+              return norm >= vis0 && norm <= vis1
+            })
         const cyReturns = (visibleCY.length > 0 ? visibleCY : currentYearSeries).map(
           (p) => p.cumulativeReturn
         )
@@ -653,8 +653,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
               const crossX =
                 x1 +
                 (x2 - x1) *
-                  (currentDay.cumulativeReturn /
-                    (currentDay.cumulativeReturn - nextDay.cumulativeReturn))
+                (currentDay.cumulativeReturn /
+                  (currentDay.cumulativeReturn - nextDay.cumulativeReturn))
               ctx.moveTo(x1, zeroY)
               ctx.lineTo(x1, y1)
               ctx.lineTo(crossX, zeroY)
@@ -665,8 +665,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
               const crossX =
                 x1 +
                 (x2 - x1) *
-                  (-currentDay.cumulativeReturn /
-                    (nextDay.cumulativeReturn - currentDay.cumulativeReturn))
+                (-currentDay.cumulativeReturn /
+                  (nextDay.cumulativeReturn - currentDay.cumulativeReturn))
               ctx.moveTo(crossX, zeroY)
               ctx.lineTo(x2, y2)
               ctx.lineTo(x2, zeroY)
@@ -694,8 +694,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
               const crossX =
                 x1 +
                 (x2 - x1) *
-                  (currentDay.cumulativeReturn /
-                    (currentDay.cumulativeReturn - nextDay.cumulativeReturn))
+                (currentDay.cumulativeReturn /
+                  (currentDay.cumulativeReturn - nextDay.cumulativeReturn))
               ctx.moveTo(crossX, zeroY)
               ctx.lineTo(x2, y2)
               ctx.lineTo(x2, zeroY)
@@ -706,8 +706,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
               const crossX =
                 x1 +
                 (x2 - x1) *
-                  (-currentDay.cumulativeReturn /
-                    (nextDay.cumulativeReturn - currentDay.cumulativeReturn))
+                (-currentDay.cumulativeReturn /
+                  (nextDay.cumulativeReturn - currentDay.cumulativeReturn))
               ctx.moveTo(x1, zeroY)
               ctx.lineTo(x1, y1)
               ctx.lineTo(crossX, zeroY)
@@ -1084,7 +1084,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       style={{
         width: '100%',
         height: '100%',
-        minHeight: '650px',
+        minHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? '612px' : '650px',
         minWidth: '300px',
         position: 'relative',
         overflow: 'hidden',

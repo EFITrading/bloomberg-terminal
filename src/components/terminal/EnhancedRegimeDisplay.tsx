@@ -1052,11 +1052,11 @@ function EnhancedRegimeDisplay({
 
             {compositeView === 'gauge' ? (
               <>
-                <div style={isMobile ? { transform: 'scaleY(1.4)', transformOrigin: 'top center', width: '100%', display: 'flex', justifyContent: 'center', marginTop: '18px' } : {}}>
+                <div style={isMobile ? { transform: 'scaleY(1.12)', transformOrigin: 'top center', width: '100%', display: 'flex', justifyContent: 'center', marginTop: '14px' } : {}}>
                   <RegimeGauge
                     value={compositeSpread}
                     label=""
-                    size={isMobile ? 184 : 276}
+                    size={isMobile ? 147 : 276}
                     thickness={isMobile ? 16 : 26}
                     regime={compositeRegime}
                     showValue={false}
@@ -1072,7 +1072,7 @@ function EnhancedRegimeDisplay({
                     borderRadius: '2px',
                     boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 15px ${compositeColor}50`,
                     textAlign: 'center',
-                    marginTop: isMobile ? '68px' : '20px',
+                    marginTop: isMobile ? '54px' : '20px',
                     width: '100%',
                   }}
                 >
@@ -1182,7 +1182,7 @@ function EnhancedRegimeDisplay({
                     <RegimeGauge
                       value={tfSpread}
                       label=""
-                      size={isMobile ? 117 : 168}
+                      size={isMobile ? 94 : 168}
                       thickness={isMobile ? 13 : 16}
                       showValue={true}
                       regime={tfAnalysis.regime}

@@ -645,10 +645,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         } else {
           // For other symbols, fetch both symbol and SPY for comparison
           console.log('[SeasonalityChart] fetching', symbol, '+ SPY data from API...')
-          ;[historicalResponse, spyResponse] = await Promise.all([
-            polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
-            polygonService.getHistoricalData('SPY', startDateStr, endDateStr),
-          ])
+            ;[historicalResponse, spyResponse] = await Promise.all([
+              polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
+              polygonService.getHistoricalData('SPY', startDateStr, endDateStr),
+            ])
           console.log(
             '[SeasonalityChart]',
             symbol,
@@ -752,10 +752,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       const actualYearsUsed =
         filteredData && filteredData.length > 0
           ? Math.ceil(
-              (new Date(filteredData[filteredData.length - 1].t).getTime() -
-                new Date(filteredData[0].t).getTime()) /
-                (365.25 * 24 * 60 * 60 * 1000)
-            )
+            (new Date(filteredData[filteredData.length - 1].t).getTime() -
+              new Date(filteredData[0].t).getTime()) /
+            (365.25 * 24 * 60 * 60 * 1000)
+          )
           : yearsOverride || 20
 
       // Process data into daily seasonal format with or without SPY comparison
@@ -1337,10 +1337,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           loadElectionCycleAnalysis(
             selectedSymbol,
             selectedElectionPeriod as
-              | 'Election Year'
-              | 'Post-Election'
-              | 'Mid-Term'
-              | 'Pre-Election',
+            | 'Election Year'
+            | 'Post-Election'
+            | 'Mid-Term'
+            | 'Pre-Election',
             newSettings.yearsOfData
           )
         } else {
@@ -1807,10 +1807,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                     loadElectionCycleAnalysis(
                       selectedSymbol,
                       selectedElectionPeriod as
-                        | 'Election Year'
-                        | 'Post-Election'
-                        | 'Mid-Term'
-                        | 'Pre-Election'
+                      | 'Election Year'
+                      | 'Post-Election'
+                      | 'Mid-Term'
+                      | 'Pre-Election'
                     )
                   } else {
                     loadSeasonalAnalysis(selectedSymbol)
@@ -1859,8 +1859,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                 <div
                   style={{
                     width: '100%',
-                    maxHeight: '650px',
-                    height: '650px',
+                    maxHeight: `${chartHeight}px`,
+                    height: `${chartHeight}px`,
                     position: 'relative',
                     marginTop: '0px',
                   }}
