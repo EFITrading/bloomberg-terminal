@@ -206,8 +206,7 @@
 
   /* Sidebar panel container - make it mobile friendly */
   .fixed.top-32.bottom-4.left-16 {
-    top: 100px !important;
-    /* Moved down from 60px */
+    top: 56px !important;
     bottom: 10px !important;
     /* Closer to bottom */
     left: 50px !important;
@@ -219,14 +218,12 @@
     max-width: calc(100vw - 50px) !important;
     /* More width */
     height: auto !important;
-    max-height: calc(100vh - 120px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 76px) !important;
   }
 
   /* Ensure panel content is scrollable and fits */
   .fixed.top-32.bottom-4.left-16>div:last-child {
-    max-height: calc(100vh - 180px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 130px) !important;
     overflow-y: auto !important;
   }
 
@@ -272,22 +269,16 @@
 
 @media (max-width: 640px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 90px !important;
-    /* Moved down from 50px */
+    top: 56px !important;
     bottom: 5px !important;
     left: 42px !important;
-    /* Account for smaller sidebar */
     right: 0px !important;
-    /* More width */
     max-width: calc(100vw - 42px) !important;
-    /* More width */
-    max-height: calc(100vh - 100px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 66px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16>div:last-child {
-    max-height: calc(100vh - 150px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 116px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16 .h-12 {
@@ -331,21 +322,16 @@
 
 @media (max-width: 480px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 80px !important;
-    /* Moved down from 40px */
+    top: 56px !important;
     bottom: 5px !important;
     left: 38px !important;
     right: 0px !important;
-    /* More width */
     max-width: calc(100vw - 38px) !important;
-    /* More width */
-    max-height: calc(100vh - 90px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 66px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16>div:last-child {
-    max-height: calc(100vh - 135px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 116px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16 .h-12 {
@@ -389,21 +375,16 @@
 
 @media (max-width: 375px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 75px !important;
-    /* Moved down from 35px */
+    top: 56px !important;
     bottom: 5px !important;
     left: 34px !important;
     right: 0px !important;
-    /* Edge to edge */
     max-width: calc(100vw - 34px) !important;
-    /* Maximum width possible */
-    max-height: calc(100vh - 85px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 66px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16>div:last-child {
-    max-height: calc(100vh - 125px) !important;
-    /* Adjusted for new top position */
+    max-height: calc(100vh - 116px) !important;
   }
 
   .fixed.top-32.bottom-4.left-16 .h-12 {

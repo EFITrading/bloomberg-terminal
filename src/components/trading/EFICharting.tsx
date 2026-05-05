@@ -30352,16 +30352,19 @@ export default function TradingViewChart({
           {typeof window !== 'undefined' &&
             createPortal(
               <div
-                className={`fixed left-0 md:left-[100px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
+                className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
                 style={{
                   zIndex: 9999,
                   display: activeSidebarPanel ? 'block' : 'none',
-                  width:
-                    activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
+                  left: isMobile ? '40px' : '100px',
+                  width: isMobile
+                    ? 'calc(100vw - 40px)'
+                    : activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
                       ? 'calc(100vw - 100px)'
                       : '100%',
-                  maxWidth:
-                    activeSidebarPanel === 'liquid'
+                  maxWidth: isMobile
+                    ? 'calc(100vw - 40px)'
+                    : activeSidebarPanel === 'liquid'
                       ? 'fit-content'
                       : activeSidebarPanel === 'flow'
                         ? '1500px'
@@ -30369,7 +30372,7 @@ export default function TradingViewChart({
                           ? 'calc(100vw - 100px)'
                           : '1200px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
-                  top: isMobile ? (activeSidebarPanel === 'seasonality' || activeSidebarPanel === 'flow' ? '60px' : '85px') : (activeSidebarPanel === 'news' ? '130px' : '180px'),
+                  top: isMobile ? '60px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
                   bottom:
                     isMobile ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
                 }}
