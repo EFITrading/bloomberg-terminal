@@ -30381,7 +30381,7 @@ export default function TradingViewChart({
                 {/* Sidebar panel debugging */}
 
                 {/* Panel Content */}
-                <div className={`h-full overflow-y-auto`}>
+                <div className={`h-full overflow-y-auto`} style={activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}}>
                   {activeSidebarPanel === 'liquid' && (
                     <LiquidPanel onClose={() => setActiveSidebarPanel(null)} />
                   )}
@@ -33102,6 +33102,7 @@ export default function TradingViewChart({
                                 initialSymbol={seasonalSymbol}
                                 autoStart={true}
                                 hideControls={false}
+                                hideMonthlyReturns={isMobile}
                                 onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
                                 externalElectionMode={seasonalElectionMode}
                                 externalYears={seasonalYears}

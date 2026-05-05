@@ -174,9 +174,18 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [monthlyViewActive, setMonthlyViewActive] = useState<boolean>(false)
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null)
   const [selectedMonthName, setSelectedMonthName] = useState<string>('')
+  const [isMobileView, setIsMobileView] = useState<boolean>(false)
   const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]) // Dynamic based on actual data
   const [showCurrentYearLine, setShowCurrentYearLine] = useState<boolean>(false)
   const [currentYearMode, setCurrentYearMode] = useState<'off' | 'raw' | 'benchmarked'>('off')
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobileView(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Compare functionality state
   const [isCompareMode, setIsCompareMode] = useState<boolean>(false)
@@ -1932,7 +1941,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               </div>
 
               {/* Monthly Analysis Chart below seasonal chart */}
-              {!hideMonthlyReturns && memoizedMonthlyChart}
+              {!hideMonthlyReturns && !isMobileView && memoizedMonthlyChart}
             </div>
 
             {/* Right column: Screener when not hidden */}
