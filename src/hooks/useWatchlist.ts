@@ -32,7 +32,7 @@ export function useWatchlist() {
 
             const dataPromises = bulkData.map(async (data) => {
                 try {
-                    console.log(`� Processing ${data.symbol}...`);
+                    console.log(`» Processing ${data.symbol}...`);
 
                     const performance = await enhancedService.calculatePerformanceCategory(data.symbol);
                     const signal = await enhancedService.generateAISignal(data.symbol, performance, data.dailyChangePercent);

@@ -71,7 +71,7 @@ class SeasonalScreenerService {
 
     try {
       // PHASE 1: Bulk fetch ALL historical data in 2-3 seconds
-      console.log(`� PHASE 1: Bulk fetching historical data for ${stocksToProcess.length} symbols...`);
+      console.log(`» PHASE 1: Bulk fetching historical data for ${stocksToProcess.length} symbols...`);
 
       const symbols = ['SPY', ...stocksToProcess.map(s => s.symbol)];
       const allHistoricalData = await this.fetchBulkHistoricalData(symbols, years);

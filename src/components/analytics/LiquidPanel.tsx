@@ -739,7 +739,7 @@ interface MMDashboardProps {
 // Self-contained gauge panel rendered in the Greek Suite (ATTRACTION) tab.
 interface GaugeTrioProps {
   currentPrice: number
-  gexByStrikeByExpiration: MMDashboardProps['gexByStrikeByExpiration']
+  dealerByStrikeByExpiration: MMDashboardProps['gexByStrikeByExpiration']
   vexByStrikeByExpiration: MMDashboardProps['vexByStrikeByExpiration']
   expirations: string[]
   analysisSuiteMode?: boolean
@@ -748,12 +748,36 @@ interface GaugeTrioProps {
 
 const GaugeTrio: React.FC<GaugeTrioProps> = ({
   currentPrice,
-  gexByStrikeByExpiration,
+  dealerByStrikeByExpiration,
   vexByStrikeByExpiration,
   expirations,
   analysisSuiteMode,
   onGaugeMetrics,
 }) => {
+  const gexByStrikeByExpiration = dealerByStrikeByExpiration
+
+  // Inline normalCDF for BS delta fallback (avoids circular import)
+  const normalCDF = (x: number): number => {
+    const sign = x < 0 ? -1 : 1
+    const ax = Math.abs(x) / Math.sqrt(2)
+    const t = 1 / (1 + 0.3275911 * ax)
+    const y =
+      1 -
+      ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t +
+        0.254829592) *
+        t *
+        Math.exp(-ax * ax)
+    return 0.5 * (1 + sign * y)
+  }
+
+  // Black-Scholes N(d1) delta. Returns call delta [0,1]; put delta = callDelta - 1.
+  const bsDelta = (S: number, K: number, dte: number, iv: number): number => {
+    const T = Math.max(dte, 0.5) / 365
+    const sigma = Math.max(iv, 0.05)
+    const d1 = (Math.log(S / K) + (0.045 + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T))
+    return normalCDF(d1)
+  }
+
   const mmExpirations = useMemo(() => {
     const today = new Date()
     const maxDate = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
@@ -779,6 +803,13 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           .forEach((s) => allStrikes.add(s))
       }
     })
+    console.groupCollapsed(`[GaugeTrio] mmData build — ${currentPrice} price, ${mmExpirations.length} expiries, ${allStrikes.size} strikes in ±20% range`)
+    console.log('[GaugeTrio] Expiries scanned:', mmExpirations.map(exp => {
+      const dte = Math.ceil((new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000)
+      return `${exp} (${dte}DTE, w=${Math.exp(-Math.max(1,dte)/21).toFixed(3)})`
+    }))
+    console.groupEnd()
+
     return Array.from(allStrikes)
       .map((strike) => {
         let totalCallMM = 0,
@@ -800,31 +831,32 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             const daysToExp = Math.ceil(
               (new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000
             )
-            const w = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1
+            // Exponential decay with 21-day half-life: weights weeklies/monthlies properly
+            // without blowing up at 0DTE. Matches EMA-style institutional time-weighting.
+            const w = daysToExp >= 0 ? Math.exp(-Math.max(1, daysToExp) / 21) : 1
             totalCallMM += (sd.call / (currentPrice * 0.01)) * w
             totalPutMM += (sd.put / (currentPrice * 0.01)) * w
             totalOI += (sd.callOI || 0) + (sd.putOI || 0)
             const cOI = sd.callOI || 0,
               pOI = sd.putOI || 0
-            const m = strike / currentPrice
-            let cd = 0.4,
-              pd = -0.6
-            if (m > 1.1) {
-              cd = 0.1
-              pd = -0.9
-            } else if (m > 1.05) {
-              cd = 0.3
-              pd = -0.7
-            } else if (m > 0.95) {
-              cd = 0.6
-              pd = -0.4
-            } else if (m > 0.9) {
-              cd = 0.7
-              pd = -0.3
-            } else if (m <= 0.9) {
-              cd = 0.9
-              pd = -0.1
-            }
+            // Use actual delta from data; fall back to Black-Scholes N(d1) with real IV
+            const iv = sd.callIV || 0.3
+            const deltaSource = sd.callDelta != null && sd.callDelta !== 0 ? 'API' : `BS(IV=${iv.toFixed(3)})`
+            const cd =
+              sd.callDelta != null && sd.callDelta !== 0
+                ? Math.abs(sd.callDelta)
+                : bsDelta(currentPrice, strike, daysToExp, iv)
+            const pd =
+              sd.putDelta != null && sd.putDelta !== 0
+                ? sd.putDelta
+                : cd - 1
+            console.log(
+              `[GaugeTrio] K=${strike} exp=${exp} DTE=${daysToExp} w=${w.toFixed(3)}`,
+              `| deltaSource=${deltaSource} cd=${cd.toFixed(3)} pd=${pd.toFixed(3)}`,
+              `| cOI=${cOI} pOI=${pOI}`,
+              `| gamma=${(sd.callGamma||0).toFixed(5)} vega=${(sd.callVega||0).toFixed(4)} theta=${(sd.callTheta||0).toFixed(4)}`,
+              `| IV=${iv.toFixed(3)}${ sd.callIV ? ' (from API)' : ' (hardcoded fallback)' }`
+            )
             tCD += cd * cOI * 100 * w
             tPD += pd * pOI * 100 * w
             tCG += (sd.callGamma || 0) * cOI * w
@@ -902,6 +934,20 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         signalExplanation = 'Low conviction across all Greeks - wait for clearer setup'
       else signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade'
     }
+    console.groupCollapsed(`[GaugeTrio] Metrics — composite=${compositeScore.toFixed(3)} → ${signal}`)
+    console.log('[GaugeTrio] Sub-scores:',
+      `dS(delta)=${dS.toFixed(3)} [×0.30]`,
+      `gS(gamma)=${gS.toFixed(3)} [×0.35]`,
+      `tS(theta)=${tS.toFixed(3)} [×0.20]`,
+      `vS(vega)=${vS.toFixed(3)} [×0.15]`
+    )
+    console.log('[GaugeTrio] Raw totals:',
+      `netDelta=${mmData.reduce((s,i)=>s+i.netDelta,0).toFixed(0)}`,
+      `netGamma=${mmData.reduce((s,i)=>s+i.netGamma,0).toFixed(4)}`,
+      `netTheta=${mmData.reduce((s,i)=>s+i.netTheta,0).toFixed(2)}`,
+      `netVega=${mmData.reduce((s,i)=>s+i.netVega,0).toFixed(2)}`
+    )
+    console.groupEnd()
     return { compositeScore, signal, signalExplanation }
   }, [mmData, currentPrice])
 
@@ -919,6 +965,11 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
     mmExpirations.forEach((exp) => {
       const gexData = gexByStrikeByExpiration[exp]
       if (gexData) {
+        const daysToExp = Math.ceil(
+          (new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000
+        )
+        // Same exp(-DTE/21) weighting as mmData
+        const w = daysToExp >= 0 ? Math.exp(-Math.max(1, daysToExp) / 21) : 1
         Object.entries(gexData).forEach(([strike, data]) => {
           const sp = parseFloat(strike)
           const cOI = data.callOI || 0,
@@ -926,23 +977,37 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           if (cOI > 0 || pOI > 0) {
             const cG = data.callGamma || 0,
               pG = data.putGamma || 0
-            if (cOI > 0 && cG !== 0) totalGEX += cG * cOI * (currentPrice * currentPrice) * 100
-            if (pOI > 0 && pG !== 0) totalGEX += -pG * pOI * (currentPrice * currentPrice) * 100
+            if (cOI > 0 && cG !== 0) totalGEX += cG * cOI * (currentPrice * currentPrice) * 100 * w
+            if (pOI > 0 && pG !== 0) totalGEX += -pG * pOI * (currentPrice * currentPrice) * 100 * w
             const cV = data.callVega || 0,
               pV = data.putVega || 0
-            if (cOI > 0 && cV !== 0) totalVEX += cV * cOI * 100
-            if (pOI > 0 && pV !== 0) totalVEX += -pV * pOI * 100
-            const mn = sp / currentPrice
-            let cd = 0.5
-            if (mn > 1.05) cd = Math.max(0, Math.min(1, (mn - 1) * 2))
-            else if (mn < 0.95) cd = Math.max(0, Math.min(1, 0.8 + (1 - mn) * 0.4))
-            totalDEX += cd * cOI * 100 * currentPrice + (cd - 1) * pOI * 100 * currentPrice
+            if (cOI > 0 && cV !== 0) totalVEX += cV * cOI * 100 * w
+            if (pOI > 0 && pV !== 0) totalVEX += -pV * pOI * 100 * w
+            // DEX: use actual delta from data; fall back to BS N(d1)
+            const iv = data.callIV || 0.3
+            const callD =
+              data.callDelta != null && data.callDelta !== 0
+                ? Math.abs(data.callDelta)
+                : bsDelta(currentPrice, sp, daysToExp, iv)
+            const putD =
+              data.putDelta != null && data.putDelta !== 0
+                ? data.putDelta
+                : callD - 1
+            totalDEX += (callD * cOI * 100 * currentPrice + putD * pOI * 100 * currentPrice) * w
           }
         })
       }
     })
     const denom = Math.abs(totalVEX) + Math.abs(totalDEX)
     const si = denom !== 0 ? totalGEX / denom : 0
+    console.groupCollapsed(`[GaugeTrio] StabilityIndex — SI=${si.toFixed(4)}`)
+    console.log('[GaugeTrio] SI components:',
+      `totalGEX=${totalGEX.toExponential(3)}`,
+      `totalVEX=${totalVEX.toExponential(3)}`,
+      `totalDEX=${totalDEX.toExponential(3)}`,
+      `denom=${denom.toExponential(3)}`
+    )
+    console.groupEnd()
     let stability = '',
       marketBehavior = '',
       stabilityColor = ''
@@ -1896,6 +1961,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
         putVega?: number
         callTheta?: number
         putTheta?: number
+        callIV?: number
+        putIV?: number
       }
     }
   }>({})
@@ -1936,6 +2003,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
         putVega?: number
         callTheta?: number
         putTheta?: number
+        callIV?: number
+        putIV?: number
       }
     }
   }>({})
@@ -3580,6 +3649,12 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                 putDelta: 0,
                 callVanna: vanna,
                 putVanna: 0,
+                callTheta: theta,
+                putTheta: 0,
+                callVega: vega,
+                putVega: 0,
+                callIV: data.implied_volatility || undefined,
+                putIV: undefined,
               }
 
               // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
@@ -3767,6 +3842,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
               dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma
               dealerByStrikeByExp[expDate][strikeNum].putDelta = delta
               dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna
+              dealerByStrikeByExp[expDate][strikeNum].putTheta = theta
+              dealerByStrikeByExp[expDate][strikeNum].putVega = vega
 
               // Flow Map: Simple premium-based calculation for puts (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate][strikeNum]) {
@@ -3958,7 +4035,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
   // Auto-trigger data fetch when ticker or flow mode changes
   useEffect(() => {
-    // If cache was loaded from OptionsFlow, skip the auto-scan � data already applied.
+    // If cache was loaded from OptionsFlow, skip the auto-scan — data already applied.
     if (liveOIFromFlowCache) return
     if (selectedTicker && showFlowGEX && !liveMode) {
       // Flow Map enabled and not in live mode yet - trigger live scan
@@ -5393,7 +5470,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                       {/* LIVE */}
                       {liveOIFromFlowCache ? (
-                        // Cache loaded from OptionsFlow scan � show indicator, hide button
+                        // Cache loaded from OptionsFlow scan — show indicator, hide button
                         !showODTRIO && (
                           <div
                             style={{
@@ -5494,18 +5571,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="1%">�1%</option>
-                        <option value="2%">�2%</option>
-                        <option value="3%">�3%</option>
-                        <option value="5%">�5%</option>
-                        <option value="8%">�8%</option>
-                        <option value="10%">�10%</option>
-                        <option value="15%">�15%</option>
-                        <option value="20%">�20%</option>
-                        <option value="25%">�25%</option>
-                        <option value="40%">�40%</option>
-                        <option value="50%">�50%</option>
-                        <option value="100%">�100%</option>
+                        <option value="1%">±1%</option>
+                        <option value="2%">±2%</option>
+                        <option value="3%">±3%</option>
+                        <option value="5%">±5%</option>
+                        <option value="8%">±8%</option>
+                        <option value="10%">±10%</option>
+                        <option value="15%">±15%</option>
+                        <option value="20%">±20%</option>
+                        <option value="25%">±25%</option>
+                        <option value="40%">±40%</option>
+                        <option value="50%">±50%</option>
+                        <option value="100%">±100%</option>
                       </select>
 
                       {/* Mode ? custom dropdown mobile */}
@@ -6076,7 +6153,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                               {/* LIVE Checkbox */}
                               {liveOIFromFlowCache ? (
-                                // Cache loaded � show indicator, hide interactive button
+                                // Cache loaded — show indicator, hide interactive button
                                 <div
                                   className="relative flex items-center gap-2 px-3 py-1.5 rounded"
                                   style={{
@@ -6176,18 +6253,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                 }
                                 className={`bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none ${analysisSuiteMode ? 'px-6 py-4 text-base min-w-[135px]' : 'px-4 py-2.5 text-sm min-w-[90px]'} pr-10 text-white font-bold uppercase appearance-none cursor-pointer transition-all`}
                               >
-                                <option value="1%">�1%</option>
-                                <option value="2%">�2%</option>
-                                <option value="3%">�3%</option>
-                                <option value="5%">�5%</option>
-                                <option value="8%">�8%</option>
-                                <option value="10%">�10%</option>
-                                <option value="15%">�15%</option>
-                                <option value="20%">�20%</option>
-                                <option value="25%">�25%</option>
-                                <option value="40%">�40%</option>
-                                <option value="50%">�50%</option>
-                                <option value="100%">�100%</option>
+                                <option value="1%">±1%</option>
+                                <option value="2%">±2%</option>
+                                <option value="3%">±3%</option>
+                                <option value="5%">±5%</option>
+                                <option value="8%">±8%</option>
+                                <option value="10%">±10%</option>
+                                <option value="15%">±15%</option>
+                                <option value="20%">±20%</option>
+                                <option value="25%">±25%</option>
+                                <option value="40%">±40%</option>
+                                <option value="50%">±50%</option>
+                                <option value="100%">±100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg
@@ -8629,7 +8706,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                     >
                       <GaugeTrio
                         currentPrice={currentPrice}
-                        gexByStrikeByExpiration={gexByStrikeByExpiration}
+                        dealerByStrikeByExpiration={dealerByStrikeByExpiration}
                         vexByStrikeByExpiration={vexByStrikeByExpiration}
                         expirations={expirations}
                         analysisSuiteMode={analysisSuiteMode}

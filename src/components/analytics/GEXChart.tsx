@@ -104,7 +104,7 @@ export default function GEXChart({
  // Realistic gamma bounds: SPY options actually have gamma between 0.00001 and 0.1
  // Any gamma above 1.0 is likely fake/corrupted data
  if (absGamma > 1.0) {
- console.warn(`� FILTERING FAKE GAMMA: ${absGamma} for ${contractType} (too high)`);
+ console.warn(`» FILTERING FAKE GAMMA: ${absGamma} for ${contractType} (too high)`);
  return 0;
  }
  

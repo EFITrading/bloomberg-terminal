@@ -285,7 +285,7 @@ const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string)
   // SIMPLIFIED: Just return the original OI since fill styles are unreliable
   // The OI from Polygon is already the most current available
 
-  console.log(`� LIVE OI (SIMPLIFIED): ${contractKey} - Returning original OI: ${originalOI}`)
+  console.log(`» LIVE OI (SIMPLIFIED): ${contractKey} - Returning original OI: ${originalOI}`)
 
   if (!trades || trades.length === 0) {
     return originalOI
@@ -629,7 +629,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
   })
 }
 const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => {
-  console.log(`� Starting ULTRA-FAST parallel bid/ask analysis for ${trades.length} trades`)
+  console.log(`» Starting ULTRA-FAST parallel bid/ask analysis for ${trades.length} trades`)
 
   if (trades.length === 0) return trades
 
@@ -1372,7 +1372,7 @@ export default function AlgoFlowScreener() {
           // For trades without fill_style, default to false (bearish)
           isBullish = false
           console.log(
-            `� BEARISH ${trade.type.toUpperCase()}: ${trade.fill_style} - $${trade.total_premium.toLocaleString()}`
+            `» BEARISH ${trade.type.toUpperCase()}: ${trade.fill_style} - $${trade.total_premium.toLocaleString()}`
           )
         }
 
@@ -1499,7 +1499,7 @@ export default function AlgoFlowScreener() {
       }, [])
 
     // 🚨 FETCH REAL PRICE DATA FROM POLYGON API - NO FAKE DATA!
-    console.log(`� FETCHING REAL OHLC DATA from Polygon API for ${ticker}...`)
+    console.log(`» FETCHING REAL OHLC DATA from Polygon API for ${ticker}...`)
 
     let finalPriceData: Array<{
       time: number

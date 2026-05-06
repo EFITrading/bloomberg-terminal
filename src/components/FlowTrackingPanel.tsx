@@ -3,8 +3,11 @@
 import { TbStar } from 'react-icons/tb'
 
 import React, { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 
 import { calculateFlowGrade } from '@/lib/flowGrading'
+
+const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false })
 
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -139,6 +142,8 @@ export default function FlowTrackingPanel({
   >
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
+  const [chartSymbol, setChartSymbol] = useState('SPY')
+  const [chartSymbolInput, setChartSymbolInput] = useState('SPY')
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
   const [flowTrackingFilters, setFlowTrackingFilters] = useState({
     gradeFilter: 'ALL' as 'ALL' | 'A' | 'B' | 'C' | 'D' | 'F',
@@ -456,187 +461,184 @@ export default function FlowTrackingPanel({
   if (!isMounted) return null
 
   return (
-    <div className="relative bg-black w-full h-full overflow-auto">
-      {/* Panel Header */}
-      <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
-      <div
-        className="ftp-header sticky top-0 bg-black z-10 border-b border-gray-700"
-        style={{
-          paddingTop: '4px',
-          paddingBottom: '12px',
-          paddingLeft: '16px',
-          paddingRight: '16px',
-          position: 'relative',
-        }}
-      >
-        {onClose && (
-          <button
-            onClick={onClose}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '12px',
-              background: 'transparent',
-              border: 'none',
-              color: '#9ca3af',
-              fontSize: '20px',
-              lineHeight: 1,
-              cursor: 'pointer',
-              padding: '2px 6px',
-              zIndex: 10,
-            }}
-          >
-            ✕
-          </button>
-        )}
+    <div className="relative bg-black w-full" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* TOP 40%: Live Flow Tracking */}
+      <div style={{ height: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Panel Header */}
+        <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
         <div
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
+          className="ftp-header bg-black z-10 border-b border-gray-700"
+          style={{
+            paddingTop: '4px',
+            paddingBottom: '12px',
+            paddingLeft: '16px',
+            paddingRight: '16px',
+            position: 'relative',
+          }}
         >
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: '#ff8500',
-              flexShrink: 0,
-              boxShadow: '0 0 6px #ff8500',
-            }}
-          />
-          <h2
-            className="ftp-title"
-            style={{
-              fontFamily: 'Inter, "SF Pro Display", Arial, sans-serif',
-              color: '#f0f0f0',
-              fontSize: '26px',
-              fontWeight: 600,
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              margin: 0,
-              padding: 0,
-              borderBottom: '1px solid rgba(255,133,0,0.4)',
-              paddingBottom: '3px',
-            }}
-          >
-            Live Flow Tracking
-          </h2>
-          <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: '#ff8500',
-              flexShrink: 0,
-              boxShadow: '0 0 6px #ff8500',
-            }}
-          />
-        </div>
-
-        {/* Filters */}
-        <div
-          className="mt-3"
-          style={{ background: '#000000', borderRadius: '8px', padding: '12px' }}
-        >
-          <div className="flex items-center gap-3 justify-center flex-wrap">
-            <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 'bold' }}>
-              Flows: {trackedFlows.length}
-            </span>
-            <div
+          {onClose && (
+            <button
+              onClick={onClose}
               style={{
-                width: '2px',
-                height: '30px',
-                background: 'rgba(255,133,0,0.3)',
-                margin: '0 8px',
-              }}
-            />
-            <span style={{ color: '#ff8500', fontSize: '21px', fontWeight: 'bold' }}>Grade:</span>
-            <select
-              value={flowTrackingFilters.gradeFilter}
-              onChange={(e) =>
-                setFlowTrackingFilters((prev) => ({ ...prev, gradeFilter: e.target.value as any }))
-              }
-              style={{
-                padding: '6px 12px',
-                fontSize: '20px',
-                fontWeight: 'bold',
-                borderRadius: '6px',
+                position: 'absolute',
+                top: '8px',
+                right: '12px',
+                background: 'transparent',
                 border: 'none',
+                color: '#9ca3af',
+                fontSize: '20px',
+                lineHeight: 1,
                 cursor: 'pointer',
-                background: '#000000',
-                color: '#ffffff',
-                outline: 'none',
-                minWidth: '100px',
-                boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.8)',
+                padding: '2px 6px',
+                zIndex: 10,
               }}
             >
-              <option value="ALL">ALL</option>
-              <option value="A">A</option>
-              <option value="B">B</option>
-              <option value="C">C</option>
-              <option value="D">D</option>
-              <option value="F">F</option>
-            </select>
-            <div
+              ✕
+            </button>
+          )}
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
+          >
+            <span
               style={{
-                width: '2px',
-                height: '30px',
-                background: 'rgba(255,133,0,0.3)',
-                margin: '0 8px',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: '#ff8500',
+                flexShrink: 0,
+                boxShadow: '0 0 6px #ff8500',
               }}
             />
-            {[
-              {
-                key: 'showDownSixtyPlus',
-                label: 'Down 60%+',
-                activeColor: '#ff0000',
-                textColor: '#ff0000',
-              },
-              { key: 'showCharts', label: 'Chart', activeColor: '#00ffff', textColor: '#00ffff' },
-              {
-                key: 'showWeeklies',
-                label: 'Weeklies',
-                activeColor: '#00ff00',
-                textColor: '#00ff00',
-              },
-            ].map(({ key, label, activeColor, textColor }) => (
-              <button
-                key={key}
-                onClick={() =>
-                  setFlowTrackingFilters((prev) => ({
-                    ...prev,
-                    [key]: !prev[key as keyof typeof prev],
-                  }))
+            {/* Title */}
+            <span
+              style={{
+                fontSize: '13px',
+                fontWeight: 800,
+                letterSpacing: '2px',
+                textTransform: 'uppercase' as const,
+                color: '#ff8500',
+              }}
+            >
+              Live Flow Tracking
+            </span>
+            <style>{`@media (max-width: 768px) { .ftp-title { font-size: 21px !important; } }`}</style>
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: '#ff8500',
+                flexShrink: 0,
+                boxShadow: '0 0 6px #ff8500',
+              }}
+            />
+          </div>
+
+          {/* Filters */}
+          <div
+            className="mt-3"
+            style={{ background: '#000000', borderRadius: '8px', padding: '12px' }}
+          >
+            <div className="flex items-center gap-3 justify-center flex-wrap">
+              <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 'bold' }}>
+                Flows: {trackedFlows.length}
+              </span>
+              <div
+                style={{
+                  width: '2px',
+                  height: '30px',
+                  background: 'rgba(255,133,0,0.3)',
+                  margin: '0 8px',
+                }}
+              />
+              <span style={{ color: '#ff8500', fontSize: '21px', fontWeight: 'bold' }}>Grade:</span>
+              <select
+                value={flowTrackingFilters.gradeFilter}
+                onChange={(e) =>
+                  setFlowTrackingFilters((prev) => ({ ...prev, gradeFilter: e.target.value as any }))
                 }
                 style={{
-                  padding: '6px 14px',
+                  padding: '6px 12px',
                   fontSize: '20px',
                   fontWeight: 'bold',
                   borderRadius: '6px',
                   border: 'none',
                   cursor: 'pointer',
-                  background: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
-                    ? activeColor
-                    : '#000000',
-                  color: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
-                    ? '#000000'
-                    : textColor,
-                  transition: 'all 0.2s',
-                  boxShadow: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
-                    ? `0 2px 8px ${activeColor}40`
-                    : 'inset 2px 2px 4px rgba(0,0,0,0.8)',
+                  background: '#000000',
+                  color: '#ffffff',
+                  outline: 'none',
+                  minWidth: '100px',
+                  boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.8)',
                 }}
               >
-                {label}
-              </button>
-            ))}
+                <option value="ALL">ALL</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+                <option value="F">F</option>
+              </select>
+              <div
+                style={{
+                  width: '2px',
+                  height: '30px',
+                  background: 'rgba(255,133,0,0.3)',
+                  margin: '0 8px',
+                }}
+              />
+              {[
+                {
+                  key: 'showDownSixtyPlus',
+                  label: 'Down 60%+',
+                  activeColor: '#ff0000',
+                  textColor: '#ff0000',
+                },
+                { key: 'showCharts', label: 'Chart', activeColor: '#00ffff', textColor: '#00ffff' },
+                {
+                  key: 'showWeeklies',
+                  label: 'Weeklies',
+                  activeColor: '#00ff00',
+                  textColor: '#00ff00',
+                },
+              ].map(({ key, label, activeColor, textColor }) => (
+                <button
+                  key={key}
+                  onClick={() =>
+                    setFlowTrackingFilters((prev) => ({
+                      ...prev,
+                      [key]: !prev[key as keyof typeof prev],
+                    }))
+                  }
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
+                      ? activeColor
+                      : '#000000',
+                    color: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
+                      ? '#000000'
+                      : textColor,
+                    transition: 'all 0.2s',
+                    boxShadow: flowTrackingFilters[key as keyof typeof flowTrackingFilters]
+                      ? `0 2px 8px ${activeColor}40`
+                      : 'inset 2px 2px 4px rgba(0,0,0,0.8)',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Panel Content */}
+      {/* Tracking scrollable content */}
       <div
         className="overflow-y-auto overflow-x-hidden p-3"
-        style={{ height: 'calc(100vh - 220px)' }}
+        style={{ flex: 1, minHeight: 0 }}
       >
         {trackedFlows.length === 0 ? (
           <div className="text-center py-12 text-orange-400">
@@ -976,7 +978,7 @@ export default function FlowTrackingPanel({
                                     dealerZoneCacheFromParent?.[flow.underlying_ticker]
                                   const zones =
                                     parentZones &&
-                                    (parentZones.golden !== null || parentZones.purple !== null)
+                                      (parentZones.golden !== null || parentZones.purple !== null)
                                       ? parentZones
                                       : (ownDealerZones[flow.underlying_ticker] ?? null)
                                   const isCall3 = flow.type === 'call'
@@ -1004,22 +1006,22 @@ export default function FlowTrackingPanel({
                                   const t1 =
                                     sigma3 > 0
                                       ? bsStrikeForProbFTP(
-                                          flow.spot_price,
-                                          sigma3,
-                                          liveDTE,
-                                          80,
-                                          targetUp
-                                        )
+                                        flow.spot_price,
+                                        sigma3,
+                                        liveDTE,
+                                        80,
+                                        targetUp
+                                      )
                                       : null
                                   const t2 =
                                     sigma3 > 0
                                       ? bsStrikeForProbFTP(
-                                          flow.spot_price,
-                                          sigma3,
-                                          liveDTE,
-                                          90,
-                                          targetUp
-                                        )
+                                        flow.spot_price,
+                                        sigma3,
+                                        liveDTE,
+                                        90,
+                                        targetUp
+                                      )
                                       : null
                                   const targetColor = targetUp ? '#00ff88' : '#ff4466'
                                   const stockNow = currentStockPrices[flow.underlying_ticker]
@@ -1326,6 +1328,29 @@ export default function FlowTrackingPanel({
               })
           })()
         )}
+      </div>
+      {/* BOTTOM 60%: EFI Chart */}
+      <div style={{ height: '60%', position: 'relative', overflow: 'hidden', borderTop: '2px solid #374151' }}>
+        {/* Chart fills full 60% */}
+        <div style={{ width: '100%', height: '100%' }}>
+          <style>{`
+            .sidebar-container { display: none !important; }
+            .w-full.h-full.flex > div:first-child { width: 100% !important; }
+            button[title*='Watchlist'], button[title*='watchlist'], button[title*='favorite'],
+            button[title*='star'], button[title*='multi chart'], button[title*='Multi Chart'],
+            button[title*='Chart Layout'] { display: none !important; }
+            button[title='Candles'], button[title='Line'],
+            button[title*='Switch to'] { display: none !important; }
+          `}</style>
+          <EFIChart
+            symbol={chartSymbol}
+            initialTimeframe="1d"
+            height={Math.round((window.innerHeight - 125) * 0.6) - 45}
+            lwToolbarPosition="left"
+            disableSidebarAutoScan={true}
+            onSymbolChange={(s) => setChartSymbol(s)}
+          />
+        </div>
       </div>
     </div>
   )

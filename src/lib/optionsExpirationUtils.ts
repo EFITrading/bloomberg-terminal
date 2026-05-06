@@ -1,5 +1,5 @@
 /**
- * Utility functions for calculating o console.log(' console.log('� RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]); GET NEXT FRIDAY: CRITICAL - if today is Oct 1 2025 (Wed=3), next Friday should be Oct 3');tions expiration dates
+ * Utility functions for calculating o console.log(' console.log('» RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]); GET NEXT FRIDAY: CRITICAL - if today is Oct 1 2025 (Wed=3), next Friday should be Oct 3');tions expiration dates
  * All calculations use PST (America/Los_Angeles) for accurate market dates
  */
 

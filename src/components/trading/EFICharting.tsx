@@ -4037,38 +4037,47 @@ export function TradePopupChart({
           drawRef.current()
         }}
       />
-      {/* Timeframe buttons — top-left overlay */}
+      {/* Timeframe dropdown — top-left overlay */}
       <div
         style={{
           position: 'absolute',
           top: '8px',
           left: '8px',
           display: 'flex',
-          gap: '4px',
+          alignItems: 'center',
+          gap: '6px',
           zIndex: 10,
         }}
       >
-        {POPUP_TIMEFRAMES.map((tf) => (
-          <button
-            key={tf.label}
-            onClick={() => setTimeframe(tf.label)}
-            style={{
-              padding: '3px 10px',
-              fontFamily: '"Courier New", monospace',
-              fontSize: '10px',
-              fontWeight: 700,
-              background: timeframe === tf.label ? '#ff6600' : 'rgba(0,0,0,0.75)',
-              color: timeframe === tf.label ? '#000000' : '#ffffff',
-              border: `1px solid ${timeframe === tf.label ? '#ff6600' : 'rgba(255,255,255,0.3)'}`,
-              borderRadius: '4px',
-              cursor: 'pointer',
-              transition: 'all 0.12s',
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            {tf.label}
-          </button>
-        ))}
+        <select
+          value={timeframe}
+          onChange={(e) => setTimeframe(e.target.value)}
+          style={{
+            fontFamily: '"Courier New", monospace',
+            fontSize: '10px',
+            fontWeight: 700,
+            background: 'rgba(0,0,0,0.85)',
+            color: '#ff6600',
+            border: '1px solid rgba(255,133,0,0.5)',
+            borderRadius: '4px',
+            padding: '3px 6px',
+            cursor: 'pointer',
+            backdropFilter: 'blur(4px)',
+            outline: 'none',
+            appearance: 'none' as const,
+            WebkitAppearance: 'none' as const,
+            paddingRight: '18px',
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23ff6600' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E")`,
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'right 5px center',
+          }}
+        >
+          {POPUP_TIMEFRAMES.map((tf) => (
+            <option key={tf.label} value={tf.label} style={{ background: '#111', color: '#fff' }}>
+              {tf.label}
+            </option>
+          ))}
+        </select>
         {fetching && (
           <span
             style={{
@@ -25540,7 +25549,21 @@ export default function TradingViewChart({
  /* Premium Navigation Container */
  .navigation-bar-premium {
  position: relative;
- overflow: hidden;
+ overflow-x: auto;
+ overflow-y: hidden;
+ }
+ .navigation-bar-premium::-webkit-scrollbar {
+ height: 3px;
+ }
+ .navigation-bar-premium::-webkit-scrollbar-track {
+ background: transparent;
+ }
+ .navigation-bar-premium::-webkit-scrollbar-thumb {
+ background: #333333;
+ border-radius: 2px;
+ }
+ .navigation-bar-premium::-webkit-scrollbar-thumb:hover {
+ background: #555555;
  }
  
  .navigation-bar-premium::before {
@@ -25586,9 +25609,9 @@ export default function TradingViewChart({
               borderColor: '#333333',
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
-              overflowX:
-                isMobile ? 'auto' : 'hidden',
+              overflowX: (isMobile || lwToolbarPosition === 'left') ? 'auto' : 'hidden',
               overflowY: 'hidden',
+              ...(lwToolbarPosition === 'left' ? { scrollbarWidth: 'thin' as const, scrollbarColor: '#333333 transparent' } : {}),
               zIndex: 10000,
               display:
                 isMobile && activeSidebarPanel
@@ -25638,14 +25661,8 @@ export default function TradingViewChart({
                   isMobile && activeSidebarPanel
                     ? 'none'
                     : 'flex',
-                minWidth:
-                  isMobile
-                    ? 'max-content'
-                    : '100%',
-                width:
-                  isMobile
-                    ? 'max-content'
-                    : '100%',
+                minWidth: (isMobile || lwToolbarPosition === 'left') ? 'max-content' : '100%',
+                width: (isMobile || lwToolbarPosition === 'left') ? 'max-content' : '100%',
               }}
             >
               {/* Left side: Symbol Search + Price + Controls */}
@@ -25654,7 +25671,6 @@ export default function TradingViewChart({
                   <div
                     className="relative flex items-center"
                     ref={searchInputRef}
-                    style={{ display: disableSidebarAutoScan ? 'none' : undefined }}
                   >
                     <div
                       style={{
@@ -25759,225 +25775,220 @@ export default function TradingViewChart({
                   </div>
                 )}
 
-                {/* Timeframes - Moved closer to symbol/price */}
-                <div
-                  className="flex items-center timeframe-dropdown"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
-                    border: '2px solid rgba(255, 255, 255, 0.4)',
-                    borderRadius: '8px',
-                    boxShadow:
-                      '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                  }}
-                >
-                  {/* Desktop Timeframes - Hidden on mobile */}
-                  <div className="hidden md:flex">
-                    {[
-                      { label: '5M', value: '5m' },
-                      { label: '1H', value: '1h' },
-                      { label: 'D', value: '1d' },
-                    ].map((tf, index) => (
-                      <button
-                        key={tf.label}
-                        onClick={() => handleTimeframeChange(tf.value)}
-                        className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : ''}`}
-                        style={{
-                          padding: '10px 20px',
-                          fontWeight: '700',
-                          fontSize: '15px',
-                          letterSpacing: '0.8px',
-                          borderRadius: '4px',
-                          color: 'white',
-                        }}
-                      >
-                        {tf.label}
-                      </button>
-                    ))}
-
-                    {/* More Timeframes Dropdown Button */}
-                    <div className="relative inline-block">
-                      <button
-                        ref={timeframeButtonRef}
-                        onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
-                        className={`btn-3d-carved relative group ${['30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) ? 'active' : ''}`}
-                        style={{
-                          padding: '12px 12px',
-                          fontWeight: '700',
-                          fontSize: '15px',
-                          letterSpacing: '0.8px',
-                          borderRadius: '4px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        {config.timeframe === '30m' ? (
-                          <span>30M</span>
-                        ) : config.timeframe === '4h' ? (
-                          <span>4H</span>
-                        ) : config.timeframe === '1w' ? (
-                          <span>W</span>
-                        ) : config.timeframe === '1mo' ? (
-                          <span>M</span>
-                        ) : config.timeframe === '1y' ? (
-                          <span>1Y</span>
-                        ) : (
-                          <span></span>
-                        )}
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          style={{ strokeWidth: 3 }}
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-
-                      {/* Timeframe Dropdown Menu */}
-                      {isTimeframeDropdownOpen &&
-                        createPortal(
-                          <div
-                            data-timeframe-dropdown
-                            style={{
-                              position: 'fixed',
-                              top: timeframeButtonRef.current
-                                ? timeframeButtonRef.current.getBoundingClientRect().bottom + 10
-                                : 0,
-                              left: timeframeButtonRef.current
-                                ? timeframeButtonRef.current.getBoundingClientRect().left
-                                : 0,
-                              zIndex: 100000,
-                              background: '#000000',
-                              border: '2px solid rgba(255, 133, 0, 0.3)',
-                              borderRadius: '8px',
-                              boxShadow:
-                                '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                              padding: '12px',
-                              minWidth: '180px',
-                            }}
-                          >
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <button
-                                onClick={() => {
-                                  handleTimeframeChange('30m')
-                                  setIsTimeframeDropdownOpen(false)
-                                }}
-                                className={`btn-3d-carved ${config.timeframe === '30m' ? 'active' : ''}`}
-                                style={{
-                                  padding: '10px 16px',
-                                  fontWeight: '700',
-                                  fontSize: '14px',
-                                  textAlign: 'left',
-                                  borderRadius: '4px',
-                                  width: '100%',
-                                }}
-                              >
-                                30 Minutes (30M)
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleTimeframeChange('4h')
-                                  setIsTimeframeDropdownOpen(false)
-                                }}
-                                className={`btn-3d-carved ${config.timeframe === '4h' ? 'active' : ''}`}
-                                style={{
-                                  padding: '10px 16px',
-                                  fontWeight: '700',
-                                  fontSize: '14px',
-                                  textAlign: 'left',
-                                  borderRadius: '4px',
-                                  width: '100%',
-                                }}
-                              >
-                                4 Hours (4H)
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleTimeframeChange('1w')
-                                  setIsTimeframeDropdownOpen(false)
-                                }}
-                                className={`btn-3d-carved ${config.timeframe === '1w' ? 'active' : ''}`}
-                                style={{
-                                  padding: '10px 16px',
-                                  fontWeight: '700',
-                                  fontSize: '14px',
-                                  textAlign: 'left',
-                                  borderRadius: '4px',
-                                  width: '100%',
-                                }}
-                              >
-                                Weekly (1W)
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleTimeframeChange('1mo')
-                                  setIsTimeframeDropdownOpen(false)
-                                }}
-                                className={`btn-3d-carved ${config.timeframe === '1mo' ? 'active' : ''}`}
-                                style={{
-                                  padding: '10px 16px',
-                                  fontWeight: '700',
-                                  fontSize: '14px',
-                                  textAlign: 'left',
-                                  borderRadius: '4px',
-                                  width: '100%',
-                                }}
-                              >
-                                Monthly (1M)
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleTimeframeChange('1y')
-                                  setIsTimeframeDropdownOpen(false)
-                                }}
-                                className={`btn-3d-carved ${config.timeframe === '1y' ? 'active' : ''}`}
-                                style={{
-                                  padding: '10px 16px',
-                                  fontWeight: '700',
-                                  fontSize: '14px',
-                                  textAlign: 'left',
-                                  borderRadius: '4px',
-                                  width: '100%',
-                                }}
-                              >
-                                Yearly (1Y)
-                              </button>
-                            </div>
-                          </div>,
-                          document.body
-                        )}
-                    </div>
-                  </div>
-
-                  {/* Mobile Timeframe Dropdown - Visible only on mobile */}
-                  <div className="md:hidden relative">
+                {/* Timeframes */}
+                {disableSidebarAutoScan ? (
+                  /* Options flow panel: single compact dropdown */
+                  <div
+                    className="inline-flex items-center w-fit timeframe-dropdown"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
+                      border: '2px solid rgba(255, 255, 255, 0.4)',
+                      borderRadius: '8px',
+                      boxShadow:
+                        '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                      display: 'inline-flex',
+                      width: 'fit-content',
+                    }}
+                  >
                     <select
                       value={config.timeframe}
                       onChange={(e) => handleTimeframeChange(e.target.value)}
-                      className="btn-3d-carved text-white rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
                       style={{
-                        background: '#000000',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '4px',
-                        boxShadow:
-                          '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                        fontWeight: '700',
+                        fontSize: '15px',
+                        letterSpacing: '0.8px',
+                        background: 'transparent',
+                        color: '#ff6600',
+                        border: 'none',
                         outline: 'none',
+                        cursor: 'pointer',
+                        padding: '10px 28px 10px 14px',
+                        appearance: 'none' as const,
+                        WebkitAppearance: 'none' as const,
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23ff6600' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 8px center',
+                        width: 'fit-content',
+                        minWidth: 'unset',
+                        maxWidth: 'none',
+                        margin: 0,
+                        flex: '0 0 auto',
                       }}
                     >
-                      <option value="5m">5M</option>
-                      <option value="30m">30M</option>
-                      <option value="1h">1H</option>
-                      <option value="4h">4H</option>
-                      <option value="1d">D</option>
-                      <option value="1w">Weekly</option>
-                      <option value="1mo">Monthly</option>
-                      <option value="1y">Yearly</option>
+                      <option value="5m" style={{ background: '#111', color: '#fff' }}>5M</option>
+                      <option value="15m" style={{ background: '#111', color: '#fff' }}>15M</option>
+                      <option value="30m" style={{ background: '#111', color: '#fff' }}>30M</option>
+                      <option value="1h" style={{ background: '#111', color: '#fff' }}>1H</option>
+                      <option value="4h" style={{ background: '#111', color: '#fff' }}>4H</option>
+                      <option value="1d" style={{ background: '#111', color: '#fff' }}>D</option>
+                      <option value="1w" style={{ background: '#111', color: '#fff' }}>W</option>
+                      <option value="1mo" style={{ background: '#111', color: '#fff' }}>M</option>
+                      <option value="1y" style={{ background: '#111', color: '#fff' }}>1Y</option>
                     </select>
                   </div>
-                </div>
+                ) : (
+                  /* All other pages: original buttons */
+                  <div
+                    className="flex items-center timeframe-dropdown"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
+                      border: '2px solid rgba(255, 255, 255, 0.4)',
+                      borderRadius: '8px',
+                      boxShadow:
+                        '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                    }}
+                  >
+                    {/* Desktop Timeframes - Hidden on mobile */}
+                    <div className="hidden md:flex">
+                      {[
+                        { label: '5M', value: '5m' },
+                        { label: '1H', value: '1h' },
+                        { label: 'D', value: '1d' },
+                      ].map((tf) => (
+                        <button
+                          key={tf.label}
+                          onClick={() => handleTimeframeChange(tf.value)}
+                          className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : ''}`}
+                          style={{
+                            padding: '10px 20px',
+                            fontWeight: '700',
+                            fontSize: '15px',
+                            letterSpacing: '0.8px',
+                            borderRadius: '4px',
+                            color: 'white',
+                          }}
+                        >
+                          {tf.label}
+                        </button>
+                      ))}
+
+                      {/* More Timeframes Dropdown Button */}
+                      <div className="relative inline-block">
+                        <button
+                          ref={timeframeButtonRef}
+                          onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
+                          className={`btn-3d-carved relative group ${['30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) ? 'active' : ''}`}
+                          style={{
+                            padding: '12px 12px',
+                            fontWeight: '700',
+                            fontSize: '15px',
+                            letterSpacing: '0.8px',
+                            borderRadius: '4px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          {config.timeframe === '30m' ? (
+                            <span>30M</span>
+                          ) : config.timeframe === '4h' ? (
+                            <span>4H</span>
+                          ) : config.timeframe === '1w' ? (
+                            <span>W</span>
+                          ) : config.timeframe === '1mo' ? (
+                            <span>M</span>
+                          ) : config.timeframe === '1y' ? (
+                            <span>1Y</span>
+                          ) : (
+                            <span></span>
+                          )}
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            style={{ strokeWidth: 3 }}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+
+                        {/* Timeframe Dropdown Menu */}
+                        {isTimeframeDropdownOpen &&
+                          createPortal(
+                            <div
+                              data-timeframe-dropdown
+                              style={{
+                                position: 'fixed',
+                                top: timeframeButtonRef.current
+                                  ? timeframeButtonRef.current.getBoundingClientRect().bottom + 10
+                                  : 0,
+                                left: timeframeButtonRef.current
+                                  ? timeframeButtonRef.current.getBoundingClientRect().left
+                                  : 0,
+                                zIndex: 100000,
+                                background: '#000000',
+                                border: '2px solid rgba(255, 133, 0, 0.3)',
+                                borderRadius: '8px',
+                                boxShadow:
+                                  '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                                padding: '12px',
+                                minWidth: '180px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {[
+                                  { label: '30 Minutes (30M)', value: '30m' },
+                                  { label: '4 Hours (4H)', value: '4h' },
+                                  { label: 'Weekly (1W)', value: '1w' },
+                                  { label: 'Monthly (1M)', value: '1mo' },
+                                  { label: 'Yearly (1Y)', value: '1y' },
+                                ].map((tf) => (
+                                  <button
+                                    key={tf.value}
+                                    onClick={() => {
+                                      handleTimeframeChange(tf.value)
+                                      setIsTimeframeDropdownOpen(false)
+                                    }}
+                                    className={`btn-3d-carved ${config.timeframe === tf.value ? 'active' : ''}`}
+                                    style={{
+                                      padding: '10px 16px',
+                                      fontWeight: '700',
+                                      fontSize: '14px',
+                                      textAlign: 'left',
+                                      borderRadius: '4px',
+                                      width: '100%',
+                                    }}
+                                  >
+                                    {tf.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>,
+                            document.body
+                          )}
+                      </div>
+                    </div>
+
+                    {/* Mobile Timeframe Dropdown */}
+                    <div className="md:hidden relative">
+                      <select
+                        value={config.timeframe}
+                        onChange={(e) => handleTimeframeChange(e.target.value)}
+                        className="btn-3d-carved text-white rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        style={{
+                          background: '#000000',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          borderRadius: '4px',
+                          boxShadow:
+                            '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="5m">5M</option>
+                        <option value="30m">30M</option>
+                        <option value="1h">1H</option>
+                        <option value="4h">4H</option>
+                        <option value="1d">D</option>
+                        <option value="1w">Weekly</option>
+                        <option value="1mo">Monthly</option>
+                        <option value="1y">Yearly</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
 
                 {/* Chart Type Selector - Moved to left side */}
                 <div
@@ -26116,7 +26127,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: 'white' }}>{isMobile ? 'ER' : 'EXPECTED RANGE'}</span>
+                    <span style={{ color: 'white' }}>{isMobile ? 'ER' : 'Range'}</span>
                     {isExpectedRangeActive ? (
                       <span
                         onClick={(e) => {

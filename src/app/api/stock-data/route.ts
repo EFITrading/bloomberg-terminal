@@ -246,7 +246,7 @@ export async function GET(request: NextRequest) {
       priceChange = currentPrice - previousPrice
       priceChangePercent = (priceChange / previousPrice) * 100
       console.log(
-        `� ${symbol} LIVE Price: $${currentPrice.toFixed(2)}, Change: ${priceChangePercent.toFixed(2)}% vs prev candle: $${previousPrice.toFixed(2)}`
+        `» ${symbol} LIVE Price: $${currentPrice.toFixed(2)}, Change: ${priceChangePercent.toFixed(2)}% vs prev candle: $${previousPrice.toFixed(2)}`
       )
     } else if (chartData.length === 1) {
       // Single candle - compare current price to candle's open

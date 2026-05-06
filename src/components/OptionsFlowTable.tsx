@@ -656,6 +656,8 @@ interface OptionsFlowTableProps {
   onHistoricalDaysChange?: (days: string) => void
 }
 
+const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'WEEKLY_ONLY', 'MINI_ONLY']
+
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   data,
 
@@ -704,9 +706,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put'])
   const [selectedOrderSides, setSelectedOrderSides] = useState<string[]>([])
 
-  const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>(
-    typeof window !== 'undefined' && window.innerWidth < 768 ? ['50000'] : []
-  )
+  const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>([])
 
   const [customMinPremium, setCustomMinPremium] = useState<string>('')
 
@@ -714,10 +714,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [selectedTickerFilters, setSelectedTickerFilters] = useState<string[]>([])
 
-  const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'WEEKLY_ONLY', 'MINI_ONLY']
-  const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>(
-    ['OTM', 'SWEEP_ONLY', 'BLOCK_ONLY']
-  )
+  const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>(ALL_UNIQUE_FILTERS)
 
   const [expirationStartDate, setExpirationStartDate] = useState<string>('')
 
@@ -912,6 +909,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
+
+  const [blacklistEnabled, setBlacklistEnabled] = useState<boolean>(false)
 
   // Persist blacklisted tickers to localStorage
   useEffect(() => {
@@ -2234,7 +2233,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     } else {
       scores.priceAction = 0
       console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data � currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
+        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data · currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
       )
     }
 
@@ -2264,7 +2263,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     } else {
       scores.volumeOI = 0
       console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data � volume=${tradeVolume}, OI=${tradeOI})`
+        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data · volume=${tradeVolume}, OI=${tradeOI})`
       )
     }
 
@@ -2359,7 +2358,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
-  // LEAP grading system � 4 criteria, normalized to 100
+  // LEAP grading system · 4 criteria, normalized to 100
 
   const calculateLeapGrade = (
     trade: OptionsFlowData,
@@ -2416,15 +2415,15 @@ Stock Reaction: ${scores.stockReaction}/15`
     const rawPct = ((currentPrice - entryPrice) / entryPrice) * 100
     const pct = isSoldToOpen ? -rawPct : rawPct
 
-    if (pct <= -40) scores.contractPrice = -7.5       // blown up � penalize
+    if (pct <= -40) scores.contractPrice = -7.5       // blown up · penalize
     else if (pct <= -20) scores.contractPrice = 7.5   // down 20-40%: half points
     else if (pct <= -15) scores.contractPrice = 15    // down 15-20%: sweet spot, full points
     else if (pct <= -10) scores.contractPrice = 8     // down 10-15%: partial
-    else if (pct <= 10) scores.contractPrice = 0      // flat �10%: no points
+    else if (pct <= 10) scores.contractPrice = 0      // flat ·10%: no points
     else if (pct <= 20) scores.contractPrice = 3      // up 10-20%: small reward
     else scores.contractPrice = 5                     // up 20%+: 1/3 of max (5 pts)
 
-    // 2. Relative Strength (30 pts max) � weighted 5D�30% + 13D�40% + 21D�30%
+    // 2. Relative Strength (30 pts max) · weighted 5D·30% + 13D·40% + 21D·30%
     const leapRs = leapRsData.get(trade.underlying_ticker)
     if (leapRs) {
       const { rs5d, rs13d, rs21d } = leapRs
@@ -2459,7 +2458,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       else if (ratio >= 0.5) scores.volumeOI = 5
     }
 
-    // 4. Stock Reaction (15 pts max) � 4hr and 1d checkpoints
+    // 4. Stock Reaction (15 pts max) · 4hr and 1d checkpoints
     const isCall = trade.type === 'call'
     const fill = tradeFillStyle
     const currentStockPrice = currentPrices[trade.underlying_ticker]
@@ -2576,9 +2575,9 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   // LEAP criteria checker
   const meetsLeapCriteria = (trade: OptionsFlowData): boolean => {
-    // 1. Expiry: 30�180 days
+    // 1. Expiry: 30·180 days
     if (trade.days_to_expiry < 30 || trade.days_to_expiry > 180) return false
-    // 2. Premium: $250k�$2m
+    // 2. Premium: $250k·$2m
     if (trade.total_premium < 250000 || trade.total_premium > 2000000) return false
     // 3. Contracts: 300+
     if (trade.trade_size < 300) return false
@@ -2675,7 +2674,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return true
   }
 
-  // Notable Trade Analysis � targets + dealer zones
+  // Notable Trade Analysis · targets + dealer zones
   const openNotableAnalysis = async (trade: OptionsFlowData) => {
     setSelectedNotableTrade(trade)
     setNotableAnalysisLoading(true)
@@ -2926,7 +2925,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
       console.log('[SaveFlow] RAW data prop count (before filters):', data?.length)
       console.log('[SaveFlow] FILTERED display count (filteredAndSortedData):', filteredAndSortedData?.length)
-      console.log('[SaveFlow] Saving filteredAndSortedData � count:', filteredAndSortedData?.length)
+      console.log('[SaveFlow] Saving filteredAndSortedData · count:', filteredAndSortedData?.length)
 
       // Compress payload client-side to avoid 413 Payload Too Large
       const dataString = JSON.stringify({ date: today, data: filteredAndSortedData })
@@ -2937,7 +2936,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       writer.write(encoded)
       writer.close()
       const compressedBuffer = await new Response(cs.readable).arrayBuffer()
-      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB � sending to /api/flows/save')
+      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB · sending to /api/flows/save')
 
       const response = await fetch('/api/flows/save', {
         method: 'POST',
@@ -2979,7 +2978,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (!response.ok) {
         const errText = await response.text().catch(() => '(no body)')
         console.error('[History] Error body:', errText)
-        throw new Error(`Failed to load history: HTTP ${response.status} � ${errText}`)
+        throw new Error(`Failed to load history: HTTP ${response.status} · ${errText}`)
       }
 
       const rawText = await response.text()
@@ -3019,11 +3018,11 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (!response.ok) {
         const errText = await response.text().catch(() => '(no body)')
         console.error('[LoadFlow] Error body:', errText)
-        throw new Error(`HTTP ${response.status} � ${errText}`)
+        throw new Error(`HTTP ${response.status} · ${errText}`)
       }
 
       const flowData = await response.json()
-      console.log('[LoadFlow] Got data � trades:', flowData.data?.length, '| date field:', flowData.date)
+      console.log('[LoadFlow] Got data · trades:', flowData.data?.length, '| date field:', flowData.date)
 
       onDataUpdate && onDataUpdate(flowData.data)
       setIsHistoryDialogOpen(false)
@@ -3095,7 +3094,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (!response.ok) {
         const errText = await response.text().catch(() => '(no body)')
         console.error('[DeleteFlow] Error body:', errText)
-        throw new Error(`HTTP ${response.status} � ${errText}`)
+        throw new Error(`HTTP ${response.status} · ${errText}`)
       }
 
       const result = await response.json().catch(() => ({}))
@@ -3224,7 +3223,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Step 1: Fast deduplication using Set (O(n) instead of O(n�))
+    // Step 1: Fast deduplication using Set (O(n) instead of O(n·))
 
     const seen = new Set<string>()
 
@@ -3400,18 +3399,12 @@ Stock Reaction: ${scores.stockReaction}/15`
         return selectedTickerFilters.every((filter) => {
           switch (filter) {
             case 'ETF_ONLY':
-              // Assuming ETFs can be identified by ticker patterns or we need additional data
-
-              // For now, using a simple heuristic - ETFs often have 3 letters
-
               return (
                 trade.underlying_ticker.length === 3 &&
                 !mag7Stocks.includes(trade.underlying_ticker)
               )
 
             case 'STOCK_ONLY':
-              // Exclude ETFs (assuming stocks are everything that's not in a common ETF pattern)
-
               return trade.underlying_ticker.length >= 3
 
             case 'MAG7_ONLY':
@@ -3505,7 +3498,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     // Blacklisted tickers filter
 
-    const activeBlacklistedTickers = blacklistedTickers.filter((ticker) => ticker.trim() !== '')
+    const activeBlacklistedTickers = blacklistEnabled ? blacklistedTickers.filter((ticker) => ticker.trim() !== '') : []
 
     if (activeBlacklistedTickers.length > 0) {
       filtered = filtered.filter((trade) => {
@@ -3528,11 +3521,9 @@ Stock Reaction: ${scores.stockReaction}/15`
     // Apply sorting
 
     filtered.sort((a, b) => {
-      // Special handling for positioning grade sorting (custom field)
+      // Special handling for positioning grade sorting (can't use cache due to initialization order)
 
       if (sortField === 'positioning_grade') {
-        // Calculate grades inline for sorting (can't use cache due to initialization order)
-
         const gradeA = calculatePositioningGrade(a, comboTradeMap)
 
         const gradeB = calculatePositioningGrade(b, comboTradeMap)
@@ -3583,6 +3574,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     expirationEndDate,
     selectedTickerFilter,
     blacklistedTickers,
+    blacklistEnabled,
     selectedOrderSides,
     tradesWithFillStyles,
     efiHighlightsActive,
@@ -3671,7 +3663,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const notableTrades = paginatedData.filter(
       (t) => notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(t))
     )
-    // Deduplicate by ticker � one fetch covers ALL expirations for the ticker
+    // Deduplicate by ticker · one fetch covers ALL expirations for the ticker
     const seenTickers = new Set<string>()
     for (const trade of notableTrades) {
       const key = trade.underlying_ticker
@@ -3698,7 +3690,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       setDealerZoneCache((prev) =>
         key in prev ? prev : { ...prev, [key]: { golden: null, purple: null, atmIV: null } }
       )
-      // Delegate entirely to the dealer-zones API � same computation as DealerAttraction
+      // Delegate entirely to the dealer-zones API · same computation as DealerAttraction
       fetch(`/api/dealer-zones?ticker=${trade.underlying_ticker}`)
         .then((r) => r.json())
         .then((result: any) => {
@@ -3780,7 +3772,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const FOOTER_H = 34
       const PAD = 14
 
-      // columns � grade col appended only when EFI active
+      // columns · grade col appended only when EFI active
       const baseCols = [
         { label: 'TIME', w: 118 },
         { label: 'SYMBOL', w: 80 },
@@ -3854,7 +3846,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.textAlign = 'right'
         ctx.fillText(
           new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) +
-          (totalPages > 1 ? `   ${page + 1}/${totalPages}  �  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
+          (totalPages > 1 ? `   ${page + 1}/${totalPages}  ·  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
           totalW - PAD, TITLE_H / 2
         )
 
@@ -3920,7 +3912,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), rx, mid)
           rx += cols[0].w + 6
 
-          // SYMBOL � orange ticker style matching the UI
+          // SYMBOL · orange ticker style matching the UI
           ctx.fillStyle = '#ff8500'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(trade.underlying_ticker, rx, mid)
@@ -3939,7 +3931,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(`$${trade.strike}`, rx, mid)
           rx += cols[3].w + 6
 
-          // SIZE � "1,234 @ 3.40 A"
+          // SIZE · "1,234 @ 3.40 A"
           const sizeStr = trade.trade_size.toLocaleString()
           const priceStr = trade.premium_per_contract.toFixed(2)
           ctx.fillStyle = '#00ccff'
@@ -3972,14 +3964,14 @@ Stock Reaction: ${scores.stockReaction}/15`
           rx += cols[6].w + 6
 
           // SPOT >> CURRENT
-          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '�'}`
+          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '—'}`
           ctx.fillStyle = '#ffffff'
           ctx.fillText(spotStr, rx, mid)
           const spW = ctx.measureText(spotStr).width
           ctx.fillStyle = '#ffffff'
           ctx.fillText(' >> ', rx + spW, mid)
           const arrW = ctx.measureText(' >> ').width
-          const curStr = curPx ? `$${curPx.toFixed(2)}` : '�'
+          const curStr = curPx ? `$${curPx.toFixed(2)}` : '—'
           ctx.fillStyle = curPx > trade.spot_price ? '#00ff88' : '#ff3333'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(curStr, rx + spW + arrW, mid)
@@ -4027,7 +4019,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
               ctx.textAlign = 'left'
-              ctx.fillText('�', rx, mid)
+              ctx.fillText('—', rx, mid)
             }
             rx += gradeCol.w + 6
           }
@@ -4061,7 +4053,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             } else {
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('�', rx, mid)
+              ctx.fillText('—', rx, mid)
             }
             rx += targetsCol.w + 6
           }
@@ -4074,10 +4066,10 @@ Stock Reaction: ${scores.stockReaction}/15`
               // Build combined price+expiry strings so no measureText font mismatch
               const magnetVal = zones.golden != null
                 ? `$${zones.golden}${zones.goldenExpiry ? '  ' + zones.goldenExpiry.slice(5).replace('-', '/') : ''}`
-                : '�'
+                : '—'
               const pivotVal = zones.purple != null
                 ? `$${zones.purple}${zones.purpleExpiry ? '  ' + zones.purpleExpiry.slice(5).replace('-', '/') : ''}`
-                : '�'
+                : '—'
               ctx.font = 'bold 11px "Courier New", monospace'
               ctx.fillStyle = '#FFD700'
               ctx.fillText('MAGNET', rx, mid - 8)
@@ -4091,7 +4083,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             } else {
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('�', rx, mid)
+              ctx.fillText('—', rx, mid)
             }
           }
         })
@@ -4107,7 +4099,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.font = '14px "Courier New", monospace'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText('EFI TRADING  �  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
+        ctx.fillText('EFI TRADING  ·  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
 
         // -- Download --
         const dataUrl = canvas.toDataURL('image/png')
@@ -4374,7 +4366,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           {/* Modal Content */}
 
           <div
-            className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
+            className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-[985px] max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
               top: typeof window !== 'undefined' && window.innerWidth < 768 ? '130px' : '224px',
               background:
@@ -5150,10 +5142,27 @@ Stock Reaction: ${scores.stockReaction}/15`
                           letterSpacing: '2px',
                           textTransform: 'uppercase',
                           color: '#ffffff',
+                          flex: 1,
                         }}
                       >
                         Blacklist
                       </span>
+                      <button
+                        onClick={() => setBlacklistEnabled((v) => !v)}
+                        style={{
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          border: blacklistEnabled ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                          background: blacklistEnabled ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                          color: blacklistEnabled ? '#fca5a5' : 'rgba(255,255,255,0.4)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          letterSpacing: '1px',
+                        }}
+                      >
+                        {blacklistEnabled ? 'ON' : 'OFF'}
+                      </button>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                       {blacklistedTickers.slice(0, 10).map((ticker, index) => (
@@ -5819,10 +5828,27 @@ Stock Reaction: ${scores.stockReaction}/15`
                               letterSpacing: '2px',
                               textTransform: 'uppercase',
                               color: '#ffffff',
+                              flex: 1,
                             }}
                           >
                             Black List
                           </span>
+                          <button
+                            onClick={() => setBlacklistEnabled((v) => !v)}
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: '6px',
+                              border: blacklistEnabled ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                              background: blacklistEnabled ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                              color: blacklistEnabled ? '#fca5a5' : 'rgba(255,255,255,0.4)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              letterSpacing: '1px',
+                            }}
+                          >
+                            {blacklistEnabled ? 'ON' : 'OFF'}
+                          </button>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                           {blacklistedTickers.map((ticker, index) => (
@@ -6236,7 +6262,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       ? flow.date.slice(0, 10)
                       : new Date(flow.date).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                     const [yr, mo, dy] = dateStr.split('-').map(Number)
-                    const tradingDate = new Date(yr, mo - 1, dy) // local midnight � no shift
+                    const tradingDate = new Date(yr, mo - 1, dy) // local midnight · no shift
                     const dateLabel = tradingDate.toLocaleDateString('en-US', {
                       weekday: 'short',
                       month: 'short',
@@ -6291,7 +6317,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             >
                               {tradeCount != null
                                 ? `${tradeCount.toLocaleString()} TRADES`
-                                : '� TRADES'}
+                                : '· TRADES'}
                             </span>
                             <span
                               style={{
@@ -7918,7 +7944,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         className="text-orange-400 hover:text-white hover:bg-orange-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold transition-all duration-200"
                         title="Clear filter"
                       >
-                        �
+                        ·
                       </button>
                     </div>
                   </div>
@@ -8895,8 +8921,31 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </div>
                           </td>
 
-                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
-                            <div className="flex items-center gap-2">
+                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30" style={{ position: 'relative' }}>
+                            {(() => {
+                              const fs = (trade.fill_style || '').toUpperCase()
+                              const isCall = trade.type?.toLowerCase() === 'call'
+                              const isBullish = (isCall && (fs === 'A' || fs === 'AA')) || (!isCall && (fs === 'B' || fs === 'BB'))
+                              const isBearish = (!isCall && (fs === 'A' || fs === 'AA')) || (isCall && (fs === 'B' || fs === 'BB'))
+                              if (!isBullish && !isBearish) return null
+                              return (
+                                <div style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  top: '10%',
+                                  bottom: '10%',
+                                  width: '4px',
+                                  borderRadius: '0 2px 2px 0',
+                                  background: isBullish
+                                    ? 'linear-gradient(180deg, #4ade80 0%, #16a34a 50%, #4ade80 100%)'
+                                    : 'linear-gradient(180deg, #f87171 0%, #dc2626 50%, #f87171 100%)',
+                                  boxShadow: isBullish
+                                    ? '0 0 8px rgba(74,222,128,0.8), inset 0 1px 0 rgba(255,255,255,0.4)'
+                                    : '0 0 8px rgba(248,113,113,0.8), inset 0 1px 0 rgba(255,255,255,0.4)',
+                                }} />
+                              )
+                            })()}
+                            <div className="flex items-center justify-center gap-2">
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
                                 className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker
@@ -9198,8 +9247,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                               const isCall = trade.type === 'call'
                               const fillStyle = trade.fill_style || ''
                               const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
-                              // A/AA: directional � calls go up, puts go down
-                              // B/BB: inversed  � calls go down (sold call = bearish), puts go up (sold put = bullish)
+                              // A/AA: directional · calls go up, puts go down
+                              // B/BB: inversed  · calls go down (sold call = bearish), puts go up (sold put = bullish)
                               const targetIsUpside =
                                 (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
                               const cacheKeyT = trade.underlying_ticker
@@ -9300,7 +9349,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                       </div>
                                     </div>
                                   ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>�</span>
+                                    <span style={{ color: '#333', fontSize: '12px' }}>·</span>
                                   )}
                                 </td>
                               )
@@ -9351,7 +9400,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                               letterSpacing: '-0.5px',
                                             }}
                                           >
-                                            {zones.golden != null ? `$${zones.golden}` : '�'}
+                                            {zones.golden != null ? `$${zones.golden}` : '—'}
                                           </span>
                                           {zones.goldenExpiry && (
                                             <span
@@ -9391,7 +9440,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                               letterSpacing: '-0.5px',
                                             }}
                                           >
-                                            {zones.purple != null ? `$${zones.purple}` : '�'}
+                                            {zones.purple != null ? `$${zones.purple}` : '—'}
                                           </span>
                                           {zones.purpleExpiry && (
                                             <span
@@ -9418,7 +9467,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                       </span>
                                     )
                                   ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>�</span>
+                                    <span style={{ color: '#333', fontSize: '12px' }}>·</span>
                                   )}
                                 </td>
                               )
@@ -9883,7 +9932,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                                       <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.stockReaction}/15</span>
                                                     </div>
                                                     {gradeData.stdDevError && (
-                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed � Price Action unscored</div>
+                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed · Price Action unscored</div>
                                                     )}
                                                   </>
                                                 )}
@@ -9939,7 +9988,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                         </tr>
 
-                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot � only for notable picks on mobile */}
+                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot · only for notable picks on mobile */}
                         {isMobileView &&
                           isNotablePick &&
                           (() => {
@@ -10023,7 +10072,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t1m ? `$${t1m.toFixed(2)}` : '�'}
+                                        {t1m ? `$${t1m.toFixed(2)}` : '—'}
                                       </span>
                                     </div>
                                     {/* T2 */}
@@ -10057,7 +10106,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t2m ? `$${t2m.toFixed(2)}` : '�'}
+                                        {t2m ? `$${t2m.toFixed(2)}` : '—'}
                                       </span>
                                     </div>
                                     {/* Magnet */}
@@ -10091,7 +10140,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#FFD700',
                                         }}
                                       >
-                                        {zones2?.golden != null ? `$${zones2.golden}` : '�'}
+                                        {zones2?.golden != null ? `$${zones2.golden}` : '—'}
                                         {zones2?.goldenExpiry && (
                                           <span
                                             style={{
@@ -10136,7 +10185,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#dd44ff',
                                         }}
                                       >
-                                        {zones2?.purple != null ? `$${zones2.purple}` : '�'}
+                                        {zones2?.purple != null ? `$${zones2.purple}` : '—'}
                                         {zones2?.purpleExpiry && (
                                           <span
                                             style={{
@@ -11600,7 +11649,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       {!isSidebarPanel && !isMobileView && (
         <div
           style={{
-            width: '26%',
+            width: '28.6%',
             height: '100vh',
             position: 'fixed',
             top: 125,
@@ -11608,7 +11657,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             overflowY: 'auto',
             borderLeft: '1px solid #374151',
             background: '#000000',
-            zIndex: 50,
+            zIndex: 1002,
           }}
         >
           <FlowTrackingPanel
