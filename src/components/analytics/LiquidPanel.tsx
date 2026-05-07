@@ -696,6 +696,7 @@ interface MMData {
   putTheta: number
   callVega: number
   putVega: number
+  greekCoverage: number
 }
 
 interface MMDashboardProps {
@@ -765,8 +766,8 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
       1 -
       ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t +
         0.254829592) *
-        t *
-        Math.exp(-ax * ax)
+      t *
+      Math.exp(-ax * ax)
     return 0.5 * (1 + sign * y)
   }
 
@@ -803,12 +804,6 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           .forEach((s) => allStrikes.add(s))
       }
     })
-    console.groupCollapsed(`[GaugeTrio] mmData build — ${currentPrice} price, ${mmExpirations.length} expiries, ${allStrikes.size} strikes in ±20% range`)
-    console.log('[GaugeTrio] Expiries scanned:', mmExpirations.map(exp => {
-      const dte = Math.ceil((new Date(exp + 'T00:00:00Z').getTime() - Date.now()) / 86400000)
-      return `${exp} (${dte}DTE, w=${Math.exp(-Math.max(1,dte)/21).toFixed(3)})`
-    }))
-    console.groupEnd()
 
     return Array.from(allStrikes)
       .map((strike) => {
@@ -825,6 +820,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           tPT = 0,
           tCV = 0,
           tPV = 0
+        let oiWithGreeks = 0, totalOIForCoverage = 0
         mmExpirations.forEach((exp) => {
           const sd = gexByStrikeByExpiration[exp]?.[strike]
           if (sd) {
@@ -839,24 +835,12 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             totalOI += (sd.callOI || 0) + (sd.putOI || 0)
             const cOI = sd.callOI || 0,
               pOI = sd.putOI || 0
-            // Use actual delta from data; fall back to Black-Scholes N(d1) with real IV
-            const iv = sd.callIV || 0.3
-            const deltaSource = sd.callDelta != null && sd.callDelta !== 0 ? 'API' : `BS(IV=${iv.toFixed(3)})`
-            const cd =
-              sd.callDelta != null && sd.callDelta !== 0
-                ? Math.abs(sd.callDelta)
-                : bsDelta(currentPrice, strike, daysToExp, iv)
-            const pd =
-              sd.putDelta != null && sd.putDelta !== 0
-                ? sd.putDelta
-                : cd - 1
-            console.log(
-              `[GaugeTrio] K=${strike} exp=${exp} DTE=${daysToExp} w=${w.toFixed(3)}`,
-              `| deltaSource=${deltaSource} cd=${cd.toFixed(3)} pd=${pd.toFixed(3)}`,
-              `| cOI=${cOI} pOI=${pOI}`,
-              `| gamma=${(sd.callGamma||0).toFixed(5)} vega=${(sd.callVega||0).toFixed(4)} theta=${(sd.callTheta||0).toFixed(4)}`,
-              `| IV=${iv.toFixed(3)}${ sd.callIV ? ' (from API)' : ' (hardcoded fallback)' }`
-            )
+            const cd = sd.callDelta != null ? Math.abs(sd.callDelta) : 0
+            const pd = sd.putDelta != null ? sd.putDelta : 0
+            // Track OI-weighted greek coverage
+            totalOIForCoverage += (cOI + pOI)
+            if (sd.callGamma != null || sd.callVega != null) oiWithGreeks += cOI
+            if (sd.putGamma != null || sd.putVega != null) oiWithGreeks += pOI
             tCD += cd * cOI * 100 * w
             tPD += pd * pOI * 100 * w
             tCG += (sd.callGamma || 0) * cOI * w
@@ -871,6 +855,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         })
         if (validExp > 0) avgDTE /= validExp
         const netMM = totalCallMM + totalPutMM
+        const greekCoverage = totalOIForCoverage > 0 ? oiWithGreeks / totalOIForCoverage : 0
         return {
           strike,
           netMM,
@@ -891,10 +876,20 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           putTheta: tPT,
           callVega: tCV,
           putVega: tPV,
+          greekCoverage,
         }
       })
       .sort((a, b) => b.strike - a.strike)
   }, [currentPrice, gexByStrikeByExpiration, mmExpirations])
+
+  // OI-weighted greek coverage across all strikes — if < 50% of OI has greeks, data is unreliable
+  const hasEnoughGreeks = useMemo(() => {
+    if (mmData.length === 0) return false
+    const totalOI = mmData.reduce((s, d) => s + d.totalOI, 0)
+    if (totalOI === 0) return false
+    const coveredOI = mmData.reduce((s, d) => s + d.greekCoverage * d.totalOI, 0)
+    return coveredOI / totalOI >= 0.5
+  }, [mmData])
 
   const metrics = useMemo(() => {
     const tND = mmData.reduce((s, i) => s + i.netDelta, 0)
@@ -934,20 +929,6 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
         signalExplanation = 'Low conviction across all Greeks - wait for clearer setup'
       else signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade'
     }
-    console.groupCollapsed(`[GaugeTrio] Metrics — composite=${compositeScore.toFixed(3)} → ${signal}`)
-    console.log('[GaugeTrio] Sub-scores:',
-      `dS(delta)=${dS.toFixed(3)} [×0.30]`,
-      `gS(gamma)=${gS.toFixed(3)} [×0.35]`,
-      `tS(theta)=${tS.toFixed(3)} [×0.20]`,
-      `vS(vega)=${vS.toFixed(3)} [×0.15]`
-    )
-    console.log('[GaugeTrio] Raw totals:',
-      `netDelta=${mmData.reduce((s,i)=>s+i.netDelta,0).toFixed(0)}`,
-      `netGamma=${mmData.reduce((s,i)=>s+i.netGamma,0).toFixed(4)}`,
-      `netTheta=${mmData.reduce((s,i)=>s+i.netTheta,0).toFixed(2)}`,
-      `netVega=${mmData.reduce((s,i)=>s+i.netVega,0).toFixed(2)}`
-    )
-    console.groupEnd()
     return { compositeScore, signal, signalExplanation }
   }, [mmData, currentPrice])
 
@@ -977,37 +958,25 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
           if (cOI > 0 || pOI > 0) {
             const cG = data.callGamma || 0,
               pG = data.putGamma || 0
+            // NET GEX: positive = call gamma dominates (stabilizing), negative = put gamma dominates (destabilizing)
             if (cOI > 0 && cG !== 0) totalGEX += cG * cOI * (currentPrice * currentPrice) * 100 * w
             if (pOI > 0 && pG !== 0) totalGEX += -pG * pOI * (currentPrice * currentPrice) * 100 * w
             const cV = data.callVega || 0,
               pV = data.putVega || 0
+            // GROSS VEX: sum absolute vega exposure — do NOT net calls vs puts or denominator collapses to ~0
             if (cOI > 0 && cV !== 0) totalVEX += cV * cOI * 100 * w
-            if (pOI > 0 && pV !== 0) totalVEX += -pV * pOI * 100 * w
-            // DEX: use actual delta from data; fall back to BS N(d1)
-            const iv = data.callIV || 0.3
-            const callD =
-              data.callDelta != null && data.callDelta !== 0
-                ? Math.abs(data.callDelta)
-                : bsDelta(currentPrice, sp, daysToExp, iv)
-            const putD =
-              data.putDelta != null && data.putDelta !== 0
-                ? data.putDelta
-                : callD - 1
-            totalDEX += (callD * cOI * 100 * currentPrice + putD * pOI * 100 * currentPrice) * w
+            if (pOI > 0 && pV !== 0) totalVEX += pV * pOI * 100 * w
+            // GROSS DEX: sum absolute delta exposure — API data only, skip if null
+            const callD = data.callDelta != null ? Math.abs(data.callDelta) : null
+            const putD = data.putDelta != null ? Math.abs(data.putDelta) : null
+            if (callD != null) totalDEX += callD * cOI * 100 * currentPrice * w
+            if (putD != null) totalDEX += putD * pOI * 100 * currentPrice * w
           }
         })
       }
     })
     const denom = Math.abs(totalVEX) + Math.abs(totalDEX)
     const si = denom !== 0 ? totalGEX / denom : 0
-    console.groupCollapsed(`[GaugeTrio] StabilityIndex — SI=${si.toFixed(4)}`)
-    console.log('[GaugeTrio] SI components:',
-      `totalGEX=${totalGEX.toExponential(3)}`,
-      `totalVEX=${totalVEX.toExponential(3)}`,
-      `totalDEX=${totalDEX.toExponential(3)}`,
-      `denom=${denom.toExponential(3)}`
-    )
-    console.groupEnd()
     let stability = '',
       marketBehavior = '',
       stabilityColor = ''
@@ -1088,6 +1057,12 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                         : 'NEUTRAL'
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
+              {!hasEnoughGreeks && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
+                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                </div>
+              )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
                 <defs>
                   <radialGradient id="gtHg1" cx="50%" cy="50%" r="50%">
@@ -1337,6 +1312,12 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             arcLen = Math.PI * r
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
+              {!hasEnoughGreeks && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
+                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                </div>
+              )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
                 <defs>
                   <radialGradient id="gtHg2" cx="50%" cy="50%" r="50%">
@@ -1556,6 +1537,12 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
                         : 'NEUTRAL'
           return (
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
+              {!hasEnoughGreeks && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
+                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                </div>
+              )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
                 <defs>
                   <radialGradient id="gtHg3" cx="50%" cy="50%" r="50%">
@@ -2175,7 +2162,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   const [liveOIFromFlowCache, setLiveOIFromFlowCache] = useState(false)
 
   // When the selected ticker changes, check the DB for a fresh cached live OI map.
-  // If found ? restore it instantly and skip the scan.
+  // If found → restore it instantly and skip the scan.
   useEffect(() => {
     if (!selectedTicker) return
     const tradingDate = getFlowTradingDate()
@@ -3519,13 +3506,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
           totalPremiumSum += totalCost
 
-          // DEBUG: Log if premium is zero
-          if (totalCost === 0) {
-            console.warn(
-              `?? ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`
-            )
-          }
-
           if (!flowPremiumByStrike[expiry]) flowPremiumByStrike[expiry] = {}
           if (!flowPremiumByStrike[expiry][strike]) {
             flowPremiumByStrike[expiry][strike] = {
@@ -3549,19 +3529,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
           }
         }
       })
-
-      // DEBUG: Show sample of premiums by expiration
-      Object.keys(flowPremiumByStrike)
-        .slice(0, 2)
-        .forEach((exp) => {
-          const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3)
-
-          strikes.forEach((strike) => {
-            const data = flowPremiumByStrike[exp][parseFloat(strike)]
-            if (data.callPremium > 0 || data.putPremium > 0) {
-            }
-          })
-        })
 
       // Smart batching: larger batches for more expirations
       const batchSize =
@@ -3992,10 +3959,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
             putOI: 0,
           }
 
-          // DEBUG: Log flow data for first few strikes
-          if (relevantStrikes.indexOf(strike) < 3 && (flowData.call !== 0 || flowData.put !== 0)) {
-          }
-
           row[exp] = {
             call: data.call,
             put: data.put,
@@ -4042,7 +4005,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
       setLiveMode(true)
       updateLiveOI()
     } else if (selectedTicker && liveMode) {
-      // Ticker changed while live mode is already on ? fetch fresh base data first, then live scan
+      // Ticker changed while live mode is already on → fetch fresh base data first, then live scan
       setLiveOIData(new Map())
       fetchOptionsData().then(() => updateLiveOI())
     } else if (selectedTicker && !showFlowGEX && !liveMode) {
@@ -4429,6 +4392,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   const handleTickerSubmit = () => {
     const newTicker = tickerInput.trim().toUpperCase()
     if (newTicker && newTicker !== selectedTicker) {
+      // Reset stale flags synchronously — React batches these with setSelectedTicker into one
+      // render, so by the time autoTrigger useEffect runs for the new ticker, both flags are false.
+      setLiveOIFromFlowCache(false)
+      setLiveMode(false)
       setSelectedTicker(newTicker)
       setTickerInput(newTicker) // Ensure input stays synchronized
     }
@@ -4442,6 +4409,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   // Accept external ticker from parent (e.g. trading lens search bar)
   useEffect(() => {
     if (externalTicker && externalTicker !== selectedTicker) {
+      setLiveOIFromFlowCache(false)
+      setLiveMode(false)
       setSelectedTicker(externalTicker)
       setTickerInput(externalTicker)
     }

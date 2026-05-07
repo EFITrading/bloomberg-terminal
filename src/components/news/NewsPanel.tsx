@@ -353,7 +353,7 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
             </div>
           </form>
 
-          {/* Category Buttons - Smaller */}
+          {/* Category Buttons */}
           {categories.map((cat) => {
             const IconComponent = cat.icon
             const isActive = selectedCategory === cat.id
@@ -361,16 +361,21 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`flex items-center gap-1 px-2 py-2 md:px-5 md:py-3 rounded-lg text-xs md:text-base font-bold whitespace-nowrap transition-all ${
-                  isActive
-                    ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-black shadow-lg'
-                    : 'bg-black text-white hover:bg-gray-900 border border-gray-700 hover:border-orange-500/50'
-                }`}
+                className="flex items-center gap-1 font-black uppercase tracking-[0.15em] transition-all relative whitespace-nowrap"
+                style={{
+                  padding: '8px 10px',
+                  fontSize: '11px',
+                  color: isActive ? '#FF6600' : '#ffffff',
+                  border: isActive ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                  background: isActive
+                    ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                    : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                  boxShadow: isActive ? 'inset 0 1px 0 rgba(255,255,255,0.1)' : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                }}
               >
-                <IconComponent
-                  className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? 'text-black' : 'text-orange-400'}`}
-                />
-                <span>{cat.label}</span>
+                {isActive && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                <IconComponent className="w-3 h-3 relative" style={{ color: isActive ? '#FF6600' : '#ff9944' }} />
+                <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{cat.label}</span>
               </button>
             )
           })}
@@ -412,13 +417,12 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                   Overall
                 </span>
                 <div
-                  className={`flex items-center gap-2 px-2.5 py-1 rounded ${
-                    marketSentiment.overall_sentiment === 'bullish'
+                  className={`flex items-center gap-2 px-2.5 py-1 rounded ${marketSentiment.overall_sentiment === 'bullish'
                       ? 'bg-emerald-500/15 text-emerald-400'
                       : marketSentiment.overall_sentiment === 'bearish'
                         ? 'bg-rose-500/15 text-rose-400'
                         : 'bg-gray-500/15 text-gray-300'
-                  }`}
+                    }`}
                 >
                   {marketSentiment.overall_sentiment === 'bullish' ? (
                     <TbTrendingUp className="w-3.5 h-3.5" />
@@ -434,9 +438,8 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
               </div>
               <div className="relative w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className={`absolute h-full transition-all duration-500 ${
-                    marketSentiment.sentiment_score > 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                  }`}
+                  className={`absolute h-full transition-all duration-500 ${marketSentiment.sentiment_score > 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                    }`}
                   style={{
                     width: `${Math.abs(marketSentiment.sentiment_score) * 100}%`,
                     left: marketSentiment.sentiment_score < 0 ? 'auto' : '0',
@@ -520,11 +523,10 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
                         </span>
                       </div>
                       <div
-                        className={`text-xs font-bold px-2 py-0.5 rounded ml-2 ${
-                          event.estimated_price_impact > 0
+                        className={`text-xs font-bold px-2 py-0.5 rounded ml-2 ${event.estimated_price_impact > 0
                             ? 'text-emerald-400 bg-emerald-500/15'
                             : 'text-rose-400 bg-rose-500/15'
-                        }`}
+                          }`}
                       >
                         {event.estimated_price_impact > 0 ? '+' : ''}
                         {event.estimated_price_impact.toFixed(1)}%

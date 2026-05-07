@@ -1139,10 +1139,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
     const { bestPeriod, worstPeriod } = analyze30DayPatterns(dailyData)
 
-    // DEBUG: Log calculated periods for comparison with screener
-    if (symbol === 'GLD' || symbol === 'LVS') {
-    }
-
     return {
       symbol,
       companyName,

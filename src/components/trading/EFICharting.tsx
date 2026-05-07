@@ -2648,9 +2648,6 @@ const renderGEXLevels = (
     ctx.fillStyle = label.color
     ctx.fillText(label.text, label.x, label.y)
 
-    // Debug: Show adjustment if label was moved
-    if (Math.abs(label.y - label.originalY) > 1) {
-    }
   })
 
   // Reset canvas state
@@ -8925,6 +8922,7 @@ export default function TradingViewChart({
   // Seasonal state
   const [isSeasonalDropdownOpen, setIsSeasonalDropdownOpen] = useState(false)
   const [availableSeasonalYears, setAvailableSeasonalYears] = useState<number[]>([])
+  const [maxSeasonalYears, setMaxSeasonalYears] = useState(0)
 
   // Restore scroll positions for all sidebar panels on every render
   useLayoutEffect(() => {
@@ -8949,6 +8947,7 @@ export default function TradingViewChart({
   const [isSeasonal15YActive, setIsSeasonal15YActive] = useState(false)
   const [isSeasonal10YActive, setIsSeasonal10YActive] = useState(false)
   const [isSeasonalElectionActive, setIsSeasonalElectionActive] = useState(false)
+  const [electionInsufficientData, setElectionInsufficientData] = useState(false)
   const seasonalButtonRef = useRef<HTMLButtonElement>(null)
   const [seasonalProjectionData, setSeasonalProjectionData] = useState<Array<{
     date: Date
@@ -8999,26 +8998,13 @@ export default function TradingViewChart({
             (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
           const maxYears = Math.floor(actualYearsSpan)
 
+          setMaxSeasonalYears(maxYears)
+
           let yearOptions: number[] = []
-
-          if (maxYears >= 10) {
-            yearOptions = [1, 3, 5, 10]
-            if (maxYears >= 15) yearOptions.push(15)
-            if (maxYears >= 20) yearOptions.push(20)
-            if (maxYears !== 20 && maxYears !== 15) yearOptions.push(maxYears)
-          } else if (maxYears >= 4) {
-            yearOptions = [1, 3]
-            if (maxYears >= 5) yearOptions.push(5)
-            if (maxYears !== 5 && maxYears !== 3) yearOptions.push(maxYears)
-          } else if (maxYears >= 3) {
-            yearOptions = [3]
-          } else if (maxYears >= 2) {
-            yearOptions = [2]
-          } else {
-            yearOptions = [1]
-          }
-
-          yearOptions = [...new Set(yearOptions)]
+          if (maxYears >= 10) yearOptions.push(10)
+          if (maxYears >= 15) yearOptions.push(15)
+          if (maxYears >= 20 && maxYears !== 20) yearOptions.push(maxYears)
+          else if (maxYears >= 20) yearOptions.push(20)
           setAvailableSeasonalYears(yearOptions)
         }
       } catch (error) {
@@ -11567,6 +11553,7 @@ export default function TradingViewChart({
     setSeasonal15YData(null)
     setSeasonal10YData(null)
     setSeasonalElectionData(null)
+    setElectionInsufficientData(false)
     setSeasonalEventData(null)
     setSeasonalProjectionData(null)
 
@@ -11613,9 +11600,12 @@ export default function TradingViewChart({
   }, [symbol])
 
   // Initialize searchQuery with symbol when component loads or symbol changes
+  // Skip reset when in benchmark mode so XLK/SPY stays visible in the bar
   useEffect(() => {
-    setSearchQuery(symbol)
-  }, [symbol])
+    if (!isBenchmarkMode) {
+      setSearchQuery(symbol)
+    }
+  }, [symbol, isBenchmarkMode])
 
   // Block wheel scroll when hovering the top toolbar so it never scrolls the page
   useEffect(() => {
@@ -12135,16 +12125,6 @@ export default function TradingViewChart({
                   })
                 }
               }
-            }
-          }
-
-          if (scanGroupMode === 'sectors') {
-            // Debug: show how many stocks per sector made it into candidates
-            const perSector: Record<string, string[]> = {}
-            for (const c of allCandidates) {
-              const key = c.industrySymbol || c.industry
-              if (!perSector[key]) perSector[key] = []
-              perSector[key].push(c.symbol)
             }
           }
 
@@ -13052,15 +13032,7 @@ export default function TradingViewChart({
         setDarkPoolData(result)
         setDarkPoolProgress(100)
         setDarkPoolLoading(false)
-        if (config.symbol === 'MAGS') {
-          const top5Days = Object.entries(result)
-            .sort((a, b) => b[1].totalNotional - a[1].totalNotional)
-            .slice(0, 5)
-            .map(([date, dp]) => ({ date, totalNotional: dp.totalNotional, topPrint: dp.topPrint }))
-          console.log('[POI-BTN][MAGS] RUN COMPLETE — total days:', Object.keys(result).length)
-          console.log('[POI-BTN][MAGS] Top-5 days by notional:', top5Days)
-          console.log('[POI-BTN][MAGS] Full cache:', result)
-        }
+
       }
     }
 
@@ -13334,18 +13306,23 @@ export default function TradingViewChart({
           // Don't reset price change on error - keep previous values
         }
       } else {
-        // Fallback: Try to get the most recent close price from daily data
-        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+        // Fallback: market closed / weekend — use last two daily bars to show real change
+        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${(() => { const d = new Date(); d.setDate(d.getDate() - 10); return d.toISOString().split('T')[0] })()}/${new Date().toISOString().split('T')[0]}?adjusted=true&sort=desc&limit=2&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
         try {
           const fallbackResponse = await fetchWithRetry(fallbackUrl)
           const fallbackResult = await fallbackResponse.json()
 
-          if (fallbackResult.status === 'OK' && fallbackResult.results?.[0]?.c) {
-            const closePrice = fallbackResult.results[0].c
-            setCurrentPrice(closePrice)
-            // Set change to 0 when using fallback close price (market closed, no intraday movement)
-            setPriceChange(0)
-            setPriceChangePercent(0)
+          if (fallbackResult.status === 'OK' && fallbackResult.results?.length > 0) {
+            const lastBar = fallbackResult.results[0]
+            setCurrentPrice(lastBar.c)
+            if (fallbackResult.results.length >= 2) {
+              const prevBar = fallbackResult.results[1]
+              const change = lastBar.c - prevBar.c
+              const changePct = (change / prevBar.c) * 100
+              setPriceChange(change)
+              setPriceChangePercent(changePct)
+            }
+            // if only 1 bar, keep existing change values — don't zero out
           } else {
             // Silent fail for invalid tickers - no console spam
             // Don't reset on error - keep previous values
@@ -13436,7 +13413,7 @@ export default function TradingViewChart({
           setBenchmarkSymbol1(symbols[0])
           setBenchmarkSymbol2(symbols[1])
           handleSymbolChange(symbols[0]) // Set primary symbol for display
-          setSearchQuery('')
+          setSearchQuery(`${symbols[0]}/${symbols[1]}`)
           return
         }
       }
@@ -13825,6 +13802,20 @@ export default function TradingViewChart({
       setScrollOffset(targetOffset)
     }
   }, [data.length, loading])
+
+  // When any seasonal/election becomes active, scroll chart so last candle sits at
+  // ~70% of the visible area, leaving the right 30% for the future projection.
+  const anySeasonalActiveForScroll =
+    isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive ||
+    isSeasonalElectionActive || isSeasonalEventActive
+  useEffect(() => {
+    if (anySeasonalActiveForScroll && data.length > 0) {
+      // Position last candle at slot 105 out of 150, leaving 45 slots for future
+      const targetOffset = Math.max(0, data.length - 105)
+      setScrollOffset(targetOffset)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anySeasonalActiveForScroll])
 
   // Initialize scroll position with FULL DATA - DISABLED to prevent override
   // This was overriding the timeframe-specific scroll positioning
@@ -17314,9 +17305,14 @@ export default function TradingViewChart({
     const startIndex = Math.max(0, Math.floor(scrollOffset))
 
     // Draw labels for actual data with overlap prevention
-    visibleData.forEach((candle, index) => {
-      if (index % labelStep === 0) {
-        const x = 40 + index * candleSpacing + candleSpacing / 2
+    // Use absolute dataset index (scrollOffset + visIndex) so labels are anchored to
+    // fixed time positions — TradingView-style stable labels during pan/drag.
+    // When you pan left/right, labels don't all jump; new ones appear at the edge.
+    const startAbsIndex = Math.floor(scrollOffset)
+    visibleData.forEach((candle, visIndex) => {
+      const absIndex = startAbsIndex + visIndex
+      if (absIndex % labelStep === 0) {
+        const x = 40 + visIndex * candleSpacing + candleSpacing / 2
         const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format)
         addLabel(x, timeLabel, false)
       }
@@ -17328,6 +17324,89 @@ export default function TradingViewChart({
       const x = 40 + lastIndex * candleSpacing + candleSpacing / 2
       const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format)
       addLabel(x, timeLabel, false)
+    }
+
+    // Draw future X-axis date labels for seasonal/election projections (orange)
+    const anySeasonalActive =
+      isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive ||
+      isSeasonalElectionActive || isSeasonalEventActive
+    if (anySeasonalActive && allData.length > 0) {
+      // Pick the first available projection to get future dates
+      const activeProjection =
+        (isSeasonal20YActive && seasonal20YData) ||
+        (isSeasonal15YActive && seasonal15YData) ||
+        (isSeasonal10YActive && seasonal10YData) ||
+        (isSeasonalElectionActive && seasonalElectionData) ||
+        (isSeasonalEventActive && seasonalEventData) ||
+        null
+
+      if (activeProjection && activeProjection.length > 1) {
+        const lastDataCandle = allData[allData.length - 1]
+        const lastDataIndex = allData.length - 1
+        const lastDataPositionOnScreen = lastDataIndex - Math.floor(scrollOffset)
+        const lastDataX = 40 + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+        const lastDataDate = new Date(lastDataCandle.timestamp)
+        lastDataDate.setHours(0, 0, 0, 0)
+
+        // Count trading days helper (same logic as drawSeasonalLine)
+        const isWeekendDay = (d: Date) => d.getDay() === 0 || d.getDay() === 6
+        const countFutureTradingDays = (fromDate: Date, toDate: Date): number => {
+          const start = new Date(fromDate)
+          const end = new Date(toDate)
+          start.setHours(0, 0, 0, 0)
+          end.setHours(0, 0, 0, 0)
+          const forward = end >= start
+          const cur = new Date(forward ? start : end)
+          const target = new Date(forward ? end : start)
+          let count = 0
+          while (cur < target) {
+            cur.setDate(cur.getDate() + 1)
+            if (!isWeekendDay(cur)) count++
+          }
+          return forward ? count : -count
+        }
+
+        // Place a label every ~10 trading days, using addLabel for collision detection
+        const labelEvery = 10
+        let lastLabelTradingDay = 0
+        const labelY = isMobile ? height - 55 : height - 80
+        const tickStartY = isMobile ? height - 75 : height - 97
+        const tickEndY = isMobile ? height - 65 : height - 92
+
+        ctx.save()
+        ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+        ctx.textAlign = 'center'
+
+        // Skip index 0 (that's the last real candle date, already labeled)
+        for (let i = 1; i < activeProjection.length; i++) {
+          const projDate = new Date(activeProjection[i].date)
+          projDate.setHours(0, 0, 0, 0)
+          const tradingDays = countFutureTradingDays(lastDataDate, projDate)
+          const x = Math.round(lastDataX + tradingDays * candleSpacing)
+
+          if (tradingDays - lastLabelTradingDay >= labelEvery || i === activeProjection.length - 1) {
+            lastLabelTradingDay = tradingDays
+            if (x > lastDataX && x < width - 10) {
+              const labelText = projDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              if (canPlaceLabel(x, labelText)) {
+                const textWidth = ctx.measureText(labelText).width
+                labelPositions.push({ x, width: textWidth, text: labelText })
+
+                ctx.fillStyle = '#FF8C00'
+                ctx.fillText(labelText, x, labelY)
+
+                ctx.strokeStyle = 'rgba(255, 140, 0, 0.5)'
+                ctx.lineWidth = 1
+                ctx.beginPath()
+                ctx.moveTo(x, tickStartY)
+                ctx.lineTo(x, tickEndY)
+                ctx.stroke()
+              }
+            }
+          }
+        }
+        ctx.restore()
+      }
     }
 
     // Draw price alerts on the chart
@@ -20024,44 +20103,31 @@ export default function TradingViewChart({
             </button>
             {/* Tab Navigation */}
             <div
-              className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg"
+              className="flex gap-0 relative"
               style={{ marginRight: '36px' }}
             >
               {['Watchlist', 'Tracking', 'Money'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => {
-                    setActiveTab(tab)
-                  }}
-                  className="md:text-[16px] text-[11px]"
+                  onClick={() => setActiveTab(tab)}
+                  className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
                   style={{
-                    flex: 1,
-                    padding: '10px 8px',
-                    fontWeight: '900',
-                    fontFamily: 'monospace',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    border: 'none',
-                    borderRight: activeTab === tab ? 'none' : '1px solid #333',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s',
-                    background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                    color: activeTab === tab ? '#ff8844' : '#ffffff',
-                    boxShadow:
-                      'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                    opacity: 1,
-                    filter: 'contrast(1.1) brightness(1.1)',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background =
-                      'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background =
-                      'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)'
+                    padding: '14px 16px',
+                    fontSize: '14px',
+                    color: activeTab === tab ? '#FF6600' : '#ffffff',
+                    border: activeTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                    background: activeTab === tab
+                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                    boxShadow: activeTab === tab
+                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                   }}
                 >
-                  {tab}
+                  {activeTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none"></div>}
+                  <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
+                    {tab}
+                  </span>
                 </button>
               ))}
             </div>
@@ -26450,68 +26516,75 @@ export default function TradingViewChart({
                     )}
                 </div>
 
-                {/* Seasonal Button with Dropdown */}
+                {/* Seasonal Button */}
                 <div className="ml-4 relative">
-                  <button
-                    ref={seasonalButtonRef}
-                    onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
-                    className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
-                    style={{
-                      padding: isMobile ? '3px 8px' : '10px 14px',
-                      fontWeight: '700',
-                      fontSize: '13px',
-                      borderRadius: '4px',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    <span>{isMobile ? 'SEAS' : 'SEASONAL'}</span>
-                    {isSeasonalActive ? (
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setIsSeasonal20YActive(false)
-                          setIsSeasonal15YActive(false)
-                          setIsSeasonal10YActive(false)
-                          setIsSeasonalElectionActive(false)
-                          setIsSeasonalActive(false)
-                          setSeasonal20YData(null)
-                          setSeasonal15YData(null)
-                          setSeasonal10YData(null)
-                          setSelectedSeasonalEvent(null)
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        ×
-                      </span>
-                    ) : (
-                      <svg
-                        className="w-4 h-4 ml-1"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    )}
-                  </button>
+                  {maxSeasonalYears < 10 ? (
+                    <button
+                      className="btn-3d-carved btn-seasonal"
+                      disabled
+                      style={{
+                        padding: isMobile ? '3px 8px' : '10px 14px',
+                        fontWeight: '700',
+                        fontSize: '13px',
+                        borderRadius: '4px',
+                        opacity: 0.4,
+                        cursor: 'not-allowed',
+                      }}
+                    >
+                      <span>{isMobile ? 'SEAS' : 'NO SEASONAL'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      ref={seasonalButtonRef}
+                      onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
+                      className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
+                      style={{
+                        padding: isMobile ? '3px 8px' : '10px 14px',
+                        fontWeight: '700',
+                        fontSize: '13px',
+                        borderRadius: '4px',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <span>{isMobile ? 'SEAS' : 'SEASONAL'}</span>
+                      {isSeasonalActive ? (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setIsSeasonal20YActive(false)
+                            setIsSeasonal15YActive(false)
+                            setIsSeasonal10YActive(false)
+                            setIsSeasonalElectionActive(false)
+                            setIsSeasonalActive(false)
+                            setSeasonal20YData(null)
+                            setSeasonal15YData(null)
+                            setSeasonal10YData(null)
+                            setSelectedSeasonalEvent(null)
+                          }}
+                          className="ml-1"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#ff8500',
+                            fontSize: '20px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            padding: '0 4px',
+                            lineHeight: '1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          ×
+                        </span>
+                      ) : (
+                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
 
                   {/* Seasonal Dropdown */}
                   {isSeasonalDropdownOpen &&
@@ -26529,113 +26602,49 @@ export default function TradingViewChart({
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
-                          boxShadow:
-                            '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.1)',
                           padding: '12px',
                           minWidth: '180px',
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {availableSeasonalYears.map((years) => (
-                            <button
-                              key={years}
-                              onClick={async () => {
-                                const stateKey = `isSeasonal${years}YActive`
-                                const dataKey = `seasonal${years}YData`
-
-                                // Toggle the specific year
-                                if (years === 20) {
-                                  const newState = !isSeasonal20YActive
-                                  setIsSeasonal20YActive(newState)
-                                  if (newState) {
-                                    if (!seasonal20YData) {
-                                      setIsLoadingSeasonalProjection(true)
-                                      const projection = await calculateSeasonalityProjection(
-                                        symbol,
-                                        20,
-                                        data
-                                      )
-                                      setSeasonal20YData(projection)
-                                      setIsLoadingSeasonalProjection(false)
-                                    }
-                                    setIsSeasonalActive(true)
-                                  } else {
-                                    if (
-                                      !isSeasonal15YActive &&
-                                      !isSeasonal10YActive &&
-                                      !isSeasonalElectionActive
-                                    ) {
-                                      setIsSeasonalActive(false)
-                                    }
-                                  }
-                                } else if (years === 15) {
-                                  const newState = !isSeasonal15YActive
-                                  setIsSeasonal15YActive(newState)
-                                  if (newState) {
-                                    if (!seasonal15YData) {
-                                      setIsLoadingSeasonalProjection(true)
-                                      const projection = await calculateSeasonalityProjection(
-                                        symbol,
-                                        15,
-                                        data
-                                      )
-                                      setSeasonal15YData(projection)
-                                      setIsLoadingSeasonalProjection(false)
-                                    }
-                                    setIsSeasonalActive(true)
-                                  } else {
-                                    if (
-                                      !isSeasonal20YActive &&
-                                      !isSeasonal10YActive &&
-                                      !isSeasonalElectionActive
-                                    ) {
-                                      setIsSeasonalActive(false)
-                                    }
-                                  }
-                                } else if (years === 10) {
-                                  const newState = !isSeasonal10YActive
-                                  setIsSeasonal10YActive(newState)
-                                  if (newState) {
-                                    if (!seasonal10YData) {
-                                      setIsLoadingSeasonalProjection(true)
-                                      const projection = await calculateSeasonalityProjection(
-                                        symbol,
-                                        10,
-                                        data
-                                      )
-                                      setSeasonal10YData(projection)
-                                      setIsLoadingSeasonalProjection(false)
-                                    }
-                                    setIsSeasonalActive(true)
-                                  } else {
-                                    if (
-                                      !isSeasonal20YActive &&
-                                      !isSeasonal15YActive &&
-                                      !isSeasonalElectionActive
-                                    ) {
-                                      setIsSeasonalActive(false)
-                                    }
-                                  }
+                          {/* Single Seasonality toggle - loads all available year lines */}
+                          <button
+                            onClick={async () => {
+                              if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) {
+                                setIsSeasonal10YActive(false)
+                                setIsSeasonal15YActive(false)
+                                setIsSeasonal20YActive(false)
+                                setSeasonal10YData(null)
+                                setSeasonal15YData(null)
+                                setSeasonal20YData(null)
+                                if (!isSeasonalElectionActive) setIsSeasonalActive(false)
+                              } else {
+                                setIsLoadingSeasonalProjection(true)
+                                setIsSeasonalActive(true)
+                                const d10 = await calculateSeasonalityProjection(symbol, 10, data)
+                                setSeasonal10YData(d10)
+                                setIsSeasonal10YActive(true)
+                                if (maxSeasonalYears >= 15) {
+                                  const d15 = await calculateSeasonalityProjection(symbol, 15, data)
+                                  setSeasonal15YData(d15)
+                                  setIsSeasonal15YActive(true)
                                 }
-                              }}
-                              className={`btn-3d-carved ${(years === 20 && isSeasonal20YActive) ||
-                                (years === 15 && isSeasonal15YActive) ||
-                                (years === 10 && isSeasonal10YActive)
-                                ? 'active'
-                                : ''
-                                }`}
-                              style={{
-                                padding: '10px 16px',
-                                fontWeight: '700',
-                                fontSize: '14px',
-                                textAlign: 'left',
-                                borderRadius: '4px',
-                                width: '100%',
-                              }}
-                            >
-                              {years} Y
-                            </button>
-                          ))}
+                                if (maxSeasonalYears >= 20) {
+                                  const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data)
+                                  setSeasonal20YData(dMax)
+                                  setIsSeasonal20YActive(true)
+                                }
+                                setIsLoadingSeasonalProjection(false)
+                              }
+                              setIsSeasonalDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive ? 'active' : ''
+                              }`}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                          >
+                            {isLoadingSeasonalProjection ? 'Loading...' : 'Seasonality'}
+                          </button>
                           <button
                             onClick={async () => {
                               const newState = !isSeasonalElectionActive
@@ -26644,6 +26653,7 @@ export default function TradingViewChart({
                               if (newState) {
                                 // Load data if not already loaded
                                 if (!seasonalElectionData) {
+                                  setElectionInsufficientData(false)
                                   setIsLoadingSeasonalProjection(true)
                                   const currentCycle = getCurrentElectionCycle()
                                   const projection = await calculateSeasonalityProjection(
@@ -26652,8 +26662,13 @@ export default function TradingViewChart({
                                     data,
                                     currentCycle
                                   )
-                                  setSeasonalElectionData(projection)
                                   setIsLoadingSeasonalProjection(false)
+                                  if (!projection) {
+                                    setElectionInsufficientData(true)
+                                    setIsSeasonalElectionActive(false)
+                                    return
+                                  }
+                                  setSeasonalElectionData(projection)
                                 }
                                 setIsSeasonalActive(true)
                               } else {
@@ -26675,9 +26690,10 @@ export default function TradingViewChart({
                               textAlign: 'left',
                               borderRadius: '4px',
                               width: '100%',
+                              color: electionInsufficientData ? '#f59e0b' : undefined,
                             }}
                           >
-                            Election
+                            {electionInsufficientData ? 'Not Enough Data' : 'Election'}
                           </button>
                           <button
                             onClick={() => {
@@ -31148,41 +31164,29 @@ export default function TradingViewChart({
                           </svg>
                         </button>
                         {/* Tab Navigation */}
-                        <div className="flex border-2 border-rose-500/30 rounded-md overflow-hidden shadow-lg">
+                        <div className="flex gap-0">
                           {['Price', 'IV', 'Screener'].map((tab) => (
                             <button
                               key={tab}
                               onClick={() => setRrgTab(tab)}
+                              className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
                               style={{
-                                flex: 1,
-                                padding: '12px 24px',
-                                fontSize: '20px',
-                                fontWeight: '900',
-                                fontFamily: 'monospace',
-                                letterSpacing: '1px',
-                                textTransform: 'uppercase',
-                                border: 'none',
-                                borderRight: rrgTab === tab ? 'none' : '1px solid #333',
-                                cursor: 'pointer',
-                                transition: 'all 0.3s',
-                                background:
-                                  'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                                color: rrgTab === tab ? '#ff8844' : '#ffffff',
-                                boxShadow:
-                                  'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                                opacity: 1,
-                                filter: 'contrast(1.1) brightness(1.1)',
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background =
-                                  'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)'
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background =
-                                  'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)'
+                                padding: '14px 16px',
+                                fontSize: '14px',
+                                color: rrgTab === tab ? '#FF6600' : '#ffffff',
+                                border: rrgTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                                background: rrgTab === tab
+                                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                                  : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                                boxShadow: rrgTab === tab
+                                  ? 'inset 0 1px 0 rgba(255,255,255,0.1)'
+                                  : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                               }}
                             >
-                              {tab === 'Screener' ? tab : `${tab} RRG`}
+                              {rrgTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                              <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
+                                {tab === 'Screener' ? tab : `${tab} RRG`}
+                              </span>
                             </button>
                           ))}
                         </div>

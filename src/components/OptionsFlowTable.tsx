@@ -978,12 +978,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
   }, [])
 
-  // Debug: Monitor filter dialog state changes
-
-  useEffect(() => {
-    // Removed excessive logging for performance
-  }, [isFilterDialogOpen])
-
   // Prevent body from scrolling to eliminate page-level scrollbar
 
   // Only run on client-side to avoid hydration mismatch
@@ -2202,9 +2196,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         else if (tradingDaysElapsed >= 2) scores.priceAction = 8
         else if (tradingDaysElapsed >= 1) scores.priceAction = 6
         else scores.priceAction = 4
-        console.debug(
-          `[EFI Grade] ${trade.underlying_ticker} Price Action (consolidation): +${scores.priceAction}/10 | daysElapsed=${tradingDaysElapsed}, withinStdDev=${withinStdDev}`
-        )
       }
       // SCENARIO B: Stock moved big - check if flow is contrarian reversal bet
       else {
@@ -2226,15 +2217,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         } else {
           scores.priceAction = 4
         }
-        console.debug(
-          `[EFI Grade] ${trade.underlying_ticker} Price Action (big move): +${scores.priceAction}/10 | isReversalBet=${isReversalBet}, daysElapsed=${tradingDaysElapsed}, stockPct=${stockPercentChange.toFixed(2)}%, stdDev=${stdDev.toFixed(2)}%`
-        )
       }
     } else {
       scores.priceAction = 0
-      console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Price Action: 0/10 (missing data · currentStockPrice=${currentStockPrice}, entryStockPrice=${entryStockPrice}, stdDev=${stdDev})`
-      )
+
     }
 
     confidenceScore += scores.priceAction
@@ -2257,14 +2243,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         scores.volumeOI = 0 // Volume < half of OI
       }
 
-      console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: +${scores.volumeOI}/15 | volume=${tradeVolume}, OI=${tradeOI}, ratio=${volOIRatio.toFixed(3)} (${(volOIRatio * 100).toFixed(1)}% of OI)`
-      )
     } else {
       scores.volumeOI = 0
-      console.debug(
-        `[EFI Grade] ${trade.underlying_ticker} Volume vs OI: 0/15 (missing data · volume=${tradeVolume}, OI=${tradeOI})`
-      )
     }
 
     confidenceScore += scores.volumeOI

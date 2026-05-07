@@ -2781,33 +2781,30 @@ export default function RegimesPanel({
         >
           {/* Top row — desktop: title + close. Mobile: tabs + close in one row */}
           {isMobile ? (
-            <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              {(['regimes', 'REGIMES'], ['scanner', 'SCANNER']).length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'stretch' }}>
+              {(
                 [['regimes', 'REGIMES'], ['scanner', 'SCANNER']] as const
               ).map(([t, label]) => (
                 <button
                   key={t}
                   onClick={() => setMainTab(t)}
+                  className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
                   style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '12px 0',
+                    padding: '14px 8px',
                     fontSize: '13px',
-                    fontWeight: mainTab === t ? 900 : 600,
-                    fontFamily: '"Courier New",monospace',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    background: mainTab === t ? '#000' : 'transparent',
-                    border: 'none',
-                    borderBottom: mainTab === t ? '3px solid #f59e0b' : '3px solid transparent',
-                    color: mainTab === t ? '#f59e0b' : '#ffffff',
+                    color: mainTab === t ? '#FF6600' : '#ffffff',
+                    border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                    background: mainTab === t
+                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                    boxShadow: mainTab === t
+                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                     cursor: 'pointer',
-                    transition: 'all 0.15s',
                   }}
                 >
-                  {label}
+                  {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                  <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
                 </button>
               ))}
               <button
@@ -2820,7 +2817,6 @@ export default function RegimesPanel({
                   background: 'rgba(220,50,50,0.15)',
                   border: 'none',
                   borderLeft: '1px solid rgba(255,255,255,0.07)',
-                  borderBottom: '3px solid transparent',
                   color: '#ff7070',
                   cursor: 'pointer',
                   flexShrink: 0,
@@ -2890,7 +2886,7 @@ export default function RegimesPanel({
                 style={{
                   display: 'flex',
                   marginTop: '32px',
-                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                  gap: 0,
                 }}
               >
                 {(
@@ -2902,26 +2898,23 @@ export default function RegimesPanel({
                   <button
                     key={t}
                     onClick={() => setMainTab(t)}
+                    className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
                     style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '18px 0',
-                      fontSize: '20px',
-                      fontWeight: mainTab === t ? 900 : 600,
-                      fontFamily: '"Courier New",monospace',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.15em',
-                      background: mainTab === t ? '#000' : 'transparent',
-                      border: 'none',
-                      borderBottom: mainTab === t ? '3px solid #f59e0b' : '3px solid transparent',
-                      color: mainTab === t ? '#f59e0b' : '#ffffff',
+                      padding: '14px 16px',
+                      fontSize: '14px',
+                      color: mainTab === t ? '#FF6600' : '#ffffff',
+                      border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                      background: mainTab === t
+                        ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                        : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                      boxShadow: mainTab === t
+                        ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                        : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                       cursor: 'pointer',
-                      transition: 'all 0.15s',
                     }}
                   >
-                    {label}
+                    {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
                   </button>
                 ))}
               </div>

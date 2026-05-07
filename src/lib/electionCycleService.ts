@@ -137,8 +137,8 @@ class ElectionCycleService {
       const currentYear = new Date().getFullYear();
       const validYears = targetYears.filter(year => year >= currentYear - yearsBack && year < currentYear);
 
-      if (validYears.length === 0) {
-        console.warn(`⚠️ No valid ${electionType} years found in the last ${yearsBack} years`);
+      if (validYears.length < 2) {
+        console.warn(`⚠️ Not enough ${electionType} years (need ≥2, found ${validYears.length}) in the last ${yearsBack} years`)
         return null;
       }
 
@@ -153,9 +153,7 @@ class ElectionCycleService {
         throw new Error('Failed to fetch SPY benchmark data');
       }
 
-      // Get ticker details
-      const tickerDetails = await this.polygonService.getTickerDetails(symbol);
-      const companyName = tickerDetails?.name || symbol;
+      const companyName = symbol;
 
       // Process the data for election cycle analysis
       const electionData = this.processElectionCycleData(
@@ -217,7 +215,6 @@ class ElectionCycleService {
 
       // Skip calculations that cross year boundaries to avoid artificial jumps
       if (year !== previousYear) {
-        console.log(`Skipping year boundary calculation: ${previousDate.toDateString()} -> ${currentDate.toDateString()}`);
         continue;
       }
 
@@ -226,7 +223,7 @@ class ElectionCycleService {
 
       // Filter out extreme outliers that could be data errors (> 50% daily moves)
       if (Math.abs(symbolReturn) > 50) {
-        console.log(`Filtering extreme outlier: ${symbolReturn.toFixed(2)}% on ${currentDate.toDateString()}`);
+
         continue;
       }
 
@@ -283,7 +280,6 @@ class ElectionCycleService {
         const filteredReturns = returns.filter(ret => Math.abs(ret) <= 30); // Remove daily moves > 30%
 
         if (filteredReturns.length === 0) {
-          console.log(`No valid returns for day ${dayOfYear}, skipping...`);
           continue;
         }
 
@@ -462,9 +458,6 @@ class ElectionCycleService {
       // Calculate outperformance as simple difference: Stock Average - SPY Average
       // Example: GOOGL 8% - SPY 4% = 4% outperformance
       const outperformance = avgSymbolReturn - avgSpyReturn;
-
-      // Debug logging to verify calculations
-      console.log(`${new Date(2024, month - 1, 1).toLocaleDateString('en-US', { month: 'short' })} - Stock: ${avgSymbolReturn.toFixed(2)}%, SPY: ${avgSpyReturn.toFixed(2)}%, Outperformance: ${outperformance.toFixed(2)}%`);
 
       const monthName = new Date(2024, month - 1, 1).toLocaleDateString('en-US', { month: 'short' });
       monthlyData.push({ month: monthName, outperformance });

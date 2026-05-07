@@ -161,9 +161,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     return enrichedOpportunities
   }
 
-  // Debug state changes
-  useEffect(() => {}, [opportunities.length, loading, showWebsite, error])
-
   const timePeriodOptions = [
     { id: '5Y', name: '5 Years', years: 5, description: 'Recent - Current trends' },
     { id: '10Y', name: '10 Years', years: 10, description: 'Balanced - Market cycles' },
@@ -830,19 +827,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               const topBullish =
                 bullishOpps.length > 0
                   ? bullishOpps.reduce((prev, curr) => {
-                      const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
-                      const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
-                      return currScore > prevScore ? curr : prev
-                    })
+                    const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
+                    const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
+                    return currScore > prevScore ? curr : prev
+                  })
                   : null
 
               const topBearish =
                 bearishOpps.length > 0
                   ? bearishOpps.reduce((prev, curr) => {
-                      const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
-                      const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
-                      return currScore > prevScore ? curr : prev
-                    })
+                    const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
+                    const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
+                    return currScore > prevScore ? curr : prev
+                  })
                   : null
 
               return (

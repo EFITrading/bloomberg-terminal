@@ -44,8 +44,6 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
       return;
     }
 
-    console.log('Rendering IV chart with width:', width, 'height:', height); // Debug log
-
     // Clear previous chart
     d3.select(svgRef.current).selectAll('*').remove();
 
@@ -64,7 +62,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
     const allDates = validData[0]?.ivHistory
       .map(d => new Date(d.date))
       .filter(d => !isNaN(d.getTime())) || [];
-    
+
     const allIVValues = validData
       .flatMap(series => series.ivHistory
         .filter(d => typeof d.iv === 'number' && !isNaN(d.iv) && isFinite(d.iv))
@@ -82,7 +80,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
 
     const maxIV = d3.max(allIVValues) as number;
     const minIV = d3.min(allIVValues) as number;
-    
+
     const yScale = d3.scaleLinear()
       .domain([Math.max(0, minIV * 0.9), maxIV * 1.1]) // Add 10% padding, don't go below 0
       .range([innerHeight, 0]);
@@ -114,7 +112,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
     const xAxisGroup = g.append('g')
       .attr('transform', `translate(0,${innerHeight})`)
       .call(xAxis);
-    
+
     xAxisGroup.selectAll('text')
       .attr('fill', '#ffffff')
       .attr('font-family', 'Bloomberg Terminal, monospace')
@@ -131,7 +129,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
     // Add Y axis
     const yAxisGroup = g.append('g')
       .call(yAxis);
-    
+
     yAxisGroup.selectAll('text')
       .attr('fill', '#ffffff')
       .attr('font-family', 'Bloomberg Terminal, monospace')
@@ -182,10 +180,10 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
     // Draw lines for each series
     validData.forEach((series, index) => {
       // Filter out invalid data points
-      const validPoints = series.ivHistory.filter(d => 
+      const validPoints = series.ivHistory.filter(d =>
         typeof d.iv === 'number' && !isNaN(d.iv) && isFinite(d.iv)
       );
-      
+
       if (validPoints.length === 0) return;
 
       const path = g.append('path')
@@ -221,7 +219,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
         .attr('stroke', '#000000')
         .attr('stroke-width', 1)
         .attr('opacity', 0)
-        .on('mouseover', function(event, d) {
+        .on('mouseover', function (event, d) {
           d3.select(this)
             .transition()
             .duration(200)
@@ -238,7 +236,7 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
             .style('left', `${event.pageX + 15}px`)
             .style('top', `${event.pageY - 15}px`);
         })
-        .on('mouseout', function() {
+        .on('mouseout', function () {
           d3.select(this)
             .transition()
             .duration(200)
@@ -297,10 +295,10 @@ const IVLineChart: React.FC<IVLineChartProps> = ({ data, height = 550 }) => {
   }, [data, width, height]);
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      style={{ 
-        background: '#000000', 
+      style={{
+        background: '#000000',
         padding: '20px',
         borderRadius: '8px',
         border: '1px solid rgba(255, 133, 0, 0.3)',

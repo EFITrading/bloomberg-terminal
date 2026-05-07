@@ -300,16 +300,12 @@ function calcHV4D(bars: Bar[], lookback = 120): number {
   return moves.length ? moves.reduce((s, m) => s + m, 0) / moves.length : 0
 }
 
-// DEBUG counters — reset per scan, used to log one sample of each fail reason
-const _dbg = { hvLow: 0, compLow: 0, trending: 0, notTight: 0, pass: 0, sampled: 0 }
-
 function detectContraction(bars: Bar[]): { qualifies: boolean; compressionPct: number } {
   if (bars.length < 120) return { qualifies: false, compressionPct: 0 }
   const lb = bars.slice(-4)
   if (lb.length < 4) return { qualifies: false, compressionPct: 0 }
   const avgHV = calcHV4D(bars)
   if (!avgHV || avgHV < MIN_AVG_HV) {
-    _dbg.hvLow++
     return { qualifies: false, compressionPct: 0 }
   }
   const high = Math.max(...lb.map((b) => b.high))
@@ -323,13 +319,6 @@ function detectContraction(bars: Bar[]): { qualifies: boolean; compressionPct: n
   const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
   const curBarTight = avgBarRange > 0 && curBar.high - curBar.low <= avgBarRange * 2.0
   const qualifies = compressionPct > CONTRACTION_THRESHOLD && notTrending && curBarTight
-  if (!qualifies) {
-    if (compressionPct <= CONTRACTION_THRESHOLD) _dbg.compLow++
-    else if (!notTrending) _dbg.trending++
-    else if (!curBarTight) _dbg.notTight++
-  } else {
-    _dbg.pass++
-  }
   return { qualifies, compressionPct }
 }
 
@@ -1970,9 +1959,6 @@ export default function StraddleTownScreener() {
         throw new Error('Symbol universe is empty')
       }
 
-      // reset debug counters for this scan run
-      _dbg.hvLow = 0; _dbg.compLow = 0; _dbg.trending = 0; _dbg.notTight = 0; _dbg.pass = 0; _dbg.sampled = 0
-
       setStats((s) => ({ ...s, totalSymbols: symbols.length }))
       setPhase('scanning-ohlcv')
 
@@ -3032,7 +3018,7 @@ export default function StraddleTownScreener() {
 
           {/* Phase label */}
           <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: '#FF8C00', letterSpacing: '4px' }}>
-            {tickerScanStatus?.phase === 'ohlcv' ? 'FETCHING OHLCV DATA' : 'SCANNING DARK POOL · POI'}
+            {tickerScanStatus?.phase === 'ohlcv' ? 'FETCHING OHLCV DATA' : 'SCANNING POI'}
           </div>
 
           {/* Progress detail */}

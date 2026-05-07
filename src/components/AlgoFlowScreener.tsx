@@ -118,13 +118,6 @@ const fetchVolumeAndOpenInterest = async (
                     volume: contract.day?.volume || 0,
                     open_interest: contract.open_interest || 0,
                   })
-
-                  // Debug first few contracts to see the format
-                  if (index < 3) {
-                    console.log(
-                      `🏷️ API Contract ${index}: ${contract.details.ticker}, Vol=${contract.day?.volume || 0}, OI=${contract.open_interest || 0}`
-                    )
-                  }
                 }
               })
               totalContractsForExpiry += chainData.results.length
@@ -158,17 +151,6 @@ const fetchVolumeAndOpenInterest = async (
 
       console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`)
 
-      // Debug: Show sample contracts with volume/OI
-      const sampleContractsWithData = Array.from(allContracts.entries())
-        .filter(([_, data]) => data.volume > 0 || data.open_interest > 0)
-        .slice(0, 5)
-      console.log(
-        `📊 Sample contracts with Vol/OI data:`,
-        sampleContractsWithData.map(
-          ([ticker, data]) => `${ticker}: Vol=${data.volume}, OI=${data.open_interest}`
-        )
-      )
-
       // Skip if no contracts found for any expiration
       if (allContracts.size === 0) {
         console.warn(`⚠️ No option chain data found for any expiration of ${underlying}`)
@@ -185,10 +167,6 @@ const fetchVolumeAndOpenInterest = async (
 
       // Use the aggregated contracts for lookup
       const contractLookup = allContracts
-
-      // Debug: Show first few contracts from API
-      const contractKeys = Array.from(contractLookup.keys()).slice(0, 5)
-      console.log(`📋 Sample contracts from API: ${contractKeys.join(', ')}`)
 
       // Match trades to contracts and update with vol/OI data
       for (const trade of underlyingTrades) {
@@ -1080,8 +1058,6 @@ export default function AlgoFlowScreener() {
         fill_style: t.fill_style,
       }))
     )
-
-    // Debug removed
 
     // Calculate premium flows
     const callTrades = tradesWithExecution.filter((t: any) => t.type === 'call')
