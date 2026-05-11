@@ -448,6 +448,82 @@
     color: #ef4444;
 }
 
+/* ── MOBILE ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .financial-dashboard {
+        min-height: unset;
+        padding: 16px 8px 12px;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        min-height: unset;
+        gap: 12px;
+    }
+
+    .widget-movers {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .widget-heatmap {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .widget-news {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .widget-sectors,
+    .widget-rs-screener {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .heatmap-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+    }
+
+    .heatmap-cell {
+        padding: 8px 4px;
+    }
+
+    .heatmap-symbol {
+        font-size: 10px;
+    }
+
+    .heatmap-value {
+        font-size: 11px;
+    }
+
+    .mover-symbol,
+    .mover-price,
+    .mover-change {
+        font-size: 12px;
+    }
+
+    .news-headline {
+        font-size: 11px;
+    }
+
+    .widget-title {
+        font-size: 11px;
+    }
+
+    .dashboard-header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .market-time {
+        font-size: 12px;
+    }
+}
+
 /* Volume Widget */
 .widget-volume {
     display: none;

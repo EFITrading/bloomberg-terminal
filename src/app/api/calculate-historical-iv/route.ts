@@ -99,7 +99,15 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
 
-    const RISK_FREE_RATE = 0.045; // Approximate current risk-free rate
+    const RISK_FREE_RATE = await (async () => {
+      try {
+        const r = await fetch('https://api.fiscaldata.treasury.gov/services/api/v1/accounting/od/avg_interest_rates?fields=record_date,avg_interest_rate_amt,security_desc&filter=security_desc:eq:Treasury%20Bills&sort=-record_date&limit=1')
+        const j = await r.json()
+        const v = parseFloat(j?.data?.[0]?.avg_interest_rate_amt)
+        return isNaN(v) || v <= 0 ? null : v / 100
+      } catch { return null }
+    })()
+    if (RISK_FREE_RATE === null) return NextResponse.json({ success: false, error: 'Could not fetch risk-free rate from Treasury' }, { status: 502 })
 
     // Find all available expirations within 30-45 days from a given date
     const getExpirations30to45Days = async (fromDate: Date, stockTicker: string): Promise<string[]> => {

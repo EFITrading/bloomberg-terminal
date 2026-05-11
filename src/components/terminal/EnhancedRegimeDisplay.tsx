@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
-import PutCallRatioChart from '@/components/analytics/PutCallRatioChart'
 import { RegimeAnalysis } from '@/contexts/MarketRegimeContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -514,10 +513,10 @@ function EnhancedRegimeDisplay({
   }, [])
 
   // Composite history chart state — persisted to localStorage so it survives parent re-renders / remounts
-  const [compositeView, setCompositeView] = useState<'gauge' | 'chart' | 'ratio'>(() => {
+  const [compositeView, setCompositeView] = useState<'gauge' | 'chart'>(() => {
     try {
       const saved = localStorage.getItem('compositeView')
-      if (saved === 'chart' || saved === 'ratio') return saved
+      if (saved === 'chart') return saved
       return 'gauge'
     } catch {
       return 'gauge'
@@ -539,7 +538,7 @@ function EnhancedRegimeDisplay({
   }, [])
 
   // Persist view choice
-  const handleSetCompositeView = (v: 'gauge' | 'chart' | 'ratio') => {
+  const handleSetCompositeView = (v: 'gauge' | 'chart') => {
     try {
       localStorage.setItem('compositeView', v)
     } catch { }
@@ -1026,7 +1025,7 @@ function EnhancedRegimeDisplay({
                   overflow: 'hidden',
                 }}
               >
-                {(['gauge', 'chart', 'ratio'] as const).filter(v => !(isMobile && v === 'ratio')).map((v) => (
+                {(['gauge', 'chart'] as const).map((v) => (
                   <button
                     key={v}
                     onClick={() => handleSetCompositeView(v)}
@@ -1044,7 +1043,7 @@ function EnhancedRegimeDisplay({
                       transition: 'all 0.2s',
                     }}
                   >
-                    {v === 'gauge' ? 'GAUGE' : v === 'chart' ? 'CHART' : 'RATIO'}
+                    {v === 'gauge' ? 'GAUGE' : 'CHART'}
                   </button>
                 ))}
               </div>
@@ -1102,7 +1101,7 @@ function EnhancedRegimeDisplay({
                   </div>
                 </div>
               </>
-            ) : compositeView === 'chart' ? (
+            ) : (
               /* ── History Chart ─── — isolated memo component, hover state can't bleed up */
               <CompositeHistoryChart
                 historyData={historyData}
@@ -1116,9 +1115,6 @@ function EnhancedRegimeDisplay({
                 setTfRange={handleSetTfRange}
                 isMobile={isMobile}
               />
-            ) : (
-              /* ── P/C Ratio Chart ── */
-              <PutCallRatioChart chartHeight={isMobile ? 204 : 240} embedded />
             )}
           </div>
 

@@ -28,22 +28,38 @@ html {
     font-size: 16px;
     /* Base font size for rem calculations */
     scroll-behavior: smooth;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     width: 100%;
     height: 100%;
+}
+
+@media (max-width: 768px) {
+    html {
+        overflow-y: auto;
+        height: auto;
+    }
 }
 
 body {
     font-family: 'Inter', -apple-system, sans-serif;
     background: var(--primary-bg);
     color: var(--text-primary);
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     width: 100%;
     height: 100%;
     position: relative;
     -webkit-font-smoothing: antialiased;
     font-size: 1rem;
     /* Use rem for browser zoom compatibility */
+}
+
+@media (max-width: 768px) {
+    body {
+        overflow-y: auto;
+        height: auto;
+    }
 }
 
 /* Hide native browser clear (✕) button on text/number inputs */
@@ -1474,6 +1490,51 @@ body {
     align-items: center;
 }
 
+@media (max-width: 768px) {
+    .hero {
+        padding: 8px 16px 20px;
+    }
+
+    .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    h1 {
+        font-size: 26px;
+        letter-spacing: -0.5px;
+        margin-bottom: 12px;
+    }
+
+    .hero-description {
+        font-size: 13px;
+        margin-bottom: 16px;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .hero-features {
+        grid-template-columns: 1fr !important;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+
+    .feature-item {
+        padding: 10px 12px;
+    }
+
+    .feature-icon {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+    }
+
+    .feature-svg {
+        width: 18px;
+        height: 18px;
+    }
+}
+
 .hero-content {
     animation: slideUp 0.8s ease;
 }
@@ -1575,6 +1636,14 @@ h1 {
     grid-template-columns: repeat(3, 1fr);
     gap: 24px;
     margin-bottom: 48px;
+}
+
+@media (max-width: 768px) {
+    .hero-features {
+        grid-template-columns: 1fr !important;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
 }
 
 .feature-item {
@@ -2175,7 +2244,7 @@ h1 {
     }
 
     .main-content {
-        padding-top: 80px;
+        padding-top: 12px;
         padding-left: 0.5vw;
         padding-right: 0.5vw;
         width: 99vw;

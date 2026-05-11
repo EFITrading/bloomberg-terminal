@@ -71,6 +71,7 @@ import {
 } from '../../lib/optionsExpirationUtils'
 import PolygonService from '../../lib/polygonService'
 import { polygonStocksWS } from '../../lib/polygonStocksWS'
+import { getRiskFreeRate, getCachedRiskFreeRate } from '../../lib/riskFreeRate'
 import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
 import FlowTrackingPanel from '../FlowTrackingPanel'
@@ -83,7 +84,6 @@ import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
 import LiquidPanel from '../analytics/LiquidPanel'
-import PutCallRatioChart, { prefetchPCRatioData } from '../analytics/PutCallRatioChart'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
@@ -1760,7 +1760,6 @@ const addTradingDays = (date: Date, days: number): Date => {
 
 // Polygon API Integration for Expected Range Calculations
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-const riskFreeRate = 0.0387 // 3.87% risk-free rate (Federal Funds Rate)
 
 // Black-Scholes price calculation
 const calculateBlackScholesPrice = (
@@ -2121,7 +2120,10 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
 // Calculate Expected Range Levels (8 horizontal lines) - EXACT AI Suite logic
 const calculateExpectedRangeLevels = async (symbol: string, customDate?: string) => {
   try {
-    const marketData = await fetchMarketDataForExpectedRange(symbol, customDate)
+    const [marketData, riskFreeRate] = await Promise.all([
+      fetchMarketDataForExpectedRange(symbol, customDate),
+      getRiskFreeRate().then(r => r ?? 0.0442),
+    ])
     const {
       currentPrice,
       weeklyIV,
@@ -5076,16 +5078,8 @@ export default function TradingViewChart({
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
-  // Prefetch PC ratio with 30s delay so server bar caches are warm; composite
   // history is deferred until after the watchlist fetch completes to avoid
   // simultaneous request storms on mount.
-  useEffect(() => {
-    if (disableSidebarAutoScan) return // analysis-suite: skip PC ratio prefetch
-    const t = setTimeout(() => {
-      prefetchPCRatioData('1D')
-    }, 30_000)
-    return () => clearTimeout(t)
-  }, [])
 
   // ─── Polygon WebSocket — live minute-bar prices via shared singleton ───
   // ONE connection is shared across all components (TickerScroller, watchlist hooks, etc.)
@@ -5298,6 +5292,7 @@ export default function TradingViewChart({
   const gexButtonRef = useRef<HTMLButtonElement>(null)
   const rrgButtonRef = useRef<HTMLButtonElement>(null) // Chart state
   const flowMovesButtonRef = useRef<HTMLButtonElement>(null)
+  const peButtonRef = useRef<HTMLButtonElement>(null)
   const [config, setConfig] = useState<ChartConfig>({
     symbol,
     timeframe: initialTimeframe,
@@ -9330,6 +9325,21 @@ export default function TradingViewChart({
     putIV: number | null
   }>({ currentPrice: null, callIV: null, putIV: null })
 
+  // P/E Ratio state — declared here so isAnyIVHVActive can reference it
+  const [showPEPanel, setShowPEPanel] = useState(false)
+  const [peLoading, setPeLoading] = useState(false)
+  const [pePanelHeight, setPePanelHeight] = useState(120)
+  const [isDraggingPEPanel, setIsDraggingPEPanel] = useState(false)
+  const peDragStartRef = useRef<{ y: number; height: number } | null>(null)
+  const [peData, setPeData] = useState<{
+    current: number | null
+    avg5y: number | null
+    avg10y: number | null
+    history: { date: string; pe: number }[]
+    error: string | null
+  } | null>(null)
+  const peFetchedSymbolRef = useRef<string>('')
+
   // Check if any IV/HV indicator is active - showIVPanel controls the IV panel visibility
   const showIVIndicator = showIVPanel // IV panel is shown when toggled, line visibility controlled inside panel
   const isAnyIVHVActive =
@@ -9519,6 +9529,46 @@ export default function TradingViewChart({
       }
     }
   }, [isDraggingIVPanel, handleIVPanelDragMove, handleIVPanelDragEnd])
+
+  // P/E panel resize handlers
+  const handlePEPanelDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    peDragStartRef.current = { y: e.clientY, height: pePanelHeight }
+    setIsDraggingPEPanel(true)
+  }, [pePanelHeight])
+
+  const handlePEPanelDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDraggingPEPanel || !peDragStartRef.current) return
+      // Dragging UP (lower clientY) should INCREASE height
+      const delta = peDragStartRef.current.y - e.clientY
+      const newHeight = Math.max(80, Math.min(600, peDragStartRef.current.height + delta))
+      setPePanelHeight(newHeight)
+    },
+    [isDraggingPEPanel]
+  )
+
+  const handlePEPanelDragEnd = useCallback(() => {
+    setIsDraggingPEPanel(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDraggingPEPanel) {
+      window.addEventListener('mousemove', handlePEPanelDragMove)
+      window.addEventListener('mouseup', handlePEPanelDragEnd)
+      return () => {
+        window.removeEventListener('mousemove', handlePEPanelDragMove)
+        window.removeEventListener('mouseup', handlePEPanelDragEnd)
+      }
+    }
+  }, [isDraggingPEPanel, handlePEPanelDragMove, handlePEPanelDragEnd])
+
+  // Auto-fetch P/E data when panel is open and symbol changes
+  useEffect(() => {
+    if (showPEPanel && config.symbol && peFetchedSymbolRef.current !== config.symbol) {
+      fetchPEData(config.symbol)
+    }
+  }, [showPEPanel, config.symbol])
 
   // BuySell panel resize handlers
   const handleBuySellDragStart = useCallback((e: React.MouseEvent) => {
@@ -11029,7 +11079,7 @@ export default function TradingViewChart({
       // Leveraged / inverse
       'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'UVXY', 'SVXY',
       // International
-      'EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG',
+      'EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG', 'KWEB',
       // Thematic
       'ARKK', 'ARKG', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ',
       'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB',
@@ -11813,8 +11863,9 @@ export default function TradingViewChart({
 
               // Calculate targets and stop loss using Black-Scholes
               const T = daysToExpiration / 365
-              const r = 0.0387
-              const sigma = bestOption.implied_volatility || 0.5
+              const r = (await getRiskFreeRate()) ?? 0.0442
+              const sigma = bestOption.implied_volatility
+              if (!sigma) return null // No real IV — skip calculation
               const S = currentPrice
               const K = bestOption.strike_price
               const isCall = optionType === 'call'
@@ -11872,7 +11923,7 @@ export default function TradingViewChart({
 
               // Stop loss calculation
               const delta = Math.abs(bestOption.greeks?.delta || 0.5)
-              const iv = bestOption.implied_volatility || 0.5
+              const iv = bestOption.implied_volatility
               let baseStopPercent = 0.3
               if (delta > 0.7) baseStopPercent = 0.15
               else if (delta >= 0.6) baseStopPercent = 0.2
@@ -11884,7 +11935,7 @@ export default function TradingViewChart({
               else if (daysToExpiration < 14)
                 baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
 
-              const ivAdjustment = Math.max(0, (iv - 0.3) * 0.5)
+              const ivAdjustment = iv ? Math.max(0, (iv - 0.3) * 0.5) : 0
               const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
               const currentOptionPrice =
                 bestOption.last_price || ((bestOption.bid || 0) + (bestOption.ask || 0)) / 2
@@ -13041,6 +13092,35 @@ export default function TradingViewChart({
       aborted = true
     }
   }, [showDarkPoolIndicator, config.symbol])
+
+  // ============================================================================
+  // P/E RATIO FETCH — via /api/pe-ratio server route (split-adjusted, full history)
+  // ============================================================================
+  const fetchPEData = useCallback(async (sym: string) => {
+    if (!sym || peLoading) return
+    peFetchedSymbolRef.current = sym
+    setPeLoading(true)
+    setPeData(null)
+    try {
+      const res = await fetch(`/api/pe-ratio?ticker=${encodeURIComponent(sym.toUpperCase())}`)
+      const json = await res.json()
+      if (json.error) {
+        setPeData({ current: null, avg5y: null, avg10y: null, history: [], error: json.error })
+      } else {
+        setPeData({
+          current: json.current ?? null,
+          avg5y: json.avg5y ?? null,
+          avg10y: json.avg10y ?? null,
+          history: json.history ?? [],
+          error: null,
+        })
+      }
+    } catch (err: any) {
+      setPeData({ current: null, avg5y: null, avg10y: null, history: [], error: err?.message ?? 'Failed to load P/E data' })
+    } finally {
+      setPeLoading(false)
+    }
+  }, [peLoading])
 
   // ============================================================================
   // CHART DRAG & PAN — TRADINGVIEW-STYLE (NO TELEPORTS)
@@ -14577,6 +14657,7 @@ export default function TradingViewChart({
     const timeAxisHeight = 30
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
+    const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
     const actualBuySellPanelHeight = showBuySellIndicator ? buySellPanelHeight : 0
     const volumeAreaHeight = 80 // Volume bars area
@@ -14584,6 +14665,7 @@ export default function TradingViewChart({
     const totalBottomSpace =
       actualFlowChartHeight +
       actualIVPanelHeight +
+      actualPEPanelHeight +
       actualEventPanelHeight +
       volumeAreaHeight +
       actualBuySellPanelHeight +
@@ -15486,6 +15568,37 @@ export default function TradingViewChart({
       }
     }
 
+    // P/E RATIO panel — independent from IV system, sits after IV panels
+    if (showPEPanel) {
+      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight
+      if (peData && peData.history.length > 0) {
+        drawPEPanel(
+          ctx,
+          peData.history,
+          visibleData,
+          chartWidth,
+          pePanelY,
+          visibleCandleCount,
+          pePanelHeight,
+          peData.current
+        )
+      } else {
+        // Loading placeholder
+        ctx.fillStyle = 'rgba(0,0,0,0.85)'
+        ctx.fillRect(40, pePanelY, chartWidth - 120, pePanelHeight)
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.3)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(40, pePanelY)
+        ctx.lineTo(chartWidth - 80, pePanelY)
+        ctx.stroke()
+        ctx.font = 'bold 10px JetBrains Mono, monospace'
+        ctx.fillStyle = '#00E5FF'
+        ctx.textAlign = 'left'
+        ctx.fillText(peLoading ? 'Loading P/E data…' : 'No P/E data', (40 + chartWidth - 80) / 2, pePanelY + pePanelHeight / 2 + 4)
+      }
+    }
+
     // BUY/SELL Pressure panel — sits below IV panels, above volume (same zone as IV/HV)
     if (showBuySellIndicator) {
       const buySellStartY =
@@ -15611,11 +15724,187 @@ export default function TradingViewChart({
     buySellData,
     buySellPanelHeight,
     buySellLoadingProgress,
+    showPEPanel,
+    peData,
+    peLoading,
+    pePanelHeight,
   ]) // Draw volume bars above the x-axis (TradingView style)
 
-  // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
-  const drawBuySellPanel = (
+  // P/E RATIO bottom panel — trailing TTM P/E (cyan)
+  const drawPEPanel = (
     ctx: CanvasRenderingContext2D,
+    history: { date: string; pe: number }[],
+    visibleData: ChartDataPoint[],
+    chartWidth: number,
+    panelStartY: number,
+    visibleCandleCount: number,
+    panelHeight: number,
+    current: number | null
+  ) => {
+    if (!visibleData.length) return
+
+    const padLeft = 40
+    const rightEdge = chartWidth - 80
+    const panelContentTop = panelStartY + 22
+    const panelContentBottom = panelStartY + panelHeight - 8
+
+    // Background — match IV panel width
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
+
+    // Top border
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(padLeft, panelStartY)
+    ctx.lineTo(rightEdge, panelStartY)
+    ctx.stroke()
+
+    // Centered title
+    ctx.font = 'bold 13px Arial, sans-serif'
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.fillText('Price to Earnings', (padLeft + rightEdge) / 2, panelStartY + 15)
+
+    // Build sorted array and binary-search helper
+    const trailingSorted = history.slice().sort((a, b) => a.date.localeCompare(b.date))
+    const findLatest = (arr: { date: string; pe: number }[], target: string): number | null => {
+      let lo = 0, hi = arr.length - 1, result: number | null = null
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (arr[mid].date <= target) { result = arr[mid].pe; lo = mid + 1 }
+        else hi = mid - 1
+      }
+      return result
+    }
+
+    // Match IV panel's candle-aligned X calculation exactly
+    const candleSpacing = chartWidth / visibleCandleCount
+    const pts: { x: number; v: number }[] = []
+
+    for (let i = 0; i < visibleData.length; i++) {
+      const d = visibleData[i].date ?? new Date(visibleData[i].timestamp).toISOString().split('T')[0]
+      const x = 40 + i * candleSpacing + candleSpacing / 2
+      const v = findLatest(trailingSorted, d)
+      if (v != null) pts.push({ x, v })
+    }
+
+    if (pts.length < 2) {
+      ctx.font = '11px JetBrains Mono, monospace'
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.4)'
+      ctx.textAlign = 'center'
+      ctx.fillText('No P/E data for visible range', (padLeft + rightEdge) / 2, panelStartY + panelHeight / 2 + 4)
+      return
+    }
+
+    // --- 5-year avg high / avg low ---
+    const cutoff3y = new Date()
+    cutoff3y.setFullYear(cutoff3y.getFullYear() - 3)
+    const cutoff3yStr = cutoff3y.toISOString().split('T')[0]
+    const last3y = trailingSorted.filter(e => e.date >= cutoff3yStr)
+
+    let avgHigh: number | null = null
+    let avgLow: number | null = null
+    if (last3y.length >= 4) {
+      const byYear: Record<string, number[]> = {}
+      for (const e of last3y) {
+        const yr = e.date.slice(0, 4)
+        if (!byYear[yr]) byYear[yr] = []
+        byYear[yr].push(e.pe)
+      }
+      const yearlyHighs = Object.values(byYear).map(arr => Math.max(...arr))
+      const yearlyLows = Object.values(byYear).map(arr => Math.min(...arr))
+      avgHigh = yearlyHighs.reduce((a, b) => a + b, 0) / yearlyHighs.length
+      avgLow = yearlyLows.reduce((a, b) => a + b, 0) / yearlyLows.length
+    }
+
+    const vals = pts.map(p => p.v)
+    const allForRange = [...vals, ...(avgHigh != null ? [avgHigh] : []), ...(avgLow != null ? [avgLow] : [])]
+    const minV = Math.min(...allForRange) * 0.92
+    const maxV = Math.max(...allForRange) * 1.08
+    const vRange = maxV - minV || 1
+    const toY = (v: number) => panelContentBottom - ((v - minV) / vRange) * (panelContentBottom - panelContentTop)
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(padLeft, panelContentTop, rightEdge - padLeft, panelContentBottom - panelContentTop)
+    ctx.clip()
+
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, panelContentTop, 0, panelContentBottom)
+    grad.addColorStop(0, 'rgba(0, 229, 255, 0.12)')
+    grad.addColorStop(1, 'rgba(0, 229, 255, 0.0)')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.moveTo(pts[0].x, panelContentBottom)
+    for (const pt of pts) ctx.lineTo(pt.x, toY(pt.v))
+    ctx.lineTo(pts[pts.length - 1].x, panelContentBottom)
+    ctx.closePath()
+    ctx.fill()
+
+    // Main P/E line (cyan) — thicker
+    ctx.strokeStyle = '#00E5FF'
+    ctx.lineWidth = 2.5
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(pts[0].x, toY(pts[0].v))
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, toY(pts[i].v))
+    ctx.stroke()
+
+    // Avg High dashed line — solid red, thicker
+    if (avgHigh != null) {
+      const y = toY(avgHigh)
+      ctx.strokeStyle = '#ef4444'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.beginPath()
+      ctx.moveTo(padLeft, y)
+      ctx.lineTo(rightEdge, y)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // Avg Low dashed line — solid green, thicker
+    if (avgLow != null) {
+      const y = toY(avgLow)
+      ctx.strokeStyle = '#22c55e'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.beginPath()
+      ctx.moveTo(padLeft, y)
+      ctx.lineTo(rightEdge, y)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    ctx.restore()
+
+    // Right-edge value label for P/E line
+    const last = pts[pts.length - 1]
+    ctx.font = 'bold 24px JetBrains Mono, monospace'
+    ctx.fillStyle = '#00E5FF'
+    ctx.textAlign = 'left'
+    ctx.fillText(`${last.v.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 20, Math.min(panelContentBottom - 4, toY(last.v) + 8)))
+
+    if (avgHigh != null) {
+      const y = toY(avgHigh)
+      ctx.font = 'bold 24px JetBrains Mono, monospace'
+      ctx.fillStyle = '#ef4444'
+      ctx.textAlign = 'left'
+      ctx.fillText(`${avgHigh.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 20, Math.min(panelContentBottom - 28, y + 8)))
+    }
+    if (avgLow != null) {
+      const y = toY(avgLow)
+      ctx.font = 'bold 24px JetBrains Mono, monospace'
+      ctx.fillStyle = '#22c55e'
+      ctx.textAlign = 'left'
+      ctx.fillText(`${avgLow.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 48, Math.min(panelContentBottom, y + 8)))
+    }
+
+  }
+
+  // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
+  const drawBuySellPanel = (ctx: CanvasRenderingContext2D,
     bsData: Array<{ date: string; score: number; smoothed: number; signal: number }>,
     visibleData: ChartDataPoint[],
     chartWidth: number,
@@ -17571,6 +17860,14 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buySellData, showBuySellIndicator, buySellPanelHeight, chartLayout])
+
+  // Re-render when P/E panel changes (data, toggle, or drag resize)
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPEPanel, peData, pePanelHeight, chartLayout])
 
   // Re-render when Dark Pool data arrives or is toggled
   useEffect(() => {
@@ -20141,7 +20438,7 @@ export default function TradingViewChart({
             {Object.keys(regimeAnalysis).length > 0 && (
               <div
                 style={{
-                  padding: '12px 16px',
+                  padding: isMobile ? '0px' : '12px 16px',
                   background:
                     'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
                   borderBottom: '2px solid rgba(255, 102, 0, 0.3)',
@@ -20594,13 +20891,13 @@ export default function TradingViewChart({
                       }}
                     >
                       <div className="flex items-center justify-center gap-3 py-2">
-                        <div className="flex-1 h-px bg-gradient-to-r from-transparent to-gray-700" />
+                        <div className="hidden md:block flex-1 h-px bg-gradient-to-r from-transparent to-gray-700" />
                         <div
-                          className="w-1 h-6 rounded-full"
+                          className="hidden md:block w-1 h-6 rounded-full"
                           style={{ background: category.color }}
                         />
                         <h2
-                          className="text-base md:text-xl font-black uppercase tracking-wider px-4"
+                          className="text-base md:text-xl font-black uppercase tracking-wider px-4 text-center w-full md:w-auto"
                           style={{
                             color: '#ffffff',
                             textShadow: `0 0 20px ${category.color}80, 2px 2px 4px rgba(0,0,0,0.8)`,
@@ -20610,11 +20907,11 @@ export default function TradingViewChart({
                           {category.title}
                         </h2>
                         <div
-                          className="w-1 h-6 rounded-full"
+                          className="hidden md:block w-1 h-6 rounded-full"
                           style={{ background: category.color }}
                         />
-                        <div className="flex-1 h-px bg-gradient-to-l from-transparent to-gray-700" />
-                        <span className="text-xs text-gray-500 font-mono">
+                        <div className="hidden md:block flex-1 h-px bg-gradient-to-l from-transparent to-gray-700" />
+                        <span className="hidden md:inline text-xs text-gray-500 font-mono">
                           {category.symbols.length}{' '}
                           {category.symbols.length === 1 ? 'Symbol' : 'Symbols'}
                         </span>
@@ -20660,7 +20957,7 @@ export default function TradingViewChart({
                                     {data.symbol}
                                   </div>
                                   {/* Mobile layout - all in one row */}
-                                  <div className="md:hidden flex flex-col items-start gap-0.5">
+                                  <div className="md:hidden flex flex-row items-center gap-1.5">
                                     <div className="font-black text-white text-[10px] tracking-tight">
                                       {data.symbol}
                                     </div>
@@ -21177,23 +21474,18 @@ export default function TradingViewChart({
                   const GROUP_COLORS: Record<string, string> = {
                     'BROAD MARKET': '#00aaff',
                     'SECTOR SPDR': '#ff6600',
-                    'SECTOR VANGUARD': '#aa44ff',
                     'FIXED INCOME': '#00ffcc',
                     'COMMODITIES': '#ffcc00',
-                    'LEVERAGED / INVERSE': '#ff2244',
-                    'INTERNATIONAL': '#44ff88',
                     'THEMATIC': '#ff44cc',
                   }
 
                   const ETF_GROUPS: Array<{ label: string; tickers: string[] }> = [
-                    { label: 'BROAD MARKET', tickers: ['SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'MDY', 'IJR'] },
+                    { label: 'BROAD MARKET', tickers: ['SPY', 'QQQ', 'IWM', 'DIA'] },
                     { label: 'SECTOR SPDR', tickers: ['XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE'] },
-                    { label: 'SECTOR VANGUARD', tickers: ['VGT', 'VFH', 'VCR', 'VHT', 'VDE', 'VPU', 'VDC', 'VIS', 'VAW', 'VOX'] },
-                    { label: 'FIXED INCOME', tickers: ['TLT', 'IEF', 'SHY', 'HYG', 'LQD', 'AGG', 'BND', 'TIP'] },
-                    { label: 'COMMODITIES', tickers: ['GLD', 'SLV', 'GDX', 'GDXJ', 'USO', 'UNG', 'DBC', 'PDBC'] },
-                    { label: 'LEVERAGED / INVERSE', tickers: ['TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'UVXY', 'SVXY'] },
-                    { label: 'INTERNATIONAL', tickers: ['EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG'] },
-                    { label: 'THEMATIC', tickers: ['ARKK', 'ARKG', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ', 'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB'] },
+                    { label: 'FIXED INCOME', tickers: ['TLT', 'HYG'] },
+                    { label: 'COMMODITIES', tickers: ['GLD', 'SLV'] },
+
+                    { label: 'THEMATIC', tickers: ['ARKK', 'KWEB', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ', 'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB'] },
                   ]
 
                   return (
@@ -21305,7 +21597,7 @@ export default function TradingViewChart({
                       Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
                     )
                     const T = daysToExpiry / 365
-                    const r = 0.0387 // Risk-free rate
+                    const r = getCachedRiskFreeRate() ?? 0.0442
                     const sigma = impliedVolatility
                     let stockPrice = option.stockPrice || 0
                     if (!stockPrice || stockPrice === 0) {
@@ -28074,6 +28366,47 @@ export default function TradingViewChart({
                 onClick={() => setShowDarkPoolIndicator((v) => !v)}
               />
 
+              {/* P/E RATIO Indicator Button — toggles canvas bottom panel like IV Rank */}
+              <div className="ml-4 relative">
+                <button
+                  ref={peButtonRef}
+                  onClick={() => {
+                    const next = !showPEPanel
+                    setShowPEPanel(next)
+                    if (next && (!peData || peFetchedSymbolRef.current !== config.symbol)) {
+                      fetchPEData(config.symbol)
+                    }
+                  }}
+                  className={`btn-3d-carved relative group flex items-center space-x-2 ${showPEPanel ? 'active' : ''}`}
+                  style={{
+                    padding: isMobile ? '3px 8px' : '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                  }}
+                >
+                  <span style={{ color: '#00E5FF' }}>P/E</span>
+                  {!peLoading && peData?.current != null && (
+                    <span style={{ color: '#22c55e', fontSize: '12px', marginLeft: '4px', fontWeight: 800 }}>
+                      {peData.current.toFixed(1)}x
+                    </span>
+                  )}
+                  {peLoading && (
+                    <span style={{ color: '#00E5FF', fontSize: '11px', marginLeft: '4px' }}>...</span>
+                  )}
+                  {showPEPanel && (
+                    <div
+                      className="absolute -top-1 -right-1 w-3 h-3 rounded-full"
+                      style={{
+                        background: '#00E5FF',
+                        boxShadow: '0 0 6px rgba(0, 229, 255, 0.8)',
+                        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                      }}
+                    />
+                  )}
+                </button>
+              </div>
+
               {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
               {lwToolbarPosition !== 'left' && (
                 <div
@@ -30014,45 +30347,66 @@ export default function TradingViewChart({
                     </div>
                   )}
 
-                  {/* BuySell Panel Resize Handle */}
-                  {showBuySellIndicator && (
+                  {/* P/E Panel Resize Handle */}
+                  {showPEPanel && (
                     <div
-                      onMouseDown={handleBuySellDragStart}
+                      onMouseDown={handlePEPanelDragStart}
                       style={{
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${buySellPanelHeight + 105}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
                         height: '4px',
                         cursor: 'ns-resize',
-                        backgroundColor: isDraggingBuySellPanel
-                          ? '#ffffff'
-                          : 'rgba(255, 255, 255, 0.3)',
-                        transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
+                        backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
+                        transition: isDraggingPEPanel ? 'none' : 'background-color 0.2s',
                         zIndex: 1000,
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ffffff'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isDraggingBuySellPanel) {
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
-                        }
-                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#00E5FF' }}
+                      onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(0, 229, 255, 0.3)' }}
                     >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          width: '40px',
-                          height: '2px',
-                          backgroundColor: '#ffffff',
-                          borderRadius: '1px',
-                        }}
-                      />
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#00E5FF', borderRadius: '1px' }} />
                     </div>
+                  )}
+
+                  {/* BuySell Panel Resize Handle */}
+                  {showBuySellIndicator && (<div
+                    onMouseDown={handleBuySellDragStart}
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      bottom: `${buySellPanelHeight + 105}px`,
+                      height: '4px',
+                      cursor: 'ns-resize',
+                      backgroundColor: isDraggingBuySellPanel
+                        ? '#ffffff'
+                        : 'rgba(255, 255, 255, 0.3)',
+                      transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
+                      zIndex: 1000,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#ffffff'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isDraggingBuySellPanel) {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
+                      }
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '40px',
+                        height: '2px',
+                        backgroundColor: '#ffffff',
+                        borderRadius: '1px',
+                      }}
+                    />
+                  </div>
                   )}
 
                   {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
@@ -30260,6 +30614,32 @@ export default function TradingViewChart({
                         lineHeight: '1',
                       }}
                       title="Close Historical Volatility panel"
+                    >
+                      ×
+                    </button>
+                  )}
+
+                  {/* Close button for P/E Ratio panel */}
+                  {showPEPanel && (
+                    <button
+                      onClick={() => setShowPEPanel(false)}
+                      className="absolute z-[1001] flex items-center justify-center cursor-pointer transition-all"
+                      style={{
+                        right: '85px',
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25 - 10}px`,
+                        width: '28px',
+                        height: '28px',
+                        backgroundColor: 'rgba(239,68,68,0.2)',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(239,68,68,0.6)',
+                        color: '#ef4444',
+                        fontSize: '22px',
+                        fontWeight: 'bold',
+                        lineHeight: '1',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.5)')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.2)')}
+                      title="Close P/E Ratio panel"
                     >
                       ×
                     </button>

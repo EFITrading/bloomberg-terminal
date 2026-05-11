@@ -2,10 +2,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { TOP_1800_SYMBOLS } from '@/lib/Top1000Symbols'
+import { getRiskFreeRate } from '@/lib/riskFreeRate'
 
+import { TOP_1800_SYMBOLS } from '@/lib/Top1000Symbols'
 // ── Constants ──────────────────────────────────────────────────────────────────
-const CONTRACTION_THRESHOLD = 40 // only show strong contractions — skip anything below 40%
 const MIN_AVG_HV = 1.5            // lowered from 3.0 — allow lower-vol names
 const SCAN_TRADING_DAYS = 2       // only contractions within the past 2 trading days
 const DP_LOOKBACK_DAYS = 90       // trading days of dark pool data for POI detection (full scan / Mag8)
@@ -14,8 +14,9 @@ const CHART_VISIBLE_DAYS = 60 // candles shown in chart
 const FETCH_CAL_DAYS = 500 // calendar days to fetch (for avgHV lookback)
 const DARK_POOL_EXCHANGES = new Set([4, 6, 16, 201, 202, 203])
 const LIT_BLOCK_MIN_NOTIONAL = 250_000
-const RISK_FREE_RATE = 0.0387
-const OHLCV_CONCURRENCY = 8 // parallel OHLCV fetches
+const CONTRACTION_THRESHOLD = 40 // only show strong contractions — skip anything below 40%
+// Risk-free rate — updated at runtime from Treasury API via getRiskFreeRate()
+let RISK_FREE_RATE = 0.0442
 const MAX_SYMBOLS = 1000 // maximum symbols in universe
 // Mag 8: excluded from auto POI scan — use the per-card "Scan POI" button instead
 const MAG8_SYMBOLS = new Set(['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'NFLX', 'AVGO'])
@@ -1892,6 +1893,11 @@ export default function StraddleTownScreener() {
   const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
   const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
   const abortRef = useRef<AbortController | null>(null)
+
+  // Fetch live risk-free rate on mount and update module-level constant
+  useEffect(() => {
+    getRiskFreeRate().then(r => { if (r !== null) RISK_FREE_RATE = r })
+  }, [])
 
   // ── Screener state ─────────────────────────────────────────────────────────
   type Phase = 'idle' | 'fetching-symbols' | 'scanning-ohlcv' | 'scanning-dp' | 'done' | 'error'

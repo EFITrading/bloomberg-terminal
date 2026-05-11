@@ -4,6 +4,8 @@
  * Buys 80% OTM calls AND puts with targets for potential breakout in either direction
  */
 
+import { getRiskFreeRate } from './riskFreeRate'
+
 interface TradeSetup {
   symbol: string
   currentPrice: number
@@ -43,7 +45,6 @@ interface TradeSetup {
 
 export class ConsolidationTradeCalculator {
   private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-  private readonly RISK_FREE_RATE = 0.0387 // 3.87% risk-free rate
 
   /**
    * Calculate Black-Scholes option price
@@ -280,10 +281,12 @@ export class ConsolidationTradeCalculator {
       const snapshotResponse = await fetch(snapshotUrl)
       const snapshotData = await snapshotResponse.json()
 
-      let iv = 0.5 // Default fallback
-      if (snapshotData.status === 'OK' && snapshotData.results) {
-        iv = snapshotData.results.implied_volatility || 0.5
+      let iv: number | null = null
+      if (snapshotData.status === 'OK' && snapshotData.results?.implied_volatility) {
+        iv = snapshotData.results.implied_volatility
       }
+
+      if (iv === null) return null // No real IV — skip this option
 
       return {
         bid,
@@ -337,12 +340,16 @@ export class ConsolidationTradeCalculator {
       // Estimate IV from ATM options
       const atmStrike = this.findClosestStrike(currentPrice, callStrikes)
       const atmCall = chain.calls.find((c: any) => c.strike_price === atmStrike)
-      const estimatedIV = 0.5 // Default, will be updated with real data
+      const estimatedIV: number | null = atmCall?.implied_volatility ?? null
+
+      if (estimatedIV === null) return null // No IV available — skip calculation
+
+      const rfr = (await getRiskFreeRate()) ?? 0.0442
 
       // Find 80% OTM strikes using probability-based calculation (same as OptionsChain.tsx)
       const targetCallStrike = this.findStrikeForProbability(
         currentPrice,
-        this.RISK_FREE_RATE,
+        rfr,
         estimatedIV,
         T,
         80,
@@ -350,7 +357,7 @@ export class ConsolidationTradeCalculator {
       )
       const targetPutStrike = this.findStrikeForProbability(
         currentPrice,
-        this.RISK_FREE_RATE,
+        rfr,
         estimatedIV,
         T,
         80,
@@ -394,7 +401,7 @@ export class ConsolidationTradeCalculator {
         callTarget1Stock,
         callStrike,
         T * 0.7,
-        this.RISK_FREE_RATE,
+        rfr,
         callIV,
         true
       )
@@ -402,7 +409,7 @@ export class ConsolidationTradeCalculator {
         callTarget2Stock,
         callStrike,
         T * 0.5,
-        this.RISK_FREE_RATE,
+        rfr,
         callIV,
         true
       )
@@ -414,7 +421,7 @@ export class ConsolidationTradeCalculator {
         putTarget1Stock,
         putStrike,
         T * 0.7,
-        this.RISK_FREE_RATE,
+        rfr,
         putIV,
         false
       )
@@ -422,7 +429,7 @@ export class ConsolidationTradeCalculator {
         putTarget2Stock,
         putStrike,
         T * 0.5,
-        this.RISK_FREE_RATE,
+        rfr,
         putIV,
         false
       )

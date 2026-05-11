@@ -1,3 +1,5 @@
+import { getRiskFreeRate } from './riskFreeRate'
+
 interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -512,7 +514,6 @@ export class TradingAssistant {
       }
 
       // Calculate average IV from ATM options
-      let avgIV = 0.3 // Default
       const atmStrike = Object.keys(expData.calls || {})
         .map(Number)
         .reduce(
@@ -521,9 +522,12 @@ export class TradingAssistant {
           0
         )
 
-      if (atmStrike && expData.calls && expData.calls[atmStrike]) {
-        avgIV = expData.calls[atmStrike].implied_volatility || 0.3
-      }
+      const avgIV: number | null =
+        atmStrike && expData.calls?.[atmStrike]?.implied_volatility != null
+          ? expData.calls[atmStrike].implied_volatility
+          : null
+
+      if (avgIV === null) return `❌ No IV data available for ${ticker} — cannot calculate expected move.`
 
       // Calculate days to expiry and time fraction
       const expDate = new Date(expiration + 'T16:00:00')
@@ -532,7 +536,7 @@ export class TradingAssistant {
         Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       )
       const T = daysToExpiry / 365
-      const r = 0.0387
+      const r = (await getRiskFreeRate()) ?? 0.0442
 
       // Calculate 80% and 90% ranges
       const call90 = this.findStrikeForProbability(currentPrice, r, avgIV, T, 90, true)
@@ -655,7 +659,7 @@ export class TradingAssistant {
           Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         )
         const T = daysToExpiry / 365
-        const r = 0.0387
+        const r = (await getRiskFreeRate()) ?? 0.0442
 
         // Calculate 90% range
         const call90 = this.findStrikeForProbability(currentPrice, r, avgIV, T, 90, true)

@@ -101,10 +101,10 @@ export async function GET(req: NextRequest) {
         }
 
         if (history.length === 0) {
-            return NextResponse.json({ error: 'Could not compute P/E (company may be unprofitable)', history: [], avg5y: null, avg10y: null })
+            return NextResponse.json({ error: 'Could not compute P/E (company may be unprofitable)', history: [], avg5y: null, avg10y: null, current: null })
         }
 
-        // ── Step 5: Compute averages ──────────────────────────────────────────────
+        // ── Step 5: Compute trailing averages ─────────────────────────────────────
         const now = Date.now()
         const y5ago = new Date(now - 5 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
         const y10ago = new Date(now - 10 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
