@@ -13094,15 +13094,27 @@ export default function TradingViewChart({
   }, [showDarkPoolIndicator, config.symbol])
 
   // ============================================================================
-  // P/E RATIO FETCH — via /api/pe-ratio server route (split-adjusted, full history)
+  // P/E RATIO FETCH — routes ETFs to /api/etf-pe (constituent aggregate method),
+  // stocks to /api/pe-ratio (split-adjusted EPS history)
   // ============================================================================
+  const ETF_TICKERS = new Set([
+    'SPY', 'QQQ', 'IWM', 'DIA', 'VTI',
+    'XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLC', 'XLY', 'XLP', 'XLU', 'XLRE', 'XLB',
+    'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VNQ', 'ARKK', 'SMH', 'SOXX',
+    'XBI', 'IBB', 'KWEB', 'FXI', 'EWZ', 'VXX', 'UVXY',
+  ])
+
   const fetchPEData = useCallback(async (sym: string) => {
     if (!sym || peLoading) return
     peFetchedSymbolRef.current = sym
     setPeLoading(true)
     setPeData(null)
     try {
-      const res = await fetch(`/api/pe-ratio?ticker=${encodeURIComponent(sym.toUpperCase())}`)
+      const upper = sym.toUpperCase()
+      const url = ETF_TICKERS.has(upper)
+        ? `/api/etf-pe?ticker=${encodeURIComponent(upper)}`
+        : `/api/pe-ratio?ticker=${encodeURIComponent(upper)}`
+      const res = await fetch(url)
       const json = await res.json()
       if (json.error) {
         setPeData({ current: null, avg5y: null, avg10y: null, history: [], error: json.error })
@@ -15568,9 +15580,9 @@ export default function TradingViewChart({
       }
     }
 
-    // P/E RATIO panel — independent from IV system, sits after IV panels
+    // P/E RATIO panel — sits directly above volume bars (below buySell panel)
     if (showPEPanel) {
-      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight
+      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight
       if (peData && peData.history.length > 0) {
         drawPEPanel(
           ctx,
@@ -15645,7 +15657,8 @@ export default function TradingViewChart({
       actualFlowChartHeight +
       actualEventPanelHeight +
       actualIVPanelHeight +
-      actualBuySellPanelHeight,
+      actualBuySellPanelHeight +
+      actualPEPanelHeight,
       visibleCandleCount,
       width,
       volumeAreaHeight,
@@ -15745,26 +15758,29 @@ export default function TradingViewChart({
 
     const padLeft = 40
     const rightEdge = chartWidth - 80
-    const panelContentTop = panelStartY + 22
-    const panelContentBottom = panelStartY + panelHeight - 8
+    const titleHeight = 28
+    const panelContentTop = panelStartY + titleHeight + 4
+    const panelContentBottom = panelStartY + panelHeight - 6
 
     // Background — match IV panel width
     ctx.fillStyle = '#000000'
     ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
 
     // Top border
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'
+    ctx.strokeStyle = 'rgba(255, 140, 0, 0.35)'
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(padLeft, panelStartY)
     ctx.lineTo(rightEdge, panelStartY)
     ctx.stroke()
 
-    // Centered title
-    ctx.font = 'bold 13px Arial, sans-serif'
-    ctx.fillStyle = '#ffffff'
+    // Title — orange, solid, 50% bigger
+    ctx.save()
+    ctx.font = 'bold 20px Arial, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Price to Earnings', (padLeft + rightEdge) / 2, panelStartY + 15)
+    ctx.fillStyle = '#FF8C00'
+    ctx.fillText('Price to Earnings', (padLeft + rightEdge) / 2, panelStartY + titleHeight)
+    ctx.restore()
 
     // Build sorted array and binary-search helper
     const trailingSorted = history.slice().sort((a, b) => a.date.localeCompare(b.date))
@@ -15820,8 +15836,8 @@ export default function TradingViewChart({
 
     const vals = pts.map(p => p.v)
     const allForRange = [...vals, ...(avgHigh != null ? [avgHigh] : []), ...(avgLow != null ? [avgLow] : [])]
-    const minV = Math.min(...allForRange) * 0.92
-    const maxV = Math.max(...allForRange) * 1.08
+    const minV = Math.min(...allForRange) * 0.97
+    const maxV = Math.max(...allForRange) * 1.015
     const vRange = maxV - minV || 1
     const toY = (v: number) => panelContentBottom - ((v - minV) / vRange) * (panelContentBottom - panelContentTop)
 
@@ -30355,7 +30371,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
+                        bottom: `${pePanelHeight + 80 + 25}px`,
                         height: '4px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
@@ -30376,7 +30392,7 @@ export default function TradingViewChart({
                       position: 'absolute',
                       left: 0,
                       right: 0,
-                      bottom: `${buySellPanelHeight + 105}px`,
+                      bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + 105}px`,
                       height: '4px',
                       cursor: 'ns-resize',
                       backgroundColor: isDraggingBuySellPanel

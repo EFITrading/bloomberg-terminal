@@ -47,6 +47,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   )
   const [seasonedMode, setSeasonedMode] = useState(false) // Track if showing seasoned multi-timeframe results
   const [bestMode, setBestMode] = useState(false) // Track if showing BEST scan results
+  const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
   const autoStartTriggered = useRef(false)
 
   // Handle external filters
@@ -729,9 +730,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
+                          const multiframeYears = (opportunity as any).timeframeDetails as number[] | undefined
+                          const cardKey = `seasoned-bullish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
-                              key={`seasoned-bullish-${opportunity.symbol}`}
+                              key={cardKey}
                               pattern={opportunity}
                               rank={index + 1}
                               isTopBullish={false}
@@ -740,6 +743,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               seasonedQualifying={qualifyingCount}
                               years={timeframeYears}
                               hideBestBadge={bestMode}
+                              multiframeYears={multiframeYears}
+                              isExpanded={expandedKey === cardKey}
+                              onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
                           )
                         })}
@@ -796,9 +802,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
+                          const multiframeYears = (opportunity as any).timeframeDetails as number[] | undefined
+                          const cardKey = `seasoned-bearish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
-                              key={`seasoned-bearish-${opportunity.symbol}`}
+                              key={cardKey}
                               pattern={opportunity}
                               rank={index + 1}
                               isTopBullish={false}
@@ -807,6 +815,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               seasonedQualifying={qualifyingCount}
                               years={timeframeYears}
                               hideBestBadge={bestMode}
+                              multiframeYears={multiframeYears}
+                              isExpanded={expandedKey === cardKey}
+                              onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
                           )
                         })}
@@ -888,9 +899,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           (opportunity as any).timeframe ||
                           (opportunity as any).years ||
                           selectedYears
+                        const cardKey = `bullish-${opportunity.symbol}-${index}`
                         return (
                           <OpportunityCard
-                            key={`bullish-${opportunity.symbol}-${index}`}
+                            key={cardKey}
                             pattern={opportunity}
                             rank={index + 1}
                             isTopBullish={isTopBullish}
@@ -898,6 +910,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             sidebarMode={sidebarMode}
                             hideBestBadge={bestMode}
                             years={timeframeYears}
+                            isExpanded={expandedKey === cardKey}
+                            onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                           />
                         )
                       })}
@@ -956,9 +970,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           (opportunity as any).timeframe ||
                           (opportunity as any).years ||
                           selectedYears
+                        const cardKey = `bearish-${opportunity.symbol}-${index}`
                         return (
                           <OpportunityCard
-                            key={`bearish-${opportunity.symbol}-${index}`}
+                            key={cardKey}
                             pattern={opportunity}
                             rank={index + 1}
                             isTopBullish={false}
@@ -966,6 +981,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             hideBestBadge={bestMode}
                             sidebarMode={sidebarMode}
                             years={timeframeYears}
+                            isExpanded={expandedKey === cardKey}
+                            onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                           />
                         )
                       })}

@@ -75,6 +75,16 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   const overlayRef = useRef<SVGGElement>(null)
   // Keep a stable ref to the latest sliced data so the callback never needs to change
   const dataRef = useRef(historyData)
+  // Stable ref for the current axis bounds — lets the hover handler (useCallback []) always
+  // use the same toY formula that rendered the static chart without needing a re-render.
+  const axisRef = useRef({ min: -2, max: 2, range: 4 })
+  // Persist legend toggles in localStorage so they survive remounts (e.g. parent refresh)
+  const [showRegimeLine, setShowRegimeLine] = useState(() => {
+    try { return localStorage.getItem('showRegimeLine') !== 'false' } catch { return true }
+  })
+  const [showSpyLine, setShowSpyLine] = useState(() => {
+    try { return localStorage.getItem('showSpyLine') !== 'false' } catch { return true }
+  })
 
   // Slice historyData to the selected timeframe
   const viewData = (() => {
@@ -104,16 +114,23 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   const plotH = H - pT - pB
 
   const scores = viewData.map((d) => d.compositeScore)
-  const rawMax =
-    viewData.length > 0 ? Math.max(Math.abs(Math.min(...scores)), Math.abs(Math.max(...scores))) : 2
-  const maxAbs = Math.max(rawMax, 2)
+  const scoreRawMin = viewData.length > 0 ? Math.min(...scores) : -2
+  const scoreRawMax = viewData.length > 0 ? Math.max(...scores) : 2
+  const scoreRange = scoreRawMax - scoreRawMin || 1
+  const scorePad = scoreRange * 0.10
+  // Axis bounds: actual data range + 10% padding, always spans zero
+  const axisMin = Math.min(scoreRawMin - scorePad, -0.5)
+  const axisMax = Math.max(scoreRawMax + scorePad, 0.5)
+  const axisRange = axisMax - axisMin
+  // Keep axisRef in sync so the hover handler always uses the same formula
+  axisRef.current = { min: axisMin, max: axisMax, range: axisRange }
 
-  // Dynamic y-axis ticks: adapt to actual data range
-  const tickHalf = parseFloat((maxAbs / 2).toFixed(1))
-  const yTicks = [-maxAbs, -tickHalf, 0, tickHalf, maxAbs]
+  // Y-axis ticks: 5 evenly spaced across actual data range
+  const tickStep = axisRange / 4
+  const yTicks = [0, 1, 2, 3, 4].map((n) => parseFloat((axisMin + n * tickStep).toFixed(1)))
 
   const toX = (i: number) => pL + (i / Math.max(viewData.length - 1, 1)) * plotW
-  const toY = (score: number) => pT + plotH / 2 - (score / maxAbs) * (plotH / 2)
+  const toY = (score: number) => pT + plotH - ((score - axisMin) / axisRange) * plotH
   const zeroY = toY(0)
 
   // Month labels — cap to ~12 visible to prevent overlap
@@ -149,16 +166,22 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     .map((d, i) => `${toX(i)},${toY(Math.min(d.compositeScore, 0))}`)
     .join(' ')
 
-  // SPY normalized line — scaled to fill the same plot height as the composite
+  // SPY scale — 10% margin above/below actual range
   const spyPrices = viewData.map((d) => d.spyClose ?? null).filter((v): v is number => v !== null)
-  const spyMin = spyPrices.length > 0 ? Math.min(...spyPrices) : 0
-  const spyMax = spyPrices.length > 0 ? Math.max(...spyPrices) : 1
-  const spyRange = spyMax - spyMin || 1
-  const toSpyY = (price: number) => pT + plotH - ((price - spyMin) / spyRange) * plotH
+  const spyRawMin = spyPrices.length > 0 ? Math.min(...spyPrices) : 0
+  const spyRawMax = spyPrices.length > 0 ? Math.max(...spyPrices) : 1
+  const spyRawRange = spyRawMax - spyRawMin || 1
+  const spyPad = spyRawRange * 0.10
+  const spyDispMin = spyRawMin - spyPad
+  const spyDispMax = spyRawMax + spyPad
+  const spyDispRange = spyDispMax - spyDispMin
+  const toSpyY = (price: number) => pT + plotH - ((price - spyDispMin) / spyDispRange) * plotH
   const spyLinePoints = viewData
     .map((d, i) => (d.spyClose != null ? `${toX(i)},${toSpyY(d.spyClose)}` : null))
     .filter(Boolean)
     .join(' ')
+  // SPY candlestick data (open = prev close)
+  const spyCandleWidth = Math.max(1, (plotW / Math.max(viewData.length, 1)) * 0.75)
 
   // Colored line segments: red when above zero, green when below zero
   type Seg = { pts: string; color: string }
@@ -199,12 +222,10 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     const pt = data[idx]
     if (!pt) return
 
-    // Precompute using the same maxAbs that was used to render the static chart
-    const s = data.map((d) => d.compositeScore)
-    const rm = Math.max(Math.abs(Math.min(...s)), Math.abs(Math.max(...s)))
-    const ma = Math.max(rm, 2)
+    // Use the same axis bounds that rendered the static chart (updated each render via axisRef)
+    const { min: aMin, range: aRange } = axisRef.current
     const tx = (i: number) => pL + (i / Math.max(data.length - 1, 1)) * plotW
-    const ty = (score: number) => pT + plotH / 2 - (score / ma) * (plotH / 2)
+    const ty = (score: number) => pT + plotH - ((score - aMin) / aRange) * plotH
 
     const cx = tx(idx)
     const cy = ty(pt.compositeScore)
@@ -278,7 +299,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
             {compositeStrength} • {Math.round(compositeConfidence)}%
           </span>
         </div>
-        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
           {(['1Y', '3Y', '5Y'] as const).map((tf) => (
             <button
               key={tf}
@@ -300,6 +321,38 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
               {tf}
             </button>
           ))}
+          {/* Legend toggles — same row as timeframes */}
+          <div style={{ width: 1, height: 14, background: '#333', margin: '0 2px' }} />
+          <button
+            onClick={() => { const nv = !showRegimeLine; setShowRegimeLine(nv); try { localStorage.setItem('showRegimeLine', String(nv)) } catch { } }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '3px',
+              padding: '2px 7px', fontFamily: 'monospace', fontSize: '10px', fontWeight: '700',
+              background: 'transparent',
+              color: showRegimeLine ? '#ffffff' : '#444',
+              border: `1px solid ${showRegimeLine ? '#444' : '#222'}`,
+              borderRadius: '2px', cursor: 'pointer',
+              opacity: showRegimeLine ? 1 : 0.5,
+            }}
+          >
+            <span style={{ display: 'inline-block', width: 16, height: 2, background: 'linear-gradient(to right, #ef4444 50%, #10b981 50%)', borderRadius: 1 }} />
+            REGIME
+          </button>
+          <button
+            onClick={() => { const nv = !showSpyLine; setShowSpyLine(nv); try { localStorage.setItem('showSpyLine', String(nv)) } catch { } }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '3px',
+              padding: '2px 7px', fontFamily: 'monospace', fontSize: '10px', fontWeight: '700',
+              background: 'transparent',
+              color: showSpyLine ? '#aaaaaa' : '#444',
+              border: `1px solid ${showSpyLine ? '#444' : '#222'}`,
+              borderRadius: '2px', cursor: 'pointer',
+              opacity: showSpyLine ? 1 : 0.5,
+            }}
+          >
+            <span style={{ display: 'inline-block', width: 16, height: 2, background: '#888', borderRadius: 1 }} />
+            SPY
+          </button>
         </div>
       </div>
 
@@ -349,62 +402,75 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {/* Y-axis grid lines — dynamic ticks adapted to actual data range */}
-          {yTicks.map((v) => {
-            const y = toY(v)
-            const label = Number.isInteger(v) ? String(v) : v.toFixed(1)
-            return (
-              <g key={v}>
-                <line
-                  x1={pL}
-                  y1={y}
-                  x2={W - pR}
-                  y2={y}
-                  stroke={v === 0 ? '#444' : '#1a1a1a'}
-                  strokeWidth={v === 0 ? 1.5 : 1}
-                  strokeDasharray={v === 0 ? '4,3' : '2,4'}
-                />
-                <text
-                  x={pL - 3}
-                  y={y + 3.5}
-                  textAnchor="end"
-                  fontSize="16"
-                  fill={v > 0 ? '#ef4444' : v < 0 ? '#10b981' : '#888'}
-                  fontFamily="monospace"
-                  fontWeight="700"
-                >
-                  {label}
-                </text>
-              </g>
-            )
-          })}
+          {/* Y-axis grid lines — adapt to which lines are visible */}
+          {showRegimeLine
+            ? yTicks.map((v) => {
+              const y = toY(v)
+              const label = Number.isInteger(v) ? String(v) : v.toFixed(1)
+              return (
+                <g key={v}>
+                  <line x1={pL} y1={y} x2={W - pR} y2={y}
+                    stroke={v === 0 ? '#444' : '#1a1a1a'}
+                    strokeWidth={v === 0 ? 1.5 : 1}
+                    strokeDasharray={v === 0 ? '4,3' : '2,4'} />
+                  <text x={pL - 3} y={y + 3.5} textAnchor="end" fontSize="16"
+                    fill={v > 0 ? '#ef4444' : v < 0 ? '#10b981' : '#888'}
+                    fontFamily="monospace" fontWeight="700">{label}</text>
+                </g>
+              )
+            })
+            : showSpyLine && spyPrices.length > 0
+              ? (() => {
+                // 4 evenly spaced price levels within the actual data range (not padded)
+                const step = spyRawRange / 3
+                return [0, 1, 2, 3].map((n) => {
+                  const price = spyRawMin + n * step
+                  const y = toSpyY(price)
+                  return (
+                    <g key={n}>
+                      <line x1={pL} y1={y} x2={W - pR} y2={y}
+                        stroke="#1c1c1c" strokeWidth={1} strokeDasharray="2,4" />
+                      <text x={pL - 3} y={y + 3.5} textAnchor="end" fontSize="14"
+                        fill="#ffffff" fontFamily="monospace" fontWeight="700">
+                        ${price.toFixed(0)}
+                      </text>
+                    </g>
+                  )
+                })
+              })()
+              : null
+          }
 
-          {/* DEF / GRTH axis labels — right side, inside plot */}
-          <text
-            x={W - pR - 2}
-            y={pT + 10}
-            textAnchor="end"
-            fontSize="13"
-            fill="#ef4444"
-            fontFamily="monospace"
-            fontWeight="700"
-          >
-            DEF
-          </text>
-          <text
-            x={W - pR - 2}
-            y={H - pB}
-            textAnchor="end"
-            fontSize="13"
-            fill="#10b981"
-            fontFamily="monospace"
-            fontWeight="700"
-          >
-            GRTH
-          </text>
+          {/* DEF / GRTH axis labels — only when regime line is visible */}
+          {showRegimeLine && (
+            <>
+              <text x={W - pR - 2} y={pT + 10} textAnchor="end" fontSize="13"
+                fill="#ef4444" fontFamily="monospace" fontWeight="700">DEF</text>
+              <text x={W - pR - 2} y={H - pB} textAnchor="end" fontSize="13"
+                fill="#10b981" fontFamily="monospace" fontWeight="700">GRTH</text>
+            </>
+          )}
 
-          {/* SPY price line — normalized, rendered behind composite */}
-          {spyLinePoints && (
+          {/* SPY — candlesticks when regime is off, faint line when regime is on */}
+          {showSpyLine && !showRegimeLine && viewData.length > 1 && (
+            <g>
+              {viewData.map((d, i) => {
+                if (i === 0 || d.spyClose == null) return null
+                const prev = viewData[i - 1].spyClose
+                if (prev == null) return null
+                const isUp = d.spyClose >= prev
+                const color = isUp ? '#10b981' : '#ef4444'
+                const y1 = toSpyY(prev)
+                const y2 = toSpyY(d.spyClose)
+                const top = Math.min(y1, y2)
+                const bottom = Math.max(y1, y2)
+                const h = Math.max(1, bottom - top)
+                const x = toX(i) - spyCandleWidth / 2
+                return <rect key={i} x={x} y={top} width={spyCandleWidth} height={h} fill={color} opacity={0.9} />
+              })}
+            </g>
+          )}
+          {showSpyLine && showRegimeLine && spyLinePoints && (
             <polyline
               points={spyLinePoints}
               fill="none"
@@ -412,23 +478,27 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
               strokeWidth={1}
               strokeLinejoin="round"
               strokeLinecap="round"
-              opacity={0.25}
+              opacity={0.30}
             />
           )}
 
           {/* Defensive area fill */}
-          <polygon
-            points={`${toX(0)},${zeroY} ${abovePoints} ${toX(viewData.length - 1)},${zeroY}`}
-            fill="#ef444418"
-          />
+          {showRegimeLine && (
+            <polygon
+              points={`${toX(0)},${zeroY} ${abovePoints} ${toX(viewData.length - 1)},${zeroY}`}
+              fill="#ef444418"
+            />
+          )}
           {/* Growth area fill */}
-          <polygon
-            points={`${toX(0)},${zeroY} ${belowPoints} ${toX(viewData.length - 1)},${zeroY}`}
-            fill="#10b98118"
-          />
+          {showRegimeLine && (
+            <polygon
+              points={`${toX(0)},${zeroY} ${belowPoints} ${toX(viewData.length - 1)},${zeroY}`}
+              fill="#10b98118"
+            />
+          )}
 
           {/* Main line — red above zero, green below zero */}
-          {coloredSegments.map((seg, i) => (
+          {showRegimeLine && coloredSegments.map((seg, i) => (
             <polyline
               key={i}
               points={seg.pts}
@@ -443,7 +513,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
           ))}
 
           {/* Current value dot */}
-          {lastPt && (
+          {showRegimeLine && lastPt && (
             <circle
               cx={toX(viewData.length - 1)}
               cy={toY(lastPt.compositeScore)}

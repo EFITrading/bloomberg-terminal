@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { SeasonalPattern } from '@/lib/polygonService'
 
-import SeasonalLineChartModal from './SeasonalLineChartModal'
-
 // ── Types for premium 70%+ win rate add-ons ───────────────────────────────────
 interface AttractionInfo {
   currentPrice: number
@@ -25,6 +23,22 @@ interface MiniChartState {
   maxPct: number
   maxDays: number
 }
+
+// ── Chart line data types (for expanded inline view) ─────────────────────────
+interface YearLineData {
+  year: number
+  data: Array<{ date: Date; value: number; dayOffset: number }>
+  color: string
+  totalReturn: number
+}
+interface TFAvgLineData {
+  tf: number
+  avgLine: Array<{ dayOffset: number; value: number }>
+  totalReturn: number
+  color: string
+}
+const TF_COLORS: Record<number, string> = { 5: '#00FF88', 10: '#FFD700', 15: '#00BFFF', 20: '#FF6600' }
+const TF_CLR_FALLBACK = ['#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF']
 
 // ── Canvas-based mini seasonal chart (almanac-style, crispy, zoom+drag) ──────
 const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }> = ({
@@ -287,6 +301,9 @@ interface OpportunityCardProps {
   sidebarMode?: boolean // Add flag for sidebar rendering
   seasonedQualifying?: number // Number of timeframes with 60%+ win rate (2, 3, or 4)
   hideBestBadge?: boolean // Hide the BEST badge (used in BEST mode where all cards are best)
+  multiframeYears?: number[] // Qualifying timeframe year values e.g. [5, 10, 15]
+  isExpanded?: boolean // Card expanded to 2×2 inline chart view
+  onExpand?: () => void // Toggle expanded state
 }
 
 const OpportunityCard: React.FC<OpportunityCardProps> = ({
@@ -298,11 +315,14 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   sidebarMode = false,
   seasonedQualifying,
   hideBestBadge = false,
+  multiframeYears,
+  isExpanded = false,
+  onExpand,
 }) => {
-  const [showModal, setShowModal] = useState(false)
   const isPositive = (pattern.averageReturn || pattern.avgReturn || 0) >= 0
   const expectedReturn = pattern.averageReturn || pattern.avgReturn || 0
   const daysUntilStart = (pattern as any).daysUntilStart
+  const hasMultiframe = multiframeYears && multiframeYears.length >= 2
 
   // ── Premium add-ons for 70%+ win rate ─────────────────────────────────────
   const isHighWinRate = pattern.winRate >= 70
@@ -316,6 +336,22 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
     perf13d: { status: string; color: string }
     perf21d: { status: string; color: string }
   } | null>(null)
+
+  // ── Expanded inline chart state ──────────────────────────────────────────
+  const [lineData, setLineData] = useState<YearLineData[]>([])
+  const [tfAvgLines, setTfAvgLines] = useState<TFAvgLineData[]>([])
+  const [chartLoading, setChartLoading] = useState(false)
+  const [enabledTFs, setEnabledTFs] = useState<Set<number>>(new Set(multiframeYears ?? []))
+  const chartFetchedRef = useRef(false)
+
+  const toggleTF = (tf: number) => {
+    setEnabledTFs((prev) => {
+      const next = new Set(prev)
+      if (next.has(tf)) { if (next.size > 1) next.delete(tf) }
+      else next.add(tf)
+      return next
+    })
+  }
 
   // ── Trend sync: directional agreement between seasonal avg and most-recent year ──
   const trendSync = React.useMemo(() => {
@@ -426,7 +462,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
         const endD = parseMonthDay(parts[1])
         const { polygonService } = await import('@/lib/polygonService')
         const currentYear = new Date().getFullYear()
-        const NUM_YEARS = 10
+        const NUM_YEARS = (multiframeYears && multiframeYears.length > 0)
+          ? Math.max(...multiframeYears)
+          : 10
         const COLORS = [
           '#FF6600',
           '#00FF88',
@@ -484,12 +522,36 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
 
         const maxDays = Math.max(...allYearData.map((y) => y.length))
 
-        // Build average line
-        const avgLine: Array<{ x: number; pct: number }> = []
-        for (let d = 0; d < maxDays; d++) {
-          const vals = allYearData.map((y) => y[d]?.pct).filter((v): v is number => v !== undefined)
-          if (vals.length > 0) {
-            avgLine.push({ x: d, pct: vals.reduce((a, b) => a + b, 0) / vals.length })
+        // Build average line — for multiframe, compute combined avg of per-timeframe averages
+        let avgLine: Array<{ x: number; pct: number }> = []
+        if (multiframeYears && multiframeYears.length >= 2) {
+          // Compute one avg line per qualifying timeframe, then combine
+          const tfAvgLines: Array<Array<{ x: number; pct: number }>> = []
+          for (const tf of multiframeYears) {
+            // Most recent `tf` years: allYearData[0] = most recent year
+            const slice = allYearData.slice(0, Math.min(tf, allYearData.length))
+            if (slice.length === 0) continue
+            const tfMaxDays = Math.max(...slice.map((y) => y.length))
+            const tfAvg: Array<{ x: number; pct: number }> = []
+            for (let d = 0; d < tfMaxDays; d++) {
+              const vals = slice.map((y) => y[d]?.pct).filter((v): v is number => v !== undefined)
+              if (vals.length > 0)
+                tfAvg.push({ x: d, pct: vals.reduce((a, b) => a + b, 0) / vals.length })
+            }
+            if (tfAvg.length > 0) tfAvgLines.push(tfAvg)
+          }
+          const combinedMaxDays = tfAvgLines.length > 0 ? Math.max(...tfAvgLines.map((a) => a.length)) : maxDays
+          for (let d = 0; d < combinedMaxDays; d++) {
+            const vals = tfAvgLines.map((a) => a[d]?.pct).filter((v): v is number => v !== undefined)
+            if (vals.length > 0)
+              avgLine.push({ x: d, pct: vals.reduce((a, b) => a + b, 0) / vals.length })
+          }
+        } else {
+          for (let d = 0; d < maxDays; d++) {
+            const vals = allYearData.map((y) => y[d]?.pct).filter((v): v is number => v !== undefined)
+            if (vals.length > 0) {
+              avgLine.push({ x: d, pct: vals.reduce((a, b) => a + b, 0) / vals.length })
+            }
           }
         }
 
@@ -597,6 +659,70 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
     }
     fetchOptionsSetup()
   }, []) // fire once on mount
+
+  // ── Fetch chart data when card is expanded ────────────────────────────────
+  useEffect(() => {
+    if (!isExpanded || chartFetchedRef.current) return
+    chartFetchedRef.current = true
+    setEnabledTFs(new Set(multiframeYears ?? []))
+    const parsePeriodDate = (s: string): { month: number; day: number } => {
+      const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+      const [m, d] = s.trim().split(' ')
+      return { month: months[m] ?? 0, day: parseInt(d) }
+    }
+    const doFetch = async () => {
+      setChartLoading(true)
+      try {
+        const [startStr, endStr] = pattern.period.split(' - ')
+        const startDate = parsePeriodDate(startStr)
+        const endDate = parsePeriodDate(endStr)
+        const { polygonService } = await import('@/lib/polygonService')
+        const currentYear = new Date().getFullYear()
+        const colors = ['#FF6600', '#00FF88', '#FF4444', '#FFD700', '#00BFFF', '#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF', '#FF1493', '#7FFF00', '#DC143C', '#00CED1', '#FF4500']
+        const yearsToFetch = (multiframeYears && multiframeYears.length > 0) ? Math.max(years, ...multiframeYears) : years
+        const yearLines: YearLineData[] = []
+        for (let i = 0; i < yearsToFetch; i++) {
+          const year = currentYear - 1 - i
+          const pStart = new Date(year, startDate.month, startDate.day)
+          const pEnd = new Date(endDate.month < startDate.month ? year + 1 : year, endDate.month, endDate.day)
+          const fStart = new Date(pStart); fStart.setDate(fStart.getDate() - 5)
+          const fEnd = new Date(pEnd); fEnd.setDate(fEnd.getDate() + 1)
+          try {
+            const hist = await polygonService.getHistoricalData(pattern.symbol, fStart.toISOString().split('T')[0], fEnd.toISOString().split('T')[0])
+            if (hist?.results?.length) {
+              const startPrice = hist.results.find((d: any) => new Date(d.t) >= pStart)?.c || hist.results[0].c
+              const periodData = hist.results
+                .filter((d: any) => { const dt = new Date(d.t); return dt >= pStart && dt <= pEnd })
+                .map((d: any, idx: number) => ({ date: new Date(d.t), value: ((d.c - startPrice) / startPrice) * 100, dayOffset: idx }))
+              if (periodData.length > 0)
+                yearLines.push({ year, data: periodData, color: colors[i % colors.length], totalReturn: periodData[periodData.length - 1].value })
+            }
+          } catch { /* skip year */ }
+        }
+        const reversed = yearLines.reverse()
+        setLineData(reversed)
+        if (multiframeYears && multiframeYears.length >= 2 && reversed.length > 0) {
+          const mrf = [...reversed].reverse()
+          const computed = multiframeYears.slice().sort((a, b) => a - b).map((tf, idx) => {
+            const slice = mrf.slice(0, Math.min(tf, mrf.length))
+            if (!slice.length) return null
+            const maxD = Math.max(...slice.map((l) => l.data.length))
+            const avgLine: Array<{ dayOffset: number; value: number }> = []
+            for (let d = 0; d < maxD; d++) {
+              const vals = slice.map((l) => l.data[d]?.value).filter((v): v is number => v !== undefined)
+              if (vals.length) avgLine.push({ dayOffset: d, value: vals.reduce((a, b) => a + b, 0) / vals.length })
+            }
+            const totalReturn = avgLine.length ? avgLine[avgLine.length - 1].value : 0
+            const color = TF_COLORS[tf] ?? TF_CLR_FALLBACK[idx % TF_CLR_FALLBACK.length]
+            return { tf, avgLine, totalReturn, color } as TFAvgLineData
+          }).filter((x): x is TFAvgLineData => x !== null)
+          setTfAvgLines(computed)
+        }
+      } catch { /* silent */ }
+      finally { setChartLoading(false) }
+    }
+    doFetch()
+  }, [isExpanded])
 
   const getTimingMessage = () => {
     if (daysUntilStart === undefined || daysUntilStart === null) return null
@@ -741,7 +867,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
       </style>
       <div
         className={cardId}
-        onDoubleClick={() => setShowModal(true)}
+        onDoubleClick={() => onExpand?.()}
         style={{
           background: isHighWinRate ? '#000000' : '#000000',
           border: isHighWinRate
@@ -751,7 +877,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           outlineOffset: '2px',
           padding: isHighWinRate ? '0' : '12px',
           borderRadius: '10px',
-          overflow: isHighWinRate ? 'hidden' : 'visible',
+          overflow: isExpanded ? 'visible' : isHighWinRate ? 'hidden' : 'visible',
           position: 'relative',
           transition: 'all 0.35s cubic-bezier(0.23,1,0.32,1)',
           boxShadow: isHighWinRate
@@ -769,483 +895,435 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           transform: 'translateZ(0)',
           willChange: 'transform',
           cursor: 'pointer',
-          gridColumn: undefined,
+          gridColumn: isExpanded ? '1 / -1' : undefined,
+          gridRow: isExpanded ? 'span 2' : undefined,
+          ...(isExpanded ? {
+            background: 'transparent',
+            border: 'none',
+            boxShadow: 'none',
+            backdropFilter: 'none',
+            padding: '0',
+            maxWidth: 'none',
+            borderRadius: '0',
+          } : {}),
         }}
       >
-        {/* ── Main body: always block (premium section goes below) ── */}
-        <div>
-          {/* ── CARD CONTENT ─────────────────────────────────────── */}
-          <div>
-            {/* Top Bar */}
-            {isHighWinRate ? (
-              /* Elite: Bloomberg×GS premium header */
-              <div>
-                {/* 4px neon accent bar with bloom glow */}
-                <div
-                  style={{
-                    height: '4px',
-                    background: `linear-gradient(90deg, transparent 0%, ${isPositive ? '#00FF88' : '#FF4444'}aa 15%, ${isPositive ? '#00FF88' : '#FF4444'} 38%, ${isPositive ? '#00FF88' : '#FF4444'} 62%, ${isPositive ? '#00FF88' : '#FF4444'}aa 85%, transparent 100%)`,
-                    boxShadow: `0 0 14px ${isPositive ? '#00FF88' : '#FF4444'}, 0 0 4px ${isPositive ? '#00FF88' : '#FF4444'}`,
-                  }}
-                />
-                {/* bloom diffusion below accent bar */}
-                <div
-                  style={{
-                    height: '1px',
-                    background: `linear-gradient(90deg, transparent 10%, ${isPositive ? 'rgba(0,255,136,0.22)' : 'rgba(255,68,68,0.22)'} 50%, transparent 90%)`,
-                  }}
-                />
-                {/* Header row */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '11px 14px 10px',
-                    background: '#000000',
-                  }}
-                >
-                  {/* LEFT: Ticker + badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0 }}>
-                    <div
-                      className="opp-symbol"
-                      style={{
-                        fontSize: '28px',
-                        fontWeight: '900',
-                        letterSpacing: '2px',
-                        fontFamily: "'Courier New',monospace",
-                        color: tickerColor,
-                        textShadow: `0 0 20px ${tickerColor}88, 0 0 40px ${tickerColor}33`,
-                        filter: 'brightness(1.06)',
-                      }}
-                    >
-                      {pattern.symbol}
-                    </div>
-                    {(pattern as any).timeframeLabel && (
-                      <div
-                        style={{
-                          fontSize: '9px',
-                          fontWeight: 'bold',
-                          fontFamily: "'Courier New',monospace",
-                          padding: '2px 5px',
-                          borderRadius: '3px',
-                          backgroundColor: 'rgba(255,102,0,0.2)',
-                          color: '#FF6600',
-                          border: '1px solid rgba(255,102,0,0.6)',
-                          boxShadow: '0 0 8px rgba(255,102,0,0.3)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {(pattern as any).timeframeLabel}
-                      </div>
-                    )}
-                  </div>
-                  {/* CENTER: Date period */}
+        {/* ── Grid wrapper: 2-col when expanded (card1 | card2 top, card3+4 bottom) ── */}
+        <div style={isExpanded ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } : {}}>
+          {/* ── LEFT panel: existing card content (card 1 slot) ── */}
+          <div style={isExpanded ? { background: '#000', border: '1px solid rgba(0,255,136,0.35)', borderRadius: '10px', overflowY: 'auto', overflowX: 'hidden' } : {}}>
+            {/* ── CARD CONTENT ─────────────────────────────────────── */}
+            <div>
+              {/* Top Bar */}
+              {isHighWinRate ? (
+                /* Elite: Bloomberg×GS premium header */
+                <div>
+                  {/* 4px neon accent bar with bloom glow */}
                   <div
                     style={{
-                      flex: 1,
-                      textAlign: 'center',
-                      fontFamily: "'Courier New',monospace",
-                      fontSize: '14px',
-                      fontWeight: 'bold',
-                      color: '#ffffff',
-                      letterSpacing: '1px',
-                      padding: '0 14px',
-                      whiteSpace: 'nowrap',
+                      height: '4px',
+                      background: `linear-gradient(90deg, transparent 0%, ${isPositive ? '#00FF88' : '#FF4444'}aa 15%, ${isPositive ? '#00FF88' : '#FF4444'} 38%, ${isPositive ? '#00FF88' : '#FF4444'} 62%, ${isPositive ? '#00FF88' : '#FF4444'}aa 85%, transparent 100%)`,
+                      boxShadow: `0 0 14px ${isPositive ? '#00FF88' : '#FF4444'}, 0 0 4px ${isPositive ? '#00FF88' : '#FF4444'}`,
+                    }}
+                  />
+                  {/* bloom diffusion below accent bar */}
+                  <div
+                    style={{
+                      height: '1px',
+                      background: `linear-gradient(90deg, transparent 10%, ${isPositive ? 'rgba(0,255,136,0.22)' : 'rgba(255,68,68,0.22)'} 50%, transparent 90%)`,
+                    }}
+                  />
+                  {/* Header row */}
+                  <div
+                    style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
+                      justifyContent: 'space-between',
+                      padding: '11px 14px 10px',
+                      background: '#000000',
                     }}
                   >
-                    {pattern.period}
-                    {seasonedQualifying && (
-                      <span
-                        className="opp-seasoned-count"
+                    {/* LEFT: Ticker + badges */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0 }}>
+                      <div
+                        className="opp-symbol"
                         style={{
-                          fontSize: '14px',
+                          fontSize: '28px',
                           fontWeight: '900',
+                          letterSpacing: '2px',
                           fontFamily: "'Courier New',monospace",
+                          color: tickerColor,
+                          textShadow: `0 0 20px ${tickerColor}88, 0 0 40px ${tickerColor}33`,
+                          filter: 'brightness(1.06)',
                         }}
                       >
-                        {seasonedQualifying}
-                      </span>
-                    )}
+                        {pattern.symbol}
+                      </div>
+                      {(pattern as any).timeframeLabel && (
+                        <div
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 'bold',
+                            fontFamily: "'Courier New',monospace",
+                            padding: '2px 5px',
+                            borderRadius: '3px',
+                            backgroundColor: 'rgba(255,102,0,0.2)',
+                            color: '#FF6600',
+                            border: '1px solid rgba(255,102,0,0.6)',
+                            boxShadow: '0 0 8px rgba(255,102,0,0.3)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {(pattern as any).timeframeLabel}
+                        </div>
+                      )}
+                    </div>
+                    {/* CENTER: Date period */}
+                    <div
+                      style={{
+                        flex: 1,
+                        textAlign: 'center',
+                        fontFamily: "'Courier New',monospace",
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        color: '#ffffff',
+                        letterSpacing: '1px',
+                        padding: '0 14px',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      {pattern.period}
+                      {seasonedQualifying && (
+                        <span
+                          className="opp-seasoned-count"
+                          style={{
+                            fontSize: '14px',
+                            fontWeight: '900',
+                            fontFamily: "'Courier New',monospace",
+                          }}
+                        >
+                          {seasonedQualifying}
+                        </span>
+                      )}
+                    </div>
+                    {/* RIGHT: timing only */}
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}
+                    >
+                      {timingMessage && (
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            color: '#FF6600',
+                            fontWeight: '700',
+                            letterSpacing: '0.5px',
+                            fontFamily: "'Courier New',monospace",
+                            background: 'rgba(255,102,0,0.12)',
+                            padding: '5px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(255,102,0,0.5)',
+                            boxShadow: '0 0 10px rgba(255,102,0,0.22)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {timingMessage}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {/* RIGHT: timing only */}
+                </div>
+              ) : (
+                /* Normal cards: Ticker + Timing on top, Period below */
+                <>
                   <div
-                    style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '10px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                      paddingBottom: '10px',
+                    }}
                   >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div
+                        className="opp-symbol"
+                        style={{
+                          fontSize: '26px',
+                          fontWeight: 'bold',
+                          letterSpacing: '1px',
+                          fontFamily: 'monospace',
+                          color: tickerColor,
+                          textShadow: `0 0 15px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : tickerColor === '#00FF88' ? 'rgba(0, 255, 136, 0.6)' : tickerColor === '#00d4ff' ? 'rgba(0, 212, 255, 0.6)' : 'rgba(255, 102, 0, 0.6)'}`,
+                          filter: 'brightness(1.1)',
+                        }}
+                      >
+                        {pattern.symbol}
+                      </div>
+                      {(pattern as any).timeframeLabel && (
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 'bold',
+                            fontFamily: 'monospace',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            backgroundColor: 'rgba(255, 102, 0, 0.2)',
+                            color: '#FF6600',
+                            border: '1px solid #FF6600',
+                            textShadow: '0 0 10px rgba(255, 102, 0, 0.5)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {(pattern as any).timeframeLabel}
+                        </div>
+                      )}
+                      {(pattern as any).fiftyTwoWeekStatus && (
+                        <div
+                          style={{
+                            fontSize: '4px',
+                            fontWeight: 'bold',
+                            fontFamily: 'monospace',
+                            padding: '2px 4px',
+                            borderRadius: '2px',
+                            backgroundColor:
+                              (pattern as any).fiftyTwoWeekStatus === '52 High'
+                                ? 'rgba(0, 255, 136, 0.2)'
+                                : 'rgba(255, 68, 68, 0.2)',
+                            color:
+                              (pattern as any).fiftyTwoWeekStatus === '52 High'
+                                ? '#00FF88'
+                                : '#FF4444',
+                            border: `1px solid ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? '#00FF88' : '#FF4444'}`,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {(pattern as any).fiftyTwoWeekStatus === '52 High' ? '52 High' : '52 Low'}
+                        </div>
+                      )}
+                    </div>
                     {timingMessage && (
                       <div
                         style={{
-                          fontSize: '10px',
+                          fontSize: '5.5px',
                           color: '#FF6600',
                           fontWeight: '700',
-                          letterSpacing: '0.5px',
-                          fontFamily: "'Courier New',monospace",
-                          background: 'rgba(255,102,0,0.12)',
-                          padding: '5px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(255,102,0,0.5)',
-                          boxShadow: '0 0 10px rgba(255,102,0,0.22)',
-                          whiteSpace: 'nowrap',
+                          letterSpacing: '0.4px',
+                          textTransform: 'uppercase',
+                          fontFamily: 'monospace',
+                          background: 'rgba(255, 102, 0, 0.1)',
+                          padding: '2px 4px',
+                          borderRadius: '2px',
+                          border: '1px solid rgba(255, 102, 0, 0.3)',
+                          textShadow: '0 0 10px rgba(255, 102, 0, 0.5)',
                         }}
                       >
                         {timingMessage}
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
-            ) : (
-              /* Normal cards: Ticker + Timing on top, Period below */
-              <>
+                  <div
+                    style={{
+                      fontSize: sidebarMode ? '22px' : '11px',
+                      color: sidebarMode ? '#ffffff' : '#999999',
+                      marginBottom: '14px',
+                      fontFamily: 'monospace',
+                      letterSpacing: '0.5px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {pattern.period}
+                  </div>
+                </>
+              )}
+
+              {/* Metrics Grid — only for non-elite cards */}
+              {!isHighWinRate && (
                 <div
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '4px',
                     marginBottom: '10px',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                    paddingBottom: '10px',
+                    overflow: 'hidden',
+                    position: 'relative',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Expected Return */}
+                  <div
+                    style={{
+                      background:
+                        'linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(0, 0, 0, 0.3) 100%)',
+                      padding: '6px 4px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      boxShadow:
+                        'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)',
+                      textAlign: 'center',
+                      overflow: 'hidden',
+                    }}
+                  >
                     <div
-                      className="opp-symbol"
                       style={{
-                        fontSize: '26px',
-                        fontWeight: 'bold',
-                        letterSpacing: '1px',
+                        fontSize: sidebarMode ? '13.5px' : '9px',
+                        color: sidebarMode ? '#ffffff' : '#888888',
+                        marginBottom: '4px',
                         fontFamily: 'monospace',
-                        color: tickerColor,
-                        textShadow: `0 0 15px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : tickerColor === '#00FF88' ? 'rgba(0, 255, 136, 0.6)' : tickerColor === '#00d4ff' ? 'rgba(0, 212, 255, 0.6)' : 'rgba(255, 102, 0, 0.6)'}`,
-                        filter: 'brightness(1.1)',
-                      }}
-                    >
-                      {pattern.symbol}
-                    </div>
-                    {(pattern as any).timeframeLabel && (
-                      <div
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          fontFamily: 'monospace',
-                          padding: '2px 6px',
-                          borderRadius: '3px',
-                          backgroundColor: 'rgba(255, 102, 0, 0.2)',
-                          color: '#FF6600',
-                          border: '1px solid #FF6600',
-                          textShadow: '0 0 10px rgba(255, 102, 0, 0.5)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {(pattern as any).timeframeLabel}
-                      </div>
-                    )}
-                    {(pattern as any).fiftyTwoWeekStatus && (
-                      <div
-                        style={{
-                          fontSize: '4px',
-                          fontWeight: 'bold',
-                          fontFamily: 'monospace',
-                          padding: '2px 4px',
-                          borderRadius: '2px',
-                          backgroundColor:
-                            (pattern as any).fiftyTwoWeekStatus === '52 High'
-                              ? 'rgba(0, 255, 136, 0.2)'
-                              : 'rgba(255, 68, 68, 0.2)',
-                          color:
-                            (pattern as any).fiftyTwoWeekStatus === '52 High'
-                              ? '#00FF88'
-                              : '#FF4444',
-                          border: `1px solid ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? '#00FF88' : '#FF4444'}`,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {(pattern as any).fiftyTwoWeekStatus === '52 High' ? '52 High' : '52 Low'}
-                      </div>
-                    )}
-                  </div>
-                  {timingMessage && (
-                    <div
-                      style={{
-                        fontSize: '5.5px',
-                        color: '#FF6600',
-                        fontWeight: '700',
-                        letterSpacing: '0.4px',
+                        letterSpacing: '0.8px',
                         textTransform: 'uppercase',
-                        fontFamily: 'monospace',
-                        background: 'rgba(255, 102, 0, 0.1)',
-                        padding: '2px 4px',
-                        borderRadius: '2px',
-                        border: '1px solid rgba(255, 102, 0, 0.3)',
-                        textShadow: '0 0 10px rgba(255, 102, 0, 0.5)',
                       }}
                     >
-                      {timingMessage}
+                      EXPECTED
+                    </div>
+                    <div
+                      className={isPositive ? 'opp-expected-positive' : 'opp-expected-negative'}
+                      style={{
+                        fontSize: sidebarMode ? '21px' : '14px',
+                        fontWeight: 'bold',
+                        fontFamily: 'monospace',
+                        letterSpacing: '-0.5px',
+                        textShadow: `0 0 10px ${isPositive ? 'rgba(0, 255, 136, 0.5)' : 'rgba(255, 68, 68, 0.5)'}`,
+                      }}
+                    >
+                      {expectedReturn >= 0 ? '+' : ''}
+                      {expectedReturn.toFixed(1)}%
+                    </div>
+                  </div>
+
+                  {/* Seasoned Multi-Timeframe Badge - Overlaid between boxes */}
+                  {seasonedQualifying && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '58%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        background:
+                          seasonedQualifying >= 4
+                            ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)'
+                            : seasonedQualifying === 3
+                              ? 'linear-gradient(135deg, #00FF88 0%, #00CC66 100%)'
+                              : 'linear-gradient(135deg, #00d4ff 0%, #0088cc 100%)',
+                        color: '#000000',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        fontFamily: 'monospace',
+                        boxShadow: `0 2px 10px ${seasonedQualifying >= 4
+                          ? 'rgba(255, 215, 0, 0.6)'
+                          : seasonedQualifying === 3
+                            ? 'rgba(0, 255, 136, 0.6)'
+                            : 'rgba(0, 212, 255, 0.6)'
+                          }`,
+                        textAlign: 'center',
+                        minWidth: '24px',
+                        border: '2px solid #000000',
+                        zIndex: 10,
+                      }}
+                    >
+                      {seasonedQualifying}
                     </div>
                   )}
-                </div>
-                <div
-                  style={{
-                    fontSize: sidebarMode ? '22px' : '11px',
-                    color: sidebarMode ? '#ffffff' : '#999999',
-                    marginBottom: '14px',
-                    fontFamily: 'monospace',
-                    letterSpacing: '0.5px',
-                    textAlign: 'center',
-                  }}
-                >
-                  {pattern.period}
-                </div>
-              </>
-            )}
 
-            {/* Metrics Grid — only for non-elite cards */}
-            {!isHighWinRate && (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '4px',
-                  marginBottom: '10px',
-                  overflow: 'hidden',
-                  position: 'relative',
-                }}
-              >
-                {/* Expected Return */}
-                <div
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(0, 0, 0, 0.3) 100%)',
-                    padding: '6px 4px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    boxShadow:
-                      'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)',
-                    textAlign: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
+                  {/* Win Rate */}
                   <div
                     style={{
-                      fontSize: sidebarMode ? '13.5px' : '9px',
-                      color: sidebarMode ? '#ffffff' : '#888888',
-                      marginBottom: '4px',
-                      fontFamily: 'monospace',
-                      letterSpacing: '0.8px',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    EXPECTED
-                  </div>
-                  <div
-                    className={isPositive ? 'opp-expected-positive' : 'opp-expected-negative'}
-                    style={{
-                      fontSize: sidebarMode ? '21px' : '14px',
-                      fontWeight: 'bold',
-                      fontFamily: 'monospace',
-                      letterSpacing: '-0.5px',
-                      textShadow: `0 0 10px ${isPositive ? 'rgba(0, 255, 136, 0.5)' : 'rgba(255, 68, 68, 0.5)'}`,
-                    }}
-                  >
-                    {expectedReturn >= 0 ? '+' : ''}
-                    {expectedReturn.toFixed(1)}%
-                  </div>
-                </div>
-
-                {/* Seasoned Multi-Timeframe Badge - Overlaid between boxes */}
-                {seasonedQualifying && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '58%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
                       background:
-                        seasonedQualifying >= 4
-                          ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)'
-                          : seasonedQualifying === 3
-                            ? 'linear-gradient(135deg, #00FF88 0%, #00CC66 100%)'
-                            : 'linear-gradient(135deg, #00d4ff 0%, #0088cc 100%)',
-                      color: '#000000',
-                      padding: '4px 8px',
+                        'linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(0, 0, 0, 0.3) 100%)',
+                      padding: '6px 4px',
                       borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      fontFamily: 'monospace',
-                      boxShadow: `0 2px 10px ${seasonedQualifying >= 4
-                        ? 'rgba(255, 215, 0, 0.6)'
-                        : seasonedQualifying === 3
-                          ? 'rgba(0, 255, 136, 0.6)'
-                          : 'rgba(0, 212, 255, 0.6)'
-                        }`,
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      boxShadow:
+                        'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)',
                       textAlign: 'center',
-                      minWidth: '24px',
-                      border: '2px solid #000000',
-                      zIndex: 10,
-                    }}
-                  >
-                    {seasonedQualifying}
-                  </div>
-                )}
-
-                {/* Win Rate */}
-                <div
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(0, 0, 0, 0.3) 100%)',
-                    padding: '6px 4px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    boxShadow:
-                      'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)',
-                    textAlign: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: sidebarMode ? '13.5px' : '9px',
-                      color: sidebarMode ? '#ffffff' : '#888888',
-                      marginBottom: '4px',
-                      fontFamily: 'monospace',
-                      letterSpacing: '0.8px',
-                      textTransform: 'uppercase',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    WIN RATE
-                  </div>
-                  <div
-                    className="opp-winrate"
-                    style={{
-                      fontSize: sidebarMode ? '21px' : '14px',
-                      fontWeight: 'bold',
-                      fontFamily: 'monospace',
-                      letterSpacing: '-0.5px',
-                      textShadow: `0 0 10px ${winRateGlowColor}`,
-                    }}
-                  >
-                    {pattern.winRate.toFixed(0)}%
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Bottom indicator line — only for non-elite cards */}
-            {!isHighWinRate && (
-              <div
-                style={{
-                  height: '3px',
-                  background: isPositive
-                    ? 'linear-gradient(90deg, rgba(0, 255, 136, 0.6) 0%, rgba(0, 255, 136, 0.9) 50%, rgba(0, 255, 136, 0.6) 100%)'
-                    : 'linear-gradient(90deg, rgba(255, 68, 68, 0.6) 0%, rgba(255, 68, 68, 0.9) 50%, rgba(255, 68, 68, 0.6) 100%)',
-                  marginTop: '10px',
-                  borderRadius: '2px',
-                  boxShadow: `0 0 8px ${isPositive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 68, 68, 0.4)'}`,
-                  opacity: 0.8,
-                }}
-              />
-            )}
-          </div>
-          {/* ── end CARD CONTENT ── */}
-
-          {/* ── BOTTOM PANEL: premium add-ons for 70%+ win rate ── */}
-          {isHighWinRate && (
-            <div>
-              {/* ── WIN RATE | AVG row (row 2) ── */}
-              {(() => {
-                const wr = pattern.winRate
-                const wrColor = wr >= 85 ? '#00FF88' : wr >= 75 ? '#00BFFF' : '#FF9500'
-                const wrGlow =
-                  wr >= 85
-                    ? 'rgba(0,255,136,0.85)'
-                    : wr >= 75
-                      ? 'rgba(0,191,255,0.85)'
-                      : 'rgba(255,149,0,0.85)'
-                const avgColor = isPositive ? '#00FF88' : '#FF4444'
-                const avgGlow = isPositive ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,68,0.85)'
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'stretch',
-                      borderTop: `1px solid ${isPositive ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,68,0.18)'}`,
-                      borderBottom: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
-                      background: '#000000',
+                      overflow: 'hidden',
                     }}
                   >
                     <div
                       style={{
-                        flex: 1,
-                        textAlign: 'center',
-                        padding: '9px 8px',
-                        borderRight: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
+                        fontSize: sidebarMode ? '13.5px' : '9px',
+                        color: sidebarMode ? '#ffffff' : '#888888',
+                        marginBottom: '4px',
+                        fontFamily: 'monospace',
+                        letterSpacing: '0.8px',
+                        textTransform: 'uppercase',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      WIN RATE
+                    </div>
+                    <div
+                      className="opp-winrate"
+                      style={{
+                        fontSize: sidebarMode ? '21px' : '14px',
+                        fontWeight: 'bold',
+                        fontFamily: 'monospace',
+                        letterSpacing: '-0.5px',
+                        textShadow: `0 0 10px ${winRateGlowColor}`,
+                      }}
+                    >
+                      {pattern.winRate.toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom indicator line — only for non-elite cards */}
+              {!isHighWinRate && (
+                <div
+                  style={{
+                    height: '3px',
+                    background: isPositive
+                      ? 'linear-gradient(90deg, rgba(0, 255, 136, 0.6) 0%, rgba(0, 255, 136, 0.9) 50%, rgba(0, 255, 136, 0.6) 100%)'
+                      : 'linear-gradient(90deg, rgba(255, 68, 68, 0.6) 0%, rgba(255, 68, 68, 0.9) 50%, rgba(255, 68, 68, 0.6) 100%)',
+                    marginTop: '10px',
+                    borderRadius: '2px',
+                    boxShadow: `0 0 8px ${isPositive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 68, 68, 0.4)'}`,
+                    opacity: 0.8,
+                  }}
+                />
+              )}
+            </div>
+            {/* ── end CARD CONTENT ── */}
+
+            {/* ── BOTTOM PANEL: premium add-ons for 70%+ win rate ── */}
+            {isHighWinRate && (
+              <div>
+                {/* ── WIN RATE | AVG row (row 2) ── */}
+                {(() => {
+                  const wr = pattern.winRate
+                  const wrColor = wr >= 85 ? '#00FF88' : wr >= 75 ? '#00BFFF' : '#FF9500'
+                  const wrGlow =
+                    wr >= 85
+                      ? 'rgba(0,255,136,0.85)'
+                      : wr >= 75
+                        ? 'rgba(0,191,255,0.85)'
+                        : 'rgba(255,149,0,0.85)'
+                  const avgColor = isPositive ? '#00FF88' : '#FF4444'
+                  const avgGlow = isPositive ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,68,0.85)'
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        borderTop: `1px solid ${isPositive ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,68,0.18)'}`,
+                        borderBottom: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
+                        background: '#000000',
                       }}
                     >
                       <div
                         style={{
-                          fontSize: '7px',
-                          color: '#ffffff',
-                          fontFamily: "'Courier New',monospace",
-                          letterSpacing: '1.5px',
-                          marginBottom: '3px',
-                        }}
-                      >
-                        WIN RATE
-                      </div>
-                      <div
-                        className="opp-row-winrate"
-                        style={{
-                          fontSize: '18px',
-                          fontWeight: '900',
-                          fontFamily: "'Courier New',monospace",
-                          lineHeight: 1,
-                        }}
-                      >
-                        {wr.toFixed(0)}%
-                      </div>
-                    </div>
-                    {(pattern as any).fiftyTwoWeekStatus && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          flex: 1,
+                          textAlign: 'center',
                           padding: '9px 8px',
                           borderRight: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: '8px',
-                            fontWeight: 'bold',
-                            fontFamily: "'Courier New',monospace",
-                            padding: '3px 6px',
-                            borderRadius: '3px',
-                            backgroundColor:
-                              (pattern as any).fiftyTwoWeekStatus === '52 High'
-                                ? 'rgba(0,255,136,0.15)'
-                                : 'rgba(255,68,68,0.15)',
-                            color:
-                              (pattern as any).fiftyTwoWeekStatus === '52 High'
-                                ? '#00FF88'
-                                : '#FF4444',
-                            border: `1px solid ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? 'rgba(0,255,136,0.6)' : 'rgba(255,68,68,0.6)'}`,
-                            boxShadow: `0 0 8px ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? 'rgba(0,255,136,0.28)' : 'rgba(255,68,68,0.28)'}`,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {(pattern as any).fiftyTwoWeekStatus}
-                        </div>
-                      </div>
-                    )}
-                    {trendSync && (
-                      <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
                         <div
                           style={{
                             fontSize: '7px',
@@ -1255,10 +1333,10 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             marginBottom: '3px',
                           }}
                         >
-                          CORRELATION
+                          WIN RATE
                         </div>
                         <div
-                          className="opp-row-corr"
+                          className="opp-row-winrate"
                           style={{
                             fontSize: '18px',
                             fontWeight: '900',
@@ -1266,330 +1344,534 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             lineHeight: 1,
                           }}
                         >
-                          {trendSync.score}%
+                          {wr.toFixed(0)}%
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })()}
-
-              {/* ── Chart: full-bleed terminal display ── */}
-              <div style={{ height: '215px', position: 'relative', background: '#000000' }}>
-                {miniChartLoading ? (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#ffffff',
-                      fontSize: '11px',
-                      fontFamily: "'Courier New',monospace",
-                    }}
-                  >
-                    Loading chart…
-                  </div>
-                ) : miniChart ? (
-                  <MiniSeasonalChart data={miniChart} isPositive={isPositive} />
-                ) : (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#ffffff',
-                      fontSize: '11px',
-                      fontFamily: "'Courier New',monospace",
-                    }}
-                  >
-                    No chart data
-                  </div>
-                )}
-                {/* CRT scanline overlay */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background:
-                      'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px)',
-                    pointerEvents: 'none',
-                    zIndex: 2,
-                  }}
-                />
-                {/* Inner rim shadow for 3D depth */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    boxShadow: 'inset 0 0 28px rgba(0,0,0,0.75)',
-                    pointerEvents: 'none',
-                    zIndex: 2,
-                  }}
-                />
-              </div>
-
-              {/* ── Metrics strip: PRICE | ATTRACT | 13D | 1M ── */}
-              {(() => {
-                const fmt = (n: number) =>
-                  n >= 1000
-                    ? `$${(n / 1000).toFixed(1)}k`
-                    : n >= 100
-                      ? `$${n.toFixed(0)}`
-                      : `$${n.toFixed(2)}`
-                const accentLine = isPositive ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)'
-                type Cell = { label: string; value: string; cls: string }
-                const cells: Cell[] = [
-                  ...(attractionInfo
-                    ? [
-                      {
-                        label: 'PRICE',
-                        value: fmt(attractionInfo.currentPrice),
-                        cls: 'opp-stat-price',
-                      },
-                      {
-                        label: 'ATTRACT',
-                        value: fmt(attractionInfo.attractionLevel),
-                        cls: 'opp-stat-attract',
-                      },
-                    ]
-                    : []),
-                  ...(perfData
-                    ? [
-                      { label: '13D', value: perfData.perf13d.status, cls: 'opp-stat-13d' },
-                      { label: '1M', value: perfData.perf21d.status, cls: 'opp-stat-21d' },
-                    ]
-                    : []),
-
-                ]
-                if (cells.length === 0) return null
-                return (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
-                      borderTop: `1px solid ${accentLine}`,
-                      background: '#000000',
-                    }}
-                  >
-                    {cells.map(({ label, value, cls }, i) => (
-                      <div
-                        key={label}
-                        style={{
-                          padding: '10px 4px',
-                          textAlign: 'center',
-                          borderRight:
-                            i < cells.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
-                          background: '#000000',
-                        }}
-                      >
+                      {(pattern as any).fiftyTwoWeekStatus && (
                         <div
                           style={{
-                            fontSize: '7px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                            letterSpacing: '1.5px',
-                            marginBottom: '5px',
-                            textTransform: 'uppercase',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '9px 8px',
+                            borderRight: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
                           }}
                         >
-                          {label}
-                        </div>
-                        <div
-                          className={cls}
-                          style={{
-                            fontSize: '14px',
-                            fontFamily: "'Courier New',monospace",
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
-
-              {/* ── Options Contract ── */}
-              {optionsSetup &&
-                (() => {
-                  const o = optionsSetup
-                  const isCall = o.direction === 'call'
-                  const accent = isCall ? '#00FF88' : '#FF4444'
-                  const fmtS = (n: number) => (n >= 1000 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`)
-                  const fmtP = (n: number) => `$${n.toFixed(2)}`
-                  const expLabel = new Date(o.expiryDate + 'T00:00:00Z').toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    timeZone: 'UTC',
-                  })
-                  return (
-                    <div style={{ borderTop: `1px solid ${accent}44` }}>
-                      {/* Contract header bar */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          flexWrap: 'nowrap',
-                          gap: '8px',
-                          padding: '9px 14px',
-                          background: `linear-gradient(90deg, ${isCall ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)'} 0%, #000000 100%)`,
-                          borderBottom: '1px solid rgba(255,255,255,0.05)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: '9px',
-                            fontWeight: 'bold',
-                            fontFamily: "'Courier New',monospace",
-                            letterSpacing: '1.5px',
-                            color: accent,
-                            border: `1px solid ${accent}`,
-                            borderRadius: '3px',
-                            padding: '3px 7px',
-                            background: `${accent}18`,
-                            boxShadow: `0 0 12px ${accent}44, inset 0 1px 0 rgba(255,255,255,0.15)`,
-                          }}
-                        >
-                          {isCall ? '▲ CALL' : '▼ PUT'}
-                        </span>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: '13px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          ${o.strike}
-                        </span>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: '11px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                          }}
-                        >
-                          {expLabel}
-                        </span>
-                        <span
-                          style={{
-                            marginLeft: 'auto',
-                            flexShrink: 0,
-                            fontSize: '10px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                          }}
-                        >
-                          Entry:
-                        </span>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: '13px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {fmtP(o.mid)}
-                        </span>
-                      </div>
-                      {/* Targets grid — color-coded top borders */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
-                        {[
-                          {
-                            label: 'TARGET 1',
-                            stockCls: 'opp-opt-t1',
-                            stockVal: fmtS(o.target1Stock),
-                            optVal: fmtP(o.target1Premium),
-                            topClr: 'rgba(0,255,136,0.6)',
-                          },
-                          {
-                            label: 'TARGET 2',
-                            stockCls: 'opp-opt-t2',
-                            stockVal: fmtS(o.target2Stock),
-                            optVal: fmtP(o.target2Premium),
-                            topClr: 'rgba(0,191,255,0.6)',
-                          },
-                          {
-                            label: 'STOP LOSS',
-                            stockCls: 'opp-opt-stop',
-                            stockVal: fmtS(o.stopLossStock),
-                            optVal: fmtP(o.stopLossPremium),
-                            topClr: 'rgba(255,68,68,0.6)',
-                          },
-                        ].map(({ label, stockCls, stockVal, optVal, topClr }, i, arr) => (
                           <div
-                            key={label}
                             style={{
-                              padding: '10px 6px 12px',
-                              textAlign: 'center',
-                              borderRight:
-                                i < arr.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
-                              borderTop: `2px solid ${topClr}`,
-                              background: '#000000',
+                              fontSize: '8px',
+                              fontWeight: 'bold',
+                              fontFamily: "'Courier New',monospace",
+                              padding: '3px 6px',
+                              borderRadius: '3px',
+                              backgroundColor:
+                                (pattern as any).fiftyTwoWeekStatus === '52 High'
+                                  ? 'rgba(0,255,136,0.15)'
+                                  : 'rgba(255,68,68,0.15)',
+                              color:
+                                (pattern as any).fiftyTwoWeekStatus === '52 High'
+                                  ? '#00FF88'
+                                  : '#FF4444',
+                              border: `1px solid ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? 'rgba(0,255,136,0.6)' : 'rgba(255,68,68,0.6)'}`,
+                              boxShadow: `0 0 8px ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? 'rgba(0,255,136,0.28)' : 'rgba(255,68,68,0.28)'}`,
+                              whiteSpace: 'nowrap',
                             }}
                           >
-                            <div
-                              style={{
-                                fontSize: '7px',
-                                color: '#ffffff',
-                                fontFamily: "'Courier New',monospace",
-                                letterSpacing: '1.5px',
-                                marginBottom: '5px',
-                              }}
-                            >
-                              {label}
-                            </div>
-                            <div
-                              className={stockCls}
-                              style={{
-                                fontSize: '15px',
-                                fontFamily: "'Courier New',monospace",
-                                fontWeight: 'bold',
-                              }}
-                            >
-                              {stockVal}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: '10px',
-                                color: '#ffffff',
-                                fontFamily: "'Courier New',monospace",
-                                marginTop: '3px',
-                              }}
-                            >
-                              {optVal}
-                            </div>
+                            {(pattern as any).fiftyTwoWeekStatus}
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )}
+                      {trendSync && (
+                        <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
+                          <div
+                            style={{
+                              fontSize: '7px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              letterSpacing: '1.5px',
+                              marginBottom: '3px',
+                            }}
+                          >
+                            CORRELATION
+                          </div>
+                          <div
+                            className="opp-row-corr"
+                            style={{
+                              fontSize: '18px',
+                              fontWeight: '900',
+                              fontFamily: "'Courier New',monospace",
+                              lineHeight: 1,
+                            }}
+                          >
+                            {trendSync.score}%
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })()}
+
+                {/* ── Chart: full-bleed terminal display ── */}
+                <div style={{ height: '215px', position: 'relative', background: '#000000' }}>
+                  {miniChartLoading ? (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#ffffff',
+                        fontSize: '11px',
+                        fontFamily: "'Courier New',monospace",
+                      }}
+                    >
+                      Loading chart…
+                    </div>
+                  ) : miniChart ? (
+                    <MiniSeasonalChart data={miniChart} isPositive={isPositive} />
+                  ) : (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#ffffff',
+                        fontSize: '11px',
+                        fontFamily: "'Courier New',monospace",
+                      }}
+                    >
+                      No chart data
+                    </div>
+                  )}
+                  {/* CRT scanline overlay */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background:
+                        'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px)',
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                    }}
+                  />
+                  {/* Inner rim shadow for 3D depth */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      boxShadow: 'inset 0 0 28px rgba(0,0,0,0.75)',
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                    }}
+                  />
+                </div>
+
+                {/* ── Metrics strip: PRICE | ATTRACT | 13D | 1M ── */}
+                {(() => {
+                  const fmt = (n: number) =>
+                    n >= 1000
+                      ? `$${(n / 1000).toFixed(1)}k`
+                      : n >= 100
+                        ? `$${n.toFixed(0)}`
+                        : `$${n.toFixed(2)}`
+                  const accentLine = isPositive ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)'
+                  type Cell = { label: string; value: string; cls: string }
+                  const cells: Cell[] = [
+                    ...(attractionInfo
+                      ? [
+                        {
+                          label: 'PRICE',
+                          value: fmt(attractionInfo.currentPrice),
+                          cls: 'opp-stat-price',
+                        },
+                        {
+                          label: 'ATTRACT',
+                          value: fmt(attractionInfo.attractionLevel),
+                          cls: 'opp-stat-attract',
+                        },
+                      ]
+                      : []),
+                    ...(perfData
+                      ? [
+                        { label: '13D', value: perfData.perf13d.status, cls: 'opp-stat-13d' },
+                        { label: '1M', value: perfData.perf21d.status, cls: 'opp-stat-21d' },
+                      ]
+                      : []),
+
+                  ]
+                  if (cells.length === 0) return null
+                  return (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
+                        borderTop: `1px solid ${accentLine}`,
+                        background: '#000000',
+                      }}
+                    >
+                      {cells.map(({ label, value, cls }, i) => (
+                        <div
+                          key={label}
+                          style={{
+                            padding: '10px 4px',
+                            textAlign: 'center',
+                            borderRight:
+                              i < cells.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
+                            background: '#000000',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: '7px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              letterSpacing: '1.5px',
+                              marginBottom: '5px',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {label}
+                          </div>
+                          <div
+                            className={cls}
+                            style={{
+                              fontSize: '14px',
+                              fontFamily: "'Courier New',monospace",
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+
+                {/* ── Options Contract ── */}
+                {optionsSetup &&
+                  (() => {
+                    const o = optionsSetup
+                    const isCall = o.direction === 'call'
+                    const accent = isCall ? '#00FF88' : '#FF4444'
+                    const fmtS = (n: number) => (n >= 1000 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`)
+                    const fmtP = (n: number) => `$${n.toFixed(2)}`
+                    const expLabel = new Date(o.expiryDate + 'T00:00:00Z').toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      timeZone: 'UTC',
+                    })
+                    return (
+                      <div style={{ borderTop: `1px solid ${accent}44` }}>
+                        {/* Contract header bar */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            flexWrap: 'nowrap',
+                            gap: '8px',
+                            padding: '9px 14px',
+                            background: `linear-gradient(90deg, ${isCall ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)'} 0%, #000000 100%)`,
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: '9px',
+                              fontWeight: 'bold',
+                              fontFamily: "'Courier New',monospace",
+                              letterSpacing: '1.5px',
+                              color: accent,
+                              border: `1px solid ${accent}`,
+                              borderRadius: '3px',
+                              padding: '3px 7px',
+                              background: `${accent}18`,
+                              boxShadow: `0 0 12px ${accent}44, inset 0 1px 0 rgba(255,255,255,0.15)`,
+                            }}
+                          >
+                            {isCall ? '▲ CALL' : '▼ PUT'}
+                          </span>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: '13px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            ${o.strike}
+                          </span>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: '11px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                            }}
+                          >
+                            {expLabel}
+                          </span>
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              fontSize: '10px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                            }}
+                          >
+                            Entry:
+                          </span>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: '13px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {fmtP(o.mid)}
+                          </span>
+                        </div>
+                        {/* Targets grid — color-coded top borders */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
+                          {[
+                            {
+                              label: 'TARGET 1',
+                              stockCls: 'opp-opt-t1',
+                              stockVal: fmtS(o.target1Stock),
+                              optVal: fmtP(o.target1Premium),
+                              topClr: 'rgba(0,255,136,0.6)',
+                            },
+                            {
+                              label: 'TARGET 2',
+                              stockCls: 'opp-opt-t2',
+                              stockVal: fmtS(o.target2Stock),
+                              optVal: fmtP(o.target2Premium),
+                              topClr: 'rgba(0,191,255,0.6)',
+                            },
+                            {
+                              label: 'STOP LOSS',
+                              stockCls: 'opp-opt-stop',
+                              stockVal: fmtS(o.stopLossStock),
+                              optVal: fmtP(o.stopLossPremium),
+                              topClr: 'rgba(255,68,68,0.6)',
+                            },
+                          ].map(({ label, stockCls, stockVal, optVal, topClr }, i, arr) => (
+                            <div
+                              key={label}
+                              style={{
+                                padding: '10px 6px 12px',
+                                textAlign: 'center',
+                                borderRight:
+                                  i < arr.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
+                                borderTop: `2px solid ${topClr}`,
+                                background: '#000000',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '7px',
+                                  color: '#ffffff',
+                                  fontFamily: "'Courier New',monospace",
+                                  letterSpacing: '1.5px',
+                                  marginBottom: '5px',
+                                }}
+                              >
+                                {label}
+                              </div>
+                              <div
+                                className={stockCls}
+                                style={{
+                                  fontSize: '15px',
+                                  fontFamily: "'Courier New',monospace",
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                {stockVal}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '10px',
+                                  color: '#ffffff',
+                                  fontFamily: "'Courier New',monospace",
+                                  marginTop: '3px',
+                                }}
+                              >
+                                {optVal}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+              </div>
+            )}
+            {/* ── end BOTTOM PANEL ── */}
+          </div>
+          {/* ── end LEFT panel ── */}
+
+          {/* ── RIGHT panel: multi-TF averages (top-right, card 2 slot) ── */}
+          {isExpanded && (
+            <div style={{ background: '#000', border: '1px solid rgba(0,191,255,0.35)', borderRadius: '10px', padding: '16px 0 0 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* header row: title + TF toggles + X close */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexShrink: 0, padding: '0 16px' }}>
+                <span style={{ color: '#00BFFF', fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold', letterSpacing: '2px' }}>MULTI-TF AVERAGES</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {tfAvgLines.slice().sort((a, b) => a.tf - b.tf).map(t => {
+                    const active = enabledTFs.has(t.tf)
+                    return (
+                      <button key={t.tf} onClick={(e) => { e.stopPropagation(); toggleTF(t.tf) }}
+                        style={{ padding: '2px 8px', border: `1px solid ${active ? t.color : 'rgba(255,255,255,0.2)'}`, borderRadius: '4px', background: active ? `${t.color}22` : 'transparent', color: active ? t.color : 'rgba(255,255,255,0.3)', fontFamily: 'monospace', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+                        {t.tf}Y
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onExpand?.() }}
+                    style={{ marginLeft: '4px', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: '#fff', fontFamily: 'monospace', fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+              {chartLoading ? (
+                <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '60px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
+              ) : hasMultiframe && tfAvgLines.length > 0 ? (() => {
+                const cW = 528, cH = 630
+                const pad = { top: 24, right: 85, bottom: 40, left: 72 }
+                const pW = cW - pad.left - pad.right
+                const pH = cH - pad.top - pad.bottom
+                const vis = tfAvgLines.filter(t => enabledTFs.has(t.tf))
+                const maxD = vis.length > 0 ? Math.max(...vis.map(t => t.avgLine.length), 1) : 1
+                const allV = vis.flatMap(t => t.avgLine.map(d => d.value))
+                const tfMax = allV.length > 0 ? Math.max(...allV, 5) : 5
+                const tfMin = allV.length > 0 ? Math.min(...allV, -5) : -5
+                const tfRng = tfMax - tfMin || 1
+                const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
+                const yS = (v: number) => pad.top + pH - ((v - tfMin) / tfRng) * pH
+                const sorted = [...vis].sort((a, b) => b.totalReturn - a.totalReturn)
+                return (
+                  <div style={{ flex: 1 }}>
+                    <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
+                      {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => {
+                        const v = tfMax - (tfRng / 8) * i; const y = yS(v)
+                        return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="3" /><text x={pad.left - 8} y={y + 12} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="end">{v.toFixed(1)}%</text></g>)
+                      })}
+                      {[0, 1, 2, 3, 4, 5, 6].map(i => {
+                        const d = Math.floor((maxD / 6) * i); const x = xS(d)
+                        return (<text key={i} x={x} y={cH - pad.bottom + 32} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="middle">{d}</text>)
+                      })}
+                      {tfMin < 0 && tfMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="2" strokeDasharray="8,5" />}
+                      {sorted.map((t) => {
+                        const last = t.avgLine[t.avgLine.length - 1]
+                        const rawY = yS(last.value)
+                        const labelY = Math.min(Math.max(rawY, pad.top + 12), pad.top + pH - 12)
+                        const pathD = t.avgLine.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
+                        return (<g key={t.tf}>
+                          <path d={pathD} fill="none" stroke={t.color} strokeWidth="12" opacity="0.1" />
+                          <path d={pathD} fill="none" stroke={t.color} strokeWidth="4" opacity="0.95" />
+                          <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 4} y2={labelY} stroke={t.color} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.4" />
+                          <text x={cW - pad.right + 12} y={labelY - 4} fill={t.color} fontSize="22" fontFamily="monospace" fontWeight="bold">{t.tf}Y</text>
+                          <text x={cW - pad.right + 12} y={labelY + 20} fill={t.color} fontSize="22" fontFamily="monospace">{t.totalReturn >= 0 ? '+' : ''}{t.totalReturn.toFixed(1)}%</text>
+                        </g>)
+                      })}
+                      <text x={pad.left + pW / 2} y={cH - 6} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="middle">Days</text>
+                    </svg>
+                  </div>
+                )
+              })() : (
+                <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '40px', fontSize: '11px' }}>NO MULTI-FRAME DATA</div>
+              )}
             </div>
           )}
-          {/* ── end BOTTOM PANEL ── */}
+          {/* ── HISTORICAL LINES panel (bottom row, cards 3+4 slots) ── */}
+          {isExpanded && (
+            <div style={{ gridColumn: '1 / -1', background: '#000', border: '1px solid rgba(255,102,0,0.35)', borderRadius: '10px', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <span style={{ color: '#FF6600', fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold', letterSpacing: '2px' }}>HISTORICAL LINES</span>
+                <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: '10px' }}>{lineData.length} years</span>
+              </div>
+              {chartLoading ? (
+                <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
+              ) : lineData.length > 0 ? (() => {
+                const cW = 820, cH = 450
+                const pad = { top: 24, right: 70, bottom: 40, left: 58 }
+                const pW = cW - pad.left - pad.right
+                const pH = cH - pad.top - pad.bottom
+                const maxD = Math.max(...lineData.map(l => l.data.length), 1)
+                const allV = lineData.flatMap(l => l.data.map(d => d.value))
+                const hMax = Math.max(...allV, 5)
+                const hMin = Math.min(...allV, -5)
+                const hRng = hMax - hMin || 1
+                const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
+                const yS = (v: number) => pad.top + pH - ((v - hMin) / hRng) * pH
+                const fmtRet = (v: number) => {
+                  const abs = Math.abs(v)
+                  const n = abs >= 10 ? Math.round(v) : parseFloat(v.toFixed(1))
+                  return `${v >= 0 ? '+' : ''}${n}%`
+                }
+                // sort descending, place labels at end-of-line Y, then push apart to avoid overlap
+                const sorted = [...lineData].sort((a, b) => b.totalReturn - a.totalReturn)
+                const minGap = 12
+                const rawPositions = sorted.map(yl => {
+                  const last = yl.data[yl.data.length - 1]
+                  return Math.min(Math.max(yS(last.value), pad.top + 6), pad.top + pH - 6)
+                })
+                // push-apart pass: iterate top-to-bottom
+                const positions = [...rawPositions]
+                for (let i = 1; i < positions.length; i++) {
+                  if (positions[i] - positions[i - 1] < minGap) positions[i] = positions[i - 1] + minGap
+                }
+                // clamp bottom
+                for (let i = positions.length - 1; i >= 0; i--) {
+                  if (positions[i] > pad.top + pH) positions[i] = pad.top + pH
+                  if (i < positions.length - 1 && positions[i + 1] - positions[i] < minGap) positions[i] = positions[i + 1] - minGap
+                }
+                return (
+                  <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
+                    {[0, 1, 2, 3, 4, 5, 6].map(i => {
+                      const v = hMax - (hRng / 6) * i; const y = yS(v)
+                      return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" /><text x={pad.left - 8} y={y + 4} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="end">{parseFloat(v.toFixed(1))}%</text></g>)
+                    })}
+                    {[0, 1, 2, 3, 4, 5, 6].map(i => {
+                      const d = Math.floor((maxD / 6) * i); const x = xS(d)
+                      return (<text key={i} x={x} y={cH - pad.bottom + 16} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="middle">{d}</text>)
+                    })}
+                    {hMin < 0 && hMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,3" />}
+                    {sorted.map(yl => {
+                      const pathD = yl.data.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
+                      return (<path key={yl.year} d={pathD} fill="none" stroke={yl.color} strokeWidth="1.5" opacity="0.75" />)
+                    })}
+                    {sorted.map((yl, i) => {
+                      const last = yl.data[yl.data.length - 1]
+                      const lY = positions[i]
+                      const shortYear = String(yl.year).slice(-2)
+                      return (<g key={yl.year}>
+                        <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 3} y2={lY} stroke={yl.color} strokeWidth="0.7" strokeDasharray="3,3" opacity="0.35" />
+                        <text x={cW - pad.right + 6} y={lY + 4} fill={yl.color} fontSize="10" fontFamily="monospace">{shortYear}: {fmtRet(yl.totalReturn)}</text>
+                      </g>)
+                    })}
+                    <text x={pad.left + pW / 2} y={cH - 4} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="middle">Days</text>
+                  </svg>
+                )
+              })() : (
+                <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '11px' }}>NO HISTORICAL DATA</div>
+              )}
+            </div>
+          )}
+          {/* ── end grid panels ── */}
         </div>
-        {/* ── end body ── */}
+        {/* ── end grid wrapper ── */}
       </div>
       {/* ── end card ── */}
-
-      {/* Seasonal Line Chart Modal */}
-      <SeasonalLineChartModal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        pattern={pattern}
-        years={years}
-      />
     </>
   )
 }
