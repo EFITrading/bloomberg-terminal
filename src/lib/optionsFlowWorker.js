@@ -287,11 +287,14 @@ if (parentPort) {
                                    console.log(` Worker ${workerIndex}: Scanning ${ticker}...`);
 
                                    // Send progress update for each ticker being scanned
+                                   const [yr, mo, dy] = timeRange.date.split('-');
+                                   const flowDateLabel = `${parseInt(mo)}/${parseInt(dy)}/${yr.slice(2)}`;
                                    parentPort.postMessage({
                                           type: 'ticker_progress',
                                           workerIndex: workerIndex,
                                           ticker: ticker,
-                                          message: `Scanning ${ticker} contracts...`,
+                                          date: timeRange.date,
+                                          message: `Scanning ${ticker} flow ${flowDateLabel}`,
                                           success: true
                                    });
 

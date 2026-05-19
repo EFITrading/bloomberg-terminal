@@ -98,7 +98,6 @@ class SeasonalScreenerService {
             // Filter out stocks without enough historical data
             const yearsOfData = this.calculateYearsOfData(stockData.results);
             if (yearsOfData < years) {
-              console.warn(` ${stock.symbol} only has ${yearsOfData} years of data, skipping (need ${years}+)`);
               processedCount++;
               continue;
             }
@@ -131,13 +130,10 @@ class SeasonalScreenerService {
         }
       }
 
-      console.log(` PROFESSIONAL BULK PROCESSING COMPLETE! Found ${opportunities.length} opportunities from ${processedCount} processed symbols`);
-
       // Sort by average return (no filtering)
       const sortedOpportunities = opportunities
         .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
 
-      console.log(` Final results: ${sortedOpportunities.length} seasonal opportunities (sorted by return)`);
       return sortedOpportunities;
 
     } catch (error) {

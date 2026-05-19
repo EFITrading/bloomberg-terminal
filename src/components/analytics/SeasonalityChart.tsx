@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
+import dynamic from 'next/dynamic'
+
 import GlobalDataCache from '../../lib/GlobalDataCache'
 import ElectionCycleService, { ElectionCycleData } from '../../lib/electionCycleService'
 import PolygonService from '../../lib/polygonService'
@@ -11,6 +13,8 @@ import HorizontalMonthlyReturns from './HorizontalMonthlyReturns'
 import SeasonaxMainChart from './SeasonaxMainChart'
 import SeasonaxStatistics from './SeasonaxStatistics'
 import SeasonaxSymbolSearch from './SeasonaxSymbolSearch'
+
+const EFIChart = dynamic(() => import('../trading/EFICharting'), { ssr: false })
 
 // Types for Polygon API data
 interface PolygonDataPoint {
@@ -178,6 +182,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]) // Dynamic based on actual data
   const [showCurrentYearLine, setShowCurrentYearLine] = useState<boolean>(false)
   const [currentYearMode, setCurrentYearMode] = useState<'off' | 'raw' | 'benchmarked'>('off')
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false)
 
   // Detect mobile
   useEffect(() => {
@@ -187,11 +192,40 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  // Escape key exits fullscreen
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // When entering fullscreen, let layout settle then trigger a resize so the almanac canvas redraws
+  useEffect(() => {
+    if (!isFullscreen) return
+    const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 100)
+    return () => clearTimeout(id)
+  }, [isFullscreen])
+
   // Compare functionality state
   const [isCompareMode, setIsCompareMode] = useState<boolean>(false)
   const [compareSymbol, setCompareSymbol] = useState<string>('')
   const [compareSeasonalData, setCompareSeasonalData] = useState<SeasonalAnalysis | null>(null)
   const [compareElectionData, setCompareElectionData] = useState<ElectionCycleData | null>(null)
+
+  // Multi-scan state
+  const [multiScanData, setMultiScanData] = useState<SeasonalAnalysis[]>([])
+  // Prevents selectedSymbol useEffect from re-fetching after a quick scan sets state directly
+  const isQuickScanRef = useRef(false)
+  // Remembers the active quick-scan tickers so election-cycle mode can average them too
+  const quickScanTickersRef = useRef<string[]>([])
+  // Stable ref for the onMonthlyDataLoaded callback — avoids infinite loop when parent passes inline fn
+  const onMonthlyDataLoadedRef = useRef(onMonthlyDataLoaded)
+  // ── DEBUG refs for almanac column height chain ──
+  const dbgOuterRef = useRef<HTMLDivElement>(null)
+  const dbgFlexSlotRef = useRef<HTMLDivElement>(null)
+  const dbgAbsWrapRef = useRef<HTMLDivElement>(null)
+  const dbgAlmanacRootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { onMonthlyDataLoadedRef.current = onMonthlyDataLoaded }, [onMonthlyDataLoaded])
 
   // ── Trend sync: how well does the seasonal avg match current-year price action ──
   const trendSync = useMemo(() => {
@@ -379,36 +413,20 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const isInitialMount = useRef(true)
 
   useEffect(() => {
-    console.log('[SeasonalityChart] useEffect[selectedSymbol] fired:', {
-      selectedSymbol,
-      autoStart,
-      isInitialMount: isInitialMount.current,
-    })
     if (isInitialMount.current) {
       isInitialMount.current = false
       // Only auto-scan on mount when autoStart=true AND we have a symbol
       if (autoStart && selectedSymbol) {
-        console.log(
-          '[SeasonalityChart] autoStart: calling loadSeasonalAnalysis for',
-          selectedSymbol
-        )
         loadSeasonalAnalysis(selectedSymbol)
-      } else {
-        console.log(
-          '[SeasonalityChart] autoStart skipped — autoStart:',
-          autoStart,
-          'selectedSymbol:',
-          selectedSymbol
-        )
       }
       return
     }
     // Subsequent symbol changes: always scan if symbol is set
     if (selectedSymbol) {
-      console.log(
-        '[SeasonalityChart] symbol changed: calling loadSeasonalAnalysis for',
-        selectedSymbol
-      )
+      if (isQuickScanRef.current) {
+        isQuickScanRef.current = false
+        return
+      }
       loadSeasonalAnalysis(selectedSymbol)
     }
   }, [selectedSymbol])
@@ -449,27 +467,89 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
   // Notify parent when normal seasonal data loads/changes
   useEffect(() => {
-    if (seasonalData?.spyComparison?.monthlyData && onMonthlyDataLoaded) {
-      onMonthlyDataLoaded(
+    if (seasonalData?.spyComparison?.monthlyData && onMonthlyDataLoadedRef.current) {
+      onMonthlyDataLoadedRef.current(
         seasonalData.spyComparison.monthlyData,
         seasonalData.spyComparison.best30DayPeriod,
         seasonalData.spyComparison.worst30DayPeriod,
         'normal'
       )
     }
-  }, [seasonalData, onMonthlyDataLoaded])
+  }, [seasonalData])
 
   // Notify parent when election/cycle seasonal data loads/changes
   useEffect(() => {
-    if (electionData?.spyComparison?.monthlyData && onMonthlyDataLoaded) {
-      onMonthlyDataLoaded(
+    if (!isFullscreen) return
+    const report = () => {
+      const outer = dbgOuterRef.current
+      const flexSlot = dbgFlexSlotRef.current
+
+      const logEl = (label: string, el: Element | null) => {
+        if (!el) { console.warn(`[ALMANAC-DBG] ${label} — NOT FOUND`); return }
+        const cs = getComputedStyle(el)
+        const rect = el.getBoundingClientRect()
+        console.log(
+          `[ALMANAC-DBG] ${label}\n` +
+          `  rect: ${rect.width.toFixed(0)}×${rect.height.toFixed(0)} (top:${rect.top.toFixed(0)})\n` +
+          `  display:${cs.display}  flex:${cs.flex}  flexGrow:${cs.flexGrow}  flexBasis:${cs.flexBasis}\n` +
+          `  height:${cs.height}  minHeight:${cs.minHeight}  maxHeight:${cs.maxHeight}\n` +
+          `  overflow:${cs.overflow}  overflowY:${cs.overflowY}\n` +
+          `  flexDirection:${cs.flexDirection}  alignItems:${cs.alignItems}`
+        )
+      }
+
+      // Walk every element in the chain
+      logEl('1. outer (.seasonax-fullscreen-almanac)', outer)
+      logEl('2. flex-slot (flex:1 wrapper)', flexSlot)
+
+      // Walk into the almanac wrap and its children
+      const wrap = flexSlot?.querySelector('.seasonax-fs-almanac-wrap') ?? null
+      logEl('3. .seasonax-fs-almanac-wrap', wrap)
+
+      const almanacRoot = wrap?.querySelector('.almanac-daily-chart') ?? null
+      logEl('4. .almanac-daily-chart (root div)', almanacRoot)
+
+      const headerRow = almanacRoot?.querySelector('.chart-header-row') ?? null
+      logEl('5. .chart-header-row', headerRow)
+
+      const chartContainer = almanacRoot?.querySelector('.chart-container') ?? null
+      logEl('6. .chart-container', chartContainer)
+
+      const canvas = chartContainer?.querySelector('canvas') ?? null
+      if (canvas) {
+        const cs = getComputedStyle(canvas)
+        const rect = canvas.getBoundingClientRect()
+        console.log(
+          `[ALMANAC-DBG] 7. canvas\n` +
+          `  rect: ${rect.width.toFixed(0)}×${rect.height.toFixed(0)}\n` +
+          `  style.width:${(canvas as HTMLCanvasElement).style.width}  style.height:${(canvas as HTMLCanvasElement).style.height}\n` +
+          `  computed width:${cs.width}  computed height:${cs.height}\n` +
+          `  canvas.width attr:${(canvas as HTMLCanvasElement).width}  canvas.height attr:${(canvas as HTMLCanvasElement).height}`
+        )
+      } else {
+        console.warn('[ALMANAC-DBG] 7. canvas — NOT FOUND in .chart-container')
+      }
+
+      // Also check the grid parent to see what height it resolves to
+      const grid = outer?.parentElement ?? null
+      logEl('0. GRID PARENT (outer.parentElement)', grid)
+    }
+    // 300ms + 1s snapshots to see if layout changes after initial render
+    const id1 = setTimeout(report, 300)
+    const id2 = setTimeout(report, 1200)
+    return () => { clearTimeout(id1); clearTimeout(id2) }
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (electionData?.spyComparison?.monthlyData && onMonthlyDataLoadedRef.current) {
+      onMonthlyDataLoadedRef.current(
         electionData.spyComparison.monthlyData,
         electionData.spyComparison.best30DayPeriod,
         electionData.spyComparison.worst30DayPeriod,
         'election'
       )
     }
-  }, [electionData, onMonthlyDataLoaded])
+  }, [electionData])
 
   const handleElectionModeToggle = async (isEnabled: boolean) => {
     if (!isEnabled) {
@@ -499,57 +579,134 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
     yearsOverride?: number
   ) => {
-    console.log(
-      '[SeasonalityChart] loadElectionCycleAnalysis START — symbol:',
-      symbol,
-      'type:',
-      electionType
-    )
     setLoading(true)
     setError(null)
 
     try {
-      const yearsToUse = yearsOverride ?? chartSettings.yearsOfData
-      console.log(
-        '[SeasonalityChart] calling analyzeElectionCycleSeasonality, yearsToUse:',
-        Math.min(yearsToUse, 20)
-      )
+      const yearsToUse = Math.min(yearsOverride ?? chartSettings.yearsOfData, 20)
+      const scanTickers = quickScanTickersRef.current
 
-      const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
-        symbol,
-        electionType,
-        Math.min(yearsToUse, 20) // Use the override or current setting
-      )
+      if (scanTickers.length > 0) {
+        // ── Multi-ticker: fetch election data for each ticker and average ──
+        const results = await Promise.all(
+          scanTickers.map((t) =>
+            electionCycleService.analyzeElectionCycleSeasonality(t, electionType, yearsToUse).catch(() => null)
+          )
+        )
+        const valid = results.filter(Boolean) as ElectionCycleData[]
+        if (valid.length === 0) {
+          setError('No election cycle data for this group')
+          return
+        }
 
-      console.log(
-        '[SeasonalityChart] electionResult:',
-        electionResult ? 'OK dailyData length: ' + electionResult?.dailyData?.length : 'null'
-      )
-      if (electionResult) {
-        setElectionData(electionResult)
+        // Average dailyData
+        const dayMap: Record<number, { returns: number[]; yearlyReturnsArr: { [year: number]: number }[]; ref: ElectionCycleData['dailyData'][0] }> = {}
+        valid.forEach((a) => {
+          a.dailyData.forEach((pt) => {
+            if (!dayMap[pt.dayOfYear]) dayMap[pt.dayOfYear] = { returns: [], yearlyReturnsArr: [], ref: pt }
+            dayMap[pt.dayOfYear].returns.push(pt.cumulativeReturn)
+            dayMap[pt.dayOfYear].yearlyReturnsArr.push(pt.yearlyReturns)
+          })
+        })
+        const avgDailyData = Object.entries(dayMap)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, { returns, yearlyReturnsArr, ref }]) => {
+            const allYears = new Set<number>()
+            yearlyReturnsArr.forEach((yr) => Object.keys(yr).forEach((y) => allYears.add(Number(y))))
+            const avgYearlyReturns: { [year: number]: number } = {}
+            allYears.forEach((year) => {
+              const vals = yearlyReturnsArr.map((yr) => yr[year]).filter((v) => v !== undefined) as number[]
+              if (vals.length > 0) avgYearlyReturns[year] = vals.reduce((s, v) => s + v, 0) / vals.length
+            })
+            return { ...ref, cumulativeReturn: returns.reduce((s, v) => s + v, 0) / returns.length, yearlyReturns: avgYearlyReturns }
+          })
+
+        // Monthly returns from avgDailyData
+        const monthBuckets: Record<number, { name: string; sum: number }> = {}
+        avgDailyData.forEach((d) => {
+          if (!monthBuckets[d.month]) monthBuckets[d.month] = { name: d.monthName, sum: 0 }
+          monthBuckets[d.month].sum += d.avgReturn
+        })
+        const avgMonthlyData = Object.entries(monthBuckets)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, { name, sum }]) => ({ month: name, outperformance: sum }))
+
+        // 30-day windows from avgDailyData
+        const windowSize = 30
+        let avgBest = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '' }
+        let avgWorst = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '' }
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+          const endDay = startDay + windowSize - 1
+          const win = avgDailyData.filter((d) => d.dayOfYear >= startDay && d.dayOfYear <= endDay)
+          if (win.length >= 25) {
+            const avg = win.reduce((s, d) => s + d.avgReturn, 0) / win.length
+            const sp = avgDailyData.find((d) => d.dayOfYear === startDay)
+            const ep = avgDailyData.find((d) => d.dayOfYear === endDay)
+            if (sp && ep) {
+              if (avg > avgBest.avgReturn) avgBest = { startDay, endDay, avgReturn: avg, period: `${sp.monthName} ${sp.day} - ${ep.monthName} ${ep.day}`, startDate: `${sp.monthName} ${sp.day}`, endDate: `${ep.monthName} ${ep.day}` }
+              if (avg < avgWorst.avgReturn) avgWorst = { startDay, endDay, avgReturn: avg, period: `${sp.monthName} ${sp.day} - ${ep.monthName} ${ep.day}`, startDate: `${sp.monthName} ${sp.day}`, endDate: `${ep.monthName} ${ep.day}` }
+            }
+          }
+        }
+
+        const avgElectionData: ElectionCycleData = {
+          ...valid[0],
+          symbol: 'AVG',
+          companyName: 'Average',
+          dailyData: avgDailyData,
+          spyComparison: {
+            ...(valid[0].spyComparison ?? {}),
+            monthlyData: avgMonthlyData,
+            best30DayPeriod: { period: avgBest.period, return: avgBest.avgReturn * 30, startDate: avgBest.startDate, endDate: avgBest.endDate },
+            worst30DayPeriod: { period: avgWorst.period, return: avgWorst.avgReturn * 30, startDate: avgWorst.startDate, endDate: avgWorst.endDate },
+          } as ElectionCycleData['spyComparison'],
+        }
+
+        // Sweet spot / pain point for the averaged election data
+        const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(avgDailyData)
+        setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
+        setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+        setSweetSpotActive(false)
+        setPainPointActive(false)
+
+        // Also update multiScanData to election-mode versions for individual lines
+        const multiElection = valid.map((a) => ({
+          ...a,
+          dailyData: a.dailyData,
+        })) as unknown as SeasonalAnalysis[]
+        setMultiScanData(multiElection)
+
+        setElectionData(avgElectionData)
       } else {
-        setError('Failed to load election cycle data')
+        // ── Single ticker: original behaviour ──
+        const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
+          symbol,
+          electionType,
+          yearsToUse
+        )
+        if (electionResult) {
+          setElectionData(electionResult)
+        } else {
+          setError('Failed to load election cycle data')
+        }
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load election cycle data'
-      console.error('[SeasonalityChart] CATCH ERROR in loadElectionCycleAnalysis:', err)
       setError(errorMessage)
-      console.error('Error loading election cycle data:', err)
     } finally {
-      console.log('[SeasonalityChart] loadElectionCycleAnalysis FINALLY — setting loading=false')
       setLoading(false)
     }
   }
 
   const loadSeasonalAnalysis = async (symbol: string, yearsOverride?: number) => {
-    console.log(
-      '[SeasonalityChart] loadSeasonalAnalysis START — symbol:',
-      symbol,
-      'yearsOverride:',
-      yearsOverride
-    )
     setLoading(true)
     setError(null)
+
+    // Always reset sweet/pain on new ticker load — user must click to activate
+    setSweetSpotPeriod(null)
+    setSweetSpotActive(false)
+    setPainPointPeriod(null)
+    setPainPointActive(false)
 
     try {
       const cache = GlobalDataCache.getInstance()
@@ -559,15 +716,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       let tickerDetails
 
       if (cachedTicker) {
-        console.log('[SeasonalityChart] ticker details from CACHE')
         tickerDetails = cachedTicker
       } else {
-        console.log('[SeasonalityChart] fetching ticker details from API...')
         tickerDetails = await polygonService.getTickerDetails(symbol)
-        console.log(
-          '[SeasonalityChart] ticker details result:',
-          tickerDetails ? 'OK' : 'null/undefined'
-        )
         if (tickerDetails) {
           cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails)
         }
@@ -592,10 +743,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       )
 
       if (cachedHistorical) {
-        console.log(
-          '[SeasonalityChart] historical data from CACHE, results:',
-          cachedHistorical?.results?.length
-        )
         historicalResponse = cachedHistorical
 
         // For SPY comparison
@@ -604,18 +751,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr)
           )
           if (cachedSPY) {
-            console.log(
-              '[SeasonalityChart] SPY data from CACHE, results:',
-              cachedSPY?.results?.length
-            )
             spyResponse = cachedSPY
           } else {
-            console.log('[SeasonalityChart] fetching SPY data from API...')
             spyResponse = await polygonService.getHistoricalData('SPY', startDateStr, endDateStr)
-            console.log(
-              '[SeasonalityChart] SPY API response results:',
-              spyResponse?.results?.length
-            )
             if (spyResponse) {
               cache.set(
                 GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr),
@@ -630,33 +768,19 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       } else {
         // Fetch historical data - if symbol is SPY, only fetch SPY data once
         if (symbol.toUpperCase() === 'SPY') {
-          console.log('[SeasonalityChart] fetching SPY data from API...')
           // For SPY, fetch once and use it as both the ticker and comparison
           historicalResponse = await polygonService.getHistoricalData(
             symbol,
             startDateStr,
             endDateStr
           )
-          console.log(
-            '[SeasonalityChart] SPY API response results:',
-            historicalResponse?.results?.length
-          )
           spyResponse = historicalResponse // Use same data for SPY comparison calculations
         } else {
           // For other symbols, fetch both symbol and SPY for comparison
-          console.log('[SeasonalityChart] fetching', symbol, '+ SPY data from API...')
-            ;[historicalResponse, spyResponse] = await Promise.all([
-              polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
-              polygonService.getHistoricalData('SPY', startDateStr, endDateStr),
-            ])
-          console.log(
-            '[SeasonalityChart]',
-            symbol,
-            'API results:',
-            historicalResponse?.results?.length,
-            '| SPY API results:',
-            spyResponse?.results?.length
-          )
+          ;[historicalResponse, spyResponse] = await Promise.all([
+            polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
+            polygonService.getHistoricalData('SPY', startDateStr, endDateStr),
+          ])
         }
 
         // Cache the results for next time
@@ -674,13 +798,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         }
       }
 
-      // Calculate actual years available from data
-      console.log(
-        '[SeasonalityChart] historicalResponse:',
-        historicalResponse
-          ? `results: ${historicalResponse.results?.length}`
-          : 'NULL/UNDEFINED \u26a0\ufe0f'
-      )
       if (!historicalResponse) {
         throw new Error(
           'API returned no response for ' + symbol + ' \u2014 check Polygon API key or network'
@@ -767,10 +884,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         actualYearsUsed
       )
 
-      console.log(
-        '[SeasonalityChart] processedData dailyData length:',
-        processedData?.dailyData?.length
-      )
       setSeasonalData(processedData)
 
       // Auto-apply pre-selected sweet spot / pain point
@@ -792,11 +905,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data'
-      console.error('[SeasonalityChart] CATCH ERROR in loadSeasonalAnalysis:', err)
       setError(errorMessage)
-      console.error('Error loading seasonal data:', err)
     } finally {
-      console.log('[SeasonalityChart] loadSeasonalAnalysis FINALLY — setting loading=false')
       setLoading(false)
     }
   }
@@ -1196,10 +1306,198 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     return Math.floor(diff / (1000 * 60 * 60 * 24))
   }
 
+  const handleQuickScan = async (name: string, tickers: string[], benchmarkSymbol?: string) => {
+    setLoading(true)
+    setError(null)
+    setMultiScanData([])
+    quickScanTickersRef.current = tickers  // remember for election-cycle mode
+    try {
+      const cache = GlobalDataCache.getInstance()
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setFullYear(endDate.getFullYear() - 15)   // max 15 years
+      const startDateStr = startDate.toISOString().split('T')[0]
+      const endDateStr = endDate.toISOString().split('T')[0]
+
+      const MIN_YEARS = 8
+
+      // Fetch benchmark ETF data if provided (for sector ETF-relative seasonality)
+      let benchmarkData: PolygonDataPoint[] | null = null
+      if (benchmarkSymbol) {
+        try {
+          let benchResp = cache.get(GlobalDataCache.keys.HISTORICAL_DATA(benchmarkSymbol, startDateStr, endDateStr))
+          if (!benchResp) {
+            benchResp = await polygonService.getHistoricalData(benchmarkSymbol, startDateStr, endDateStr)
+            if (benchResp) cache.set(GlobalDataCache.keys.HISTORICAL_DATA(benchmarkSymbol, startDateStr, endDateStr), benchResp)
+          }
+          benchmarkData = benchResp?.results ?? null
+        } catch {
+          benchmarkData = null
+        }
+      }
+
+      const fetchOne = async (symbol: string): Promise<SeasonalAnalysis | null> => {
+        try {
+          let historicalResponse = cache.get(
+            GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr)
+          )
+          if (!historicalResponse) {
+            historicalResponse = await polygonService.getHistoricalData(symbol, startDateStr, endDateStr)
+            if (historicalResponse)
+              cache.set(GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr), historicalResponse)
+          }
+          if (!historicalResponse?.results?.length) {
+            return null
+          }
+          let results = historicalResponse.results
+
+          // Detect and truncate at ticker-rename / data discontinuities (e.g. FB→META)
+          let truncateAfter = -1
+          for (let i = 1; i < results.length; i++) {
+            const dayReturn = Math.abs((results[i].c - results[i - 1].c) / results[i - 1].c * 100)
+            if (dayReturn > 100) {
+              truncateAfter = i
+            }
+          }
+          if (truncateAfter >= 0) {
+            results = results.slice(truncateAfter)
+          }
+
+          // Check minimum years requirement
+          const yearsAvailable =
+            (new Date(results[results.length - 1].t).getTime() - new Date(results[0].t).getTime()) /
+            (365.25 * 24 * 60 * 60 * 1000)
+          if (yearsAvailable < MIN_YEARS) {
+            return null
+          }
+
+          const years = Math.ceil(yearsAvailable)
+          // Pass benchmark ETF data as spyData so returns are computed relative to the ETF
+          const analysis = processDailySeasonalData(results, benchmarkData, symbol, symbol, years)
+          return analysis
+        } catch {
+          return null
+        }
+      }
+
+      const results = await Promise.all(tickers.map(fetchOne))
+      const valid = results.filter(Boolean) as SeasonalAnalysis[]
+      setMultiScanData(valid)
+
+      // Compute average dailyData across all valid analyses and set as main line
+      if (valid.length > 0) {
+        const dayMap: Record<number, { returns: number[]; yearlyReturnsArr: { [year: number]: number }[]; ref: DailySeasonalData }> = {}
+        valid.forEach((analysis) => {
+          analysis.dailyData.forEach((pt) => {
+            if (!dayMap[pt.dayOfYear]) dayMap[pt.dayOfYear] = { returns: [], yearlyReturnsArr: [], ref: pt }
+            dayMap[pt.dayOfYear].returns.push(pt.cumulativeReturn)
+            dayMap[pt.dayOfYear].yearlyReturnsArr.push(pt.yearlyReturns)
+          })
+        })
+        const avgDailyData = Object.entries(dayMap)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, { returns, yearlyReturnsArr, ref }]) => {
+            // Average yearlyReturns across all tickers for each year
+            const allYears = new Set<number>()
+            yearlyReturnsArr.forEach((yr) => Object.keys(yr).forEach((y) => allYears.add(Number(y))))
+            const avgYearlyReturns: { [year: number]: number } = {}
+            allYears.forEach((year) => {
+              const vals = yearlyReturnsArr.map((yr) => yr[year]).filter((v) => v !== undefined) as number[]
+              if (vals.length > 0) avgYearlyReturns[year] = vals.reduce((s, v) => s + v, 0) / vals.length
+            })
+            return {
+              ...ref,
+              cumulativeReturn: returns.reduce((s, v) => s + v, 0) / returns.length,
+              yearlyReturns: avgYearlyReturns,
+            }
+          })
+        // ── Build monthly returns directly from avgDailyData (grouped by month) ──
+        const monthBuckets: Record<number, { name: string; sum: number }> = {}
+        avgDailyData.forEach((d) => {
+          if (!monthBuckets[d.month]) monthBuckets[d.month] = { name: d.monthName, sum: 0 }
+          monthBuckets[d.month].sum += d.avgReturn
+        })
+        const avgMonthlyData = Object.entries(monthBuckets)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, { name, sum }]) => ({ month: name, outperformance: sum }))
+
+        // ── Compute best/worst 30-day window from avgDailyData ──
+        const windowSize = 30
+        let avgBestPeriod = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '' }
+        let avgWorstPeriod = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '' }
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+          const endDay = startDay + windowSize - 1
+          const windowData = avgDailyData.filter((d) => d.dayOfYear >= startDay && d.dayOfYear <= endDay)
+          if (windowData.length >= 25) {
+            const avgWindowReturn = windowData.reduce((s, d) => s + d.avgReturn, 0) / windowData.length
+            const startPt = avgDailyData.find((d) => d.dayOfYear === startDay)
+            const endPt = avgDailyData.find((d) => d.dayOfYear === endDay)
+            if (startPt && endPt) {
+              if (avgWindowReturn > avgBestPeriod.avgReturn) {
+                avgBestPeriod = { startDay, endDay, avgReturn: avgWindowReturn, period: `${startPt.monthName} ${startPt.day} - ${endPt.monthName} ${endPt.day}`, startDate: `${startPt.monthName} ${startPt.day}`, endDate: `${endPt.monthName} ${endPt.day}` }
+              }
+              if (avgWindowReturn < avgWorstPeriod.avgReturn) {
+                avgWorstPeriod = { startDay, endDay, avgReturn: avgWindowReturn, period: `${startPt.monthName} ${startPt.day} - ${endPt.monthName} ${endPt.day}`, startDate: `${startPt.monthName} ${startPt.day}`, endDate: `${endPt.monthName} ${endPt.day}` }
+              }
+            }
+          }
+        }
+
+        const avgAnalysis: SeasonalAnalysis = {
+          ...valid[0],
+          symbol: 'AVG',
+          companyName: 'Average',
+          dailyData: avgDailyData,
+          spyComparison: {
+            ...valid[0].spyComparison,
+            monthlyData: avgMonthlyData,
+            best30DayPeriod: {
+              period: avgBestPeriod.period,
+              return: avgBestPeriod.avgReturn * 30,
+              startDate: avgBestPeriod.startDate,
+              endDate: avgBestPeriod.endDate,
+            },
+            worst30DayPeriod: {
+              period: avgWorstPeriod.period,
+              return: avgWorstPeriod.avgReturn * 30,
+              startDate: avgWorstPeriod.startDate,
+              endDate: avgWorstPeriod.endDate,
+            },
+          },
+        }
+        setSeasonalData(avgAnalysis)
+
+        // ── Compute sweet spot / pain point from averaged data ──
+        const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(avgDailyData)
+        setSweetSpotPeriod({
+          startDay: bestSweetSpot.startDay,
+          endDay: bestSweetSpot.endDay,
+          period: bestSweetSpot.period,
+        })
+        setPainPointPeriod({
+          startDay: worstPainPoint.startDay,
+          endDay: worstPainPoint.endDay,
+          period: worstPainPoint.period,
+        })
+        setSweetSpotActive(false)
+        setPainPointActive(false)
+
+        isQuickScanRef.current = true
+        setSelectedSymbol('AVG')
+      }
+    } catch (err) {
+      setError('Multi-scan failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSymbolChange = (symbol: string) => {
     setSelectedSymbol(symbol)
-    setIsElectionMode(false) // Reset to normal seasonal mode when symbol changes
+    setIsElectionMode(false)
     setElectionData(null)
+    setMultiScanData([])
+    quickScanTickersRef.current = []
     if (onSymbolChange) {
       onSymbolChange(symbol)
     }
@@ -1464,8 +1762,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         currentYearReturn: currentYearCumulativeReturn,
         seasonalReturn: seasonalCumulativeReturn,
       }
-    } catch (error) {
-      console.error('Error calculating correlation:', error)
+    } catch {
       return null
     }
   }
@@ -1529,18 +1826,19 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             month={new Date().getMonth()}
             showPostElection={true}
             symbol={selectedSymbol}
+            symbols={multiScanData.length > 1 ? multiScanData.map((d) => d.symbol) : undefined}
             externalSelectedEvent={externalSelectedEvent}
             externalSelectedPatterns={externalSelectedPatterns}
           />
         </div>
       </div>
     ),
-    [selectedSymbol, externalSelectedEvent, externalSelectedPatterns]
+    [selectedSymbol, multiScanData, externalSelectedEvent, externalSelectedPatterns]
   ) // Re-render when symbol or selections change
 
   // Memoized screener component with React.memo wrapper to prevent resets
   const MemoizedScreenerWrapper = React.memo(() => (
-    <div style={{ minWidth: 0, marginTop: '-100px' }}>
+    <div style={{ minWidth: 0 }}>
       <SeasonaxLanding key="persistent-screener" />
     </div>
   ))
@@ -1687,7 +1985,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         setCompareSeasonalData(analysis)
       }
     } catch (err) {
-      console.error('Error loading compare seasonal data:', err)
+
     }
   }
 
@@ -1706,22 +2004,35 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         setCompareElectionData(electionResult)
       }
     } catch (err) {
-      console.error('Error loading compare election data:', err)
+
     }
   }
 
   return (
-    <div className="seasonax-container">
+    <div
+      className="seasonax-container"
+      style={isFullscreen ? {
+        position: 'fixed',
+        top: '122px',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 9999,
+        background: '#000',
+        overflow: 'auto',
+        padding: '20px 16px 16px 16px',
+        margin: 0,
+      } : undefined}
+    >
       {/* Header with all elements in one row */}
       {!hideControls && (
         <div
           className="seasonax-header"
           style={{
             position: 'relative',
-            top: '-55px',
-            marginBottom: '-80px',
             zIndex: 1000,
             left: hideScreener ? '20px' : '20px',
+            marginTop: isFullscreen ? '20px' : undefined,
           }}
         >
           {/* Group 1: Search + all inline controls */}
@@ -1746,6 +2057,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               onCompareClick={handleCompareClick}
               onCompareSymbolChange={handleCompareSymbolChange}
               onCompareSubmit={handleCompareSubmit}
+              onQuickScan={handleQuickScan}
+              isFullscreen={isFullscreen}
             />
           </div>
 
@@ -1753,16 +2066,19 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             (isElectionMode
               ? electionData?.spyComparison?.monthlyData
               : seasonalData?.spyComparison?.monthlyData) && (
-              <HorizontalMonthlyReturns
-                monthlyData={
-                  isElectionMode
-                    ? electionData!.spyComparison!.monthlyData
-                    : seasonalData!.spyComparison!.monthlyData
-                }
-                best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
-                worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
-                onMonthClick={handleMonthClick}
-              />
+              <div className={isFullscreen ? 'monthly-returns-fullscreen-wrapper' : undefined}>
+                <HorizontalMonthlyReturns
+                  monthlyData={
+                    isElectionMode
+                      ? electionData!.spyComparison!.monthlyData
+                      : seasonalData!.spyComparison!.monthlyData
+                  }
+                  best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
+                  worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+                  onMonthClick={handleMonthClick}
+                  isFullscreen={isFullscreen}
+                />
+              </div>
             )}
         </div>
       )}
@@ -1841,107 +2157,310 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: hideScreener ? '100%' : '45% 54%',
+              gridTemplateColumns: isFullscreen ? '50% 50%' : (hideScreener ? '100%' : '45% 54%'),
               gap: '1%',
               width: '100%',
-              marginTop: '12px',
+              marginTop: isFullscreen ? '4px' : '12px',
               overflow: 'visible',
+              ...(isFullscreen ? { height: '100%', alignItems: 'stretch' } : {}),
             }}
           >
-            {/* Left column: Charts */}
-            <div style={{ minWidth: 0, width: '100%', overflow: 'visible' }}>
-              <div style={{ width: '100%' }}>
-                {/* Main Chart Area - Override CSS max-width */}
-                <div
-                  style={{
-                    width: '100%',
-                    maxHeight: `${chartHeight}px`,
-                    height: `${chartHeight}px`,
-                    position: 'relative',
-                    marginTop: '0px',
-                  }}
-                >
-                  <SeasonaxMainChart
-                    data={
-                      (isElectionMode ? electionData : seasonalData) as unknown as Parameters<
-                        typeof SeasonaxMainChart
-                      >[0]['data']
-                    }
-                    settings={chartSettings}
-                    sweetSpotPeriod={sweetSpotPeriod}
-                    painPointPeriod={painPointPeriod}
-                    selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
-                    compareData={
-                      isCompareMode
-                        ? isElectionMode
-                          ? compareElectionData
-                          : compareSeasonalData
-                        : null
-                    }
-                    compareSymbol={isCompareMode ? compareSymbol : null}
-                    currentYearSeries={currentYearDisplaySeries}
-                  />
-                  {/* Trend Sync badge — top center, correlation display */}
-                  {trendSync && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '8px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 10,
-                        userSelect: 'none',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0',
-                        background:
-                          'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
-                        border: `1px solid ${trendSync.color + '66'}`,
-                        borderRadius: '6px',
-                        boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        fontFamily: "'Courier New', monospace",
-                      }}
-                    >
-                      {/* Score side */}
-                      <div
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          fontWeight: '900',
-                          color: trendSync.color,
-                          letterSpacing: '1px',
-                          textShadow: `0 0 10px ${trendSync.color}88`,
-                          borderRight: `1px solid ${trendSync.color}44`,
-                        }}
-                      >
-                        {trendSync.score}% Correlation
-                      </div>
-                      {/* Insight side */}
-                      <div
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '9px',
-                          fontWeight: '700',
-                          color: 'rgba(255,255,255,0.75)',
-                          letterSpacing: '0.8px',
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        {trendInsight}
+            {/* Left column: Charts (non-fullscreen) / Scrubber + Almanac + EFI (fullscreen) */}
+            <div style={{ minWidth: 0, width: '100%', overflow: isFullscreen ? 'hidden' : 'visible', display: isFullscreen ? 'flex' : 'block', flexDirection: 'column', height: isFullscreen ? '100%' : undefined }}>
+              {isFullscreen ? (
+                /* ── FULLSCREEN LEFT: horizontal scrubber → monthly almanac (30% shorter) → EFI chart (50% taller) ── */
+                <>
+                  {/* CSS override: force almanac chart-container to fill available flex space */}
+                  <style>{`
+                    .seasonax-fs-almanac-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+                    .seasonax-fs-almanac-wrap .almanac-daily-chart { flex: 1 !important; min-height: 0 !important; height: 0 !important; overflow: hidden !important; }
+                    .seasonax-fs-almanac-wrap .almanac-daily-chart .chart-header-row { flex-shrink: 0; }
+                    .seasonax-fs-almanac-wrap .almanac-daily-chart .chart-container { flex: 1 !important; height: 0 !important; min-height: 0 !important; }
+                  `}</style>
+
+                  {/* Monthly almanac — fullscreen only, 20% shorter than previous height: 70vh→56vh */}
+                  <div ref={dbgFlexSlotRef} className="seasonax-fullscreen-almanac" style={{ flex: '0 0 auto', height: 'calc(56vh - 269px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+                    <div ref={dbgOuterRef} className="seasonax-fs-almanac-wrap">
+                      <AlmanacDailyChart
+                        month={new Date().getMonth()}
+                        showPostElection={true}
+                        symbol={selectedSymbol}
+                        symbols={multiScanData.length > 1 ? multiScanData.map((d) => d.symbol) : undefined}
+                        externalSelectedEvent={externalSelectedEvent}
+                        externalSelectedPatterns={externalSelectedPatterns}
+                        isFullscreen={true}
+                      />
+                    </div>
+                  </div>
+
+                  {/* EFI candlestick chart — fullscreen only, 5% taller than previous 655px = 688px */}
+                  <div style={{ width: '100%', height: '688px', flexShrink: 0, marginTop: '4px', position: 'relative', overflow: 'hidden', borderTop: '2px solid #374151' }}>
+                    <div style={{ width: '100%', height: '100%' }}>
+                      <style>{`
+                        .seasonax-efi-wrap .sidebar-container { display: none !important; }
+                        .seasonax-efi-wrap .w-full.h-full.flex > div:first-child { width: 100% !important; }
+                        .seasonax-efi-wrap button[title*='Watchlist'], .seasonax-efi-wrap button[title*='watchlist'],
+                        .seasonax-efi-wrap button[title*='favorite'], .seasonax-efi-wrap button[title*='star'],
+                        .seasonax-efi-wrap button[title*='multi chart'], .seasonax-efi-wrap button[title*='Multi Chart'],
+                        .seasonax-efi-wrap button[title*='Chart Layout'] { display: none !important; }
+                      `}</style>
+                      <div className="seasonax-efi-wrap" style={{ width: '100%', height: '100%' }}>
+                        <EFIChart
+                          symbol={selectedSymbol || 'SPY'}
+                          initialTimeframe="1d"
+                          height={688}
+                          lwToolbarPosition="left"
+                          disableSidebarAutoScan={true}
+                        />
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              ) : (
+                /* ── NON-FULLSCREEN LEFT: original seasonal chart layout ── */
+                <>
+                  <div style={{ width: '100%' }}>
+                    <div
+                      style={{
+                        width: '100%',
+                        maxHeight: `${chartHeight}px`,
+                        height: `${chartHeight}px`,
+                        position: 'relative',
+                        marginTop: '0px',
+                      }}
+                    >
+                      {/* EXPAND button — normal mode */}
+                      <button
+                        onClick={() => setIsFullscreen((f) => !f)}
+                        title="Fullscreen"
+                        style={{
+                          position: 'absolute',
+                          bottom: '8px',
+                          right: '8px',
+                          zIndex: 10001,
+                          background: 'rgba(0,0,0,0.75)',
+                          border: '1px solid rgba(255,255,255,0.18)',
+                          borderRadius: '5px',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          padding: '5px 8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '11px',
+                          fontFamily: '"Roboto Mono", monospace',
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          lineHeight: 1,
+                          backdropFilter: 'blur(6px)',
+                          transition: 'border-color 0.15s, background 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square">
+                          <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+                          <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+                        </svg>
+                        EXPAND
+                      </button>
 
-              {/* Monthly Analysis Chart below seasonal chart */}
-              {!hideMonthlyReturns && !isMobileView && memoizedMonthlyChart}
+                      {/* Canvas chart */}
+                      <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+                        <SeasonaxMainChart
+                          data={
+                            (isElectionMode ? electionData : seasonalData) as unknown as Parameters<
+                              typeof SeasonaxMainChart
+                            >[0]['data']
+                          }
+                          settings={chartSettings}
+                          sweetSpotPeriod={sweetSpotPeriod}
+                          painPointPeriod={painPointPeriod}
+                          selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
+                          compareData={
+                            isCompareMode
+                              ? isElectionMode
+                                ? compareElectionData
+                                : compareSeasonalData
+                              : null
+                          }
+                          compareSymbol={isCompareMode ? compareSymbol : null}
+                          currentYearSeries={currentYearDisplaySeries}
+                          multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
+                          isFullscreen={false}
+                        />
+                        {/* Trend Sync badge */}
+                        {trendSync && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '8px',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              zIndex: 10,
+                              userSelect: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0',
+                              background: 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
+                              border: `1px solid ${trendSync.color + '66'}`,
+                              borderRadius: '6px',
+                              boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              fontFamily: "'Courier New', monospace",
+                            }}
+                          >
+                            <div
+                              style={{
+                                padding: '4px 12px',
+                                fontSize: '12px',
+                                fontWeight: '900',
+                                color: trendSync.color,
+                                letterSpacing: '1px',
+                                textShadow: `0 0 10px ${trendSync.color}88`,
+                                borderRight: `1px solid ${trendSync.color}44`,
+                              }}
+                            >
+                              {trendSync.score}% Correlation
+                            </div>
+                            <div
+                              style={{
+                                padding: '4px 12px',
+                                fontSize: '9px',
+                                fontWeight: '700',
+                                color: 'rgba(255,255,255,0.75)',
+                                letterSpacing: '0.8px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {trendInsight}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Monthly Analysis Chart below seasonal chart — only in normal mode */}
+                  {!hideMonthlyReturns && !isMobileView && memoizedMonthlyChart}
+                </>
+              )}
             </div>
 
-            {/* Right column: Screener when not hidden */}
-            {!hideScreener && memoizedScreener}
+            {/* Column 2: SeasonaxMainChart in fullscreen, Screener in normal mode */}
+            {isFullscreen ? (
+              <div style={{ minWidth: 0, width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+                <SeasonaxMainChart
+                  data={
+                    (isElectionMode ? electionData : seasonalData) as unknown as Parameters<
+                      typeof SeasonaxMainChart
+                    >[0]['data']
+                  }
+                  settings={chartSettings}
+                  sweetSpotPeriod={sweetSpotPeriod}
+                  painPointPeriod={painPointPeriod}
+                  selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
+                  compareData={
+                    isCompareMode
+                      ? isElectionMode
+                        ? compareElectionData
+                        : compareSeasonalData
+                      : null
+                  }
+                  compareSymbol={isCompareMode ? compareSymbol : null}
+                  currentYearSeries={currentYearDisplaySeries}
+                  multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
+                  isFullscreen={isFullscreen}
+                />
+                {/* Trend Sync badge */}
+                {/* EXIT button — bottom-right of chart */}
+                <button
+                  onClick={() => setIsFullscreen((f) => !f)}
+                  title="Exit fullscreen"
+                  style={{
+                    position: 'absolute',
+                    bottom: '8px',
+                    right: '8px',
+                    zIndex: 10001,
+                    background: 'rgba(180,0,0,0.92)',
+                    border: '1px solid #ff0000',
+                    borderRadius: '5px',
+                    color: '#ff0000',
+                    cursor: 'pointer',
+                    padding: '5px 8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontSize: '11px',
+                    fontFamily: '"Roboto Mono", monospace',
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    lineHeight: 1,
+                    backdropFilter: 'blur(6px)',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220,0,0,0.98)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(180,0,0,0.92)' }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square">
+                    <polyline points="8 3 3 3 3 8" /><polyline points="21 8 21 3 16 3" />
+                    <polyline points="3 16 3 21 8 21" /><polyline points="16 21 21 21 21 16" />
+                  </svg>
+                  EXIT
+                </button>
+                {trendSync && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      zIndex: 10,
+                      userSelect: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
+                      border: `1px solid ${trendSync.color + '66'}`,
+                      borderRadius: '6px',
+                      boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      fontFamily: "'Courier New', monospace",
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        fontWeight: '900',
+                        color: trendSync.color,
+                        letterSpacing: '1px',
+                        textShadow: `0 0 10px ${trendSync.color}88`,
+                        borderRight: `1px solid ${trendSync.color}44`,
+                      }}
+                    >
+                      {trendSync.score}% Correlation
+                    </div>
+                    <div
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '9px',
+                        fontWeight: '700',
+                        color: 'rgba(255,255,255,0.75)',
+                        letterSpacing: '0.8px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {trendInsight}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              !hideScreener && memoizedScreener
+            )}
           </div>
         </>
       )}
@@ -2025,6 +2544,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                     : null
                 }
                 compareSymbol={isCompareMode ? compareSymbol : null}
+                multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
               />
             </div>
           </div>

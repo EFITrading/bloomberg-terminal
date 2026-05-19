@@ -50,9 +50,15 @@ interface ChartSettings {
   comparisonSymbols: string[]
 }
 
+const MULTI_SCAN_COLORS = [
+  '#00D4FF', '#FFD700', '#00FF88', '#FF6B6B', '#BF5FFF',
+  '#FF8C00', '#FF1493', '#00FFFF', '#7CFC00', '#FF4500', '#1E90FF',
+]
+
 interface SeasonaxMainChartProps {
   data: SeasonalAnalysis
   comparisonData?: SeasonalAnalysis[]
+  multiScanData?: SeasonalAnalysis[]
   settings: ChartSettings
   sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null
   painPointPeriod?: { startDay: number; endDay: number; period: string } | null
@@ -60,6 +66,7 @@ interface SeasonaxMainChartProps {
   compareData?: SeasonalAnalysis | null
   compareSymbol?: string | null
   currentYearSeries?: Array<{ dayOfYear: number; cumulativeReturn: number }> | null
+  isFullscreen?: boolean
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -180,6 +187,7 @@ const drawSeasonalLine = (
 const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   data,
   comparisonData = [],
+  multiScanData = [],
   settings,
   sweetSpotPeriod,
   painPointPeriod,
@@ -187,6 +195,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   compareData = null,
   compareSymbol = null,
   currentYearSeries = null,
+  isFullscreen = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -195,6 +204,26 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   const [panOffset, setPanOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null)
+  const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
+  const prevMultiScanKeyRef = useRef<string>('')
+
+  // Reset hidden lines only when the actual symbols change, not on every render
+  useEffect(() => {
+    const key = (multiScanData ?? []).map(d => d.symbol).join(',')
+    if (key !== prevMultiScanKeyRef.current) {
+      prevMultiScanKeyRef.current = key
+      setHiddenLines(new Set())
+    }
+  }, [multiScanData])
+
+  const toggleLine = (symbol: string) => {
+    setHiddenLines((prev) => {
+      const next = new Set(prev)
+      if (next.has(symbol)) next.delete(symbol)
+      else next.add(symbol)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (data && canvasRef.current && containerRef.current) {
@@ -217,7 +246,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         return () => clearTimeout(timer)
       }
     }
-  }, [data, comparisonData, settings, currentYearSeries])
+  }, [data, comparisonData, multiScanData, settings, currentYearSeries])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -322,6 +351,21 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
       if (newZoom === 1) {
         setPanOffset(0)
+      } else {
+        // Zoom anchored at mouse position so the hovered point stays fixed
+        const paddingLeft = 60
+        const paddingRight = multiScanData && multiScanData.length > 0 ? 52 : 8
+        const chartW = canvas.width - paddingLeft - paddingRight
+        if (chartW > 0) {
+          // mouseNorm: normalized position in chart coordinate space (0–1)
+          const mouseNorm = Math.max(0, Math.min(1, (e.offsetX - paddingLeft) / chartW))
+          // Solve: mouseNorm = 0.5 + (mouseBase - 0.5) * oldZoom + oldPan
+          //   => newPan = mouseNorm - 0.5 - (mouseBase - 0.5) * newZoom
+          const mouseBase = zoomLevel !== 0 ? (mouseNorm - 0.5 - panOffset) / zoomLevel + 0.5 : mouseNorm
+          const newPan = mouseNorm - 0.5 - (mouseBase - 0.5) * newZoom
+          const maxPan = (newZoom - 1) * 0.5
+          setPanOffset(Math.max(-maxPan, Math.min(maxPan, newPan)))
+        }
       }
 
       setZoomLevel(newZoom)
@@ -356,7 +400,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     if (data) {
       drawCharts()
     }
-  }, [mousePos, zoomLevel, panOffset, data, comparisonData, settings])
+  }, [mousePos, zoomLevel, panOffset, data, comparisonData, multiScanData, hiddenLines, settings])
 
   const drawCharts = () => {
     drawMainSeasonalChart()
@@ -422,7 +466,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       // Clear canvas
       ctx.clearRect(0, 0, containerWidth, containerHeight)
 
-      const padding = { top: 40, right: 8, bottom: 60, left: 60 }
+      const padding = { top: 40, right: multiScanData && multiScanData.length > 0 ? 52 : 8, bottom: 60, left: 60 }
       const chartWidth = containerWidth - padding.left - padding.right
       const chartHeight = containerHeight - padding.top - padding.bottom
 
@@ -516,6 +560,20 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         allCumulativeReturns = allCumulativeReturns.concat(compareReturns)
       }
 
+      // Include multi-scan data in bounds calculation
+      if (multiScanData && multiScanData.length > 0) {
+        multiScanData.forEach((msAnalysis) => {
+          if (msAnalysis && msAnalysis.dailyData) {
+            let msData = msAnalysis.dailyData
+            if (settings.smoothing) msData = smoothData(msData)
+            if (settings.detrend) msData = detrendData(msData)
+            const visibleMs = getVisibleDataPoints(msData)
+            const msReturns = visibleMs.length > 0 ? visibleMs.map((d) => d.cumulativeReturn) : msData.map((d) => d.cumulativeReturn)
+            allCumulativeReturns = allCumulativeReturns.concat(msReturns)
+          }
+        })
+      }
+
       // Include current year series in bounds calculation
       if (currentYearSeries && currentYearSeries.length > 0) {
         const visibleCY =
@@ -572,38 +630,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       ctx.beginPath()
       ctx.rect(padding.left, padding.top, chartWidth, chartHeight)
       ctx.clip()
-
-      // Draw grid lines
-      ctx.strokeStyle = '#333333'
-      ctx.lineWidth = 1
-
-      // Horizontal grid lines
-      for (let i = 0; i <= 10; i++) {
-        const y = padding.top + (i * chartHeight) / 10
-        ctx.beginPath()
-        ctx.moveTo(padding.left, y)
-        ctx.lineTo(containerWidth - padding.right, y)
-        ctx.stroke()
-      }
-
-      // Vertical grid lines (monthly)
-      const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334] // Day of year for each month
-      if (selectedMonth === null || selectedMonth === undefined) {
-        monthStarts.forEach((dayOfYear) => {
-          const chartCenter = 0.5
-          const baseX = dayOfYear / 365
-          const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
-          const x = padding.left + zoomedX * chartWidth
-
-          // Only draw if within visible area
-          if (x >= padding.left && x <= containerWidth - padding.right) {
-            ctx.beginPath()
-            ctx.moveTo(x, padding.top)
-            ctx.lineTo(x, containerHeight - padding.bottom)
-            ctx.stroke()
-          }
-        })
-      }
 
       // Draw zero line
       const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight
@@ -869,6 +895,88 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         ctx.restore()
       }
 
+      // Draw multi-scan lines + average
+      if (multiScanData && multiScanData.length > 0) {
+        // Draw each ticker line
+        multiScanData.forEach((msAnalysis, idx) => {
+          if (!msAnalysis || !msAnalysis.dailyData) return
+          if (hiddenLines.has(msAnalysis.symbol)) return
+          let msData = msAnalysis.dailyData
+          if (settings.smoothing) msData = smoothData(msData)
+          if (settings.detrend) msData = detrendData(msData)
+          const color = MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length]
+          drawSeasonalLine(
+            ctx, msData, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+            paddedMin, paddedRange, color, 1.5, msAnalysis.symbol, false, msData, zoomLevel, panOffset
+          )
+        })
+
+        // Compute and draw average line
+        if (multiScanData.length > 1) {
+          const dayMap: Record<number, number[]> = {}
+          multiScanData.forEach((msAnalysis) => {
+            if (!msAnalysis?.dailyData) return
+            let msData = msAnalysis.dailyData
+            if (settings.smoothing) msData = smoothData(msData)
+            if (settings.detrend) msData = detrendData(msData)
+            msData.forEach((pt) => {
+              if (!dayMap[pt.dayOfYear]) dayMap[pt.dayOfYear] = []
+              dayMap[pt.dayOfYear].push(pt.cumulativeReturn)
+            })
+          })
+          const refData = multiScanData[0].dailyData
+          const avgData = refData
+            .filter((pt) => dayMap[pt.dayOfYear]?.length > 0)
+            .map((pt) => ({
+              ...pt,
+              cumulativeReturn:
+                dayMap[pt.dayOfYear].reduce((s, v) => s + v, 0) / dayMap[pt.dayOfYear].length,
+            }))
+          if (avgData.length > 0) {
+            drawSeasonalLine(
+              ctx, avgData, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+              paddedMin, paddedRange, '#FFFFFF', 3, 'AVG', false, avgData, zoomLevel, panOffset
+            )
+          }
+        }
+      }
+
+      // ── Collect multi-scan right-edge label data (drawn after clip is released) ──
+      const multiScanLabelLines: { color: string; symbol: string; lastY: number }[] = []
+      if (multiScanData && multiScanData.length > 0) {
+        multiScanData.forEach((msAnalysis, idx) => {
+          if (!msAnalysis?.dailyData) return
+          if (hiddenLines.has(msAnalysis.symbol)) return
+          let msData = msAnalysis.dailyData
+          if (settings.smoothing) msData = smoothData(msData)
+          if (settings.detrend) msData = detrendData(msData)
+          const lastPt = msData[msData.length - 1]
+          if (!lastPt) return
+          const lastY =
+            containerHeight -
+            padding.bottom -
+            ((lastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
+          multiScanLabelLines.push({ color: MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length], symbol: msAnalysis.symbol, lastY })
+        })
+        if (multiScanData.length > 1) {
+          const dm: Record<number, number[]> = {}
+          multiScanData.forEach((msAnalysis) => {
+            if (!msAnalysis?.dailyData) return
+            let msData = msAnalysis.dailyData
+            if (settings.smoothing) msData = smoothData(msData)
+            if (settings.detrend) msData = detrendData(msData)
+            msData.forEach((pt) => { if (!dm[pt.dayOfYear]) dm[pt.dayOfYear] = []; dm[pt.dayOfYear].push(pt.cumulativeReturn) })
+          })
+          const refData = multiScanData[0].dailyData
+          const avgData = refData.filter((pt) => dm[pt.dayOfYear]?.length > 0).map((pt) => ({ ...pt, cumulativeReturn: dm[pt.dayOfYear].reduce((s, v) => s + v, 0) / dm[pt.dayOfYear].length }))
+          const avgLastPt = avgData[avgData.length - 1]
+          if (avgLastPt) {
+            const lastY = containerHeight - padding.bottom - ((avgLastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
+            multiScanLabelLines.push({ color: '#FFFFFF', symbol: 'AVG', lastY })
+          }
+        }
+      }
+
       // Draw Sweet Spot highlighting (green overlay)
       if (sweetSpotPeriod) {
         const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth
@@ -924,6 +1032,57 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       // Restore context to draw outside clipping region (for axis labels)
       ctx.restore()
 
+      // ── Glossy white axis divider lines ──────────────────────────────────
+      {
+        const vGrad = ctx.createLinearGradient(padding.left, padding.top, padding.left, containerHeight - padding.bottom)
+        vGrad.addColorStop(0, 'rgba(255,255,255,0)')
+        vGrad.addColorStop(0.15, 'rgba(255,255,255,0.85)')
+        vGrad.addColorStop(0.5, 'rgba(255,255,255,1)')
+        vGrad.addColorStop(0.85, 'rgba(255,255,255,0.85)')
+        vGrad.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.save()
+        ctx.strokeStyle = vGrad
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(padding.left, padding.top)
+        ctx.lineTo(padding.left, containerHeight - padding.bottom)
+        ctx.stroke()
+        const hGrad = ctx.createLinearGradient(padding.left, containerHeight - padding.bottom, containerWidth - padding.right, containerHeight - padding.bottom)
+        hGrad.addColorStop(0, 'rgba(255,255,255,0)')
+        hGrad.addColorStop(0.1, 'rgba(255,255,255,0.85)')
+        hGrad.addColorStop(0.5, 'rgba(255,255,255,1)')
+        hGrad.addColorStop(0.9, 'rgba(255,255,255,0.85)')
+        hGrad.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.strokeStyle = hGrad
+        ctx.beginPath()
+        ctx.moveTo(padding.left, containerHeight - padding.bottom)
+        ctx.lineTo(containerWidth - padding.right, containerHeight - padding.bottom)
+        ctx.stroke()
+        ctx.restore()
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      // Draw right-edge multi-scan ticker labels (must be after restore to avoid clipping)
+      if (multiScanLabelLines.length > 0) {
+        multiScanLabelLines.sort((a, b) => a.lastY - b.lastY)
+        const minGap = 13
+        for (let i = 1; i < multiScanLabelLines.length; i++) {
+          if (multiScanLabelLines[i].lastY - multiScanLabelLines[i - 1].lastY < minGap) {
+            multiScanLabelLines[i].lastY = multiScanLabelLines[i - 1].lastY + minGap
+          }
+        }
+        ctx.font = `700 ${isFullscreen ? 17 : 13}px "Roboto Mono", monospace`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        const labelX = containerWidth - padding.right + 5
+        multiScanLabelLines.forEach(({ color, symbol, lastY }) => {
+          const clampedY = Math.max(padding.top + 6, Math.min(containerHeight - padding.bottom - 6, lastY))
+          ctx.fillStyle = color
+          ctx.fillText(symbol, labelX, clampedY)
+        })
+      }
+
       // Draw Y-axis labels - crispy white with % symbol and 30% smaller
       ctx.fillStyle = '#ffffff'
       ctx.font = 'bold 17px "Roboto Mono", monospace'
@@ -937,8 +1096,11 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       }
 
       // Draw X-axis labels
+      // X-axis labels
+      const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
       ctx.fillStyle = '#ffffff'
-      ctx.font = 'bold 17px "Roboto Mono", monospace'
+      const xAxisFontSize = isFullscreen ? 21 : 17
+      ctx.font = `bold ${xAxisFontSize}px "Roboto Mono", monospace`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
 
@@ -1035,33 +1197,31 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
           // Draw X-axis tooltip (date)
           if (dataPoint) {
             const dateText = `${dataPoint.monthName} ${dataPoint.day}`
-            ctx.font = '900 14px "JetBrains Mono", monospace'
+            ctx.font = '900 22px "JetBrains Mono", monospace'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
             const textWidth = ctx.measureText(dateText).width
+            const labelY = containerHeight - padding.bottom + 22
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
-            ctx.fillRect(
-              mouseX - textWidth / 2 - 6,
-              containerHeight - padding.bottom + 2,
-              textWidth + 12,
-              20
-            )
+            ctx.fillStyle = '#000000'
+            ctx.fillRect(mouseX - textWidth / 2 - 8, labelY - 13, textWidth + 16, 26)
 
             ctx.fillStyle = '#ff6600'
-            ctx.textAlign = 'center'
-            ctx.fillText(dateText, mouseX, containerHeight - padding.bottom + 15)
+            ctx.fillText(dateText, mouseX, labelY)
           }
 
           // Draw Y-axis tooltip (percentage)
           const percentText = `${percentage.toFixed(2)}%`
-          ctx.font = '900 14px "JetBrains Mono", monospace'
+          ctx.font = '900 17px "JetBrains Mono", monospace'
+          ctx.textAlign = 'right'
+          ctx.textBaseline = 'middle'
           const percentWidth = ctx.measureText(percentText).width
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
-          ctx.fillRect(padding.left - percentWidth - 18, mouseY - 10, percentWidth + 12, 20)
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(padding.left - percentWidth - 24, mouseY - 11, percentWidth + 18, 22)
 
           ctx.fillStyle = '#ff6600'
-          ctx.textAlign = 'right'
-          ctx.fillText(percentText, padding.left - 8, mouseY + 4)
+          ctx.fillText(percentText, padding.left - 6, mouseY)
         }
       }
     } catch (error) {
@@ -1109,6 +1269,50 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
             height: '100%',
           }}
         />
+
+        {/* Multi-scan legend with toggle buttons */}
+        {multiScanData.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '6px',
+              right: '60px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '4px',
+              zIndex: 10,
+              maxWidth: 'calc(100% - 80px)',
+              justifyContent: 'flex-end',
+            }}
+          >
+            {multiScanData.map((ms, idx) => {
+              const color = MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length]
+              const hidden = hiddenLines.has(ms.symbol)
+              return (
+                <button
+                  key={ms.symbol}
+                  onClick={() => toggleLine(ms.symbol)}
+                  style={{
+                    padding: '2px 7px',
+                    fontSize: '10px',
+                    fontFamily: '"Roboto Mono", monospace',
+                    fontWeight: '700',
+                    background: hidden ? 'rgba(0,0,0,0.7)' : `${color}22`,
+                    border: `1px solid ${hidden ? 'rgba(255,255,255,0.15)' : color}`,
+                    borderRadius: '3px',
+                    color: hidden ? 'rgba(255,255,255,0.3)' : color,
+                    cursor: 'pointer',
+                    textDecoration: hidden ? 'line-through' : 'none',
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {ms.symbol}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Chart Legend */}
         {comparisonData.length > 0 && (

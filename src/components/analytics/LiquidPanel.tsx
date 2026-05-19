@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { TRADING_QUOTES, getRandomQuote } from '@/data/quotes'
 
 // Import the Top 1000 symbols
 import { PRELOAD_TIERS } from '../../lib/Top1000Symbols'
@@ -1842,63 +1843,8 @@ interface LiquidPanelProps {
   onGaugeMetrics?: (data: { compositeScore: number; siNorm: number }) => void
 }
 
-const LIVE_QUOTES = [
-  "Real-time data doesn't remove uncertainty ? it just makes you faster at being wrong.",
-  'The tape never lies. Only the traders who read it do.',
-  'Momentum is a fact. Direction is an opinion.',
-  'Every print tells a story. Most traders skip to the last page.',
-  'Flow precedes price. Always follow the paper.',
-  'Options flow is the shadow of informed money moving through walls.',
-  'When the smart money speaks, it speaks in size.',
-  'The open interest never forgets. It remembers every position ever taken.',
-  'Gamma is the accelerator. Delta is just where you are.',
-  'Live data is a weapon. Interpretation is the trigger.',
-  "The dealer's hedge today is tomorrow's price magnet.",
-  'In live markets, hesitation is a position.',
-  "Unusual options activity isn't always smart money ? but it's always worth watching.",
-  'The market moves toward max pain like a river to the sea.',
-  "Size doesn't guarantee direction, but it always guarantees attention.",
-  'The market is the only place where things go on sale and everyone runs out of the store.',
-  'Bulls make money, bears make money, pigs get slaughtered. ? Wall Street proverb',
-  'Never confuse a bull market with brains. ? Humphrey Neill',
-  "The time to buy is when there's blood in the streets. ? Baron Rothschild",
-  'Compound interest is the eighth wonder of the world. ? attributed to Einstein',
-  'Know what you own and know why you own it. ? Peter Lynch',
-  'The market is not your enemy. Your emotions are. ? anonymous',
-  "A stock doesn't know you own it. ? anonymous",
-  'October is one of the peculiarly dangerous months to speculate in stocks. The others are July, January, September, April, November, May, March, June, December, August, and February. ? Mark Twain',
-]
-
-const MARKET_QUOTES = [
-  'The market is a device for transferring money from the impatient to the patient. ? Warren Buffett',
-  'In the short run, the market is a voting machine. In the long run, it is a weighing machine. ? Benjamin Graham',
-  "The four most dangerous words in investing are: 'This time it's different.' ? Sir John Templeton",
-  "Risk comes from not knowing what you're doing. ? Warren Buffett",
-  'The stock market is filled with individuals who know the price of everything, but the value of nothing. ? Philip Fisher',
-  'Be fearful when others are greedy, and greedy when others are fearful. ? Warren Buffett',
-  'Markets can remain irrational longer than you can remain solvent. ? John Maynard Keynes',
-  'The trend is your friend until the end. ? Ed Seykota',
-  'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble. ? Warren Buffett',
-  'Everyone has a plan until the market punches them in the face. ? adapted',
-  'Cut your losses short and let your winners run. ? Wall Street axiom',
-  'The market can do anything. ? Mark Douglas',
-  'Price is what you pay. Value is what you get. ? Warren Buffett',
-  'Volatility is not risk. The permanent loss of capital is risk. ? Howard Marks',
-  "If you don't know who the sucker at the table is, it's you. ? Warren Buffett",
-  'An investment in knowledge pays the best interest. ? Benjamin Franklin',
-  'Wide diversification is only required when investors do not understand what they are doing. ? Warren Buffett',
-  'The goal of a successful trader is to make the best trades. Money is secondary. ? Alexander Elder',
-  'In investing, what is comfortable is rarely profitable. ? Robert Arnott',
-  'The biggest risk is not taking any risk. ? Mark Zuckerberg',
-  "The stock market is a no-called-strike game. You don't have to swing at everything. ? Warren Buffett",
-  'Investing is the intersection of economics and psychology. ? Seth Klarman',
-  'The secret to investing is to figure out the value of something and then pay a lot less for it. ? Joel Greenblatt',
-  "If you spend more than 13 minutes analyzing economic and market forecasts, you've wasted 10 minutes. ? Peter Lynch",
-  'The time of maximum pessimism is the best time to buy. ? Sir John Templeton',
-  'Successful investing is about managing risk, not avoiding it. ? Benjamin Graham',
-  "It's not whether you're right or wrong that's important, but how much money you make when you're right. ? George Soros",
-  'The elder among traders says buy low, sell high. The wise one knows there is no high without a low before it. ? anonymous',
-]
+const LIVE_QUOTES = TRADING_QUOTES
+const MARKET_QUOTES = TRADING_QUOTES
 
 const LiquidPanel: React.FC<LiquidPanelProps> = ({
   onClose,
@@ -4886,18 +4832,14 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     [allFlowWeightedDealerData]
   )
 
-  const loadingQuoteRef = useRef(
-    (() => {
-      const q = MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]
-      const body = q.includes(' ? ') ? q.split(' ? ')[0] : q
-      const author = q.includes(' ? ') ? '? ' + q.split(' ? ')[1] : ''
-      return { body, author }
-    })()
-  )
+  const loadingQuoteRef = useRef((() => {
+    const q = getRandomQuote()
+    return { body: q.text, author: q.author ? '— ' + q.author : '' }
+  })())
   const loadingQuote = loadingQuoteRef.current
 
-  const liveLoadingQuoteRef = useRef(LIVE_QUOTES[Math.floor(Math.random() * LIVE_QUOTES.length)])
-  const liveLoadingQuote = { body: liveLoadingQuoteRef.current, author: '' }
+  const liveLoadingQuoteRef = useRef(getRandomQuote())
+  const liveLoadingQuote = { body: liveLoadingQuoteRef.current.text, author: liveLoadingQuoteRef.current.author ? '— ' + liveLoadingQuoteRef.current.author : '' }
 
   // Legacy topValues for backward compatibility (uses first active mode)
   const topValues = useMemo(() => {

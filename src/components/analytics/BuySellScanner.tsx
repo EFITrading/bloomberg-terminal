@@ -8,28 +8,141 @@ import { TOP_1000_SYMBOLS } from '@/lib/Top1000Symbols'
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 const BATCH_SIZE = 20
 
-// Fetch live ask (falls back to midpoint → last trade) for an option contract
-async function fetchLiveAsk(symbol: string, optionTicker: string): Promise<number | null> {
-  try {
-    const url = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(symbol)}/${encodeURIComponent(optionTicker)}?apiKey=${POLYGON_API_KEY}`
-    const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) return null
-    const json = await res.json()
-    const r = json.results
-    if (!r) return null
-    // Use ask price for entry (what you actually pay), fall back to mid → last trade → day close
-    return r.last_quote?.ask ?? r.last_quote?.midpoint ?? r.last_trade?.price ?? r.day?.close ?? null
-  } catch {
-    return null
+interface RealContract {
+  expiration: string
+  strike: number
+  ask: number | null
+  t1Stock: number
+  t2Stock: number
+  iv: number
+}
+
+// ── Verbatim ChainPanel probability helpers ───────────────────────────────────
+function _normalCDF(x: number): number {
+  const erf = (x: number): number => {
+    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+    const sign = x >= 0 ? 1 : -1
+    x = Math.abs(x)
+    const t = 1.0 / (1.0 + p * x)
+    const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
+    return sign * y
+  }
+  return 0.5 * (1 + erf(x / Math.sqrt(2)))
+}
+
+function _calculateD2(S: number, K: number, r: number, sigma: number, T: number): number {
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+  return d1 - sigma * Math.sqrt(T)
+}
+
+// Exact ChainPanel: chance of profit for a SELL CALL (stock stays below strike)
+function _chanceOfProfitSellCall(S: number, K: number, r: number, sigma: number, T: number): number {
+  return (1 - _normalCDF(_calculateD2(S, K, r, sigma, T))) * 100
+}
+
+// Exact ChainPanel: chance of profit for a SELL PUT (stock stays above strike)
+function _chanceOfProfitSellPut(S: number, K: number, r: number, sigma: number, T: number): number {
+  return _normalCDF(_calculateD2(S, K, r, sigma, T)) * 100
+}
+
+// Exact ChainPanel findStrikeForProbability (r = 0.0387)
+function _findStrikeForProbability(S: number, r: number, sigma: number, T: number, targetProb: number, isCall: boolean): number {
+  if (isCall) {
+    let low = S + 0.01, high = S * 1.5
+    for (let i = 0; i < 50; i++) {
+      const mid = (low + high) / 2
+      const prob = _chanceOfProfitSellCall(S, mid, r, sigma, T)
+      if (Math.abs(prob - targetProb) < 0.1) return mid
+      if (prob < targetProb) low = mid
+      else high = mid
+    }
+    return (low + high) / 2
+  } else {
+    let low = S * 0.5, high = S - 0.01
+    for (let i = 0; i < 50; i++) {
+      const mid = (low + high) / 2
+      const prob = _chanceOfProfitSellPut(S, mid, r, sigma, T)
+      if (Math.abs(prob - targetProb) < 0.1) return mid
+      if (prob < targetProb) high = mid
+      else low = mid
+    }
+    return (low + high) / 2
   }
 }
 
-function buildOptionTicker(symbol: string, expiration: string, type: 'call' | 'put', strike: number): string {
-  const [y, m, d] = expiration.split('-')
-  const dateStr = y.slice(2) + m + d
-  const typeChar = type === 'call' ? 'C' : 'P'
-  const strikeStr = Math.round(strike * 1000).toString().padStart(8, '0')
-  return `O:${symbol}${dateStr}${typeChar}${strikeStr}`
+// Fetch the nearest REAL contract from Polygon using the same probability logic
+// as DealerOpenInterestChart:
+//  - Strike: real listed OTM strike closest to 20% probability of profit (= 80% OTM)
+//  - T1: stock price where buyer has 20% chance of profit  (80% target)
+//  - T2: stock price where buyer has 10% chance of profit  (90% target)
+async function fetchRealContract(symbol: string, contractType: 'call' | 'put', targetDte: number, currentPrice: number): Promise<RealContract | null> {
+  try {
+    const today = new Date()
+    const minDate = new Date(today); minDate.setDate(minDate.getDate() + 3)
+    const maxDate = new Date(today); maxDate.setDate(maxDate.getDate() + targetDte + 30)
+    const minStr = minDate.toISOString().slice(0, 10)
+    const maxStr = maxDate.toISOString().slice(0, 10)
+
+    // Step 1: get real listed expirations
+    const refUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${encodeURIComponent(symbol)}&contract_type=${contractType}&expiration_date.gte=${minStr}&expiration_date.lte=${maxStr}&order=asc&sort=expiration_date&limit=10&apiKey=${POLYGON_API_KEY}`
+    const refRes = await fetch(refUrl, { cache: 'no-store' })
+    if (!refRes.ok) return null
+    const refJson = await refRes.json()
+    const expirations: string[] = [...new Set<string>((refJson.results ?? []).map((r: Record<string, string>) => r.expiration_date))]
+    if (!expirations.length) return null
+
+    // Step 2: pick expiration closest to targetDte
+    const todayMs = today.getTime()
+    const expiration = expirations.reduce((best, exp) => {
+      const dteBest = (new Date(best + 'T12:00:00').getTime() - todayMs) / 86400000
+      const dteCur = (new Date(exp + 'T12:00:00').getTime() - todayMs) / 86400000
+      return Math.abs(dteCur - targetDte) < Math.abs(dteBest - targetDte) ? exp : best
+    })
+    const dte = Math.max(1, Math.round((new Date(expiration + 'T12:00:00').getTime() - todayMs) / 86400000))
+    const T = dte / 365
+
+    // Step 3: fetch the full OTM chain to read real strikes + IV
+    const lo = (currentPrice * (contractType === 'call' ? 1.00 : 0.70)).toFixed(2)
+    const hi = (currentPrice * (contractType === 'call' ? 1.40 : 1.00)).toFixed(2)
+    const chainUrl = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(symbol)}?expiration_date=${expiration}&contract_type=${contractType}&strike_price.gte=${lo}&strike_price.lte=${hi}&order=asc&sort=strike_price&limit=30&apiKey=${POLYGON_API_KEY}`
+    const chainRes = await fetch(chainUrl, { cache: 'no-store' })
+    if (!chainRes.ok) return null
+    const chainJson = await chainRes.json()
+    const results: Record<string, unknown>[] = chainJson.results ?? []
+    if (!results.length) return null
+
+    // Step 4: get ATM IV from the contract closest to current price
+    const atmContract = [...results].sort((a, b) => {
+      const sa = (a.details as Record<string, number>)?.strike_price ?? 0
+      const sb = (b.details as Record<string, number>)?.strike_price ?? 0
+      return Math.abs(sa - currentPrice) - Math.abs(sb - currentPrice)
+    })[0]
+    const iv = (atmContract?.implied_volatility as number | undefined) ??
+      (results[0]?.implied_volatility as number | undefined) ?? 0.30
+
+    // Step 5: compute theoretical 80% / 90% probability-of-profit strikes — exact ChainPanel getProbabilityStrikes
+    const r = 0.0387
+    const theorStrike80 = _findStrikeForProbability(currentPrice, r, iv, T, 80, contractType === 'call')
+    const t1Stock = _findStrikeForProbability(currentPrice, r, iv, T, 80, contractType === 'call')
+    const t2Stock = _findStrikeForProbability(currentPrice, r, iv, T, 90, contractType === 'call')
+
+    // Step 6: snap to nearest real listed OTM strike
+    const realStrikes = results.map(r => (r.details as Record<string, number>)?.strike_price ?? 0).filter(s => s > 0)
+    const strike = realStrikes.reduce((best, s) =>
+      Math.abs(s - theorStrike80) < Math.abs(best - theorStrike80) ? s : best
+      , realStrikes[0])
+
+    // Step 7: get ask price for that strike
+    const bestContract = results.find(r => (r.details as Record<string, number>)?.strike_price === strike) ?? results[0]
+    const lq = bestContract.last_quote as Record<string, number> | undefined
+    const lt = bestContract.last_trade as Record<string, number> | undefined
+    const day = bestContract.day as Record<string, number> | undefined
+    const ask = lq?.ask ?? lq?.midpoint ?? lt?.price ?? day?.close ?? null
+
+    return { expiration, strike, ask, t1Stock, t2Stock, iv }
+  } catch {
+    return null
+  }
 }
 
 interface Bar {
@@ -685,10 +798,9 @@ export default function BuySellScanner() {
   // ── Live-ask fetch + addTrade helper ──────────────────────────────────────
   const makeAddHandler = useCallback((payload: Omit<AddTradePayload, 'entryPrice'>) => {
     return async () => {
-      const optTicker = buildOptionTicker(payload.symbol, payload.expiration, payload.optionType, payload.strike)
-      const liveAsk = await fetchLiveAsk(payload.symbol, optTicker)
-      if (liveAsk === null) return // no price, don't add
-      portfolioRef.current?.addTrade({ ...payload, entryPrice: liveAsk })
+      const rc = await fetchRealContract(payload.symbol, payload.optionType, payload.dte ?? 14, payload.currentStockPrice ?? payload.strike)
+      if (!rc || rc.ask === null) return // no price, don't add
+      portfolioRef.current?.addTrade({ ...payload, expiration: rc.expiration, strike: rc.strike, t1Stock: rc.t1Stock, t2Stock: rc.t2Stock, entryPrice: rc.ask })
     }
   }, [])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
@@ -985,18 +1097,6 @@ export default function BuySellScanner() {
               <span style={{ color: '#ff3232' }}>SELL</span>
               <span style={{ color: '#ffffff', marginLeft: '12px' }}>SCANNER</span>
             </div>
-            <div
-              style={{
-                fontSize: '13px',
-                fontWeight: '700',
-                letterSpacing: '2px',
-                color: '#ff8500',
-                marginTop: '6px',
-                textTransform: 'uppercase',
-              }}
-            >
-              TOP 1000 SYMBOLS · AVG LINE SIGNALS
-            </div>
           </div>
 
 
@@ -1199,34 +1299,6 @@ export default function BuySellScanner() {
             flexWrap: 'wrap',
           }}
         >
-          {/* Summary badges */}
-          <div
-            style={{
-              background: 'rgba(0,255,0,0.08)',
-              border: '2px solid #00ff00',
-              padding: '8px 20px',
-              fontSize: '15px',
-              fontWeight: '900',
-              letterSpacing: '2px',
-              color: '#00ff00',
-            }}
-          >
-            {confluenceBuyResults.length} BUY
-          </div>
-          <div
-            style={{
-              background: 'rgba(255,50,50,0.08)',
-              border: '2px solid #ff3232',
-              padding: '8px 20px',
-              fontSize: '15px',
-              fontWeight: '900',
-              letterSpacing: '2px',
-              color: '#ff3232',
-            }}
-          >
-            {confluenceSellResults.length} SELL
-          </div>
-
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
             {(['both', 'buy', 'sell'] as const).map((f) => (
               <button
@@ -1267,79 +1339,6 @@ export default function BuySellScanner() {
           {/* Legend */}
           <div
             style={{
-              display: 'flex',
-              gap: '40px',
-              marginBottom: '8px',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
-            }}
-          >
-            <div style={{ textAlign: 'center' }}>
-              <div
-                style={{
-                  width: '120px',
-                  height: '4px',
-                  background: '#00ff00',
-                  margin: '0 auto 8px auto',
-                  borderTop: '2px dashed #00ff00',
-                }}
-              />
-              <div
-                style={{
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  color: '#00ff00',
-                  letterSpacing: '1px',
-                }}
-              >
-                GREEN DOTTED
-              </div>
-              <div
-                style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff', marginTop: '4px' }}
-              >
-                AVG HIGH LINE
-              </div>
-              <div
-                style={{ fontSize: '11px', fontWeight: '700', color: '#00ff00', marginTop: '2px' }}
-              >
-                → BUY SIGNAL
-              </div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div
-                style={{
-                  width: '120px',
-                  height: '4px',
-                  background: '#ff3232',
-                  margin: '0 auto 8px auto',
-                  borderTop: '2px dashed #ff3232',
-                }}
-              />
-              <div
-                style={{
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  color: '#ff3232',
-                  letterSpacing: '1px',
-                }}
-              >
-                RED DOTTED
-              </div>
-              <div
-                style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff', marginTop: '4px' }}
-              >
-                AVG LOW LINE
-              </div>
-              <div
-                style={{ fontSize: '11px', fontWeight: '700', color: '#ff3232', marginTop: '2px' }}
-              >
-                → SELL SIGNAL
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
               fontSize: '18px',
               fontWeight: '800',
               color: '#ffffff',
@@ -1347,23 +1346,7 @@ export default function BuySellScanner() {
               textTransform: 'uppercase',
             }}
           >
-            PRESS SCAN NOW TO BEGIN
-          </div>
-          <div
-            style={{
-              fontSize: '13px',
-              fontWeight: '700',
-              color: '#ff8500',
-              letterSpacing: '1.5px',
-              textAlign: 'center',
-              lineHeight: 1.8,
-            }}
-          >
-            SCANS TOP 1000 SYMBOLS · USES 1-YEAR DAILY DATA
-            <br />
-            FINDS STOCKS ABOVE THE GREEN AVERAGE LINE (BUY)
-            <br />
-            OR BELOW THE RED AVERAGE LINE (SELL)
+            Scan for Bullish &amp; Bearish Historical Opportunities
           </div>
         </div>
       )}
@@ -1466,16 +1449,15 @@ export default function BuySellScanner() {
 // ─── Confluence Card ──────────────────────────────────────────────────────────
 function ConfluenceCard({ result, tfSelectionMap, earnings, onAddToPortfolio }: { result: ConfluenceResult; tfSelectionMap: Map<string, 1 | 5 | 10>; earnings?: { date: string; time: string }; onAddToPortfolio?: () => void }) {
   const [adding, setAdding] = useState(false)
-  const [liveAsk, setLiveAsk] = useState<number | null | 'loading'>('loading')
+  const [realContract, setRealContract] = useState<RealContract | null | 'loading'>('loading')
   const isBuy = result.signal === 'BUY'
   const accent = isBuy ? '#00FF88' : '#FF4060'
   const accentBorder = isBuy ? 'rgba(0,255,136,0.28)' : 'rgba(255,64,96,0.28)'
   const priceColor = result.priceChangePct >= 0 ? '#00FF88' : '#FF4060'
 
   useEffect(() => {
-    const optTicker = buildOptionTicker(result.symbol, result.trade.expiration, result.signal === 'BUY' ? 'call' : 'put', result.trade.strike)
-    fetchLiveAsk(result.symbol, optTicker).then(ask => setLiveAsk(ask))
-  }, [result.symbol, result.trade.expiration, result.signal, result.trade.strike])
+    fetchRealContract(result.symbol, result.signal === 'BUY' ? 'call' : 'put', result.trade.dte, result.currentPrice).then(rc => setRealContract(rc))
+  }, [result.symbol, result.signal, result.trade.dte, result.currentPrice])
 
   // Default to 5Y if available, else first available TF — persist selection in parent map
   const defaultTf: 1 | 5 | 10 = result.allTfResults[5] ? 5 : result.allTfResults[1] ? 1 : 10
@@ -1561,20 +1543,20 @@ function ConfluenceCard({ result, tfSelectionMap, earnings, onAddToPortfolio }: 
         background: 'rgba(255,255,255,0.03)',
       }}>
         <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 16, fontWeight: 900, color: '#FFFFFF' }}>
-          ${result.trade.strike % 1 === 0 ? result.trade.strike.toFixed(0) : result.trade.strike.toFixed(1)} {isBuy ? 'Calls' : 'Puts'}
+          ${(realContract && realContract !== 'loading' ? realContract.strike : result.trade.strike) % 1 === 0 ? (realContract && realContract !== 'loading' ? realContract.strike : result.trade.strike).toFixed(0) : (realContract && realContract !== 'loading' ? realContract.strike : result.trade.strike).toFixed(1)} {isBuy ? 'Calls' : 'Puts'}
         </span>
         <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 700, color: '#ffffff' }}>
-          {fmtBSExpiry(result.trade.expiration)}
+          {fmtBSExpiry(realContract && realContract !== 'loading' ? realContract.expiration : result.trade.expiration)}
         </span>
         <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 15, fontWeight: 900, color: '#FFD700' }}>
-          {liveAsk === 'loading' ? '@…' : liveAsk === null ? '@---' : `@$${liveAsk.toFixed(2)}`}
+          {realContract === 'loading' ? '@…' : realContract === null || realContract.ask === null ? '@---' : `@$${realContract.ask.toFixed(2)}`}
         </span>
         <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', alignSelf: 'center', flexShrink: 0 }} />
-        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 12, fontWeight: 900, color: accent }}>T1</span>
-        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 900, color: accent }}>${result.trade.t1Stock.toFixed(2)}</span>
+        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 12, fontWeight: 900, color: accent }}>T1 <span style={{ fontSize: 10, opacity: 0.6 }}>80%</span></span>
+        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 900, color: accent }}>${(realContract && realContract !== 'loading' ? realContract.t1Stock : result.trade.t1Stock).toFixed(2)}</span>
         <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', alignSelf: 'center', flexShrink: 0 }} />
-        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 12, fontWeight: 900, color: accent }}>T2</span>
-        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 900, color: accent }}>${result.trade.t2Stock.toFixed(2)}</span>
+        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 12, fontWeight: 900, color: accent }}>T2 <span style={{ fontSize: 10, opacity: 0.6 }}>90%</span></span>
+        <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 900, color: accent }}>${(realContract && realContract !== 'loading' ? realContract.t2Stock : result.trade.t2Stock).toFixed(2)}</span>
         <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', alignSelf: 'center', flexShrink: 0 }} />
         <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 12, fontWeight: 900, color: '#FF2222' }}>SL</span>
         <span style={{ fontFamily: '"JetBrains Mono",monospace', fontSize: 14, fontWeight: 900, color: '#FF2222' }}>${result.trade.stopPremium.toFixed(2)}</span>
@@ -1638,9 +1620,9 @@ function BuySellMiniChart({
 
     // ── Layout ────────────────────────────────────────────────────────────
     const PAD_L = 4
-    const PAD_R = 80
+    const PAD_R = 58
     const PAD_T = 8
-    const PAD_B = 42
+    const PAD_B = 24
     const GAP = 6
     const cW = W - PAD_L - PAD_R
     const totalH = H - PAD_T - PAD_B - GAP
@@ -2064,14 +2046,13 @@ function SeasonalityRow({ seasonality, signal }: { seasonality: SeasonalityInfo;
 // ─── Trade Card ───────────────────────────────────────────────────────────────
 function TradeCard({ result, onAddToPortfolio }: { result: ScanResult; onAddToPortfolio?: () => void }) {
   const [adding, setAdding] = useState(false)
-  const [liveAsk, setLiveAsk] = useState<number | null | 'loading'>('loading')
+  const [realContract, setRealContract] = useState<RealContract | null | 'loading'>('loading')
   const isBuy = result.signal === 'BUY'
   const accent = isBuy ? '#00FF88' : '#FF4060'
 
   useEffect(() => {
-    const optTicker = buildOptionTicker(result.symbol, result.trade.expiration, result.signal === 'BUY' ? 'call' : 'put', result.trade.strike)
-    fetchLiveAsk(result.symbol, optTicker).then(ask => setLiveAsk(ask))
-  }, [result.symbol, result.trade.expiration, result.signal, result.trade.strike])
+    fetchRealContract(result.symbol, result.signal === 'BUY' ? 'call' : 'put', result.trade.dte, result.currentPrice).then(rc => setRealContract(rc))
+  }, [result.symbol, result.signal, result.trade.dte, result.currentPrice])
   const accentBorder = isBuy ? 'rgba(0,255,136,0.28)' : 'rgba(255,64,96,0.28)'
   const mono: React.CSSProperties = { fontFamily: '"JetBrains Mono","Courier New",monospace' }
   const priceColor = result.priceChangePct >= 0 ? '#00FF88' : '#FF4060'
@@ -2179,20 +2160,20 @@ function TradeCard({ result, onAddToPortfolio }: { result: ScanResult; onAddToPo
         }}
       >
         <span style={{ ...mono, fontSize: 19, fontWeight: 900, color: '#FFFFFF' }}>
-          ${trade.strike % 1 === 0 ? trade.strike.toFixed(0) : trade.strike.toFixed(1)} {isBuy ? 'Calls' : 'Puts'}
+          ${(realContract && realContract !== 'loading' ? realContract.strike : trade.strike) % 1 === 0 ? (realContract && realContract !== 'loading' ? realContract.strike : trade.strike).toFixed(0) : (realContract && realContract !== 'loading' ? realContract.strike : trade.strike).toFixed(1)} {isBuy ? 'Calls' : 'Puts'}
         </span>
         <span style={{ ...mono, fontSize: 17, fontWeight: 700, color: '#FFFFFF' }}>
-          {fmtBSExpiry(trade.expiration)}
+          {fmtBSExpiry(realContract && realContract !== 'loading' ? realContract.expiration : trade.expiration)}
         </span>
         <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: '#FFD080' }}>
-          {liveAsk === 'loading' ? '@…' : liveAsk === null ? '@---' : `@$${liveAsk.toFixed(2)}`}
+          {realContract === 'loading' ? '@…' : realContract === null || realContract.ask === null ? '@---' : `@$${realContract.ask.toFixed(2)}`}
         </span>
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.15)', flexShrink: 0, alignSelf: 'center' }} />
-        <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: accent, letterSpacing: '0.5px' }}>T1</span>
-        <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: accent }}>${trade.t1Stock.toFixed(2)}</span>
+        <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: accent, letterSpacing: '0.5px' }}>T1 <span style={{ fontSize: 11, opacity: 0.6 }}>80%</span></span>
+        <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: accent }}>${(realContract && realContract !== 'loading' ? realContract.t1Stock : trade.t1Stock).toFixed(2)}</span>
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.15)', flexShrink: 0, alignSelf: 'center' }} />
-        <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: accent, letterSpacing: '0.5px' }}>T2</span>
-        <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: accent }}>${trade.t2Stock.toFixed(2)}</span>
+        <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: accent, letterSpacing: '0.5px' }}>T2 <span style={{ fontSize: 11, opacity: 0.6 }}>90%</span></span>
+        <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: accent }}>${(realContract && realContract !== 'loading' ? realContract.t2Stock : trade.t2Stock).toFixed(2)}</span>
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.15)', flexShrink: 0, alignSelf: 'center' }} />
         <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: '#FF2222', letterSpacing: '0.5px' }}>SL</span>
         <span style={{ ...mono, fontSize: 17, fontWeight: 900, color: '#FF2222' }}>${trade.stopPremium.toFixed(2)}</span>

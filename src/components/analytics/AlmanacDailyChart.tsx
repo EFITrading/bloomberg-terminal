@@ -12,8 +12,10 @@ interface AlmanacDailyChartProps {
   showPostElection?: boolean
   onMonthChange?: (month: number) => void
   symbol?: string
+  symbols?: string[] // multi-ticker mode: show average of these tickers
   externalSelectedEvent?: string | null
   externalSelectedPatterns?: string[]
+  isFullscreen?: boolean
 }
 
 interface PriceData {
@@ -43,16 +45,21 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   showPostElection = true,
   onMonthChange,
   symbol = 'SPY',
+  symbols,
   externalSelectedEvent,
   externalSelectedPatterns = [],
+  isFullscreen = false,
 }) => {
-  const isIndex = ['SPY', 'QQQ', 'DIA', 'IWM'].includes(symbol)
+  const isMultiSymbol = symbols && symbols.length > 1
+  const isIndex = !isMultiSymbol && ['SPY', 'QQQ', 'DIA', 'IWM'].includes(symbol)
   const [seasonalData, setSeasonalData] = useState<IndexSeasonalData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState(month)
-  const [showRecentYears, setShowRecentYears] = useState(true)
-  const [showPostElectionYears, setShowPostElectionYears] = useState(true)
+  const [showMaxYears, setShowMaxYears] = useState(true)
+  const [show15Y, setShow15Y] = useState(true)
+  const [show10Y, setShow10Y] = useState(true)
+  const [showElection, setShowElection] = useState(true)
   const [activeView, setActiveView] = useState<'chart' | 'calendar' | 'table'>('chart')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,7 +96,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
   useEffect(() => {
     loadData()
-  }, [selectedMonth, symbol, isIndex])
+  }, [selectedMonth, symbol, isIndex, symbols?.join(',')])
 
   // Handle external event selection from Row 1
   useEffect(() => {
@@ -146,7 +153,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     if (seasonalData.length > 0 && canvasRef.current && activeView === 'chart') {
       requestAnimationFrame(() => drawChart())
     }
-  }, [seasonalData, showRecentYears, showPostElectionYears, activeView])
+  }, [seasonalData, showMaxYears, show15Y, show10Y, showElection, activeView])
 
   useEffect(() => {
     const handleResize = () => {
@@ -258,8 +265,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     panOffset,
     seasonalData,
     activeView,
-    showRecentYears,
-    showPostElectionYears,
+    showMaxYears,
+    show15Y,
+    show10Y,
+    showElection,
     showEventPerformance,
     eventPerformanceData,
   ])
@@ -269,7 +278,37 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     setError(null)
 
     try {
-      if (isIndex) {
+      if (isMultiSymbol && symbols) {
+        // Multi-ticker: load each symbol and average their dailyData
+        const allResults = await Promise.all(
+          symbols.map((s) => almanacService.getSingleStockMonthlyData(s, selectedMonth, 25).catch(() => [] as IndexSeasonalData[]))
+        )
+        const valid = allResults.map((r) => r[0]).filter(Boolean) as IndexSeasonalData[]
+        if (valid.length === 0) {
+          setSeasonalData([])
+        } else {
+          // Average dailyData across all valid results by tradingDay
+          const maxDays = Math.max(...valid.map((v) => v.dailyData.length))
+          const avgDailyData: IndexSeasonalData['dailyData'][number][] = []
+          for (let i = 0; i < maxDays; i++) {
+            const pts = valid.map((v) => v.dailyData[i]).filter(Boolean)
+            if (pts.length === 0) continue
+            avgDailyData.push({
+              tradingDay: pts[0].tradingDay,
+              date: pts[0].date,
+              avgReturn: pts.reduce((s, p) => s + p.avgReturn, 0) / pts.length,
+              cumulativeReturn: pts.reduce((s, p) => s + p.cumulativeReturn, 0) / pts.length,
+              postElectionReturn: pts.reduce((s, p) => s + p.postElectionReturn, 0) / pts.length,
+              postElectionCumulative: pts.reduce((s, p) => s + p.postElectionCumulative, 0) / pts.length,
+              cumulativeReturn10Y: pts.reduce((s, p) => s + p.cumulativeReturn10Y, 0) / pts.length,
+              cumulativeReturn15Y: pts.reduce((s, p) => s + p.cumulativeReturn15Y, 0) / pts.length,
+              postElectionCumulative10Y: pts.reduce((s, p) => s + p.postElectionCumulative10Y, 0) / pts.length,
+              postElectionCumulative15Y: pts.reduce((s, p) => s + p.postElectionCumulative15Y, 0) / pts.length,
+            })
+          }
+          setSeasonalData([{ symbol: 'AVG', name: 'Average', color: '#00C853', dashColor: '#00C853', dailyData: avgDailyData }])
+        }
+      } else if (isIndex) {
         // Load all 4 indices - use 25 years to capture all available data
         const data = await almanacService.getMonthlySeasonalData(selectedMonth, 25)
         setSeasonalData(data)
@@ -934,11 +973,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           if (point.tradingDay >= visibleRange.start && point.tradingDay <= visibleRange.end) {
             minValue = Math.min(minValue, point.cumulativeReturn)
             maxValue = Math.max(maxValue, point.cumulativeReturn)
-            if (showRecentYears) {
+            if (show10Y || show15Y || showMaxYears) {
               minValue = Math.min(minValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
               maxValue = Math.max(maxValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
             }
-            if (showPostElectionYears) {
+            if (showElection) {
               minValue = Math.min(minValue, point.postElectionCumulative)
               maxValue = Math.max(maxValue, point.postElectionCumulative)
             }
@@ -952,11 +991,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           index.dailyData.forEach((point) => {
             minValue = Math.min(minValue, point.cumulativeReturn)
             maxValue = Math.max(maxValue, point.cumulativeReturn)
-            if (showRecentYears) {
+            if (show10Y || show15Y || showMaxYears) {
               minValue = Math.min(minValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
               maxValue = Math.max(maxValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
             }
-            if (showPostElectionYears) {
+            if (showElection) {
               minValue = Math.min(minValue, point.postElectionCumulative)
               maxValue = Math.max(maxValue, point.postElectionCumulative)
             }
@@ -993,7 +1032,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
     ctx.lineWidth = 1
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 16px "JetBrains Mono", monospace'
+    ctx.font = `bold ${isFullscreen ? '20' : '16'}px "JetBrains Mono", monospace`
     ctx.textAlign = isMobileView ? 'left' : 'right'
 
     const numHLines = 8
@@ -1044,10 +1083,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         // For individual stocks, use white for max, orange for 10Y, pink for 15Y
         const whiteColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFFFFF'
         const orangeColor = '#FF6600'
-        const pinkColor = '#FF69B4'
+        const pinkColor = '#00BCD4'
         const electionColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFD700'
 
-        if (showRecentYears) {
+        if (showMaxYears) {
           // Determine if we should show white line (max years)
           // Check if there's any difference between max and 10Y/15Y data
           const hasDistinct10Y = index.dailyData.some(
@@ -1073,8 +1112,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             })
             ctx.stroke()
           }
+        }
 
-          // Draw pink line (15 years)
+        if (show15Y) {
+          // Draw cyan line (15 years)
           ctx.strokeStyle = pinkColor
           ctx.lineWidth = 2
           ctx.beginPath()
@@ -1087,7 +1128,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             else ctx.lineTo(x, y)
           })
           ctx.stroke()
+        }
 
+        if (show10Y) {
           // Draw orange line (10 years)
           ctx.strokeStyle = orangeColor
           ctx.lineWidth = 2
@@ -1103,7 +1146,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           ctx.stroke()
         }
 
-        if (showPostElectionYears) {
+        if (showElection) {
           ctx.strokeStyle = electionColor
           ctx.lineWidth = 2
           ctx.setLineDash([8, 4])
@@ -1230,9 +1273,40 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     // Restore context to draw outside clipping region (for axis labels)
     ctx.restore()
 
+    // ── Glossy white axis divider lines ──────────────────────────────────────
+    // Vertical line: right edge of Y-axis labels (left border of chart)
+    const axisGrad = ctx.createLinearGradient(PADDING.left - 1, PADDING.top, PADDING.left - 1, height - PADDING.bottom)
+    axisGrad.addColorStop(0, 'rgba(255,255,255,0)')
+    axisGrad.addColorStop(0.15, 'rgba(255,255,255,0.85)')
+    axisGrad.addColorStop(0.5, 'rgba(255,255,255,1)')
+    axisGrad.addColorStop(0.85, 'rgba(255,255,255,0.85)')
+    axisGrad.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.save()
+    ctx.strokeStyle = axisGrad
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(PADDING.left, PADDING.top)
+    ctx.lineTo(PADDING.left, height - PADDING.bottom)
+    ctx.stroke()
+    // Horizontal line: top edge of X-axis labels (bottom border of chart)
+    const hGrad = ctx.createLinearGradient(PADDING.left, height - PADDING.bottom, width - PADDING.right, height - PADDING.bottom)
+    hGrad.addColorStop(0, 'rgba(255,255,255,0)')
+    hGrad.addColorStop(0.1, 'rgba(255,255,255,0.85)')
+    hGrad.addColorStop(0.5, 'rgba(255,255,255,1)')
+    hGrad.addColorStop(0.9, 'rgba(255,255,255,0.85)')
+    hGrad.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.strokeStyle = hGrad
+    ctx.beginPath()
+    ctx.moveTo(PADDING.left, height - PADDING.bottom)
+    ctx.lineTo(width - PADDING.right, height - PADDING.bottom)
+    ctx.stroke()
+    ctx.restore()
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Draw X-axis labels in the bottom padding area
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 15px "JetBrains Mono", monospace'
+    ctx.font = `bold ${isFullscreen ? '19' : '15'}px "JetBrains Mono", monospace`
     ctx.textAlign = 'center'
 
     const xAxisY = height - PADDING.bottom + 35 // Position labels in the 70px bottom padding
@@ -1355,28 +1429,31 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         // Draw X-axis tooltip (date)
         if (dataPoint) {
           const dateText = dataPoint.date
-          ctx.font = '900 14px "JetBrains Mono", monospace'
+          ctx.font = '900 22px "JetBrains Mono", monospace'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
           const textWidth = ctx.measureText(dateText).width
+          const labelY = height - PADDING.bottom + 22
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
-          ctx.fillRect(mouseX - textWidth / 2 - 6, height - PADDING.bottom + 2, textWidth + 12, 20)
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(mouseX - textWidth / 2 - 8, labelY - 13, textWidth + 16, 26)
 
           ctx.fillStyle = '#ff6600'
-          ctx.textAlign = 'center'
-          ctx.fillText(dateText, mouseX, height - PADDING.bottom + 15)
+          ctx.fillText(dateText, mouseX, labelY)
         }
 
         // Draw Y-axis tooltip (percentage)
         const percentText = `${percentage.toFixed(2)}%`
-        ctx.font = '900 14px "JetBrains Mono", monospace'
+        ctx.font = '900 17px "JetBrains Mono", monospace'
+        ctx.textAlign = 'right'
+        ctx.textBaseline = 'middle'
         const percentWidth = ctx.measureText(percentText).width
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
-        ctx.fillRect(PADDING.left - percentWidth - 18, mouseY - 10, percentWidth + 12, 20)
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(PADDING.left - percentWidth - 24, mouseY - 11, percentWidth + 18, 22)
 
         ctx.fillStyle = '#ff6600'
-        ctx.textAlign = 'right'
-        ctx.fillText(percentText, PADDING.left - 8, mouseY + 4)
+        ctx.fillText(percentText, PADDING.left - 6, mouseY)
       }
     }
   }
@@ -1433,18 +1510,15 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           <div className="almanac-mobile-row-2">
             <button
               onClick={() => {
-                setShowRecentYears(!showRecentYears)
-                setShowPostElectionYears(!showPostElectionYears)
+                const anyOn = showMaxYears || show15Y || show10Y || showElection
+                setShowMaxYears(!anyOn)
+                setShow15Y(!anyOn)
+                setShow10Y(!anyOn)
+                setShowElection(!anyOn)
               }}
               className="almanac-mobile-btn"
             >
-              {showRecentYears && showPostElectionYears
-                ? 'Both'
-                : showRecentYears
-                  ? 'Solid'
-                  : showPostElectionYears
-                    ? 'Dashed'
-                    : 'None'}
+              Lines
             </button>
 
             <select
@@ -1739,74 +1813,61 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
           <div className="almanac-ctrl-divider" />
 
-          {/* Line Style Toggles */}
-          <button
-            onClick={() => setShowRecentYears(!showRecentYears)}
-            className={`almanac-ctrl-btn${showRecentYears ? ' active-green' : ''}`}
-            style={{ color: showRecentYears ? '#00ff41' : '#555' }}
-          >
-            SOLID
-          </button>
-
-          <button
-            onClick={() => setShowPostElectionYears(!showPostElectionYears)}
-            className={`almanac-ctrl-btn${showPostElectionYears ? ' active-cyan' : ''}`}
-            style={{ color: showPostElectionYears ? '#00CED1' : '#555' }}
-          >
-            DASH
-          </button>
-
-          {/* Legend */}
+          {/* Legend — each item is a toggle */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '14px',
-              marginLeft: '6px',
-              marginRight: '6px',
+              gap: '6px',
+              marginLeft: '4px',
               fontSize: '11px',
               fontFamily: '"JetBrains Mono", monospace',
               fontWeight: 700,
-              border: '1px solid #2a2a2a',
-              borderRadius: '2px',
-              padding: '5px 10px',
-              background: '#0a0a0a',
             }}
           >
             {isIndex ? (
               <>
                 {[
-                  { label: 'DIA', solid: '#FFFFFF', dash: '#FFFFFF' },
-                  { label: 'SPY', solid: '#00C853', dash: '#00C853' },
-                  { label: 'QQQ', solid: '#2196F3', dash: '#2196F3' },
-                  { label: 'IWM', solid: '#FF5722', dash: '#FF5722' },
-                ].map(({ label, solid, dash }) => (
+                  { label: 'DIA', color: '#FFFFFF' },
+                  { label: 'SPY', color: '#00C853' },
+                  { label: 'QQQ', color: '#2196F3' },
+                  { label: 'IWM', color: '#FF5722' },
+                ].map(({ label, color }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ color: solid }}>{label}</span>
-                    <div style={{ width: '14px', height: '2px', backgroundColor: solid }} />
-                    <div
-                      style={{
-                        width: '14px',
-                        height: '2px',
-                        background: `repeating-linear-gradient(90deg,${dash} 0px,${dash} 3px,transparent 3px,transparent 6px)`,
-                      }}
-                    />
+                    <div style={{ width: '14px', height: '2px', backgroundColor: color }} />
+                    <span style={{ color }}>{label}</span>
                   </div>
                 ))}
               </>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ color: '#fff' }}>{symbol}</span>
-                <div style={{ width: '14px', height: '2px', backgroundColor: '#FFFFFF' }} />
-                <div
-                  style={{
-                    width: '14px',
-                    height: '2px',
-                    background:
-                      'repeating-linear-gradient(90deg,#FFD700 0px,#FFD700 3px,transparent 3px,transparent 6px)',
-                  }}
-                />
-              </div>
+              <>
+                {[{ key: 'max', label: '25Y', color: '#FFFFFF', active: showMaxYears, toggle: () => setShowMaxYears((v) => !v) },
+                { key: '15y', label: '15Y', color: '#00BCD4', active: show15Y, toggle: () => setShow15Y((v) => !v) },
+                { key: '10y', label: '10Y', color: '#FF6600', active: show10Y, toggle: () => setShow10Y((v) => !v) },
+                { key: 'elec', label: 'Election', color: '#FFD700', active: showElection, toggle: () => setShowElection((v) => !v) },
+                ].map(({ key, label, color, active, toggle }) => (
+                  <button
+                    key={key}
+                    onClick={toggle}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                      background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+                      border: `1px solid ${active ? color : '#333'}`,
+                      borderRadius: '3px',
+                      padding: '2px 6px',
+                      cursor: 'pointer',
+                      opacity: active ? 1 : 0.35,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {key === 'elec'
+                      ? <div style={{ width: '18px', height: '2px', background: `repeating-linear-gradient(90deg,${color} 0px,${color} 5px,transparent 5px,transparent 9px)` }} />
+                      : <div style={{ width: '14px', height: '2px', backgroundColor: color }} />
+                    }
+                    <span style={{ color }}>{label}</span>
+                  </button>
+                ))}
+              </>
             )}
           </div>
 

@@ -8,6 +8,8 @@ interface NasdaqRow {
   noOfEsts: string
   lastYearRptDt: string
   lastYearEPS: string
+  eps?: string
+  surprise?: string
 }
 
 interface EarningsEvent {
@@ -21,6 +23,9 @@ interface EarningsEvent {
   country: string
   forecast?: string
   prior?: string
+  actual?: string
+  beat?: boolean
+  surprise?: string
   type: 'earnings'
 }
 
@@ -75,11 +80,11 @@ async function fetchNasdaqEarnings(dateStr: string): Promise<NasdaqRow[]> {
 
 function parseEps(val: string | undefined): string | undefined {
   if (!val) return undefined
-  const trimmed = val.trim()
+  const trimmed = val.trim().replace(/^\$/, '')
   if (trimmed === '-' || trimmed.toLowerCase() === 'n/a' || trimmed === '') return undefined
   const num = parseFloat(trimmed)
   if (isNaN(num)) return undefined
-  return `$${num.toFixed(2)} EPS`
+  return `$${num.toFixed(2)}`
 }
 
 export async function GET(request: NextRequest) {
@@ -132,8 +137,17 @@ export async function GET(request: NextRequest) {
 
         const forecast = parseEps(row.epsForecast)
         const prior = parseEps(row.lastYearEPS)
+        const actual = parseEps(row.eps)
         if (forecast) ev.forecast = forecast
         if (prior) ev.prior = prior
+        if (actual) ev.actual = actual
+        if (row.surprise) {
+          const surpNum = parseFloat(row.surprise)
+          if (!isNaN(surpNum)) {
+            ev.beat = surpNum >= 0
+            ev.surprise = `${surpNum >= 0 ? '+' : ''}${surpNum.toFixed(2)}%`
+          }
+        }
 
         events.push(ev)
       }

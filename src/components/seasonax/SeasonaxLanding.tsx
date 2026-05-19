@@ -103,8 +103,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
   // Function to check 52-week high/low status
   const check52WeekStatus = async (opportunities: any[]) => {
-    console.log('🔍 Checking 52-week high/low status for opportunities...')
-
     // Import PolygonService to use its configured API key
     const polygonService = new PolygonService()
 
@@ -156,9 +154,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       })
     )
 
-    console.log(
-      `✅ 52-week status check complete. Found ${enrichedOpportunities.filter((o) => o.fiftyTwoWeekStatus).length} near 52-week extremes`
-    )
     return enrichedOpportunities
   }
 
@@ -245,23 +240,13 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   (a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)
                 )
 
-                console.log(
-                  ` Setting ${foundOpportunities.length} opportunities in state:`,
-                  sortedOpportunities.slice(0, 3)
-                )
                 setOpportunities(sortedOpportunities as unknown as SeasonalPattern[])
 
                 // DISMISS LOADING SCREEN immediately when first opportunities are found
                 if (foundOpportunities.length === 1) {
-                  console.log(
-                    ' First opportunity found! Dismissing loading screen and showing results...'
-                  )
                   setLoading(false)
                   setShowWebsite(true)
                 } else if (foundOpportunities.length > 1 && loading) {
-                  console.log(
-                    ` ${foundOpportunities.length} opportunities found, ensuring loading screen is dismissed`
-                  )
                   setLoading(false)
                   setShowWebsite(true)
                 }
@@ -271,8 +256,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         )
 
         if (realOpportunities && realOpportunities.length > 0) {
-          console.log(`✅ Completed! Found ${realOpportunities.length} seasonal opportunities`)
-
           // Check 52-week high/low status for all opportunities to display badges
           setStreamStatus('🔍 Checking 52-week high/low status...')
           const enrichedOpportunities = await check52WeekStatus(realOpportunities)
@@ -669,9 +652,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             style={{
               border: '3px solid #FFD700',
               borderRadius: '12px',
-              height: '87vh',
+              height: '82vh',
               overflow: 'hidden',
-              boxShadow: '0 4px 20px rgba(255, 215, 0, 0.3)',
               display: 'flex',
               marginTop: sidebarMode ? '20px' : '0',
             }}
@@ -701,28 +683,34 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     >
                       <div className="section-header-split seasoned-header">
                         <div className="section-title">
-                          <BullIcon size={48} />
-                          BULLISH SEASONED
+                          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                            <style>{`
+                              @keyframes sl-rocket-rise { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+                              @keyframes sl-flame { 0%,100%{opacity:1;transform:scaleY(1)} 50%{opacity:0.6;transform:scaleY(0.7)} }
+                              @keyframes sl-trail { 0%{opacity:0;transform:scaleX(0)} 60%{opacity:1;transform:scaleX(1)} 100%{opacity:0;transform:scaleX(1)} }
+                              .sl-rocket-g { animation: sl-rocket-rise 1.8s ease-in-out infinite; transform-origin: 14px 14px; }
+                              .sl-flame { animation: sl-flame 0.4s ease-in-out infinite; transform-origin: 14px 20px; }
+                              .sl-trail { animation: sl-trail 1.8s ease-in-out infinite; transform-origin: 14px 20px; }
+                            `}</style>
+                            <g className="sl-rocket-g">
+                              <path d="M14 4 C14 4 9 10 9 16 L14 20 L19 16 C19 10 14 4 14 4Z" fill="#00FF88" opacity="0.9" />
+                              <circle cx="14" cy="13" r="2.5" fill="#000" opacity="0.6" />
+                              <path d="M9 16 L6 18 L9 19Z" fill="#00CC66" />
+                              <path d="M19 16 L22 18 L19 19Z" fill="#00CC66" />
+                              <path className="sl-flame" d="M12 20 Q14 25 16 20 Q14 23 12 20Z" fill="#FFD700" />
+                            </g>
+                          </svg>
+                          BULLISH SEASONALITY
                           <span className="count">({bullishOpps.length})</span>
                         </div>
                       </div>
                       <div
                         className="results-grid-split"
-                        style={
-                          {
-                            overflowY: 'auto',
-                            overflowX: 'hidden',
-                            height: 'calc(87vh - 70px)',
-                            paddingRight: '8px',
-                            scrollbarWidth: 'none',
-                            msOverflowStyle: 'none',
-                            WebkitOverflowScrolling: 'touch',
-                          } as React.CSSProperties & {
-                            scrollbarWidth?: string
-                            msOverflowStyle?: string
-                            WebkitOverflowScrolling?: string
-                          }
-                        }
+                        style={{
+                          overflowY: 'auto',
+                          overflowX: 'hidden',
+                          height: 'calc(82vh - 70px)',
+                        }}
                       >
                         {bullishOpps.map((opportunity, index) => {
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
@@ -730,8 +718,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
-                          const multiframeYears = (opportunity as any).timeframeDetails as number[] | undefined
-                          const cardKey = `seasoned-bullish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
                               key={cardKey}
@@ -773,28 +759,37 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     >
                       <div className="section-header-split seasoned-header">
                         <div className="section-title">
-                          <BearIcon size={48} />
-                          BEARISH SEASONED
+                          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                            <style>{`
+                              @keyframes sl-bear-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+                              @keyframes sl-claw { 0%{transform:translateY(0)} 40%{transform:translateY(2px)} 100%{transform:translateY(0)} }
+                              .sl-bear-body { animation: sl-bear-pulse 2s ease-in-out infinite; transform-origin: 14px 14px; }
+                              .sl-claw1 { animation: sl-claw 2s 0s ease-in-out infinite; transform-origin: 10px 20px; }
+                              .sl-claw2 { animation: sl-claw 2s 0.3s ease-in-out infinite; transform-origin: 14px 21px; }
+                              .sl-claw3 { animation: sl-claw 2s 0.6s ease-in-out infinite; transform-origin: 18px 20px; }
+                            `}</style>
+                            <g className="sl-bear-body">
+                              <path d="M7 10 Q14 5 21 10 L22 20 Q14 24 6 20Z" fill="#FF4444" opacity="0.85" />
+                              <circle cx="10" cy="8" r="2.5" fill="#FF4444" />
+                              <circle cx="18" cy="8" r="2.5" fill="#FF4444" />
+                              <circle cx="10.5" cy="13" r="1.2" fill="#1a0000" />
+                              <circle cx="17.5" cy="13" r="1.2" fill="#1a0000" />
+                            </g>
+                            <line className="sl-claw1" x1="10" y1="20" x2="9" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                            <line className="sl-claw2" x1="14" y1="21" x2="14" y2="25" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                            <line className="sl-claw3" x1="18" y1="20" x2="19" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                          BEARISH SEASONALITY
                           <span className="count">({bearishOpps.length})</span>
                         </div>
                       </div>
                       <div
                         className="results-grid-split"
-                        style={
-                          {
-                            overflowY: 'auto',
-                            overflowX: 'hidden',
-                            height: 'calc(87vh - 70px)',
-                            paddingRight: '8px',
-                            scrollbarWidth: 'none',
-                            msOverflowStyle: 'none',
-                            WebkitOverflowScrolling: 'touch',
-                          } as React.CSSProperties & {
-                            scrollbarWidth?: string
-                            msOverflowStyle?: string
-                            WebkitOverflowScrolling?: string
-                          }
-                        }
+                        style={{
+                          overflowY: 'auto',
+                          overflowX: 'hidden',
+                          height: 'calc(82vh - 70px)',
+                        }}
                       >
                         {bearishOpps.map((opportunity, index) => {
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
@@ -802,8 +797,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
-                          const multiframeYears = (opportunity as any).timeframeDetails as number[] | undefined
-                          const cardKey = `seasoned-bearish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
                               key={cardKey}
@@ -868,28 +861,37 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   >
                     <div className="section-header-split bullish-header">
                       <div className="section-title">
-                        <span className="bull-icon"></span>
-                        BULLISH OPPORTUNITIES
+                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                          <style>{`
+                            @keyframes sl-arrow-up { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(-4px);opacity:0.7} }
+                            @keyframes sl-bar-grow { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(1.15)} }
+                            @keyframes sl-spark { 0%,100%{opacity:0;transform:scale(0)} 50%{opacity:1;transform:scale(1)} }
+                            .sl-arrow { animation: sl-arrow-up 1.4s ease-in-out infinite; transform-origin: 14px 8px; }
+                            .sl-bar1 { animation: sl-bar-grow 1.4s 0s ease-in-out infinite; transform-origin: 8px 22px; }
+                            .sl-bar2 { animation: sl-bar-grow 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 22px; }
+                            .sl-bar3 { animation: sl-bar-grow 1.4s 0.4s ease-in-out infinite; transform-origin: 20px 22px; }
+                            .sl-spark { animation: sl-spark 1.4s ease-in-out infinite; transform-origin: 14px 6px; }
+                          `}</style>
+                          <rect className="sl-bar1" x="6" y="16" width="5" height="6" rx="1" fill="#00FF88" opacity="0.7" />
+                          <rect className="sl-bar2" x="11.5" y="12" width="5" height="10" rx="1" fill="#00FF88" opacity="0.85" />
+                          <rect className="sl-bar3" x="17" y="8" width="5" height="14" rx="1" fill="#00FF88" />
+                          <g className="sl-arrow">
+                            <polyline points="10,10 14,5 18,10" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                            <line x1="14" y1="5" x2="14" y2="14" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" />
+                          </g>
+                          <circle className="sl-spark" cx="14" cy="3" r="1.5" fill="#FFD700" />
+                        </svg>
+                        BULLISH SEASONALITY
                         <span className="count">({bullishOpps.length})</span>
                       </div>
                     </div>
                     <div
                       className="results-grid-split"
-                      style={
-                        {
-                          overflowY: 'auto',
-                          overflowX: 'hidden',
-                          height: 'calc(87vh - 70px)',
-                          paddingRight: '8px',
-                          scrollbarWidth: 'none',
-                          msOverflowStyle: 'none',
-                          WebkitOverflowScrolling: 'touch',
-                        } as React.CSSProperties & {
-                          scrollbarWidth?: string
-                          msOverflowStyle?: string
-                          WebkitOverflowScrolling?: string
-                        }
-                      }
+                      style={{
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        height: 'calc(82vh - 70px)',
+                      }}
                     >
                       {bullishOpps.map((opportunity, index) => {
                         const isTopBullish = topBullish
@@ -939,28 +941,37 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   >
                     <div className="section-header-split bearish-header">
                       <div className="section-title">
-                        <span className="bear-icon">🩸</span>
-                        BEARISH OPPORTUNITIES
+                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                          <style>{`
+                            @keyframes sl-arrow-dn { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(4px);opacity:0.7} }
+                            @keyframes sl-bar-shrink { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.85)} }
+                            @keyframes sl-drip { 0%,60%{opacity:0;transform:translateY(0)} 80%{opacity:1;transform:translateY(3px)} 100%{opacity:0;transform:translateY(5px)} }
+                            .sl-dn-arrow { animation: sl-arrow-dn 1.4s ease-in-out infinite; transform-origin: 14px 20px; }
+                            .sl-rbar1 { animation: sl-bar-shrink 1.4s 0.4s ease-in-out infinite; transform-origin: 8px 6px; }
+                            .sl-rbar2 { animation: sl-bar-shrink 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 6px; }
+                            .sl-rbar3 { animation: sl-bar-shrink 1.4s 0s ease-in-out infinite; transform-origin: 20px 6px; }
+                            .sl-drip { animation: sl-drip 1.4s ease-in-out infinite; }
+                          `}</style>
+                          <rect className="sl-rbar1" x="6" y="6" width="5" height="14" rx="1" fill="#FF4444" />
+                          <rect className="sl-rbar2" x="11.5" y="6" width="5" height="10" rx="1" fill="#FF4444" opacity="0.85" />
+                          <rect className="sl-rbar3" x="17" y="6" width="5" height="6" rx="1" fill="#FF4444" opacity="0.7" />
+                          <g className="sl-dn-arrow">
+                            <polyline points="10,18 14,23 18,18" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                            <line x1="14" y1="23" x2="14" y2="14" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" />
+                          </g>
+                          <circle className="sl-drip" cx="14" cy="25" r="1.5" fill="#FF6666" />
+                        </svg>
+                        BEARISH SEASONALITY
                         <span className="count">({bearishOpps.length})</span>
                       </div>
                     </div>
                     <div
                       className="results-grid-split"
-                      style={
-                        {
-                          overflowY: 'auto',
-                          overflowX: 'hidden',
-                          height: 'calc(87vh - 70px)',
-                          paddingRight: '8px',
-                          scrollbarWidth: 'none',
-                          msOverflowStyle: 'none',
-                          WebkitOverflowScrolling: 'touch',
-                        } as React.CSSProperties & {
-                          scrollbarWidth?: string
-                          msOverflowStyle?: string
-                          WebkitOverflowScrolling?: string
-                        }
-                      }
+                      style={{
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        height: 'calc(82vh - 70px)',
+                      }}
                     >
                       {bearishOpps.map((opportunity, index) => {
                         const isTopBearish = topBearish

@@ -126,6 +126,7 @@ interface CalendarEvent {
   prior?: string
   actual?: string
   beat?: boolean | null
+  surprise?: string
   type: 'economic' | 'earnings' | 'fed' | 'central-bank' | 'holiday'
 }
 
@@ -519,7 +520,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     return monday
   })
   const [selectedCalDate, setSelectedCalDate] = useState<number | null>(null)
-  const [weeklySubView, setWeeklySubView] = useState<'logos' | 'implied'>('logos')
+  const [weeklySubView, setWeeklySubView] = useState<'logos' | 'notable' | 'implied'>('logos')
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const [mobileDayIdx, setMobileDayIdx] = useState(() => {
     const d = typeof window !== 'undefined' ? new Date().getDay() : 1
@@ -544,6 +545,286 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
   const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
+  // ── Calendar search bar ───────────────────────────────────────────────────
+  const [calSearchInput, setCalSearchInput] = useState('')
+  const [calSearchOpen, setCalSearchOpen] = useState(false)
+  const [calSearchLoading, setCalSearchLoading] = useState(false)
+  const [calSearchPERange, setCalSearchPERange] = useState<'1Y' | '3Y' | '5Y'>('5Y')
+  const [calSearchData, setCalSearchData] = useState<{
+    ticker: string
+    name: string
+    price: number | null
+    change: number | null
+    changePct: number | null
+    marketCap: number | null
+    earningsDate: string | null
+    earningsTiming: string | null
+    earningsPast: boolean
+    epsEst: string | null
+    epsPrior: string | null
+    epsActual: string | null
+    epsSurprise: string | null
+    epsBeat: boolean | null
+    pe: number | null
+    peAvg5y: number | null
+    peAvg10y: number | null
+    peHistory: { date: string; pe: number }[]
+    peError: string | null
+  } | null>(null)
+
+  const fetchCalSearchData = useCallback(async (sym: string) => {
+    const upper = sym.trim().toUpperCase()
+    if (!upper || !POLYGON_KEY) {
+      return
+    }
+    setCalSearchLoading(true)
+    setCalSearchData(null)
+    setCalSearchOpen(true)
+    try {
+      // 1. Snapshot (price, change)
+      let price: number | null = null, change: number | null = null, changePct: number | null = null
+      try {
+        const snapUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${upper}?apikey=${POLYGON_KEY}`
+        const snapRes = await fetch(snapUrl)
+        const snapJson = await snapRes.json()
+        const t = snapJson?.ticker
+        price = t?.lastTrade?.p || t?.day?.c || t?.prevDay?.c || null
+        const prevClose: number | null = t?.prevDay?.c || null
+        change = price && prevClose ? price - prevClose : null
+        changePct = price && prevClose ? ((price - prevClose) / prevClose) * 100 : null
+      } catch { /* silent */ }
+
+      // 2. Ticker details for name + market cap
+      let name = upper
+      let mcap: number | null = null
+      try {
+        const detUrl = `https://api.polygon.io/v3/reference/tickers/${upper}?apikey=${POLYGON_KEY}`
+        const detRes = await fetch(detUrl)
+        const detJson = await detRes.json()
+        name = detJson?.results?.name || upper
+        mcap = detJson?.results?.market_cap || null
+      } catch { /* silent */ }
+
+      // 3. Earnings: check liveCalEvents first, then fall back to previous months via API
+      const _extractTicker = (event: string): string => event.match(/\(([A-Z]{1,5})\)/)?.[1] ?? ''
+      let earningEv = liveCalEvents.find(ev =>
+        ev.type === 'earnings' && _extractTicker(ev.event) === upper
+      )
+      let earningsPast = false
+      if (!earningEv) {
+        const today = new Date()
+        for (let i = 1; i <= 3; i++) {
+          const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
+          try {
+            const res = await fetch(`/api/earnings-calendar?year=${d.getFullYear()}&month=${d.getMonth()}`)
+            const json = await res.json()
+            if (json.success && Array.isArray(json.events)) {
+              const found = (json.events as CalendarEvent[]).find(ev =>
+                ev.type === 'earnings' && _extractTicker(ev.event) === upper
+              )
+              if (found) { earningEv = found; earningsPast = true; break }
+            }
+          } catch { /* silent */ }
+        }
+      }
+      const earningsDate = earningEv ? `${earningEv.date}, ${earningEv.year}` : null
+      const earningsTiming = earningEv?.time ?? null
+      const epsEst = earningEv?.forecast ?? null
+      const epsPrior = earningEv?.prior ?? null
+      const epsActual = earningEv?.actual ?? null
+      const epsSurprise = earningEv?.surprise ?? null
+      const epsBeat = earningEv?.beat ?? null
+
+      // 4. P/E ratio
+      const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLC', 'XLY', 'XLP', 'XLU', 'XLRE', 'XLB', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VNQ', 'ARKK', 'SMH', 'SOXX', 'XBI', 'IBB', 'KWEB', 'FXI', 'EWZ', 'VXX', 'UVXY'])
+      const peUrl = ETF_SET.has(upper) ? `/api/etf-pe?ticker=${upper}` : `/api/pe-ratio?ticker=${upper}`
+      let pe: number | null = null, peAvg5y: number | null = null, peAvg10y: number | null = null, peError: string | null = null
+      let peHistory: { date: string; pe: number }[] = []
+      try {
+        const peRes = await fetch(peUrl)
+        const peJson = await peRes.json()
+        if (peJson.error) { peError = peJson.error } else {
+          pe = peJson.current ?? null
+          peAvg5y = peJson.avg5y ?? null
+          peAvg10y = peJson.avg10y ?? null
+          peHistory = peJson.history ?? []
+        }
+      } catch (e: any) {
+        peError = e?.message ?? 'Failed'
+      }
+
+      const result = { ticker: upper, name, price, change, changePct, marketCap: mcap, earningsDate, earningsTiming, earningsPast, epsEst, epsPrior, epsActual, epsSurprise, epsBeat, pe, peAvg5y, peAvg10y, peHistory, peError }
+      setCalSearchData(result)
+    } catch { /* silent */ } finally {
+      setCalSearchLoading(false)
+    }
+  }, [POLYGON_KEY, liveCalEvents])
+
+  // Close popover on outside click (data-attribute based to support both mobile/desktop toolbars)
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-cal-search]')) {
+        setCalSearchOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const CalSearchPopover = () => {
+    if (!calSearchOpen) return null
+    const fmtNum = (n: number | null, dec = 2) => n != null ? n.toFixed(dec) : '—'
+    const fmtMcap = (n: number | null) => {
+      if (!n) return '—'
+      if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`
+      if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`
+      return `$${(n / 1e6).toFixed(0)}M`
+    }
+
+    const buildPEChart = () => {
+      const hist = calSearchData?.peHistory ?? []
+      if (hist.length < 2) return null
+      const yearsBack = calSearchPERange === '1Y' ? 1 : calSearchPERange === '3Y' ? 3 : 5
+      const cutoff = new Date(Date.now() - yearsBack * 365.25 * 86400 * 1000).toISOString().split('T')[0]
+      const filtered = hist.filter(h => h.date >= cutoff)
+      const data = filtered.length >= 2 ? filtered : hist
+      const step = Math.max(1, Math.floor(data.length / 500))
+      const pts = data.filter((_, i) => i % step === 0 || i === data.length - 1)
+      const cW = 596, cH = 220
+      const padL = 46, padR = 12, padT = 14, padB = 32
+      const plotW = cW - padL - padR
+      const plotH = cH - padT - padB
+      const peVals = pts.map(h => h.pe)
+      const rawMin = Math.min(...peVals), rawMax = Math.max(...peVals)
+      const rng = rawMax - rawMin || 1
+      const peMin = rawMin - rng * 0.05, peMax = rawMax + rng * 0.1
+      const toX = (i: number) => padL + (i / Math.max(pts.length - 1, 1)) * plotW
+      const toY = (pe: number) => padT + (1 - (pe - peMin) / (peMax - peMin)) * plotH
+      const linePath = pts.map((h, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(h.pe).toFixed(1)}`).join(' ')
+      const fillPath = `${linePath} L${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)} L${padL},${(padT + plotH).toFixed(1)}Z`
+      const yearsSeen = new Set<string>()
+      const xMarks: { x: number; year: string }[] = []
+      pts.forEach((h, i) => { const y = h.date.slice(0, 4); if (!yearsSeen.has(y)) { yearsSeen.add(y); xMarks.push({ x: toX(i), year: y }) } })
+      const yTicks = [0, 1, 2, 3, 4].map(i => peMin + (i / 4) * (peMax - peMin))
+      return (
+        <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
+          <defs>
+            <linearGradient id="csp-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FF6600" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#FF6600" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {yTicks.map((t, i) => (
+            <g key={i}>
+              <line x1={padL} y1={toY(t).toFixed(1)} x2={padL + plotW} y2={toY(t).toFixed(1)} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+              <text x={padL - 6} y={toY(t) + 4} textAnchor="end" fill="#ffffff" fontSize="12" fontFamily="monospace">{Math.round(t)}</text>
+            </g>
+          ))}
+          <path d={fillPath} fill="url(#csp-fill)" />
+          <path d={linePath} fill="none" stroke="#FF6600" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          {pts.length > 0 && (
+            <circle cx={toX(pts.length - 1).toFixed(1)} cy={toY(pts[pts.length - 1].pe).toFixed(1)} r="4.5" fill="#FF6600" stroke="#000000" strokeWidth="2" />
+          )}
+          {xMarks.map(({ x, year }) => (
+            <g key={year}>
+              <line x1={x.toFixed(1)} y1={padT + plotH} x2={x.toFixed(1)} y2={padT + plotH + 5} stroke="#ffffff" strokeWidth="1" opacity="0.4" />
+              <text x={x.toFixed(1)} y={padT + plotH + 20} textAnchor="middle" fill="#ffffff" fontSize="12" fontFamily="monospace">{year}</text>
+            </g>
+          ))}
+        </svg>
+      )
+    }
+
+    return (
+      <div style={{ position: 'absolute', left: 0, top: 'calc(100% + 8px)', zIndex: 200, width: 640, background: '#000000', border: '1px solid #2a2a2a', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.98)', overflow: 'hidden' }}>
+        {calSearchLoading ? (
+          <div style={{ padding: 48, textAlign: 'center', color: '#FF6600', fontSize: 14, fontFamily: 'monospace', fontWeight: 900, letterSpacing: '0.2em' }}>LOADING…</div>
+        ) : calSearchData ? (
+          <div>
+            {/* ── Header ── */}
+            <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid #1e1e1e' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                {/* Left: ticker + price + changes */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 10 }}>
+                    <span style={{ fontSize: 26, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.04em' }}>{calSearchData.ticker}</span>
+                    {calSearchData.price != null && <span style={{ fontSize: 20, fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>${fmtNum(calSearchData.price)}</span>}
+                    {calSearchData.changePct != null && (
+                      <span style={{ fontSize: 16, fontWeight: 900, color: calSearchData.changePct >= 0 ? '#22c55e' : '#ef4444', fontFamily: 'monospace' }}>
+                        {calSearchData.changePct >= 0 ? '+' : ''}{fmtNum(calSearchData.changePct)}%
+                      </span>
+                    )}
+                    {calSearchData.change != null && (
+                      <span style={{ fontSize: 13, fontWeight: 600, color: calSearchData.change >= 0 ? '#22c55e' : '#ef4444', fontFamily: 'monospace' }}>
+                        {calSearchData.change >= 0 ? '+' : ''}{fmtNum(calSearchData.change)}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4 }}>
+                    <span style={{ fontSize: 12, color: '#ffffff', fontWeight: 600 }}>{calSearchData.name}</span>
+                    {calSearchData.marketCap && <span style={{ fontSize: 11, color: '#ffffff', fontFamily: 'monospace' }}>Mkt Cap: {fmtMcap(calSearchData.marketCap)}</span>}
+                  </div>
+                </div>
+                {/* Right: earnings */}
+                {calSearchData.earningsDate && (
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'flex-end' }}>
+                      <span style={{ fontSize: 12, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.12em' }}>{calSearchData.earningsPast ? 'LAST RPT' : 'EARNINGS'}</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>{calSearchData.earningsDate}</span>
+                      {!calSearchData.epsActual && calSearchData.earningsTiming && (
+                        <span style={{ fontSize: 13, color: '#ffffff', fontFamily: 'monospace' }}>{calSearchData.earningsTiming}</span>
+                      )}
+                    </div>
+                    {calSearchData.epsActual ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', marginTop: 5 }}>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.08em' }}>EST</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>{calSearchData.epsEst || '—'}</span>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.08em' }}>ACTUAL</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>{calSearchData.epsActual}</span>
+                        {calSearchData.epsSurprise && (
+                          <span style={{ fontSize: 14, fontWeight: 900, color: calSearchData.epsBeat ? '#22c55e' : '#ef4444', fontFamily: 'monospace' }}>
+                            {calSearchData.epsSurprise} {calSearchData.epsBeat ? 'BEAT' : 'MISS'}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', marginTop: 5 }}>
+                        <span style={{ fontSize: 12, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.08em' }}>EPS EST</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>{calSearchData.epsEst || '—'}</span>
+                        {calSearchData.epsPrior && <span style={{ fontSize: 13, color: '#ffffff', fontFamily: 'monospace' }}>· prior {calSearchData.epsPrior}</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* ── P/E Chart ── */}
+            <div style={{ padding: '14px 20px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: '#FF6600', fontFamily: 'monospace', letterSpacing: '0.14em', textTransform: 'uppercase' }}>P/E Ratio</span>
+                {calSearchData.pe != null && <span style={{ fontSize: 22, fontWeight: 900, color: '#ffffff', fontFamily: 'monospace' }}>{fmtNum(calSearchData.pe, 1)}x</span>}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                  {(['1Y', '3Y', '5Y'] as const).map(r => (
+                    <button key={r} onClick={() => setCalSearchPERange(r)} style={{ fontSize: 11, fontWeight: 900, fontFamily: 'monospace', padding: '3px 9px', borderRadius: 5, border: '1px solid', cursor: 'pointer', background: calSearchPERange === r ? '#FF6600' : 'transparent', color: calSearchPERange === r ? '#000000' : '#ffffff', borderColor: calSearchPERange === r ? '#FF6600' : '#444444', letterSpacing: '0.05em' }}>{r}</button>
+                  ))}
+                </div>
+              </div>
+              {calSearchData.peError ? (
+                <div style={{ fontSize: 12, color: '#ffffff', fontFamily: 'monospace', padding: '16px 0', opacity: 0.4 }}>{calSearchData.peError}</div>
+              ) : (
+                <div style={{ background: '#050505', borderRadius: 8, padding: '10px 6px 4px', border: '1px solid #1e1e1e' }}>
+                  {buildPEChart() ?? <div style={{ padding: '32px 0', textAlign: 'center', color: '#ffffff', fontSize: 12, fontFamily: 'monospace', opacity: 0.25 }}>No chart data</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: 40, textAlign: 'center', color: '#ffffff', fontSize: 12, fontFamily: 'monospace', opacity: 0.25 }}>No data found</div>
+        )}
+      </div>
+    )
+  }
+
   // ── Implied Move: exact ChainPanel getProbabilityStrikes logic ──────────────
   const fetchImpliedMove = useCallback(async (ticker: string, earningsDate: Date) => {
     const key = `${ticker}-${earningsDate.toISOString().split('T')[0]}`
@@ -558,23 +839,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       base.setDate(base.getDate() + (fridayOffset < 0 ? fridayOffset + 7 : fridayOffset))
       const fridayStr = base.toISOString().split('T')[0]
 
-      // 1. Get current stock price
+      // 1. Get current stock price — lastTrade.p is live, day.c is session close, prevDay.c is fallback
       const priceRes = await fetch(
         `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_KEY}`
       )
-      if (!priceRes.ok) { console.warn(`[IV] ${ticker} price HTTP ${priceRes.status}`); return }
+      if (!priceRes.ok) { return }
       const priceData = await priceRes.json()
       const stockPrice: number =
-        priceData?.ticker?.day?.c ||
         priceData?.ticker?.lastTrade?.p ||
+        priceData?.ticker?.day?.c ||
         priceData?.ticker?.prevDay?.c
-      if (!stockPrice || stockPrice <= 0) { console.warn(`[IV] ${ticker} no valid price`); return }
+      if (!stockPrice || stockPrice <= 0) { return }
 
       // 2. Get contracts for the Friday expiry (with fallback) — same as ChainPanel fetchOptionsChain
       const contractsRes = await fetch(
         `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${fridayStr}&limit=500&apikey=${POLYGON_KEY}`
       )
-      if (!contractsRes.ok) { console.warn(`[IV] ${ticker} contracts HTTP ${contractsRes.status}`); return }
+      if (!contractsRes.ok) { return }
       const contractsData = await contractsRes.json()
       const results: any[] = contractsData?.results ?? []
 
@@ -583,16 +864,16 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const refRes = await fetch(
           `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${fridayStr}&limit=50&apikey=${POLYGON_KEY}`
         )
-        if (!refRes.ok) { console.warn(`[IV] ${ticker} fallback ref HTTP ${refRes.status}`); return }
+        if (!refRes.ok) { return }
         const refData = await refRes.json()
-        if (!refData?.results?.length) { console.warn(`[IV] ${ticker} no expirations found`); return }
+        if (!refData?.results?.length) { return }
         usedExpiry = refData.results[0].expiration_date
         const fallbackRes = await fetch(
           `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${usedExpiry}&limit=500&apikey=${POLYGON_KEY}`
         )
-        if (!fallbackRes.ok) { console.warn(`[IV] ${ticker} fallback contracts HTTP ${fallbackRes.status}`); return }
+        if (!fallbackRes.ok) { return }
         const fallbackData = await fallbackRes.json()
-        if (!fallbackData?.results?.length) { console.warn(`[IV] ${ticker} no contracts for fallback expiry ${usedExpiry}`); return }
+        if (!fallbackData?.results?.length) { return }
         results.push(...fallbackData.results)
       }
 
@@ -606,7 +887,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const pctDiff = Math.abs((opt.strike_price - stockPrice) / stockPrice)
         return pctDiff < 0.05
       })
-      if (atmOptions.length === 0) { console.warn(`[IV] ${ticker} no ATM options within 5%`); return }
+      if (atmOptions.length === 0) { return }
 
       // 5. Fetch IV for all ATM options in small batches (ChainPanel fetches each individually)
       const IV_BATCH = 5
@@ -630,12 +911,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
       // 6. Average IV of options that have valid IV > 0 — exact ChainPanel getProbabilityStrikes
       const validIVs = atmOptions.map((o: any) => ivMap[o.ticker] ?? 0).filter(iv => iv > 0)
-      if (validIVs.length === 0) { console.warn(`[IV] ${ticker} no options returned valid IV`); return }
+      if (validIVs.length === 0) { return }
       const avgIV = validIVs.reduce((s: number, v: number) => s + v, 0) / validIVs.length
-      if (avgIV < 0.01 || avgIV > 5) { console.warn(`[IV] ${ticker} avgIV out of range: ${avgIV}`); return }
+      if (avgIV < 0.01 || avgIV > 5) { return }
 
       // 7. DTE from actual used expiry — exact ChainPanel daysToExpiry calc
-      const expiryDate = new Date(usedExpiry)
+      // Parse as local midnight to avoid UTC offset shifting the date by 1 day
+      const [eY, eM, eD] = usedExpiry.split('-').map(Number)
+      const expiryDate = new Date(eY, eM - 1, eD)
       const now = new Date()
       const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
       const T = daysToExpiry / 365
@@ -658,7 +941,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
       setImpliedMoves((prev) => ({ ...prev, [ticker]: pct }))
     } catch (e) {
-      console.error(`[IV] ${ticker} error:`, e)
+      // silent fail
     }
   }, [POLYGON_KEY])
 
@@ -2189,6 +2472,122 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         )
       }
 
+      // ── NOTABLE view ─────────────────────────────────────────────────────────
+      if (weeklySubView === 'notable') {
+        const NM_SIZE = Math.round(144 * 0.9) // 130px
+        const NM_SIZE_HYPED = Math.round(NM_SIZE * 0.9) // 10% smaller when glow ring present
+        const renderNotableLogo = (ev: CalendarEvent, isPre: boolean) => {
+          const ticker = extractTicker(ev.event)
+          if (!ticker) return null
+          const isHyped = HYPED_TICKERS.has(ticker)
+          const logoSize = isHyped ? NM_SIZE_HYPED : NM_SIZE
+          return (
+            <div key={ticker} className="flex flex-col items-center gap-1 cursor-default">
+              <div style={isHyped
+                ? { borderRadius: 18, padding: 3, border: '2px solid #f97316', boxShadow: '0 0 12px rgba(249,115,22,0.7), 0 0 24px rgba(249,115,22,0.25)' }
+                : { borderRadius: 18, padding: 2, border: '2px solid transparent' }
+              }>
+                <div style={{ borderRadius: 14, overflow: 'hidden', width: logoSize, height: logoSize, flexShrink: 0 }}>
+                  <CompanyLogo ticker={ticker} size={logoSize} />
+                </div>
+              </div>
+              <span className={`text-[18px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`} style={{ fontFamily: 'monospace' }}>{ticker}</span>
+            </div>
+          )
+        }
+        const nmDay = weekDays[mobileDayIdx]
+        const nmPre = isMobile ? getWeekEarnings(nmDay, 'Pre-Market') : []
+        const nmPost = isMobile ? getWeekEarnings(nmDay, 'Post-Market') : []
+        return (
+          <div className="flex flex-col flex-1">
+            {/* MOBILE */}
+            {isMobile && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '2px solid #d4af37', borderRight: '2px solid #d4af37' }}>
+                <div style={{ borderBottom: '2px solid #d4af37' }}>
+                  <div style={{ padding: '8px 14px', background: 'rgba(251,191,36,0.07)', borderBottom: '1px solid rgba(251,191,36,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 900, color: '#fbbf24', letterSpacing: '0.1em', fontFamily: 'monospace', textTransform: 'uppercase' }}>Pre-Market</span>
+                    {nmPre.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 700 }}>{nmPre.length} co.</span>}
+                  </div>
+                  {nmPre.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, padding: '14px' }}>
+                      {nmPre.map((ev) => renderNotableLogo(ev, true))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div style={{ padding: '8px 14px', background: 'rgba(0,174,239,0.07)', borderBottom: '1px solid rgba(0,174,239,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22d3ee', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 900, color: '#22d3ee', letterSpacing: '0.1em', fontFamily: 'monospace', textTransform: 'uppercase' }}>After-Hours</span>
+                    {nmPost.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 700 }}>{nmPost.length} co.</span>}
+                  </div>
+                  {nmPost.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, padding: '14px' }}>
+                      {nmPost.map((ev) => renderNotableLogo(ev, false))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {!isMobile && <div style={{ height: '20px' }} />}
+            {/* DESKTOP: 5-column grid, 1 section pre + 1 section after, 2-col logos, round, 144px */}
+            {!isMobile && (
+              <div className="flex-1 grid grid-cols-5" style={{ minHeight: '580px', borderLeft: '2px solid #d4af37' }}>
+                {weekDays.map((day, i) => {
+                  const preEvs = getWeekEarnings(day, 'Pre-Market')
+                  const postEvs = getWeekEarnings(day, 'Post-Market')
+                  const isToday = day.toDateString() === today.toDateString()
+                  return (
+                    <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
+                      {/* Day header */}
+                      <div className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`} style={{ borderBottom: '2px solid #d4af37' }}>
+                        <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
+                          {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
+                        </div>
+                      </div>
+                      <div className="flex flex-col flex-1">
+                        {/* Section headers */}
+                        <div className="grid shrink-0" style={{ gridTemplateColumns: '1fr 1fr', borderBottom: '2px solid #d4af37' }}>
+                          <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}>
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            <span className="text-[13px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre</span>
+                          </div>
+                          <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}>
+                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                            <span className="text-[13px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>AH</span>
+                          </div>
+                        </div>
+                        {/* 2-col logo grids side by side */}
+                        <div className="flex-1 grid" style={{ gridTemplateColumns: '1fr 1fr', minHeight: '120px' }}>
+                          {/* Pre-Market — 2 columns, round 144px logos */}
+                          <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)' }}>
+                            {preEvs.length === 0
+                              ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
+                              : preEvs.map((ev) => renderNotableLogo(ev, true))
+                            }
+                          </div>
+                          {/* After-Hours — 2 columns, round 144px logos */}
+                          <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)' }}>
+                            {postEvs.length === 0
+                              ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
+                              : postEvs.map((ev) => renderNotableLogo(ev, false))
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      }
+
       // ── LOGOS view ──────────────────────────────────────────────────────────
       const mDay = weekDays[mobileDayIdx]
       const mPre = isMobile ? getWeekEarnings(mDay, 'Pre-Market') : []
@@ -2257,93 +2656,93 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           {/* DESKTOP: 5-column grid */}
           {!isMobile && <div style={{ height: '20px' }} />}
           {!isMobile && (
-          <div
-            className="flex-1 grid grid-cols-5"
-            style={{ minHeight: '580px', borderLeft: '2px solid #d4af37' }}
-          >
-            {weekDays.map((day, i) => {
-              const preEvs = getWeekEarnings(day, 'Pre-Market')
-              const postEvs = getWeekEarnings(day, 'Post-Market')
-              const isToday = day.toDateString() === today.toDateString()
-              return (
-                <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
-                  {/* Day header */}
-                  <div
-                    className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
-                    style={{ borderBottom: '2px solid #d4af37' }}
-                  >
-                    <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
-                      {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
+            <div
+              className="flex-1 grid grid-cols-5"
+              style={{ minHeight: '580px', borderLeft: '2px solid #d4af37' }}
+            >
+              {weekDays.map((day, i) => {
+                const preEvs = getWeekEarnings(day, 'Pre-Market')
+                const postEvs = getWeekEarnings(day, 'Post-Market')
+                const isToday = day.toDateString() === today.toDateString()
+                return (
+                  <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
+                    {/* Day header */}
+                    <div
+                      className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
+                      style={{ borderBottom: '2px solid #d4af37' }}
+                    >
+                      <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
+                        {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Pre-Market | After-Hours side-by-side: 1 col pre + 2 col after */}
-                  <div className="flex flex-col flex-1">
-                    {/* Section headers */}
-                    <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '2px solid #d4af37' }}>
-                      <div
-                        className="px-2 py-1.5 flex items-center gap-1"
-                        style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}
-                      >
-                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                        <span className="text-[15px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
+                    {/* Pre-Market | After-Hours side-by-side: 1 col pre + 2 col after */}
+                    <div className="flex flex-col flex-1">
+                      {/* Section headers */}
+                      <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '2px solid #d4af37' }}>
+                        <div
+                          className="px-2 py-1.5 flex items-center gap-1"
+                          style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                          <span className="text-[15px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
+                        </div>
+                        <div
+                          className="px-2 py-1.5 flex items-center gap-1"
+                          style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                          <span className="text-[15px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
+                        </div>
                       </div>
-                      <div
-                        className="px-2 py-1.5 flex items-center gap-1"
-                        style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}
-                      >
-                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                        <span className="text-[15px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
-                      </div>
-                    </div>
-                    {/* Logo grid: pre + after side by side */}
-                    <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
-                      {/* Pre-Market logos — 2 columns */}
-                      <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,160,50,0.05)' }}>
-                        {preEvs.length === 0 ? (
-                          <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
-                        ) : (
-                          preEvs.map((ev, ei) => {
-                            const ticker = extractTicker(ev.event)
-                            if (!ticker) return null
-                            const isHyped = HYPED_TICKERS.has(ticker)
-                            return (
-                              <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
-                                  <CompanyLogo ticker={ticker} size={72} />
+                      {/* Logo grid: pre + after side by side */}
+                      <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
+                        {/* Pre-Market logos — 2 columns */}
+                        <div className="grid grid-cols-2 gap-1.5 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,160,50,0.05)' }}>
+                          {preEvs.length === 0 ? (
+                            <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
+                          ) : (
+                            preEvs.map((ev, ei) => {
+                              const ticker = extractTicker(ev.event)
+                              if (!ticker) return null
+                              const isHyped = HYPED_TICKERS.has(ticker)
+                              return (
+                                <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
+                                  <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
+                                    <CompanyLogo ticker={ticker} size={72} />
+                                  </div>
+                                  <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
                                 </div>
-                                <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
-                              </div>
-                            )
-                          })
-                        )}
-                      </div>
-                      {/* After-Hours logos — 4 columns */}
-                      <div className="grid grid-cols-4 gap-1.5 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(50,140,255,0.05)' }}>
-                        {postEvs.length === 0 ? (
-                          <span className="text-xs text-white/15 font-bold italic mt-1 col-span-4">—</span>
-                        ) : (
-                          postEvs.map((ev, ei) => {
-                            const ticker = extractTicker(ev.event)
-                            if (!ticker) return null
-                            const isHyped = HYPED_TICKERS.has(ticker)
-                            return (
-                              <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
-                                  <CompanyLogo ticker={ticker} size={72} />
+                              )
+                            })
+                          )}
+                        </div>
+                        {/* After-Hours logos — 4 columns */}
+                        <div className="grid grid-cols-4 gap-1.5 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(50,140,255,0.05)' }}>
+                          {postEvs.length === 0 ? (
+                            <span className="text-xs text-white/15 font-bold italic mt-1 col-span-4">—</span>
+                          ) : (
+                            postEvs.map((ev, ei) => {
+                              const ticker = extractTicker(ev.event)
+                              if (!ticker) return null
+                              const isHyped = HYPED_TICKERS.has(ticker)
+                              return (
+                                <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
+                                  <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
+                                    <CompanyLogo ticker={ticker} size={72} />
+                                  </div>
+                                  <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
                                 </div>
-                                <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
-                              </div>
-                            )
-                          })
-                        )}
+                              )
+                            })
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
           )}
         </div>
       )
@@ -2506,7 +2905,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           overflow: 'hidden',
                         }}>
                           {Array.from({ length: FIXED_ROWS }, (_, r) => (
-                            <>
+                            <React.Fragment key={r}>
                               {/* Pre cols 1-2 */}
                               {Array.from({ length: PRE_COLS }, (_, c) =>
                                 renderCell(preEvs[r * PRE_COLS + c], `pre-${r}-${c}`, '#f59e0b')
@@ -2515,7 +2914,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                               {Array.from({ length: POST_COLS }, (_, c) =>
                                 renderCell(postEvs[r * POST_COLS + c], `post-${r}-${c}`, '#6366f1')
                               )}
-                            </>
+                            </React.Fragment>
                           ))}
                         </div>
                         {(preOverflow > 0 || postOverflow > 0) && (
@@ -2622,14 +3021,30 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 {/* LOGOS / IV — weekly only */}
                 {calViewMode === 'weekly' && (
                   <div style={{ display: 'flex', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: 8, overflow: 'hidden', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                    {(['logos', 'implied'] as const).map((id, idx) => (
+                    {(['logos', 'notable', 'implied'] as const).map((id, idx) => (
                       <button key={id} onClick={() => setWeeklySubView(id)}
                         style={{ padding: '6px 12px', fontWeight: 900, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', border: 'none', borderLeft: idx > 0 ? '1px solid #333' : 'none', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', color: weeklySubView === id ? '#FF6600' : '#ffffff', letterSpacing: '0.06em', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
-                        {id === 'logos' ? 'LOGOS' : 'IV'}
+                        {id === 'logos' ? 'LOGOS' : id === 'notable' ? 'NOTABLE' : 'IV'}
                       </button>
                     ))}
                   </div>
                 )}
+                {/* Calendar company search */}
+                <div data-cal-search style={{ position: 'relative', flexShrink: 0 }}>
+                  <form onSubmit={e => { e.preventDefault(); if (calSearchInput.trim()) fetchCalSearchData(calSearchInput) }} style={{ display: 'flex', alignItems: 'center' }}>
+                    <input
+                      value={calSearchInput}
+                      onChange={e => setCalSearchInput(e.target.value.toUpperCase())}
+                      placeholder="TICKER…"
+                      maxLength={8}
+                      style={{ width: 78, padding: '5px 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRight: 'none', borderRadius: '8px 0 0 8px', fontWeight: 900, fontSize: 11, fontFamily: 'monospace', color: '#fff', letterSpacing: '0.06em', outline: 'none', caretColor: '#FF6600' }}
+                    />
+                    <button type="submit" style={{ padding: '5px 7px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid #333', borderRadius: '0 8px 8px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg style={{ width: 11, height: 11, color: '#aaa' }} fill="none" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.8" /><path d="M10 10l3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                    </button>
+                  </form>
+                  {calSearchOpen && CalSearchPopover()}
+                </div>
                 {/* SHOW filter dropdown */}
                 <div style={{ position: 'relative', flexShrink: 0 }}>
                   <button onClick={() => setShowFilterDropdown(v => !v)}
@@ -2664,6 +3079,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap" style={{ display: isMobile ? 'none' : undefined }}>
             {/* Left toggles */}
             <div className="flex items-center gap-3 flex-wrap">
+              {/* Calendar company search */}
+              <div data-cal-search className="relative">
+                <form onSubmit={e => { e.preventDefault(); if (calSearchInput.trim()) fetchCalSearchData(calSearchInput) }} className="flex items-center">
+                  <input
+                    value={calSearchInput}
+                    onChange={e => setCalSearchInput(e.target.value.toUpperCase())}
+                    placeholder="TICKER…"
+                    maxLength={8}
+                    className="outline-none"
+                    style={{ width: 88, padding: '9px 12px', background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.1)', borderRight: 'none', borderRadius: '12px 0 0 12px', fontWeight: 900, fontSize: 13, fontFamily: 'monospace', color: '#fff', letterSpacing: '0.06em', caretColor: '#FF6600' }}
+                  />
+                  <button type="submit" className="flex items-center justify-center transition-all hover:text-orange-400" style={{ padding: '9px 10px', background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0 12px 12px 0', cursor: 'pointer', color: 'rgba(255,255,255,0.5)' }}>
+                    <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.8" /><path d="M10 10l3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                  </button>
+                </form>
+                {calSearchOpen && CalSearchPopover()}
+              </div>
               {/* Importance filter dropdown */}
               <div className="relative">
                 <button
@@ -2756,6 +3188,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   >
                     {([
                       { id: 'logos' as const, label: 'LOGOS' },
+                      { id: 'notable' as const, label: 'NOTABLE' },
                       { id: 'implied' as const, label: 'IMPLIED MOVE' },
                     ] as const).map(({ id, label }) => (
                       <button
@@ -3072,44 +3505,44 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           )}
         </div>
       ) : (
-      <div
-        className="relative overflow-hidden h-10 shrink-0 flex items-center select-none"
-        style={{ background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 40%, #7f1d1d 100%)' }}
-      >
         <div
-          className="absolute left-0 top-0 bottom-0 z-10 flex items-center gap-2 px-4"
-          style={{
-            background: 'linear-gradient(90deg, #b91c1c 0%, #991b1b 100%)',
-            borderRight: '1px solid #ef4444',
-          }}
+          className="relative overflow-hidden h-10 shrink-0 flex items-center select-none"
+          style={{ background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 40%, #7f1d1d 100%)' }}
         >
-          <TbFlame className="w-5 h-5 text-white animate-pulse shrink-0" />
-          <span className="text-white text-sm font-black tracking-[0.2em] uppercase whitespace-nowrap">
-            BREAKING
-          </span>
+          <div
+            className="absolute left-0 top-0 bottom-0 z-10 flex items-center gap-2 px-4"
+            style={{
+              background: 'linear-gradient(90deg, #b91c1c 0%, #991b1b 100%)',
+              borderRight: '1px solid #ef4444',
+            }}
+          >
+            <TbFlame className="w-5 h-5 text-white animate-pulse shrink-0" />
+            <span className="text-white text-sm font-black tracking-[0.2em] uppercase whitespace-nowrap">
+              BREAKING
+            </span>
+          </div>
+          <div
+            className="absolute right-0 top-0 bottom-0 z-10 flex items-center px-4 gap-2"
+            style={{
+              background: 'linear-gradient(90deg, transparent, #7f1d1d 30%, #991b1b 100%)',
+              borderLeft: '1px solid #ef444440',
+            }}
+          >
+            <TbClock className="w-4 h-4 text-red-200 shrink-0" />
+            <span className="text-red-100 text-sm font-black tracking-wider whitespace-nowrap">
+              {clock}
+            </span>
+          </div>
+          <div className="overflow-hidden pl-44 pr-44 w-full">
+            {tickerText ? (
+              <div className="whitespace-nowrap text-red-50 text-sm font-bold news-ticker-scroll">
+                {tickerText}&nbsp;&nbsp;&nbsp;●&nbsp;&nbsp;&nbsp;{tickerText}
+              </div>
+            ) : (
+              <div className="text-red-100 text-sm font-bold animate-pulse pl-4">Loading…</div>
+            )}
+          </div>
         </div>
-        <div
-          className="absolute right-0 top-0 bottom-0 z-10 flex items-center px-4 gap-2"
-          style={{
-            background: 'linear-gradient(90deg, transparent, #7f1d1d 30%, #991b1b 100%)',
-            borderLeft: '1px solid #ef444440',
-          }}
-        >
-          <TbClock className="w-4 h-4 text-red-200 shrink-0" />
-          <span className="text-red-100 text-sm font-black tracking-wider whitespace-nowrap">
-            {clock}
-          </span>
-        </div>
-        <div className="overflow-hidden pl-44 pr-44 w-full">
-          {tickerText ? (
-            <div className="whitespace-nowrap text-red-50 text-sm font-bold news-ticker-scroll">
-              {tickerText}&nbsp;&nbsp;&nbsp;●&nbsp;&nbsp;&nbsp;{tickerText}
-            </div>
-          ) : (
-            <div className="text-red-100 text-sm font-bold animate-pulse pl-4">Loading…</div>
-          )}
-        </div>
-      </div>
       )}
 
       {/* SEARCH BAR — hidden on calendar tab */}

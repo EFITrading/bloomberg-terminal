@@ -1891,12 +1891,12 @@ export default function AnalysisSuitePage() {
                     fontWeight: '800',
                     fontSize: '13.2px',
                     textShadow: `0 0 12px ${rsSignals.classification === 'LEADING'
-                        ? '#00ff41'
-                        : rsSignals.classification === 'IMPROVING'
-                          ? '#00d4ff'
-                          : rsSignals.classification === 'WEAKENING'
-                            ? '#ffff00'
-                            : '#ff073a'
+                      ? '#00ff41'
+                      : rsSignals.classification === 'IMPROVING'
+                        ? '#00d4ff'
+                        : rsSignals.classification === 'WEAKENING'
+                          ? '#ffff00'
+                          : '#ff073a'
                       }60, 0 1px 0 rgba(0, 0, 0, 0.8)`,
                     letterSpacing: '0.8px',
                     textTransform: 'uppercase',

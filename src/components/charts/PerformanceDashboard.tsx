@@ -85,21 +85,10 @@ interface PerformanceDashboardProps {
 
 const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible = true }) => {
   // State with localStorage persistence
-  const [timeframe, setTimeframe] = useState<Timeframe>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('performanceDashboard_timeframe')
-      return (saved as Timeframe) || '1W'
-    }
-    return '1W'
-  })
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('performanceDashboard_selectedSymbols')
-      // Default to all sectors if nothing saved
-      return saved ? JSON.parse(saved) : SECTORS.map((s) => s.symbol)
-    }
-    return SECTORS.map((s) => s.symbol)
-  })
+  const [timeframe, setTimeframe] = useState<Timeframe>('1W')
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(() =>
+    SECTORS.map((s) => s.symbol)
+  )
   const [seriesData, setSeriesData] = useState<SeriesData[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -412,17 +401,28 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   }, [selectedSymbols, timeframe, isWaveMode])
 
   // Save timeframe to localStorage
+  // Load persisted state from localStorage after mount (avoids SSR/CSR hydration mismatch)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('performanceDashboard_timeframe', timeframe)
+    const savedTimeframe = localStorage.getItem('performanceDashboard_timeframe')
+    if (savedTimeframe) setTimeframe(savedTimeframe as Timeframe)
+
+    const savedSymbols = localStorage.getItem('performanceDashboard_selectedSymbols')
+    if (savedSymbols) {
+      try {
+        setSelectedSymbols(JSON.parse(savedSymbols))
+      } catch {
+        // ignore malformed data
+      }
     }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('performanceDashboard_timeframe', timeframe)
   }, [timeframe])
 
   // Save selectedSymbols to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('performanceDashboard_selectedSymbols', JSON.stringify(selectedSymbols))
-    }
+    localStorage.setItem('performanceDashboard_selectedSymbols', JSON.stringify(selectedSymbols))
   }, [selectedSymbols])
 
   // Fetch data when symbols or timeframe or wave mode change

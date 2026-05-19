@@ -495,7 +495,7 @@ export default function HistoricalEventsResearch() {
       const key = INSTR_KEY_MAP[ins.ticker]
       const result = results[i]
       if (result.status === 'fulfilled' && result.value.length >= 2) {
-        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate,-10)} duringEnd=${offsetDate(event.startDate,10)}`)
+        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate, -10)} duringEnd=${offsetDate(event.startDate, 10)}`)
         const allBars = result.value
 
         // 'During' window: ±10 calendar days around the event START DATE
@@ -558,12 +558,12 @@ export default function HistoricalEventsResearch() {
         ...(isFullscreen
           ? {
             position: 'fixed',
-            top: 60,
+            top: 90,
             left: 0,
             right: 0,
             bottom: 0,
             zIndex: 9999,
-            height: 'calc(100dvh - 60px)',
+            height: 'calc(100dvh - 90px)',
             width: '100vw',
           }
           : {}),
@@ -571,10 +571,16 @@ export default function HistoricalEventsResearch() {
     >
       <style>{`
         @keyframes her-spin { to { transform: rotate(360deg); } }
-        .her-tab-btn { transition: all 0.15s ease; background: #000000 !important; }
-        .her-tab-btn:hover { filter: brightness(1.2) !important; }
-        .her-tab-btn.active { color: #FF6B00 !important; }
-        .her-tab-btn.inactive { color: #FFFFFF !important; }
+        @keyframes her-waveform { 0% { stroke-dashoffset: 60 } 100% { stroke-dashoffset: 0 } }
+        @keyframes her-radar-spin { 0% { transform: rotate(0deg) } 100% { transform: rotate(360deg) } }
+        @keyframes her-scan-sweep { 0%,100% { transform: translateY(-2.5px) } 50% { transform: translateY(2.5px) } }
+        @keyframes her-pulse-ring { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
+        .her-tab-btn { transition: all 0.2s ease; }
+        .her-tab-btn:hover { filter: brightness(1.15); }
+        .her-wave-anim { stroke-dasharray: 60; animation: her-waveform 2s linear infinite; }
+        .her-radar-sweep { transform-origin: 12px 12px; animation: her-radar-spin 2.5s linear infinite; }
+        .her-scan-line { transform-origin: 11px 11px; animation: her-scan-sweep 1.5s ease-in-out infinite; }
+        .her-pulse-ring { transform-origin: 11px 11px; animation: her-pulse-ring 2s ease-in-out infinite; }
         .her-cat-btn:hover { opacity: 1 !important; }
         .her-event-row:hover { background: #0e0e0e !important; }
         .her-period-btn:hover { color: #ffffff !important; background: rgba(255,255,255,0.04) !important; }
@@ -601,16 +607,9 @@ export default function HistoricalEventsResearch() {
             id: 'events' as const,
             label: 'RESEARCH HISTORICAL EVENTS',
             icon: (
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="square"
-              >
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="2" y1="12" x2="5" y2="12" />
+                <polyline className="her-wave-anim" points="5 12 8 5 11 19 14 8 17 12 20 12 22 12" />
               </svg>
             ),
           },
@@ -618,18 +617,11 @@ export default function HistoricalEventsResearch() {
             id: 'screener' as const,
             label: 'SEASONALITY SCANNER',
             icon: (
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="square"
-              >
-                <rect x="3" y="3" width="18" height="3" rx="1" />
-                <rect x="3" y="8" width="14" height="3" rx="1" />
-                <rect x="3" y="13" width="10" height="3" rx="1" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="5" strokeDasharray="3 3" />
+                <line className="her-radar-sweep" x1="12" y1="12" x2="21" y2="12" strokeWidth="1.5" />
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
               </svg>
             ),
           },
@@ -637,60 +629,63 @@ export default function HistoricalEventsResearch() {
             id: 'research' as const,
             label: 'PATTERN RESEARCH',
             icon: (
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="square"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" className="her-pulse-ring" />
+                <line className="her-scan-line" x1="7" y1="11" x2="15" y2="11" strokeWidth="1.5" />
+                <path d="m19 19-3.5-3.5" strokeWidth="2.5" />
               </svg>
             ),
           },
-        ].map((tab) => {
+        ].map((tab, index) => {
           const isActive = activeTab === tab.id
           return (
             <button
               key={tab.id}
-              className={`her-tab-btn ${isActive ? 'active' : 'inactive'}`}
-              onClick={() => setActiveTab(tab.id)}
+              className="her-tab-btn"
+              onClick={() => {
+                if (tab.id === 'screener') setIsFullscreen(false)
+                setActiveTab(tab.id)
+              }}
               style={{
                 flex: 1,
-                padding: '26px 24px',
-                background: '#000000',
-                border: 'none',
-                borderTop: isActive ? '2px solid #FF6B00' : '2px solid transparent',
-                borderBottom: isActive ? '2px solid #FF6B00' : '2px solid #FFFFFF',
-                borderRight: tab.id === 'events' ? '1px solid #1e1e1e' : 'none',
+                padding: isFullscreen ? '28px 16px 16px' : '20px 16px',
+                background: isActive
+                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                  : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                border: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
+                borderRight: index < 2 ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
                 color: isActive ? '#FF6B00' : '#FFFFFF',
-                fontSize: 20,
-                fontWeight: 800,
-                letterSpacing: '1.5px',
+                fontSize: 16,
+                fontWeight: 900,
+                letterSpacing: '0.15em',
                 textTransform: 'uppercase',
                 cursor: 'pointer',
                 display: 'flex',
-                alignItems: 'center',
+                flexDirection: 'row',
+                alignItems: isFullscreen ? 'flex-end' : 'center',
                 justifyContent: 'center',
-                gap: 10,
+                gap: 12,
                 fontFamily: '"Roboto Mono", monospace',
-                boxShadow: isActive
-                  ? 'inset 0 2px 6px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07), 0 -2px 8px rgba(255,107,0,0.08)'
-                  : 'inset 0 3px 10px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.03)',
-                transform: isActive ? 'translateY(0)' : 'translateY(2px)',
-                transition: 'all 0.15s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                transition: 'all 0.2s ease',
               }}
             >
-              <span>{tab.icon}</span>
-              {tab.label}
+              {isActive && (
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'linear-gradient(180deg, rgba(255,107,0,0.15) 0%, transparent 100%)',
+                  pointerEvents: 'none',
+                }} />
+              )}
+              <span style={{ position: 'relative', flexShrink: 0 }}>{tab.icon}</span>
+              <span style={{ position: 'relative', textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{tab.label}</span>
             </button>
           )
         })}
-        {/* FULLSCREEN TOGGLE */}
-        <button
+        {/* FULLSCREEN TOGGLE — hidden on screener tab */}
+        {activeTab !== 'screener' && <button
           onClick={() => setIsFullscreen((f) => !f)}
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           style={{
@@ -718,7 +713,7 @@ export default function HistoricalEventsResearch() {
               <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
             </svg>
           )}
-        </button>
+        </button>}
       </div>
 
       {/* TAB CONTENT */}
@@ -1365,613 +1360,613 @@ export default function HistoricalEventsResearch() {
                   )}
 
                   {!stats.loading && !stats.error && (
-                      <>
-                        {/* ── PERFORMANCE CHART ─────────────────────────── */}
-                        {(() => {
-                          const allWithData = ALL_INSTRUMENTS
-                            .map((ins) => ({
-                              ins,
-                              d: stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null,
-                            }))
-                            .filter(({ d }) => !!d && (d[activePeriod]?.indexed?.length ?? 0) > 0)
+                    <>
+                      {/* ── PERFORMANCE CHART ─────────────────────────── */}
+                      {(() => {
+                        const allWithData = ALL_INSTRUMENTS
+                          .map((ins) => ({
+                            ins,
+                            d: stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null,
+                          }))
+                          .filter(({ d }) => !!d && (d[activePeriod]?.indexed?.length ?? 0) > 0)
 
-                          const active = allWithData.filter(({ ins }) =>
-                            activeInstruments.includes(ins.ticker)
-                          )
+                        const active = allWithData.filter(({ ins }) =>
+                          activeInstruments.includes(ins.ticker)
+                        )
 
-                          const maxLen = active.length
-                            ? Math.max(...active.map(({ d }) => d![activePeriod]!.indexed.length))
-                            : 0
+                        const maxLen = active.length
+                          ? Math.max(...active.map(({ d }) => d![activePeriod]!.indexed.length))
+                          : 0
 
-                          const chartData = Array.from({ length: maxLen }, (_, i) => {
-                            const raw = active[0]?.d![activePeriod]!.bars[i]?.date ?? ''
-                            // Compute calendar day offset from event start date
-                            let dayOffset = i
-                            if (selectedEvent && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-                              const barMs = new Date(raw + 'T00:00:00').getTime()
-                              const anchorMs = new Date(selectedEvent.startDate + 'T00:00:00').getTime()
-                              dayOffset = Math.round((barMs - anchorMs) / 86400000)
-                            }
-                            const label = dayOffset === 0 ? 'D0' : dayOffset > 0 ? `+${dayOffset}` : `${dayOffset}`
-                            const row: Record<string, number | string> = { date: label, _dayOffset: dayOffset }
-                            active.forEach(({ ins, d }) => {
-                              const idx = d![activePeriod]!.indexed
-                              row[ins.label] = idx[i] ?? idx[idx.length - 1]
-                            })
-                            return row
+                        const chartData = Array.from({ length: maxLen }, (_, i) => {
+                          const raw = active[0]?.d![activePeriod]!.bars[i]?.date ?? ''
+                          // Compute calendar day offset from event start date
+                          let dayOffset = i
+                          if (selectedEvent && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                            const barMs = new Date(raw + 'T00:00:00').getTime()
+                            const anchorMs = new Date(selectedEvent.startDate + 'T00:00:00').getTime()
+                            dayOffset = Math.round((barMs - anchorMs) / 86400000)
+                          }
+                          const label = dayOffset === 0 ? 'D0' : dayOffset > 0 ? `+${dayOffset}` : `${dayOffset}`
+                          const row: Record<string, number | string> = { date: label, _dayOffset: dayOffset }
+                          active.forEach(({ ins, d }) => {
+                            const idx = d![activePeriod]!.indexed
+                            row[ins.label] = idx[i] ?? idx[idx.length - 1]
                           })
+                          return row
+                        })
 
-                          return (
-                            <div style={{ marginBottom: 14 }}>
-                              {/* ── GROUP DROPDOWN LEGEND ── */}
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                                {INSTRUMENT_GROUPS.map((group) => {
-                                  const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
-                                  if (!groupInstruments.length) return null
-                                  const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
-                                  const isOpen = openGroup === group
-                                  return (
-                                    <div key={group} style={{ position: 'relative' }}>
-                                      <button
-                                        onClick={() => setOpenGroup(isOpen ? null : group)}
-                                        style={{
+                        return (
+                          <div style={{ marginBottom: 14 }}>
+                            {/* ── GROUP DROPDOWN LEGEND ── */}
+                            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                              {INSTRUMENT_GROUPS.map((group) => {
+                                const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
+                                if (!groupInstruments.length) return null
+                                const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
+                                const isOpen = openGroup === group
+                                return (
+                                  <div key={group} style={{ position: 'relative' }}>
+                                    <button
+                                      onClick={() => setOpenGroup(isOpen ? null : group)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        padding: '9px 16px',
+                                        background: isOpen
+                                          ? `linear-gradient(180deg, ${GROUP_COLORS[group]}22 0%, ${GROUP_COLORS[group]}0d 100%)`
+                                          : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
+                                        border: `1px solid ${isOpen ? GROUP_COLORS[group] : '#252525'}`,
+                                        color: '#fff',
+                                        fontSize: 15,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        letterSpacing: '0.6px',
+                                        textTransform: 'uppercase',
+                                        fontFamily: '"Roboto Mono", monospace',
+                                        boxShadow: isOpen
+                                          ? `0 0 10px ${GROUP_COLORS[group]}20`
+                                          : '0 2px 6px rgba(0,0,0,0.4)',
+                                        transition: 'all 0.15s',
+                                      }}
+                                    >
+                                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
+                                      {group}
+                                      <span style={{
+                                        background: enabledCount > 0 ? GROUP_COLORS[group] : '#333',
+                                        color: enabledCount > 0 ? '#000' : '#666',
+                                        fontSize: 12,
+                                        fontWeight: 900,
+                                        padding: '2px 6px',
+                                        borderRadius: 2,
+                                        minWidth: 20,
+                                        textAlign: 'center',
+                                      }}>
+                                        {enabledCount}/{groupInstruments.length}
+                                      </span>
+                                      <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{isOpen ? '▲' : '▼'}</span>
+                                    </button>
+
+                                    {isOpen && (
+                                      <div style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        left: 0,
+                                        zIndex: 50,
+                                        marginTop: 4,
+                                        background: 'linear-gradient(180deg, #181818 0%, #111 100%)',
+                                        border: `1px solid ${GROUP_COLORS[group]}40`,
+                                        boxShadow: `0 8px 24px rgba(0,0,0,0.7), 0 0 0 1px ${GROUP_COLORS[group]}15`,
+                                        minWidth: 200,
+                                        overflow: 'hidden',
+                                      }}>
+                                        {/* Select all / none */}
+                                        <div style={{
                                           display: 'flex',
-                                          alignItems: 'center',
+                                          borderBottom: '1px solid #1e1e1e',
+                                          padding: '6px 10px',
                                           gap: 8,
-                                          padding: '9px 16px',
-                                          background: isOpen
-                                            ? `linear-gradient(180deg, ${GROUP_COLORS[group]}22 0%, ${GROUP_COLORS[group]}0d 100%)`
-                                            : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
-                                          border: `1px solid ${isOpen ? GROUP_COLORS[group] : '#252525'}`,
-                                          color: '#fff',
-                                          fontSize: 15,
-                                          fontWeight: 700,
+                                        }}>
+                                          <button
+                                            onClick={() => setActiveInstruments((prev) => {
+                                              const tickers = groupInstruments.map(({ ins }) => ins.ticker)
+                                              const others = prev.filter((t) => !tickers.includes(t))
+                                              return [...others, ...tickers]
+                                            })}
+                                            style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#fff', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
+                                          >ALL</button>
+                                          <button
+                                            onClick={() => setActiveInstruments((prev) => {
+                                              const tickers = groupInstruments.map(({ ins }) => ins.ticker)
+                                              return prev.filter((t) => !tickers.includes(t))
+                                            })}
+                                            style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#666', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
+                                          >NONE</button>
+                                        </div>
+                                        {groupInstruments.map(({ ins, d }) => {
+                                          const on = activeInstruments.includes(ins.ticker)
+                                          const ret = d![activePeriod]?.totalReturn ?? 0
+                                          return (
+                                            <div
+                                              key={ins.ticker}
+                                              onClick={() => setActiveInstruments((prev) =>
+                                                on ? prev.filter((t) => t !== ins.ticker) : [...prev, ins.ticker]
+                                              )}
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 9,
+                                                padding: '8px 12px',
+                                                cursor: 'pointer',
+                                                background: on ? `${ins.color}0a` : 'transparent',
+                                                borderBottom: '1px solid #141414',
+                                                transition: 'background 0.1s',
+                                              }}
+                                            >
+                                              {/* Checkbox */}
+                                              <div style={{
+                                                width: 14,
+                                                height: 14,
+                                                border: `1.5px solid ${on ? ins.color : '#333'}`,
+                                                background: on ? ins.color : 'transparent',
+                                                flexShrink: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                              }}>
+                                                {on && <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                              </div>
+                                              <div style={{ width: 14, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
+                                              <span style={{ color: on ? '#fff' : '#555', fontSize: 15, fontWeight: 700, flex: 1 }}>
+                                                {ins.label}
+                                              </span>
+                                              <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 15, fontWeight: 800 }}>
+                                                {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
+                                              </span>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                              {/* Close dropdown on outside area click */}
+                              {openGroup && (
+                                <div
+                                  style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+                                  onClick={() => setOpenGroup(null)}
+                                />
+                              )}
+                            </div>
+
+                            {active.length > 0 ? (
+                              <ResponsiveContainer width="100%" height={675}>
+                                <LineChart
+                                  data={chartData}
+                                  margin={{ top: 12, right: 110, bottom: 8, left: 8 }}
+                                >
+                                  <XAxis
+                                    dataKey="date"
+                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tickLine={{ stroke: '#333' }}
+                                    axisLine={{ stroke: '#333' }}
+                                    interval="preserveStartEnd"
+                                    minTickGap={40}
+                                  />
+                                  <YAxis
+                                    orientation="left"
+                                    domain={['auto', 'auto']}
+                                    tickFormatter={(v: number) =>
+                                      `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
+                                    }
+                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tickLine={{ stroke: '#333' }}
+                                    axisLine={{ stroke: '#333' }}
+                                    width={72}
+                                  />
+                                  <Tooltip
+                                    contentStyle={{
+                                      background: '#0d0d0d',
+                                      border: '1px solid #2a2a2a',
+                                      fontSize: 12,
+                                      fontFamily: '"Roboto Mono", monospace',
+                                      padding: '8px 12px',
+                                    }}
+                                    formatter={((val: unknown, name: string) => {
+                                      const v = val as number
+                                      return [`${v >= 100 ? '+' : ''}${(v - 100).toFixed(2)}%`, name]
+                                    }) as never}
+                                    labelStyle={{ color: '#aaa', fontSize: 11, marginBottom: 4 }}
+                                    itemStyle={{ padding: '2px 0', fontSize: 12 }}
+                                  />
+                                  <ReferenceLine y={100} stroke="#2a2a2a" strokeDasharray="4 4" strokeWidth={1} />
+                                  <ReferenceLine x="D0" stroke="#FF6B00" strokeWidth={1.5} label={{ value: 'EVENT', position: 'top', fill: '#FF6B00', fontSize: 10, fontWeight: 700, fontFamily: '"Roboto Mono", monospace' }} />
+                                  {(() => {
+                                    const endPos: Record<string, { x: number; y: number; color: string }> = {}
+                                    return active.map(({ ins }, lineIndex) => (
+                                      <Line
+                                        key={ins.ticker}
+                                        type="monotone"
+                                        dataKey={ins.label}
+                                        stroke={ins.color}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        activeDot={{ r: 4, fill: ins.color, stroke: '#000', strokeWidth: 1 }}
+                                        label={((props: { index: number; x: number; y: number }) => {
+                                          if (props.index !== maxLen - 1) return <g />
+                                          endPos[ins.ticker] = { x: props.x, y: props.y, color: ins.color }
+                                          if (lineIndex !== active.length - 1) return <g />
+                                          // all lines have written — run collision avoidance
+                                          const items = Object.entries(endPos).map(([ticker, p]) => ({ ticker, x: p.x, y: p.y, color: p.color }))
+                                          items.sort((a, b) => a.y - b.y)
+                                          const minGap = 26
+                                          for (let pass = 0; pass < 300; pass++) {
+                                            let moved = false
+                                            for (let i = 1; i < items.length; i++) {
+                                              const gap = items[i].y - items[i - 1].y
+                                              if (gap < minGap) {
+                                                const shift = (minGap - gap) / 2
+                                                items[i - 1].y -= shift
+                                                items[i].y += shift
+                                                moved = true
+                                              }
+                                            }
+                                            if (!moved) break
+                                          }
+                                          return (
+                                            <g>
+                                              {items.map(item => (
+                                                <text
+                                                  key={item.ticker}
+                                                  x={item.x + 10}
+                                                  y={item.y}
+                                                  fill={item.color}
+                                                  fontSize={20}
+                                                  fontFamily='"Roboto Mono", monospace'
+                                                  fontWeight={700}
+                                                  dominantBaseline="middle"
+                                                >
+                                                  {item.ticker}
+                                                </text>
+                                              ))}
+                                            </g>
+                                          )
+                                        }) as never}
+                                      />
+                                    ))
+                                  })()}
+                                </LineChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div style={{ height: 450, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700, letterSpacing: '1px' }}>
+                                NO INSTRUMENTS SELECTED
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                      {false && <div
+                        style={{
+                          background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
+                          border: '1px solid #141414',
+                          marginBottom: 14,
+                          overflow: 'hidden',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+                        }}
+                      >
+                        {/* Table header bar */}
+                        <div
+                          style={{
+                            padding: '12px 18px 10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderBottom: '1px solid #111',
+                            background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div
+                              style={{
+                                width: 3,
+                                height: 14,
+                                background: '#3b82f6',
+                                boxShadow: '0 0 6px #3b82f640',
+                              }}
+                            />
+                            <span
+                              style={{
+                                color: '#FFFFFF',
+                                fontSize: 12,
+                                fontWeight: 800,
+                                letterSpacing: '1.2px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Period Performance Matrix
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              color: 'rgba(255,255,255,0.3)',
+                              fontSize: 10,
+                              letterSpacing: '0.5px',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Click column to switch active period
+                          </span>
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table
+                            style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}
+                          >
+                            <thead>
+                              <tr style={{ background: '#040404' }}>
+                                <th
+                                  style={{
+                                    textAlign: 'left',
+                                    color: '#666',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.8px',
+                                    padding: '8px 14px',
+                                    textTransform: 'uppercase',
+                                    whiteSpace: 'nowrap',
+                                    borderBottom: '1px solid #111',
+                                  }}
+                                >
+                                  Instrument
+                                </th>
+                                {(['pre30', 'pre10', 'during', 'post30'] as PeriodKey[]).map(
+                                  (pk) => {
+                                    const labels: Record<string, string> = {
+                                      pre30: '-30D Before',
+                                      pre10: '-10D Before',
+                                      during: 'During Event',
+                                      post30: '+30D After',
+                                    }
+                                    const colors: Record<string, string> = {
+                                      pre30: '#a855f7',
+                                      pre10: '#f472b6',
+                                      during: '#ef4444',
+                                      post30: '#22c55e',
+                                    }
+                                    const isA = activePeriod === pk
+                                    return (
+                                      <th
+                                        key={pk}
+                                        onClick={() => setActivePeriod(pk)}
+                                        style={{
+                                          textAlign: 'center',
                                           cursor: 'pointer',
-                                          letterSpacing: '0.6px',
+                                          color: isA ? colors[pk] : '#444',
+                                          fontSize: 13,
+                                          fontWeight: 800,
+                                          letterSpacing: '0.7px',
+                                          padding: '8px 12px',
+                                          whiteSpace: 'nowrap',
                                           textTransform: 'uppercase',
-                                          fontFamily: '"Roboto Mono", monospace',
-                                          boxShadow: isOpen
-                                            ? `0 0 10px ${GROUP_COLORS[group]}20`
-                                            : '0 2px 6px rgba(0,0,0,0.4)',
+                                          borderBottom: isA
+                                            ? `2px solid ${colors[pk]}`
+                                            : '2px solid transparent',
+                                          background: isA ? `${colors[pk]}08` : 'transparent',
                                           transition: 'all 0.15s',
                                         }}
                                       >
-                                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
+                                        {labels[pk]}
+                                      </th>
+                                    )
+                                  }
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {INSTRUMENT_GROUPS.map((group) => {
+                                const groupInstruments = ALL_INSTRUMENTS.filter(
+                                  (ins) => ins.group === group
+                                )
+                                const anyData = groupInstruments.some(
+                                  (ins) =>
+                                    !!(stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null)
+                                )
+                                if (!anyData) return null
+                                return (
+                                  <React.Fragment key={group}>
+                                    <tr>
+                                      <td
+                                        colSpan={5}
+                                        style={{
+                                          padding: '7px 14px 4px',
+                                          color: GROUP_COLORS[group],
+                                          fontSize: 11,
+                                          fontWeight: 800,
+                                          letterSpacing: '1.2px',
+                                          textTransform: 'uppercase',
+                                          background: `${GROUP_COLORS[group]}06`,
+                                          borderTop: `1px solid ${GROUP_COLORS[group]}15`,
+                                          borderBottom: `1px solid ${GROUP_COLORS[group]}10`,
+                                        }}
+                                      >
                                         {group}
-                                        <span style={{
-                                          background: enabledCount > 0 ? GROUP_COLORS[group] : '#333',
-                                          color: enabledCount > 0 ? '#000' : '#666',
-                                          fontSize: 12,
-                                          fontWeight: 900,
-                                          padding: '2px 6px',
-                                          borderRadius: 2,
-                                          minWidth: 20,
-                                          textAlign: 'center',
-                                        }}>
-                                          {enabledCount}/{groupInstruments.length}
-                                        </span>
-                                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{isOpen ? '▲' : '▼'}</span>
-                                      </button>
-
-                                      {isOpen && (
-                                        <div style={{
-                                          position: 'absolute',
-                                          top: '100%',
-                                          left: 0,
-                                          zIndex: 50,
-                                          marginTop: 4,
-                                          background: 'linear-gradient(180deg, #181818 0%, #111 100%)',
-                                          border: `1px solid ${GROUP_COLORS[group]}40`,
-                                          boxShadow: `0 8px 24px rgba(0,0,0,0.7), 0 0 0 1px ${GROUP_COLORS[group]}15`,
-                                          minWidth: 200,
-                                          overflow: 'hidden',
-                                        }}>
-                                          {/* Select all / none */}
-                                          <div style={{
-                                            display: 'flex',
-                                            borderBottom: '1px solid #1e1e1e',
-                                            padding: '6px 10px',
-                                            gap: 8,
-                                          }}>
-                                            <button
-                                              onClick={() => setActiveInstruments((prev) => {
-                                                const tickers = groupInstruments.map(({ ins }) => ins.ticker)
-                                                const others = prev.filter((t) => !tickers.includes(t))
-                                                return [...others, ...tickers]
-                                              })}
-                                              style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#fff', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
-                                            >ALL</button>
-                                            <button
-                                              onClick={() => setActiveInstruments((prev) => {
-                                                const tickers = groupInstruments.map(({ ins }) => ins.ticker)
-                                                return prev.filter((t) => !tickers.includes(t))
-                                              })}
-                                              style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#666', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
-                                            >NONE</button>
-                                          </div>
-                                          {groupInstruments.map(({ ins, d }) => {
-                                            const on = activeInstruments.includes(ins.ticker)
-                                            const ret = d![activePeriod]?.totalReturn ?? 0
+                                      </td>
+                                    </tr>
+                                    {groupInstruments.map((ins, idx) => {
+                                      const d = stats[
+                                        INSTR_KEY_MAP[ins.ticker]
+                                      ] as InstrumentData | null
+                                      if (!d) return null
+                                      return (
+                                        <tr
+                                          key={ins.ticker}
+                                          style={{
+                                            background: idx % 2 === 0 ? '#030303' : '#050505',
+                                            borderBottom: '1px solid #0a0a0a',
+                                          }}
+                                        >
+                                          <td
+                                            style={{ padding: '7px 14px', whiteSpace: 'nowrap' }}
+                                          >
+                                            <span
+                                              style={{
+                                                color: ins.color,
+                                                fontSize: 15,
+                                                fontWeight: 700,
+                                              }}
+                                            >
+                                              {ins.label}
+                                            </span>
+                                            <span
+                                              style={{
+                                                color: '#444',
+                                                fontSize: 12,
+                                                marginLeft: 7,
+                                              }}
+                                            >
+                                              {ins.ticker === 'DXY'
+                                                ? 'UUP'
+                                                : ins.ticker === 'VIX'
+                                                  ? 'I:VIX'
+                                                  : ins.ticker}
+                                            </span>
+                                          </td>
+                                          {(
+                                            ['pre30', 'pre10', 'during', 'post30'] as PeriodKey[]
+                                          ).map((pk) => {
+                                            const ps = d[pk] as PeriodStats | null
+                                            const ret = ps?.totalReturn
+                                            const isA = activePeriod === pk
                                             return (
-                                              <div
-                                                key={ins.ticker}
-                                                onClick={() => setActiveInstruments((prev) =>
-                                                  on ? prev.filter((t) => t !== ins.ticker) : [...prev, ins.ticker]
-                                                )}
+                                              <td
+                                                key={pk}
                                                 style={{
-                                                  display: 'flex',
-                                                  alignItems: 'center',
-                                                  gap: 9,
-                                                  padding: '8px 12px',
-                                                  cursor: 'pointer',
-                                                  background: on ? `${ins.color}0a` : 'transparent',
-                                                  borderBottom: '1px solid #141414',
-                                                  transition: 'background 0.1s',
+                                                  textAlign: 'center',
+                                                  padding: '7px 10px',
+                                                  background: isA
+                                                    ? 'rgba(255,255,255,0.02)'
+                                                    : 'transparent',
                                                 }}
                                               >
-                                                {/* Checkbox */}
-                                                <div style={{
-                                                  width: 14,
-                                                  height: 14,
-                                                  border: `1.5px solid ${on ? ins.color : '#333'}`,
-                                                  background: on ? ins.color : 'transparent',
-                                                  flexShrink: 0,
-                                                  display: 'flex',
-                                                  alignItems: 'center',
-                                                  justifyContent: 'center',
-                                                }}>
-                                                  {on && <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
-                                                </div>
-                                                <div style={{ width: 14, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
-                                                <span style={{ color: on ? '#fff' : '#555', fontSize: 15, fontWeight: 700, flex: 1 }}>
-                                                  {ins.label}
-                                                </span>
-                                                <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 15, fontWeight: 800 }}>
-                                                  {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
-                                                </span>
-                                              </div>
+                                                {ret !== undefined && ret !== null ? (
+                                                  <span
+                                                    style={{
+                                                      display: 'inline-block',
+                                                      padding: '3px 10px',
+                                                      fontSize: 15,
+                                                      fontWeight: 800,
+                                                      color: ret >= 0 ? '#00e676' : '#ff4d6d',
+                                                      background:
+                                                        ret >= 0 ? '#00e67612' : '#ff4d6d12',
+                                                      letterSpacing: '-0.2px',
+                                                      minWidth: 68,
+                                                      textAlign: 'center',
+                                                    }}
+                                                  >
+                                                    {formatPct(ret)}
+                                                  </span>
+                                                ) : (
+                                                  <span
+                                                    style={{
+                                                      color: '#2a2a2a',
+                                                      fontSize: 15,
+                                                    }}
+                                                  >
+                                                    —
+                                                  </span>
+                                                )}
+                                              </td>
                                             )
                                           })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )
-                                })}
-                                {/* Close dropdown on outside area click */}
-                                {openGroup && (
-                                  <div
-                                    style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-                                    onClick={() => setOpenGroup(null)}
-                                  />
-                                )}
-                              </div>
+                                        </tr>
+                                      )
+                                    })}
+                                  </React.Fragment>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>}
 
-                              {active.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={675}>
-                                  <LineChart
-                                    data={chartData}
-                                    margin={{ top: 12, right: 110, bottom: 8, left: 8 }}
-                                  >
-                                    <XAxis
-                                      dataKey="date"
-                                      tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
-                                      tickLine={{ stroke: '#333' }}
-                                      axisLine={{ stroke: '#333' }}
-                                      interval="preserveStartEnd"
-                                      minTickGap={40}
-                                    />
-                                    <YAxis
-                                      orientation="left"
-                                      domain={['auto', 'auto']}
-                                      tickFormatter={(v: number) =>
-                                        `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
-                                      }
-                                      tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
-                                      tickLine={{ stroke: '#333' }}
-                                      axisLine={{ stroke: '#333' }}
-                                      width={72}
-                                    />
-                                    <Tooltip
-                                      contentStyle={{
-                                        background: '#0d0d0d',
-                                        border: '1px solid #2a2a2a',
-                                        fontSize: 12,
-                                        fontFamily: '"Roboto Mono", monospace',
-                                        padding: '8px 12px',
-                                      }}
-                                      formatter={((val: unknown, name: string) => {
-                                        const v = val as number
-                                        return [`${v >= 100 ? '+' : ''}${(v - 100).toFixed(2)}%`, name]
-                                      }) as never}
-                                      labelStyle={{ color: '#aaa', fontSize: 11, marginBottom: 4 }}
-                                      itemStyle={{ padding: '2px 0', fontSize: 12 }}
-                                    />
-                                    <ReferenceLine y={100} stroke="#2a2a2a" strokeDasharray="4 4" strokeWidth={1} />
-                                    <ReferenceLine x="D0" stroke="#FF6B00" strokeWidth={1.5} label={{ value: 'EVENT', position: 'top', fill: '#FF6B00', fontSize: 10, fontWeight: 700, fontFamily: '"Roboto Mono", monospace' }} />
-                                    {(() => {
-                                      const endPos: Record<string, { x: number; y: number; color: string }> = {}
-                                      return active.map(({ ins }, lineIndex) => (
-                                        <Line
-                                          key={ins.ticker}
-                                          type="monotone"
-                                          dataKey={ins.label}
-                                          stroke={ins.color}
-                                          strokeWidth={2}
-                                          dot={false}
-                                          activeDot={{ r: 4, fill: ins.color, stroke: '#000', strokeWidth: 1 }}
-                                          label={((props: { index: number; x: number; y: number }) => {
-                                            if (props.index !== maxLen - 1) return <g />
-                                            endPos[ins.ticker] = { x: props.x, y: props.y, color: ins.color }
-                                            if (lineIndex !== active.length - 1) return <g />
-                                            // all lines have written — run collision avoidance
-                                            const items = Object.entries(endPos).map(([ticker, p]) => ({ ticker, x: p.x, y: p.y, color: p.color }))
-                                            items.sort((a, b) => a.y - b.y)
-                                            const minGap = 26
-                                            for (let pass = 0; pass < 300; pass++) {
-                                              let moved = false
-                                              for (let i = 1; i < items.length; i++) {
-                                                const gap = items[i].y - items[i - 1].y
-                                                if (gap < minGap) {
-                                                  const shift = (minGap - gap) / 2
-                                                  items[i - 1].y -= shift
-                                                  items[i].y += shift
-                                                  moved = true
-                                                }
-                                              }
-                                              if (!moved) break
-                                            }
-                                            return (
-                                              <g>
-                                                {items.map(item => (
-                                                  <text
-                                                    key={item.ticker}
-                                                    x={item.x + 10}
-                                                    y={item.y}
-                                                    fill={item.color}
-                                                    fontSize={20}
-                                                    fontFamily='"Roboto Mono", monospace'
-                                                    fontWeight={700}
-                                                    dominantBaseline="middle"
-                                                  >
-                                                    {item.ticker}
-                                                  </text>
-                                                ))}
-                                              </g>
-                                            )
-                                          }) as never}
-                                        />
-                                      ))
-                                    })()}
-                                  </LineChart>
-                                </ResponsiveContainer>
-                              ) : (
-                                <div style={{ height: 450, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700, letterSpacing: '1px' }}>
-                                  NO INSTRUMENTS SELECTED
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })()}
-                        {false && <div
-                          style={{
-                            background: 'linear-gradient(180deg, #080808 0%, #050505 100%)',
-                            border: '1px solid #141414',
-                            marginBottom: 14,
-                            overflow: 'hidden',
-                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-                          }}
-                        >
-                          {/* Table header bar */}
+                      {/* ── KEY MOVERS ────────────────────────────────── */}
+                      {selectedEvent?.keyMovers && selectedEvent.keyMovers.length > 0 && (
+                        <div style={{ padding: '8px 0 16px' }}>
                           <div
                             style={{
-                              padding: '12px 18px 10px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              borderBottom: '1px solid #111',
-                              background: 'linear-gradient(180deg, #0d0d0d 0%, #080808 100%)',
+                              color: 'rgba(255,255,255,0.35)',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              letterSpacing: '1px',
+                              textTransform: 'uppercase',
+                              padding: '0 4px 10px',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            What Moved &amp; Why
+                          </div>
+                          {selectedEvent.keyMovers.map((mover: KeyMover, i: number) => {
+                            const dirColor =
+                              mover.direction === 'up'
+                                ? '#00e676'
+                                : mover.direction === 'down'
+                                  ? '#ff1744'
+                                  : '#eab308'
+                            const dirArrow =
+                              mover.direction === 'up' ? '▲' : mover.direction === 'down' ? '▼' : '—'
+                            return (
                               <div
+                                key={i}
                                 style={{
-                                  width: 3,
-                                  height: 14,
-                                  background: '#3b82f6',
-                                  boxShadow: '0 0 6px #3b82f640',
-                                }}
-                              />
-                              <span
-                                style={{
-                                  color: '#FFFFFF',
-                                  fontSize: 12,
-                                  fontWeight: 800,
-                                  letterSpacing: '1.2px',
-                                  textTransform: 'uppercase',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 5,
+                                  padding: '12px 8px',
+                                  borderBottom: '1px solid #181818',
+                                  borderLeft: `3px solid ${dirColor}`,
+                                  paddingLeft: 14,
+                                  marginBottom: 4,
+                                  background: 'rgba(255,255,255,0.015)',
                                 }}
                               >
-                                Period Performance Matrix
-                              </span>
-                            </div>
-                            <span
-                              style={{
-                                color: 'rgba(255,255,255,0.3)',
-                                fontSize: 10,
-                                letterSpacing: '0.5px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              Click column to switch active period
-                            </span>
-                          </div>
-                          <div style={{ overflowX: 'auto' }}>
-                            <table
-                              style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}
-                            >
-                              <thead>
-                                <tr style={{ background: '#040404' }}>
-                                  <th
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <span style={{ color: dirColor, fontSize: 20, fontWeight: 900, lineHeight: 1 }}>
+                                    {dirArrow}
+                                  </span>
+                                  <span
                                     style={{
-                                      textAlign: 'left',
-                                      color: '#666',
-                                      fontSize: 13,
-                                      fontWeight: 700,
-                                      letterSpacing: '0.8px',
-                                      padding: '8px 14px',
-                                      textTransform: 'uppercase',
-                                      whiteSpace: 'nowrap',
-                                      borderBottom: '1px solid #111',
+                                      color: '#FF6B00',
+                                      fontSize: 20,
+                                      fontWeight: 900,
+                                      letterSpacing: '0.5px',
+                                      fontFamily: '"Roboto Mono", monospace',
                                     }}
                                   >
-                                    Instrument
-                                  </th>
-                                  {(['pre30', 'pre10', 'during', 'post30'] as PeriodKey[]).map(
-                                    (pk) => {
-                                      const labels: Record<string, string> = {
-                                        pre30: '-30D Before',
-                                        pre10: '-10D Before',
-                                        during: 'During Event',
-                                        post30: '+30D After',
-                                      }
-                                      const colors: Record<string, string> = {
-                                        pre30: '#a855f7',
-                                        pre10: '#f472b6',
-                                        during: '#ef4444',
-                                        post30: '#22c55e',
-                                      }
-                                      const isA = activePeriod === pk
-                                      return (
-                                        <th
-                                          key={pk}
-                                          onClick={() => setActivePeriod(pk)}
-                                          style={{
-                                            textAlign: 'center',
-                                            cursor: 'pointer',
-                                            color: isA ? colors[pk] : '#444',
-                                            fontSize: 13,
-                                            fontWeight: 800,
-                                            letterSpacing: '0.7px',
-                                            padding: '8px 12px',
-                                            whiteSpace: 'nowrap',
-                                            textTransform: 'uppercase',
-                                            borderBottom: isA
-                                              ? `2px solid ${colors[pk]}`
-                                              : '2px solid transparent',
-                                            background: isA ? `${colors[pk]}08` : 'transparent',
-                                            transition: 'all 0.15s',
-                                          }}
-                                        >
-                                          {labels[pk]}
-                                        </th>
-                                      )
-                                    }
-                                  )}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {INSTRUMENT_GROUPS.map((group) => {
-                                  const groupInstruments = ALL_INSTRUMENTS.filter(
-                                    (ins) => ins.group === group
-                                  )
-                                  const anyData = groupInstruments.some(
-                                    (ins) =>
-                                      !!(stats[INSTR_KEY_MAP[ins.ticker]] as InstrumentData | null)
-                                  )
-                                  if (!anyData) return null
-                                  return (
-                                    <React.Fragment key={group}>
-                                      <tr>
-                                        <td
-                                          colSpan={5}
-                                          style={{
-                                            padding: '7px 14px 4px',
-                                            color: GROUP_COLORS[group],
-                                            fontSize: 11,
-                                            fontWeight: 800,
-                                            letterSpacing: '1.2px',
-                                            textTransform: 'uppercase',
-                                            background: `${GROUP_COLORS[group]}06`,
-                                            borderTop: `1px solid ${GROUP_COLORS[group]}15`,
-                                            borderBottom: `1px solid ${GROUP_COLORS[group]}10`,
-                                          }}
-                                        >
-                                          {group}
-                                        </td>
-                                      </tr>
-                                      {groupInstruments.map((ins, idx) => {
-                                        const d = stats[
-                                          INSTR_KEY_MAP[ins.ticker]
-                                        ] as InstrumentData | null
-                                        if (!d) return null
-                                        return (
-                                          <tr
-                                            key={ins.ticker}
-                                            style={{
-                                              background: idx % 2 === 0 ? '#030303' : '#050505',
-                                              borderBottom: '1px solid #0a0a0a',
-                                            }}
-                                          >
-                                            <td
-                                              style={{ padding: '7px 14px', whiteSpace: 'nowrap' }}
-                                            >
-                                              <span
-                                                style={{
-                                                  color: ins.color,
-                                                  fontSize: 15,
-                                                  fontWeight: 700,
-                                                }}
-                                              >
-                                                {ins.label}
-                                              </span>
-                                              <span
-                                                style={{
-                                                  color: '#444',
-                                                  fontSize: 12,
-                                                  marginLeft: 7,
-                                                }}
-                                              >
-                                                {ins.ticker === 'DXY'
-                                                  ? 'UUP'
-                                                  : ins.ticker === 'VIX'
-                                                    ? 'I:VIX'
-                                                    : ins.ticker}
-                                              </span>
-                                            </td>
-                                            {(
-                                              ['pre30', 'pre10', 'during', 'post30'] as PeriodKey[]
-                                            ).map((pk) => {
-                                              const ps = d[pk] as PeriodStats | null
-                                              const ret = ps?.totalReturn
-                                              const isA = activePeriod === pk
-                                              return (
-                                                <td
-                                                  key={pk}
-                                                  style={{
-                                                    textAlign: 'center',
-                                                    padding: '7px 10px',
-                                                    background: isA
-                                                      ? 'rgba(255,255,255,0.02)'
-                                                      : 'transparent',
-                                                  }}
-                                                >
-                                                  {ret !== undefined && ret !== null ? (
-                                                    <span
-                                                      style={{
-                                                        display: 'inline-block',
-                                                        padding: '3px 10px',
-                                                        fontSize: 15,
-                                                        fontWeight: 800,
-                                                        color: ret >= 0 ? '#00e676' : '#ff4d6d',
-                                                        background:
-                                                          ret >= 0 ? '#00e67612' : '#ff4d6d12',
-                                                        letterSpacing: '-0.2px',
-                                                        minWidth: 68,
-                                                        textAlign: 'center',
-                                                      }}
-                                                    >
-                                                      {formatPct(ret)}
-                                                    </span>
-                                                  ) : (
-                                                    <span
-                                                      style={{
-                                                        color: '#2a2a2a',
-                                                        fontSize: 15,
-                                                      }}
-                                                    >
-                                                      —
-                                                    </span>
-                                                  )}
-                                                </td>
-                                              )
-                                            })}
-                                          </tr>
-                                        )
-                                      })}
-                                    </React.Fragment>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>}
-
-                        {/* ── KEY MOVERS ────────────────────────────────── */}
-                        {selectedEvent?.keyMovers && selectedEvent.keyMovers.length > 0 && (
-                          <div style={{ padding: '8px 0 16px' }}>
-                            <div
-                              style={{
-                                color: 'rgba(255,255,255,0.35)',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                letterSpacing: '1px',
-                                textTransform: 'uppercase',
-                                padding: '0 4px 10px',
-                              }}
-                            >
-                              What Moved &amp; Why
-                            </div>
-                            {selectedEvent.keyMovers.map((mover: KeyMover, i: number) => {
-                              const dirColor =
-                                mover.direction === 'up'
-                                  ? '#00e676'
-                                  : mover.direction === 'down'
-                                    ? '#ff1744'
-                                    : '#eab308'
-                              const dirArrow =
-                                mover.direction === 'up' ? '▲' : mover.direction === 'down' ? '▼' : '—'
-                              return (
-                                <div
-                                  key={i}
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 5,
-                                    padding: '12px 8px',
-                                    borderBottom: '1px solid #181818',
-                                    borderLeft: `3px solid ${dirColor}`,
-                                    paddingLeft: 14,
-                                    marginBottom: 4,
-                                    background: 'rgba(255,255,255,0.015)',
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span style={{ color: dirColor, fontSize: 20, fontWeight: 900, lineHeight: 1 }}>
-                                      {dirArrow}
-                                    </span>
-                                    <span
-                                      style={{
-                                        color: '#FF6B00',
-                                        fontSize: 20,
-                                        fontWeight: 900,
-                                        letterSpacing: '0.5px',
-                                        fontFamily: '"Roboto Mono", monospace',
-                                      }}
-                                    >
-                                      {mover.ticker ?? mover.asset}
-                                    </span>
-                                    <span
-                                      style={{
-                                        color: dirColor,
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '1px',
-                                        opacity: 0.8,
-                                      }}
-                                    >
-                                      {mover.direction}
-                                    </span>
-                                  </div>
-                                  <span style={{ color: dirColor, fontSize: 15, lineHeight: 1.6 }}>
-                                    {mover.note}
+                                    {mover.ticker ?? mover.asset}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: dirColor,
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '1px',
+                                      opacity: 0.8,
+                                    }}
+                                  >
+                                    {mover.direction}
                                   </span>
                                 </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </>
-                    )}
+                                <span style={{ color: dirColor, fontSize: 15, lineHeight: 1.6 }}>
+                                  {mover.note}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
 
                 </div>
               )}

@@ -214,6 +214,75 @@ async function fetchNearestRealExpiry(
   }
 }
 
+// Fetch real market ask prices for straddle legs from Polygon snapshot API.
+// Snaps to the listed strike nearest to the Black-Scholes-derived strike.
+async function fetchRealStraddlePrices(
+  symbol: string,
+  expiration: string,
+  callStrike: number,
+  putStrike: number,
+  currentPrice: number,
+  apiKey: string,
+): Promise<{ callAsk: number | null; putAsk: number | null; callStrike: number; putStrike: number } | null> {
+  try {
+    const callLo = (currentPrice * 0.98).toFixed(2)
+    const callHi = (currentPrice * 1.45).toFixed(2)
+    const putLo = (currentPrice * 0.65).toFixed(2)
+    const putHi = (currentPrice * 1.02).toFixed(2)
+    const base = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(symbol)}`
+    const [callRes, putRes] = await Promise.all([
+      fetch(`${base}?expiration_date=${expiration}&contract_type=call&strike_price.gte=${callLo}&strike_price.lte=${callHi}&order=asc&sort=strike_price&limit=50&apiKey=${apiKey}`, { cache: 'no-store' }),
+      fetch(`${base}?expiration_date=${expiration}&contract_type=put&strike_price.gte=${putLo}&strike_price.lte=${putHi}&order=asc&sort=strike_price&limit=50&apiKey=${apiKey}`, { cache: 'no-store' }),
+    ])
+    if (!callRes.ok || !putRes.ok) return null
+    const [callJson, putJson] = await Promise.all([callRes.json(), putRes.json()])
+    const snap = (contracts: Record<string, unknown>[], target: number) => {
+      if (!contracts.length) return { price: null as number | null, strike: target }
+      const best = contracts.reduce((b, c) => {
+        const sa = (c.details as Record<string, number>)?.strike_price ?? 0
+        const sb = (b.details as Record<string, number>)?.strike_price ?? 0
+        return Math.abs(sa - target) < Math.abs(sb - target) ? c : b
+      })
+      const lq = best.last_quote as Record<string, number> | undefined
+      const lt = best.last_trade as Record<string, number> | undefined
+      const day = best.day as Record<string, number> | undefined
+      const rawPrice = lq?.ask ?? lq?.midpoint ?? lt?.price ?? day?.close
+      return {
+        price: typeof rawPrice === 'number' ? rawPrice : null,
+        strike: (best.details as Record<string, number>)?.strike_price ?? target,
+      }
+    }
+    const callData = snap(callJson.results ?? [], callStrike)
+    const putData = snap(putJson.results ?? [], putStrike)
+    return { callAsk: callData.price, putAsk: putData.price, callStrike: callData.strike, putStrike: putData.strike }
+  } catch {
+    return null
+  }
+}
+
+// Patch a StraddleTrade with real market ask prices, updating BE and cost.
+function patchTradeWithRealPrices(
+  trade: StraddleTrade,
+  real: { callAsk: number | null; putAsk: number | null; callStrike: number; putStrike: number },
+): StraddleTrade {
+  const callEntry = real.callAsk ?? trade.callEntry
+  const putEntry = real.putAsk ?? trade.putEntry
+  const callStrike = real.callStrike
+  const putStrike = real.putStrike
+  return {
+    ...trade,
+    callStrike,
+    putStrike,
+    callEntry,
+    putEntry,
+    callStop: callEntry * 0.5,
+    putStop: putEntry * 0.5,
+    totalCost: (callEntry + putEntry) * 100,
+    upperBE: callStrike + callEntry + putEntry,
+    lowerBE: putStrike - (callEntry + putEntry),
+  }
+}
+
 // Determines bubble tier of the top POI based on which rank-position
 // Rank a recent POI cluster by its position in the full 90-day sorted cluster list.
 // Gold = cluster is the #1 most-notional level over 90 days.
@@ -516,6 +585,14 @@ function fmtExpiry(d: string): string {
   })
 }
 
+function fmtExpiryShort(d: string): string {
+  const dt = new Date(d + 'T00:00:00Z')
+  const day = dt.getUTCDate()
+  const month = dt.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+  const suffix = (day % 100 >= 11 && day % 100 <= 13) ? 'th' : ['th', 'st', 'nd', 'rd', 'th', 'th', 'th', 'th', 'th', 'th'][day % 10]
+  return `${month} ${day}${suffix}`
+}
+
 // ── Concurrency helper ────────────────────────────────────────────────────────
 async function runWithConcurrency<T>(
   tasks: (() => Promise<T>)[],
@@ -792,6 +869,7 @@ function StraddleChart({
   poiLevels,
   forceHeight,
   symbol,
+  trade,
 }: {
   candles: Bar[]
   events: ContraEvent[]
@@ -799,6 +877,7 @@ function StraddleChart({
   poiLevels: POILevel[]
   forceHeight?: number
   symbol?: string
+  trade?: StraddleTrade | null
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -806,6 +885,11 @@ function StraddleChart({
   const viewRef = useRef({ startIdx: 0, visibleCount: Math.max(candles.length, 10) })
   const [width, setWidth] = useState(900)
   const [height, setHeight] = useState(forceHeight ?? 749)
+  const [chartTf, setChartTf] = useState<'5m' | '1h' | '1d'>('1d')
+  const [intradayBars, setIntradayBars] = useState<Bar[] | null>(null)
+  const [tfFetching, setTfFetching] = useState(false)
+
+  const activeCandles = intradayBars ?? candles
 
   useEffect(() => {
     if (forceHeight) setHeight(forceHeight)
@@ -825,24 +909,54 @@ function StraddleChart({
     viewRef.current = { startIdx: 0, visibleCount: candles.length }
   }, [candles])
 
+  // Reset view when active candles change (timeframe switch)
+  useEffect(() => {
+    viewRef.current = { startIdx: 0, visibleCount: activeCandles.length }
+  }, [activeCandles])
+
+  // Fetch intraday data when timeframe changes
+  useEffect(() => {
+    if (chartTf === '1d') { setIntradayBars(null); return }
+    if (!symbol) return
+    setTfFetching(true)
+    const days = chartTf === '5m' ? 20 : 365
+    const end = new Date().toISOString().split('T')[0]
+    const start = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
+    fetch('/api/bulk-chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: [symbol], timeframe: chartTf, startDate: start, endDate: end }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        const raw: any[] = d.data?.[symbol!] ?? []
+        setIntradayBars(raw.length > 0 ? raw.map((b: any) => ({
+          date: b.date, open: b.open, high: b.high, low: b.low,
+          close: b.close, volume: b.volume ?? 0, t: b.timestamp,
+        })) : null)
+      })
+      .catch(() => setIntradayBars(null))
+      .finally(() => setTfFetching(false))
+  }, [chartTf, symbol])
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas || candles.length === 0) return
+    if (!canvas || activeCandles.length === 0) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     const PAD = height < 300
       ? { top: 8, right: 60, bottom: 36, left: 4 }
-      : { top: 20, right: 142, bottom: 62, left: 8 }
+      : { top: 20, right: 142, bottom: 40, left: 8 }
     const chartW = width - PAD.left - PAD.right
     const chartH = height - PAD.top - PAD.bottom
 
-    const n = candles.length
+    const n = activeCandles.length
     let { startIdx, visibleCount } = viewRef.current
     visibleCount = Math.max(10, Math.min(n, visibleCount))
     startIdx = Math.max(0, Math.min(n - visibleCount, startIdx))
     viewRef.current = { startIdx, visibleCount }
-    const vis = candles.slice(startIdx, startIdx + visibleCount)
+    const vis = activeCandles.slice(startIdx, startIdx + visibleCount)
 
     const dpr = window.devicePixelRatio || 1
     canvas.width = width * dpr
@@ -883,6 +997,29 @@ function StraddleChart({
     const bw = Math.max(1.5, spacing * 0.62)
     const cxFn = (i: number) => PAD.left + INNER + i * spacing + spacing / 2
 
+    // Pre/after-hours shading for intraday timeframes (exact EFI chart logic)
+    if (chartTf !== '1d') {
+      const preMarketStart = 1 * 60      // 1:00 AM PST
+      const marketStart = 6 * 60 + 30 // 6:30 AM PST
+      const marketEnd = 13 * 60     // 1:00 PM PST
+      const afterHoursEnd = 17 * 60     // 5:00 PM PST
+      for (let i = 0; i < vis.length; i++) {
+        const bar = vis[i]
+        if (!bar.t) continue
+        const pstStr = new Date(bar.t).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+        const pstDate = new Date(pstStr)
+        const totalMin = pstDate.getHours() * 60 + pstDate.getMinutes()
+        const x = cxFn(i) - spacing / 2
+        if (totalMin >= preMarketStart && totalMin < marketStart) {
+          ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'
+          ctx.fillRect(x, PAD.top, spacing, chartH)
+        } else if (totalMin >= marketEnd && totalMin < afterHoursEnd) {
+          ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'
+          ctx.fillRect(x, PAD.top, spacing, chartH)
+        }
+      }
+    }
+
     // Grid lines
     ctx.lineWidth = 1
     for (let gi = 0; gi <= 5; gi++) {
@@ -918,7 +1055,7 @@ function StraddleChart({
     ctx.stroke()
 
     // ── POI level horizontal lines removed (bubbles only) ──────────────────────────
-    const currentPrice = candles[n - 1]?.close ?? 0
+    const currentPrice = activeCandles[n - 1]?.close ?? 0
 
     // ── Candles ──────────────────────────────────────────────────────────────
     for (let i = 0; i < vis.length; i++) {
@@ -961,10 +1098,48 @@ function StraddleChart({
       }
     }
 
+    // ── T1/T2 straddle target levels — dashed lines + Y-axis price ticks ─────
+    if (trade) {
+      const chartRight = width - PAD.right
+      const tradeLevels = [
+        { price: trade.callT2Stock, color: '#00FFB0' },
+        { price: trade.callT1Stock, color: '#00FF88' },
+        { price: trade.putT1Stock, color: '#FF3050' },
+        { price: trade.putT2Stock, color: '#FF0030' },
+      ]
+      ctx.save()
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      ctx.font = '800 24px "JetBrains Mono",monospace'
+      for (const lvl of tradeLevels) {
+        const ly = pyFn(lvl.price)
+        if (ly < PAD.top || ly > PAD.top + chartH) continue
+        // dashed horizontal line across chart area only
+        ctx.strokeStyle = lvl.color
+        ctx.lineWidth = 1.5
+        ctx.globalAlpha = 0.65
+        ctx.setLineDash([8, 5])
+        ctx.beginPath()
+        ctx.moveTo(PAD.left, ly)
+        ctx.lineTo(chartRight, ly)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
+        // price label on Y-axis (right margin) — black bg to cover grid labels
+        const priceStr = lvl.price >= 1000 ? lvl.price.toFixed(0) : lvl.price.toFixed(2)
+        const lw2 = ctx.measureText(priceStr).width
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(chartRight + 1, ly - 12, lw2 + 14, 24)
+        ctx.fillStyle = lvl.color
+        ctx.fillText(priceStr, chartRight + 8, ly)
+      }
+      ctx.restore()
+    }
+
     // Current price label (no horizontal line)
     if (startIdx + visibleCount >= n) {
-      const py = Math.round(pyFn(candles[n - 1].close))
-      const priceStr = candles[n - 1].close.toFixed(2)
+      const py = Math.round(pyFn(activeCandles[n - 1].close))
+      const priceStr = activeCandles[n - 1].close.toFixed(2)
       ctx.font = '900 24px "JetBrains Mono",monospace'
       const pw = ctx.measureText(priceStr).width
       // solid black background so it never overlaps grid labels
@@ -1162,7 +1337,7 @@ function StraddleChart({
       const lbl = fmtDate(vis[i].date)
       const lw = ctx.measureText(lbl).width
       const rawX = cxFn(i)
-      const clampedX = Math.max(PAD.left + lw / 2 + 2, Math.min(width - PAD.right - lw / 2 - 2, rawX))
+      const clampedX = Math.max(58 + lw / 2, Math.min(width - PAD.right - lw / 2 - 2, rawX))
       ctx.fillText(lbl, clampedX, height - PAD.bottom + 6)
     }
 
@@ -1229,7 +1404,7 @@ function StraddleChart({
 
       ctx.restore()
     }
-  }, [candles, events, dpDays, poiLevels, width, height])
+  }, [activeCandles, chartTf, events, dpDays, poiLevels, trade, width, height])
 
   useEffect(() => {
     draw()
@@ -1237,14 +1412,14 @@ function StraddleChart({
 
   // Wheel zoom + drag (right-anchored, matches BuySellScanner)
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || candles.length === 0) return
+    const el = containerRef.current
+    if (!el || activeCandles.length === 0) return
     const PAD_L = height < 300 ? 4 : 8
     const PAD_R = height < 300 ? 60 : 142
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const n = candles.length
+      const n = activeCandles.length
       const { visibleCount } = viewRef.current
       const factor = e.deltaY > 0 ? 1.12 : 0.89
       let newVC = Math.round(visibleCount * factor)
@@ -1259,49 +1434,82 @@ function StraddleChart({
     let dragStartIdx = 0
 
     const handlePointerDown = (e: PointerEvent) => {
-      canvas.setPointerCapture(e.pointerId)
+      // Don't capture if the user clicked a button or other interactive element
+      if ((e.target as HTMLElement).closest('button, a, input, select')) return
+      el.setPointerCapture(e.pointerId)
       isDragging = true
       dragStartX = e.clientX
       dragStartIdx = viewRef.current.startIdx
-      canvas.style.cursor = 'grabbing'
+      el.style.cursor = 'grabbing'
     }
 
     const handlePointerMove = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect()
+      const rect = el.getBoundingClientRect()
       crosshairRef.current = { cx: e.clientX - rect.left, cy: e.clientY - rect.top }
       if (isDragging) {
         const { visibleCount } = viewRef.current
-        const chartW = canvas.offsetWidth - PAD_L - PAD_R
+        const chartW = el.offsetWidth - PAD_L - PAD_R
         const delta = Math.round((dragStartX - e.clientX) * (visibleCount / chartW))
-        const maxStart = Math.max(0, candles.length - visibleCount)
+        const maxStart = Math.max(0, activeCandles.length - visibleCount)
         const newStart = Math.max(0, Math.min(maxStart, dragStartIdx + delta))
         viewRef.current = { ...viewRef.current, startIdx: newStart }
       }
       draw()
     }
 
-    const handlePointerUp = () => { isDragging = false; canvas.style.cursor = 'grab' }
+    const handlePointerUp = () => { isDragging = false; el.style.cursor = 'grab' }
     const handlePointerLeave = () => { crosshairRef.current = null; draw() }
 
-    canvas.style.cursor = 'grab'
-    canvas.addEventListener('wheel', handleWheel, { passive: false })
-    canvas.addEventListener('pointerdown', handlePointerDown)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerup', handlePointerUp)
-    canvas.addEventListener('pointercancel', handlePointerUp)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
+    el.style.cursor = 'grab'
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    el.addEventListener('pointerdown', handlePointerDown)
+    el.addEventListener('pointermove', handlePointerMove)
+    el.addEventListener('pointerup', handlePointerUp)
+    el.addEventListener('pointercancel', handlePointerUp)
+    el.addEventListener('pointerleave', handlePointerLeave)
     return () => {
-      canvas.removeEventListener('wheel', handleWheel)
-      canvas.removeEventListener('pointerdown', handlePointerDown)
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerup', handlePointerUp)
-      canvas.removeEventListener('pointercancel', handlePointerUp)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      el.removeEventListener('wheel', handleWheel)
+      el.removeEventListener('pointerdown', handlePointerDown)
+      el.removeEventListener('pointermove', handlePointerMove)
+      el.removeEventListener('pointerup', handlePointerUp)
+      el.removeEventListener('pointercancel', handlePointerUp)
+      el.removeEventListener('pointerleave', handlePointerLeave)
     }
-  }, [candles.length, width, height, draw])
+  }, [activeCandles.length, width, height, draw])
 
   return (
     <div ref={containerRef} style={{ flex: 1, width: '100%', position: 'relative', minHeight: 0 }}>
+      {/* Timeframe buttons — top-left overlay */}
+      <div style={{ position: 'absolute', top: 6, left: 60, zIndex: 10, display: 'flex', gap: 4 }}>
+        {(['5m', '1h', '1d'] as const).map(tf => (
+          <button
+            key={tf}
+            onClick={() => setChartTf(tf)}
+            style={{
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '3px 8px',
+              borderRadius: 3,
+              cursor: 'pointer',
+              letterSpacing: '0.5px',
+              background: chartTf === tf
+                ? 'linear-gradient(180deg,#FF9A00,#CC6600)'
+                : 'linear-gradient(180deg,#1a1a1a,#0a0a0a)',
+              color: chartTf === tf ? '#000' : 'rgba(255,255,255,0.7)',
+              border: chartTf === tf
+                ? '1px solid #FF9A00'
+                : '1px solid rgba(255,255,255,0.16)',
+              boxShadow: chartTf === tf ? '0 0 8px rgba(255,154,0,0.4)' : 'none',
+            }}
+          >
+            {tf.toUpperCase()}
+          </button>
+        ))}
+        {tfFetching && (
+          <span style={{ fontSize: 10, color: 'rgba(255,154,0,0.7)', alignSelf: 'center' }}>...</span>
+        )}
+      </div>
       <canvas
         ref={canvasRef}
         style={{
@@ -1309,8 +1517,8 @@ function StraddleChart({
           top: 0,
           left: 0,
           display: 'block',
-          cursor: 'grab',
           userSelect: 'none',
+          pointerEvents: 'none',
         }}
       />
 
@@ -1329,9 +1537,13 @@ function TradeCard({
   side: 'call' | 'put'
 }) {
   const isCall = side === 'call'
-  const accent = isCall ? '#00FF88' : '#FF4060'
-  const accentDim = isCall ? 'rgba(0,255,136,0.12)' : 'rgba(255,64,96,0.12)'
-  const accentBorder = isCall ? 'rgba(0,255,136,0.25)' : 'rgba(255,64,96,0.25)'
+  const accent = isCall ? '#00FF88' : '#FF3050'
+  const accent2 = isCall ? '#00CC6A' : '#CC1E36'
+  const glowColor = isCall ? 'rgba(0,255,136,0.18)' : 'rgba(255,48,80,0.18)'
+  const borderClr = isCall ? 'rgba(0,255,136,0.35)' : 'rgba(255,48,80,0.35)'
+  const headerBg = isCall
+    ? 'linear-gradient(135deg, rgba(0,40,22,0.95) 0%, rgba(0,20,12,0.98) 100%)'
+    : 'linear-gradient(135deg, rgba(50,0,12,0.95) 0%, rgba(28,0,8,0.98) 100%)'
 
   const strike = isCall ? trade.callStrike : trade.putStrike
   const entry = isCall ? trade.callEntry : trade.putEntry
@@ -1350,260 +1562,132 @@ function TradeCard({
 
   const Row = ({
     label,
+    labelColor,
     stockPrice,
     stockChg,
     premium,
     premChg,
-    color,
+    rowBg,
   }: {
     label: string
+    labelColor: string
     stockPrice: number
     stockChg: number
     premium: number
     premChg: number
-    color: string
+    rowBg: string
   }) => (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '64px 1fr 1fr',
+        gridTemplateColumns: '110px 1fr 1fr',
+        padding: '11px 18px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: rowBg,
         gap: 0,
-        padding: '9px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}
     >
-      <div
-        style={{
-          ...mono,
-          fontSize: 16,
-          fontWeight: 800,
-          color: 'rgba(255,255,255,0.5)',
-          letterSpacing: '1.5px',
-          alignSelf: 'center',
-        }}
-      >
-        {label}
+      {/* Level badge */}
+      <div style={{ alignSelf: 'center' }}>
+        <div style={{
+          ...mono, fontSize: 13, fontWeight: 900, color: labelColor,
+          background: '#000000', border: `1px solid ${labelColor}`,
+          borderRadius: 4, padding: '2px 7px', display: 'inline-block',
+          letterSpacing: '1px',
+        }}>
+          {label}
+        </div>
       </div>
-      <div>
-        <div style={{ ...mono, fontSize: 22, fontWeight: 700, color }}>
+      {/* Stock price */}
+      <div style={{ paddingLeft: 4 }}>
+        <div style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2 }}>
           ${stockPrice.toFixed(2)}
         </div>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 600, color: `${color}99` }}>
-          {stockChg >= 0 ? '+' : ''}
-          {stockChg.toFixed(1)}% stk
+        <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: labelColor, letterSpacing: '0.5px' }}>
+          {stockChg >= 0 ? '+' : ''}{stockChg.toFixed(1)}% move
         </div>
       </div>
-      <div>
-        <div style={{ ...mono, fontSize: 22, fontWeight: 700, color: '#ffffff' }}>
+      {/* Premium */}
+      <div style={{ paddingLeft: 4 }}>
+        <div style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2 }}>
           ${premium.toFixed(2)}
         </div>
-        <div
-          style={{
-            ...mono,
-            fontSize: 16,
-            fontWeight: 600,
-            color: premChg >= 0 ? '#00FF88' : '#FF4060',
-          }}
-        >
-          {premChg >= 0 ? '+' : ''}
-          {premChg.toFixed(0)}% opt
+        <div style={{
+          ...mono, fontSize: 13, fontWeight: 700, letterSpacing: '0.5px',
+          color: premChg >= 0 ? '#00FF88' : '#FF3050',
+        }}>
+          {premChg >= 0 ? '+' : ''}{premChg.toFixed(0)}% gain
         </div>
       </div>
     </div>
   )
 
   return (
-    <div
-      style={{
-        background: 'linear-gradient(160deg, #060d16 0%, #020609 100%)',
-        border: `1px solid ${accentBorder}`,
-        borderTop: `2px solid ${accent}`,
-        borderRadius: 6,
-        overflow: 'hidden',
-        boxShadow: `0 0 24px ${accentDim}`,
-      }}
-    >
-      {/* Card header */}
-      <div
-        style={{
-          padding: '12px 16px 8px',
-          background: accentDim,
-          borderBottom: `1px solid ${accentBorder}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <div>
-          <span
-            style={{
-              ...mono,
-              fontSize: 29,
-              fontWeight: 800,
-              color: accent,
-              letterSpacing: '1.5px',
-            }}
-          >
-            {isCall ? '▲ CALL' : '▼ PUT'}
-          </span>
-          <span
-            style={{
-              ...mono,
-              fontSize: 21,
-              fontWeight: 700,
-              color: 'rgba(255,255,255,0.7)',
-              marginLeft: 12,
-            }}
-          >
-            {symbol} ${strike} {isCall ? 'CALL' : 'PUT'}
-          </span>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ ...mono, fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
-            EXP {fmtExpiry(trade.expiration)}
-          </div>
-          <div style={{ ...mono, fontSize: 16, fontWeight: 600, color: 'rgba(255,255,255,0.4)' }}>
-            {trade.dte}DTE · IV {(trade.iv * 100).toFixed(1)}%
-          </div>
-        </div>
+    <div style={{
+      background: 'linear-gradient(175deg, #07111e 0%, #03080f 60%, #010406 100%)',
+      border: `1px solid ${borderClr}`,
+      borderTop: `3px solid ${accent}`,
+      borderRadius: 8,
+      overflow: 'hidden',
+      boxShadow: `0 4px 32px ${glowColor}, 0 1px 0 ${accent}44 inset`,
+    }}>
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={{
+        background: headerBg,
+        borderBottom: `1px solid ${borderClr}`,
+        padding: '13px 18px 11px',
+        display: 'flex',
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
+        gap: '0 10px',
+        boxShadow: `0 1px 0 ${accent}22 inset`,
+      }}>
+        <span style={{ ...mono, fontSize: 20, fontWeight: 800, color: '#FFFFFF', letterSpacing: '0.5px' }}>
+          ${strike} {isCall ? 'Calls' : 'Puts'}
+        </span>
+        <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#FFFFFF', letterSpacing: '0.5px' }}>
+          {fmtExpiry(trade.expiration)}
+        </span>
+        <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: accent, letterSpacing: '0.5px' }}>
+          @${entry.toFixed(2)}
+        </span>
       </div>
 
-      {/* Entry row */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '64px 1fr 1fr',
-          gap: 0,
-          padding: '10px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          background: 'rgba(255,255,255,0.02)',
-        }}
-      >
-        <div
-          style={{
-            ...mono,
-            fontSize: 16,
-            fontWeight: 800,
-            color: 'rgba(255,255,255,0.5)',
-            letterSpacing: '1.5px',
-            alignSelf: 'center',
-          }}
-        >
-          ENTRY
-        </div>
-        <div style={{ ...mono, fontSize: 22, fontWeight: 700, color: 'rgba(255,255,255,0.9)' }}>
-          ${entry.toFixed(2)}
-        </div>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 600, color: 'rgba(255,255,255,0.45)' }}>
-          per contract
-          <br />
-          x100 = ${(entry * 100).toFixed(0)}
-        </div>
-      </div>
-
-      {/* Column headers */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '64px 1fr 1fr',
-          gap: 0,
-          padding: '5px 16px',
-          background: 'rgba(0,0,0,0.4)',
-        }}
-      >
-        <div
-          style={{
-            ...mono,
-            fontSize: 14,
-            fontWeight: 800,
-            color: 'rgba(255,255,255,0.3)',
-            letterSpacing: '1.5px',
-          }}
-        >
-          LEVEL
-        </div>
-        <div
-          style={{
-            ...mono,
-            fontSize: 14,
-            fontWeight: 800,
-            color: 'rgba(255,255,255,0.3)',
-            letterSpacing: '1.5px',
-          }}
-        >
-          STOCK PRICE
-        </div>
-        <div
-          style={{
-            ...mono,
-            fontSize: 14,
-            fontWeight: 800,
-            color: 'rgba(255,255,255,0.3)',
-            letterSpacing: '1.5px',
-          }}
-        >
-          OPTION PREMIUM
-        </div>
+      {/* ── Column headers ─────────────────────────────────── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '110px 1fr 1fr',
+        padding: '5px 18px',
+        background: 'rgba(0,0,0,0.45)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        gap: 0,
+      }}>
+        {['Targets', 'STOCK PRICE', 'Premium'].map(h => (
+          <div key={h} style={{ ...mono, fontSize: 15, fontWeight: 800, color: '#FF9A00', letterSpacing: '1.5px' }}>
+            {h}
+          </div>
+        ))}
       </div>
 
       <Row
-        label="T1"
+        label="Target 1"
+        labelColor={accent}
         stockPrice={t1Stock}
         stockChg={t1StockChange}
         premium={t1Prem}
         premChg={t1PremChange}
-        color={isCall ? '#00FF88' : '#FF4060'}
+        rowBg={`${accent}08`}
       />
       <Row
-        label="T2"
+        label="Target 2"
+        labelColor={accent2}
         stockPrice={t2Stock}
         stockChg={t2StockChange}
         premium={t2Prem}
         premChg={t2PremChange}
-        color={isCall ? '#00E87A' : '#FF2048'}
+        rowBg={`${accent2}06`}
       />
 
-      {/* Stop loss */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '64px 1fr 1fr',
-          gap: 0,
-          padding: '9px 16px',
-        }}
-      >
-        <div
-          style={{
-            ...mono,
-            fontSize: 16,
-            fontWeight: 800,
-            color: 'rgba(255,100,80,0.8)',
-            letterSpacing: '1.5px',
-            alignSelf: 'center',
-          }}
-        >
-          STOP
-        </div>
-        <div>
-          <div style={{ ...mono, fontSize: 22, fontWeight: 700, color: '#FF6040' }}>
-            ${stop.toFixed(2)}
-          </div>
-          <div style={{ ...mono, fontSize: 16, fontWeight: 600, color: 'rgba(255,96,64,0.7)' }}>
-            -50% of entry
-          </div>
-        </div>
-        <div
-          style={{
-            ...mono,
-            fontSize: 16,
-            fontWeight: 600,
-            color: 'rgba(255,96,64,0.55)',
-            alignSelf: 'center',
-          }}
-        >
-          If option drops to ${stop.toFixed(2)}, exit full position
-        </div>
-      </div>
     </div>
   )
 }
@@ -1628,6 +1712,12 @@ function ResultsTable({
   poiLoadingSet: Set<string>
 }) {
   const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set())
+  const toggleExpand = (sym: string) => setExpandedSet(prev => {
+    const s = new Set(prev)
+    s.has(sym) ? s.delete(sym) : s.add(sym)
+    return s
+  })
 
   const sorted = [...results].sort((a, b) => {
     if (a.setupActive !== b.setupActive) return a.setupActive ? -1 : 1
@@ -1635,11 +1725,11 @@ function ResultsTable({
   })
   if (!sorted.length) return null
 
-  type Tier = { label: string; emoji: string; accent: string; items: ScanResult[] }
+  type Tier = { label: string; accent: string; items: ScanResult[] }
   const tiers: Tier[] = [
-    { label: 'EXTREME', emoji: '🔥', accent: '#FFD700', items: [] },
-    { label: 'STRONG', emoji: '⚡', accent: '#41B6F6', items: [] },
-    { label: 'MODERATE', emoji: '◆', accent: '#CCCCCC', items: [] },
+    { label: 'EXTREME', accent: '#FFD700', items: [] },
+    { label: 'STRONG', accent: '#41B6F6', items: [] },
+    { label: 'MODERATE', accent: '#CCCCCC', items: [] },
   ]
   for (const r of sorted) {
     if (r.setupTier === 'extreme') tiers[0].items.push(r)
@@ -1659,16 +1749,36 @@ function ResultsTable({
         <div key={tier.label} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           {/* Tier header */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            borderBottom: `2px solid ${tier.accent}33`,
-            paddingBottom: 8, marginBottom: 14,
-            flexShrink: 0,
+            display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+            borderBottom: `2px solid ${tier.accent}44`,
+            paddingBottom: 12, marginBottom: 14,
+            flexShrink: 0, gap: 10,
           }}>
-            <span style={{ fontSize: 22 }}>{tier.emoji}</span>
-            <span style={{ ...mono, fontSize: 14, fontWeight: 900, color: tier.accent, letterSpacing: '2px' }}>
+            {/* SVG icon per tier */}
+            {tier.label === 'EXTREME' && (
+              <svg width="24" height="24" viewBox="0 0 26 26" style={{ filter: `drop-shadow(0 0 6px ${tier.accent})`, animation: 'stPulse 1.5s ease-in-out infinite', display: 'block', flexShrink: 0 }}>
+                <polygon points="13,1 16.9,9.1 25,13 16.9,16.9 13,25 9.1,16.9 1,13 9.1,9.1" fill="#FFD700" />
+              </svg>
+            )}
+            {tier.label === 'STRONG' && (
+              <svg width="24" height="24" viewBox="0 0 26 26" style={{ filter: `drop-shadow(0 0 5px ${tier.accent}aa)`, animation: 'stPulse 2.8s ease-in-out infinite', display: 'block', flexShrink: 0 }}>
+                <polyline points="4,19 13,8 22,19" stroke="#41B6F6" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <polyline points="4,25 13,14 22,25" stroke="#41B6F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.38" />
+              </svg>
+            )}
+            {tier.label === 'MODERATE' && (
+              <svg width="24" height="24" viewBox="0 0 26 26" style={{ filter: `drop-shadow(0 0 3px ${tier.accent}66)`, display: 'block', flexShrink: 0 }}>
+                <polygon points="13,2 24,13 13,24 2,13" stroke="#CCCCCC" strokeWidth="2.2" fill="none" />
+                <polygon points="13,8 18,13 13,18 8,13" fill="#CCCCCC" opacity="0.65" />
+              </svg>
+            )}
+            <span style={{ ...mono, fontSize: 18, fontWeight: 900, color: tier.accent, letterSpacing: '3px' }}>
               {tier.label}
             </span>
-            <span style={{ ...mono, fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>
+            <span style={{
+              ...mono, fontSize: 12, fontWeight: 700, color: tier.accent, opacity: 0.55,
+              background: `${tier.accent}18`, borderRadius: 3, padding: '1px 6px', border: `1px solid ${tier.accent}30`
+            }}>
               {tier.items.length}
             </span>
           </div>
@@ -1681,6 +1791,7 @@ function ResultsTable({
               const prevClose = r.bars.length >= 2 ? r.bars[r.bars.length - 2].close : null
               const dayChangePct = prevClose ? ((r.currentPrice - prevClose) / prevClose) * 100 : null
               const dayChangeColor = dayChangePct == null ? '#FFFFFF' : dayChangePct >= 0 ? '#00FF88' : '#FF4060'
+              const expanded = expandedSet.has(r.symbol)
               return (
                 <div
                   key={r.symbol}
@@ -1688,11 +1799,12 @@ function ResultsTable({
                     background: '#000000',
                     border: `2px solid ${compressColor(r)}`,
                     borderRadius: 6,
-                    padding: '14px 16px',
+                    padding: '14px 16px 4px',
                     cursor: 'pointer',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 10,
+                    overflow: 'hidden',
                     transition: 'border-color 0.15s, background 0.15s',
                     boxShadow: `0 0 10px ${compressColor(r)}22`,
                   }}
@@ -1702,6 +1814,7 @@ function ResultsTable({
                   onMouseLeave={e => {
                     e.currentTarget.style.background = '#000000'
                   }}
+                  onDoubleClick={() => toggleExpand(r.symbol)}
                 >
                   {/* Row 1: Symbol + price + day change + date + squeeze + compress badge */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
@@ -1729,38 +1842,49 @@ function ResultsTable({
                         </span>
                       )}
                     </div>
-                    <div style={{
-                      ...mono, fontSize: 20, fontWeight: 900,
-                      color: compressColor(r),
-                      background: `${compressColor(r)}18`,
-                      border: `1px solid ${compressColor(r)}44`,
-                      borderRadius: 4,
-                      padding: '3px 10px',
-                    }}>
-                      {r.compressionPct.toFixed(0)}%
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {/* SCAN POI button — always visible when no POI yet */}
+                      {!r.hasPOI && (
+                        <button
+                          disabled={poiLoadingSet.has(r.symbol)}
+                          onClick={e => { e.stopPropagation(); onScanPOI(r) }}
+                          style={{
+                            ...mono,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            letterSpacing: '1.5px',
+                            color: '#000000',
+                            background: poiLoadingSet.has(r.symbol)
+                              ? 'linear-gradient(180deg, #b36200 0%, #7a3e00 100%)'
+                              : 'linear-gradient(180deg, #FF9A00 0%, #CC6600 100%)',
+                            border: '1px solid rgba(255,180,0,0.6)',
+                            boxShadow: poiLoadingSet.has(r.symbol)
+                              ? 'none'
+                              : 'inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 8px rgba(255,140,0,0.4)',
+                            borderRadius: 5,
+                            padding: '5px 13px',
+                            cursor: poiLoadingSet.has(r.symbol) ? 'default' : 'pointer',
+                            transition: 'all 0.15s',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                          }}
+                        >
+                          {poiLoadingSet.has(r.symbol)
+                            ? <><svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stSpin 0.8s linear infinite' }} fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(0,0,0,0.5)" strokeWidth="1.5" /><path d="M5.5 1.5 A4 4 0 0 1 9.5 5.5" stroke="#000" strokeWidth="1.5" strokeLinecap="round" /></svg>SCANNING...</>
+                            : <><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3.2" stroke="#000" strokeWidth="1.4" /><line x1="7" y1="7" x2="10" y2="10" stroke="#000" strokeWidth="1.4" strokeLinecap="round" /></svg>SCAN POI</>
+                          }
+                        </button>
+                      )}
+                      <div style={{
+                        ...mono, fontSize: 20, fontWeight: 900,
+                        color: compressColor(r),
+                        background: `${compressColor(r)}18`,
+                        border: `1px solid ${compressColor(r)}44`,
+                        borderRadius: 4,
+                        padding: '3px 10px',
+                      }}>
+                        {r.compressionPct.toFixed(0)}%
+                      </div>
                     </div>
-                    {/* SCAN POI button in row 1 when pending */}
-                    {r.poiScanPending && (
-                      <button
-                        disabled={poiLoadingSet.has(r.symbol)}
-                        onClick={e => { e.stopPropagation(); onScanPOI(r) }}
-                        style={{
-                          ...mono,
-                          fontSize: 12,
-                          fontWeight: 800,
-                          letterSpacing: '1.5px',
-                          color: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.35)' : '#FFAA28',
-                          background: poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.04)' : 'rgba(255,170,40,0.10)',
-                          border: `1px solid ${poiLoadingSet.has(r.symbol) ? 'rgba(255,255,255,0.12)' : 'rgba(255,170,40,0.35)'}`,
-                          borderRadius: 4,
-                          padding: '4px 12px',
-                          cursor: poiLoadingSet.has(r.symbol) ? 'default' : 'pointer',
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        {poiLoadingSet.has(r.symbol) ? '⏳ SCANNING...' : '🔍 SCAN POI'}
-                      </button>
-                    )}
                   </div>
 
                   {/* Row 3: POI info — two separate rows */}
@@ -1861,22 +1985,29 @@ function ResultsTable({
                     <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.5px' }}>
                       — no POI detected in scan window
                     </div>
-                  ) : (
-                    <div style={{ ...mono, fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.5px' }}>
-                      — no POI detected in scan window
-                    </div>
-                  )}
+                  ) : null}
 
                   {/* Row 4: Inline chart */}
-                  <div style={{ height: 336, borderRadius: 4, overflow: 'hidden', marginTop: 4, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ height: expanded ? 520 : 336, borderRadius: 4, overflow: 'hidden', marginTop: 4, marginLeft: -55, marginRight: -55, display: 'flex', flexDirection: 'column', transition: 'height 0.2s ease' }}>
                     <StraddleChart
                       candles={r.bars.slice(-CHART_VISIBLE_DAYS)}
                       events={r.allEvents}
                       dpDays={r.dpDays}
                       poiLevels={r.poiLevels}
                       symbol={r.symbol}
+                      trade={r.trade}
                     />
                   </div>
+
+                  {/* Expanded: inline trade cards */}
+                  {expanded && r.setupActive && r.trade && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 4, paddingBottom: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <TradeCard trade={r.trade} symbol={r.symbol} side="call" />
+                        <TradeCard trade={r.trade} symbol={r.symbol} side="put" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -1914,7 +2045,7 @@ export default function StraddleTownScreener() {
   const [poiLoadingSet, setPoiLoadingSet] = useState<Set<string>>(new Set())
   type ViewMode = 'setups' | 'all' | 'poi-only' | 'contraction-only'
   type BubbleFilter = 'all' | 'gold' | 'blue' | 'gray'
-  type ScanMode = 'both' | 'contraction' | 'poi'
+  type ScanMode = 'both' | 'contraction'
   const [viewMode, setViewMode] = useState<ViewMode>('setups')
   const [minCompression, setMinCompression] = useState<number>(40)
   const [bubbleFilter, setBubbleFilter] = useState<BubbleFilter>('all')
@@ -2040,6 +2171,14 @@ export default function StraddleTownScreener() {
           const { symbol: sym, bars, allEvents: allEvts, recentEvents: recentEvts } = hit
           const latestEvent = recentEvts[recentEvts.length - 1]
           const compressionPct = latestEvent?.compressionPct ?? 0
+          const setupActive = recentEvts.length > 0
+          const setupTier: ScanResult['setupTier'] = compressionPct >= 65 ? 'extreme' : compressionPct >= 50 ? 'strong' : 'moderate'
+          const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'extreme' ? 'gold' : setupTier === 'strong' ? 'blue' : 'gray'
+          let trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier) : null
+          if (trade) {
+            const rp = await fetchRealStraddlePrices(sym, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
+            if (rp) trade = patchTradeWithRealPrices(trade, rp)
+          }
           const result: ScanResult = {
             symbol: sym,
             currentPrice: bars[bars.length - 1].close,
@@ -2047,15 +2186,15 @@ export default function StraddleTownScreener() {
             squeezeOn: latestEvent?.squeezeOn ?? false,
             hasPOI: false,
             topPOI: null,
-            setupActive: false,
-            setupTier: null,
+            setupActive,
+            setupTier,
             bars,
             allEvents: allEvts,
             recentEvents: recentEvts,
             dpDays: [],
             poiLevels: [],
-            trade: null,
-            poiScanPending: true,
+            trade,
+            poiScanPending: false,
           }
           addResult(result)
           setStats((s) => ({ ...s, dpDone: s.dpDone + 1 }))
@@ -2189,7 +2328,11 @@ export default function StraddleTownScreener() {
                 const isThur = new Date().getDay() === 4
                 const minDays = setupTier === 'extreme' ? (isThur ? 8 : 0) : setupTier === 'strong' ? 7 : 7
                 const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
-                const trade = setupActive ? buildStraddleTrade(hitData.bars, sym, compressionPct, bubbleTier, realExpiry) : null
+                let trade = setupActive ? buildStraddleTrade(hitData.bars, sym, compressionPct, bubbleTier, realExpiry) : null
+                if (trade) {
+                  const rp = await fetchRealStraddlePrices(sym, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
+                  if (rp) trade = patchTradeWithRealPrices(trade, rp)
+                }
 
                 const result: ScanResult = {
                   symbol: sym,
@@ -2250,28 +2393,11 @@ export default function StraddleTownScreener() {
       const daysToScan = r.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
       const dpResults = await scanDPDays(daysToScan, sym, API_KEY, () => undefined, ac.signal)
       const poi = clusterPOI(dpResults)
-      const triggerDateOnDemand = r.recentEvents.length > 0
-        ? r.recentEvents[r.recentEvents.length - 1].date
-        : r.bars[r.bars.length - 1].date
-      const { setupTier, activePOI } = computeSetupTier(dpResults, triggerDateOnDemand)
-      const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'extreme' ? 'gold' : setupTier === 'strong' ? 'blue' : 'gray'
-      const hasPOI = setupTier !== null
-      const setupActive = r.recentEvents.length > 0 && hasPOI
-      const latestEvent = r.recentEvents[r.recentEvents.length - 1]
-      const compressionPct = latestEvent?.compressionPct ?? 0
-      const isThursday2 = new Date().getDay() === 4
-      const minDays2 = setupTier === 'extreme' ? (isThursday2 ? 8 : 0) : setupTier === 'strong' ? 7 : 7
-      const realExpiry2 = setupActive ? await fetchNearestRealExpiry(sym, minDays2, API_KEY) : undefined
-      const trade = setupActive ? buildStraddleTrade(r.bars, sym, compressionPct, bubbleTier, realExpiry2) : null
+      // Just put the bubbles on the chart — don't change card visibility or trade
       setResults(prev => prev.map(res => res.symbol === sym ? {
         ...res,
-        hasPOI,
-        topPOI: activePOI,
-        setupActive,
-        setupTier,
         dpDays: dpResults,
         poiLevels: poi,
-        trade,
         poiScanPending: false,
       } : res))
     } finally {
@@ -2331,7 +2457,11 @@ export default function StraddleTownScreener() {
       const isThur = new Date().getDay() === 4
       const minDays = setupTier === 'extreme' ? (isThur ? 8 : 0) : setupTier === 'strong' ? 7 : 7
       const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY) : undefined
-      const trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
+      let trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
+      if (trade) {
+        const rp = await fetchRealStraddlePrices(sym, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
+        if (rp) trade = patchTradeWithRealPrices(trade, rp)
+      }
 
       const result: ScanResult = {
         symbol: sym,
@@ -2410,6 +2540,7 @@ export default function StraddleTownScreener() {
             poiLevels={r.poiLevels}
             forceHeight={selectedFromTickerSearch ? 1300 : undefined}
             symbol={r.symbol}
+            trade={r.trade}
           />
         </div>
 
@@ -2453,85 +2584,6 @@ export default function StraddleTownScreener() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <TradeCard trade={r.trade} symbol={r.symbol} side="call" />
               <TradeCard trade={r.trade} symbol={r.symbol} side="put" />
-            </div>
-            <div
-              style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 6,
-                padding: '14px 20px',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 16,
-              }}
-            >
-              {[
-                {
-                  label: 'TOTAL COST',
-                  value: `$${r.trade.totalCost.toFixed(0)}`,
-                  sub: 'per straddle (100 × 2 legs)',
-                  color: '#fff',
-                },
-                {
-                  label: 'UPPER BE',
-                  value: `$${r.trade.upperBE.toFixed(2)}`,
-                  sub: `${(((r.trade.upperBE - r.currentPrice) / r.currentPrice) * 100).toFixed(1)}% above`,
-                  color: '#00FF88',
-                },
-                {
-                  label: 'LOWER BE',
-                  value: `$${r.trade.lowerBE.toFixed(2)}`,
-                  sub: `${(((r.trade.lowerBE - r.currentPrice) / r.currentPrice) * 100).toFixed(1)}% below`,
-                  color: '#FF4060',
-                },
-                {
-                  label: 'IV ESTIMATE',
-                  value: `${(r.trade.iv * 100).toFixed(1)}%`,
-                  sub: '20-period log HV annualized',
-                  color: '#60A5FA',
-                },
-              ].map((item) => (
-                <div key={item.label}>
-                  <div
-                    style={{
-                      ...mono,
-                      fontSize: 9,
-                      fontWeight: 800,
-                      color: 'rgba(255,255,255,0.35)',
-                      letterSpacing: '1.5px',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                  <div style={{ ...mono, fontSize: 18, fontWeight: 800, color: item.color }}>
-                    {item.value}
-                  </div>
-                  <div
-                    style={{
-                      ...mono,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: 'rgba(255,255,255,0.35)',
-                    }}
-                  >
-                    {item.sub}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div
-              style={{
-                ...mono,
-                fontSize: 9,
-                color: 'rgba(255,255,255,0.2)',
-                letterSpacing: '0.8px',
-                textAlign: 'center',
-                paddingBottom: 8,
-              }}
-            >
-              ESTIMATED PREMIUMS VIA BLACK-SCHOLES · 80% OTM STRIKE · STOP AT 50% OF ENTRY PREMIUM ·
-              NOT FINANCIAL ADVICE
             </div>
           </>
         ) : null}
@@ -2579,6 +2631,11 @@ export default function StraddleTownScreener() {
         }}
       >
         {/* ── SINGLE ROW: Brand · Legends · Controls ─── */}
+        <style>{`
+          @keyframes stSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          @keyframes stPulse { 0%,100% { transform: scale(1); opacity:1; } 50% { transform: scale(0.85); opacity:0.6; } }
+          @keyframes stScanDot { 0%,100% { transform: translateX(0); opacity:1; } 50% { transform: translateX(3px); opacity:0.4; } }
+        `}</style>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58 }}>
 
           {/* Brand */}
@@ -2593,49 +2650,47 @@ export default function StraddleTownScreener() {
           {(isScanning || phase === 'done') && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 22px', borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
-                {/* SVG diamond icon */}
-                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
                   <polygon points="7,1 13,7 7,13 1,7" fill="url(#dgrad)" stroke="rgba(255,220,80,0.95)" strokeWidth="1" />
                   <defs><linearGradient id="dgrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="rgba(255,210,60,0.95)" /><stop offset="100%" stopColor="rgba(255,110,0,0.85)" /></linearGradient></defs>
                 </svg>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 900, color: '#FFD700', letterSpacing: '1.5px' }}>DIAMOND</span>
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>77–99%</span>
-                <span style={{ ...mono, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>=</span>
-                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>High Pressure · Low Vol</span>
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>45–75%</span>
-                <span style={{ ...mono, fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>=</span>
-                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Low Pressure · High Vol</span>
+                <span style={{ ...mono, fontSize: 16, fontWeight: 900, color: '#FFD700', letterSpacing: '1.5px' }}>DIAMOND</span>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
+                <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#FFD700' }}>77–99%</span>
+                <span style={{ ...mono, fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>=</span>
+                <span style={{ ...mono, fontSize: 16, color: '#FFFFFF' }}>High Pressure · Low Vol</span>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
+                <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#FFD700' }}>45–75%</span>
+                <span style={{ ...mono, fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>=</span>
+                <span style={{ ...mono, fontSize: 16, color: '#FFFFFF' }}>Low Pressure · High Vol</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 22px', borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
-                {/* SVG bubble icon */}
-                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
                   <circle cx="7" cy="7" r="6" fill="rgba(255,180,40,0.2)" stroke="rgba(255,200,60,0.9)" strokeWidth="1.5" />
                   <circle cx="5" cy="5" r="1.5" fill="rgba(255,230,120,0.7)" />
                 </svg>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 900, color: '#FF8C00', letterSpacing: '1.5px' }}>BUBBLES</span>
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
-                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                <span style={{ ...mono, fontSize: 16, fontWeight: 900, color: '#FF8C00', letterSpacing: '1.5px' }}>BUBBLES</span>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="18" height="18" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
                   <circle cx="7" cy="7" r="6" fill="rgba(255,200,60,0.2)" stroke="rgba(255,215,0,0.9)" strokeWidth="1.5" />
                   <circle cx="5" cy="5" r="1.5" fill="rgba(255,240,140,0.7)" />
                 </svg>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#FFD700' }}>Gold:</span>
-                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Dealer Levels</span>
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
-                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#FFD700' }}>Gold:</span>
+                <span style={{ ...mono, fontSize: 16, color: '#FFFFFF' }}>Dealer Levels</span>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="18" height="18" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
                   <circle cx="7" cy="7" r="6" fill="rgba(80,180,255,0.15)" stroke="rgba(100,200,255,0.9)" strokeWidth="1.5" />
                   <circle cx="5" cy="5" r="1.5" fill="rgba(180,230,255,0.7)" />
                 </svg>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#41B6F6' }}>Blue:</span>
-                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Institutional</span>
-                <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.1)' }} />
-                <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#41B6F6' }}>Blue:</span>
+                <span style={{ ...mono, fontSize: 16, color: '#FFFFFF' }}>Institutional</span>
+                <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
+                <svg width="18" height="18" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
                   <circle cx="7" cy="7" r="6" fill="rgba(160,160,160,0.15)" stroke="rgba(185,185,185,0.75)" strokeWidth="1.5" />
                   <circle cx="5" cy="5" r="1.5" fill="rgba(210,210,210,0.6)" />
                 </svg>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#CCCCCC' }}>Gray:</span>
-                <span style={{ ...mono, fontSize: 13, color: '#FFFFFF' }}>Leveraged Traders</span>
+                <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: '#CCCCCC' }}>Gray:</span>
+                <span style={{ ...mono, fontSize: 16, color: '#FFFFFF' }}>Leveraged Traders</span>
               </div>
             </>
           )}
@@ -2645,9 +2700,17 @@ export default function StraddleTownScreener() {
 
           {/* Search + Scan */}
           <div style={{
-            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)',
+            display: 'flex', alignItems: 'stretch', borderRadius: 8, overflow: 'hidden', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.16)',
+            background: 'linear-gradient(180deg, #181818 0%, #080808 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 10px rgba(0,0,0,0.9)',
           }}>
+            <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 12, color: 'rgba(255,255,255,0.35)' }}>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
+                <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
             <input
               value={tickerSearch}
               onChange={e => setTickerSearch(e.target.value.toUpperCase())}
@@ -2657,7 +2720,7 @@ export default function StraddleTownScreener() {
               style={{
                 ...mono, fontSize: 13, fontWeight: 700, letterSpacing: 2,
                 color: '#ffffff', background: 'transparent', border: 'none', outline: 'none',
-                padding: '0 14px', width: 140, textTransform: 'uppercase',
+                padding: '0 10px', width: 130, textTransform: 'uppercase',
               }}
             />
             <button
@@ -2666,56 +2729,47 @@ export default function StraddleTownScreener() {
               style={{
                 ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2,
                 cursor: tickerScanning ? 'not-allowed' : 'pointer',
-                background: 'rgba(255,255,255,0.04)', border: 'none',
-                borderLeft: '1px solid rgba(255,255,255,0.1)',
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 100%)',
+                border: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)',
                 color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
-                padding: '0 18px',
+                padding: '0 16px', display: 'flex', alignItems: 'center', gap: 7,
               }}
             >
-              {tickerScanning ? '…' : '▶  SCAN'}
+              {tickerScanning
+                ? <svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                : <svg width="11" height="11" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
+              }
+              {tickerScanning ? 'SCANNING' : 'SCAN'}
             </button>
           </div>
 
-          {/* Timeframe tabs */}
-          <div style={{
-            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)', marginLeft: 8,
-          }}>
-            {([252, 756, 1260] as const).map((val, i) => {
-              const label = val === 252 ? '1 YEAR' : val === 756 ? '3 YEAR' : '5 YEAR'
-              const active = tickerLookback === val
-              return (
-                <button key={val} onClick={() => setTickerLookback(val)} style={{
-                  ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 38,
-                  cursor: 'pointer', background: 'transparent',
-                  color: active ? '#FF8C00' : '#FFFFFF',
-                  border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                  transition: 'color 0.15s',
-                }}>
-                  {label}
-                </button>
-              )
-            })}
-          </div>
-
-          <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', flexShrink: 0, margin: '0 8px' }} />
-
           {/* Scan mode tabs */}
           <div style={{
-            display: 'flex', alignItems: 'stretch', borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)',
+            display: 'flex', alignItems: 'stretch', borderRadius: 8, overflow: 'hidden', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.16)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 10px rgba(0,0,0,0.9)',
           }}>
-            {(['both', 'contraction', 'poi'] as const).map((m, i) => {
-              const labels = { both: 'BOTH', contraction: '◆  CONTRACTION', poi: '●  POI' } as const
+            {(['both', 'contraction'] as const).map((m, i) => {
               const active = scanMode === m
+              const icons = {
+                both: <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="2" y1="4" x2="11" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><line x1="2" y1="7" x2="11" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><line x1="2" y1="10" x2="11" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>,
+                contraction: <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polygon points="6.5,2 11,6.5 6.5,11 2,6.5" fill={active ? 'rgba(255,140,0,0.3)' : 'rgba(255,255,255,0.15)'} stroke="currentColor" strokeWidth="1.2" /></svg>,
+              }
+              const labels = { both: 'BOTH', contraction: 'CONTRACTION' } as const
               return (
                 <button key={m} onClick={() => { setScanMode(m); scanModeRef.current = m }} style={{
-                  ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 36,
-                  cursor: 'pointer', background: 'transparent',
-                  color: active ? '#FF8C00' : '#FFFFFF',
+                  ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 18px', height: 36,
+                  cursor: 'pointer',
+                  background: active
+                    ? 'linear-gradient(180deg, rgba(255,140,0,0.18) 0%, rgba(180,60,0,0.12) 100%)'
+                    : 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+                  color: active ? '#FF8C00' : 'rgba(255,255,255,0.7)',
                   border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                  transition: 'color 0.15s',
+                  boxShadow: active ? 'inset 0 1px 0 rgba(255,140,0,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                  transition: 'all 0.15s',
+                  display: 'flex', alignItems: 'center', gap: 7,
                 }}>
+                  {icons[m]}
                   {labels[m]}
                 </button>
               )
@@ -2725,39 +2779,65 @@ export default function StraddleTownScreener() {
           {/* Scan All / Stop / Rescan */}
           {phase === 'idle' || phase === 'error' ? (
             <button onClick={run} style={{
-              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
-              cursor: 'pointer', borderRadius: 7, border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.03)', color: '#FFFFFF', flexShrink: 0,
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 20px', height: 36,
+              cursor: 'pointer', borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(180deg, #1e1e1e 0%, #080808 100%)',
+              border: '1px solid rgba(255,255,255,0.16)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 10px rgba(0,0,0,0.9)',
+              color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s',
             }}>
-              ▶  SCAN ALL STOCKS
+              <svg width="12" height="12" viewBox="0 0 12 12"><polygon points="1,1 11,6 1,11" fill="currentColor" /></svg>
+              SCAN ALL STOCKS
             </button>
           ) : isScanning ? (
             <button onClick={() => abortRef.current?.abort()} style={{
-              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
-              cursor: 'pointer', borderRadius: 7,
-              background: 'rgba(255,40,60,0.08)', border: '1px solid rgba(255,40,60,0.5)',
-              color: '#FF4060', flexShrink: 0,
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 20px', height: 36,
+              cursor: 'pointer', borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(180deg, rgba(255,40,60,0.14) 0%, rgba(140,10,20,0.10) 100%)',
+              border: '1px solid rgba(255,40,60,0.45)',
+              boxShadow: 'inset 0 1px 0 rgba(255,80,80,0.10), 0 2px 10px rgba(0,0,0,0.9)',
+              color: '#FF4060', display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              ■  STOP
+              <svg width="10" height="10" viewBox="0 0 10 10" style={{ animation: 'stPulse 1s ease-in-out infinite' }}><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg>
+              STOP
             </button>
           ) : (
             <button onClick={run} style={{
-              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 22px', height: 36,
-              cursor: 'pointer', borderRadius: 7, border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.03)', color: '#FFFFFF', flexShrink: 0,
+              ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 2, padding: '0 20px', height: 36,
+              cursor: 'pointer', borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(180deg, #1e1e1e 0%, #080808 100%)',
+              border: '1px solid rgba(255,255,255,0.16)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 10px rgba(0,0,0,0.9)',
+              color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s',
             }}>
-              ↺  RESCAN ALL
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ animation: 'stSpin 2s linear infinite' }}>
+                <path d="M11 6.5A4.5 4.5 0 1 1 9.2 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+                <polygon points="9.2,0.5 12.5,3.5 6.5,3.5" fill="currentColor" />
+              </svg>
+              RESCAN ALL
             </button>
           )}
 
           {/* Pressure toggle */}
           <button onClick={() => setSqzOnly(s => !s)} style={{
-            ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 20px', height: 36,
-            cursor: 'pointer', borderRadius: 7, flexShrink: 0,
-            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.12)',
-            color: sqzOnly ? '#FF8C00' : '#FFFFFF',
-            transition: 'color 0.15s',
+            ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 18px', height: 36,
+            cursor: 'pointer', borderRadius: 8, flexShrink: 0,
+            background: sqzOnly
+              ? 'linear-gradient(180deg, rgba(255,140,0,0.18) 0%, rgba(180,60,0,0.12) 100%)'
+              : 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+            border: sqzOnly ? '1px solid rgba(255,140,0,0.45)' : '1px solid rgba(255,255,255,0.16)',
+            boxShadow: sqzOnly
+              ? 'inset 0 1px 0 rgba(255,140,0,0.15), 0 2px 10px rgba(0,0,0,0.9)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 10px rgba(0,0,0,0.9)',
+            color: sqzOnly ? '#FF8C00' : 'rgba(255,255,255,0.7)',
+            transition: 'all 0.15s',
+            display: 'flex', alignItems: 'center', gap: 7,
           }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <line x1="2" y1="3" x2="11" y2="3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              <line x1="5.5" y1="10" x2="7.5" y2="10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
             PRESSURE {sqzOnly ? 'ON' : 'OFF'}
           </button>
 

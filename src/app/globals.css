@@ -221,6 +221,222 @@ nav,
     scrollbar-color: #3a3a3a #000000;
 }
 
+/* ─── Toolbar Button Animations ─────────────────────────────────────────── */
+@keyframes tb-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes tb-shake {
+
+    0%,
+    100% {
+        transform: translateX(0) rotate(0deg);
+    }
+
+    20% {
+        transform: translateX(-3px) rotate(-8deg);
+    }
+
+    40% {
+        transform: translateX(3px) rotate(8deg);
+    }
+
+    60% {
+        transform: translateX(-2px) rotate(-4deg);
+    }
+
+    80% {
+        transform: translateX(2px) rotate(4deg);
+    }
+}
+
+@keyframes tb-pop {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    35% {
+        transform: scale(1.35) rotate(-6deg);
+    }
+
+    65% {
+        transform: scale(0.88) rotate(4deg);
+    }
+}
+
+@keyframes tb-bounce {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    40% {
+        transform: translateY(-4px);
+    }
+
+    70% {
+        transform: translateY(1px);
+    }
+}
+
+@keyframes tb-swing {
+
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+
+    25% {
+        transform: rotate(-22deg);
+    }
+
+    75% {
+        transform: rotate(22deg);
+    }
+}
+
+.toolbar-btn-refresh:not(:disabled):hover .tb-icon {
+    animation: tb-spin 0.5s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.toolbar-btn-clear:not(:disabled):hover .tb-icon {
+    animation: tb-shake 0.4s ease;
+}
+
+.toolbar-btn-save:not(:disabled):hover .tb-icon {
+    animation: tb-bounce 0.4s ease;
+}
+
+.toolbar-btn-img:not(:disabled):hover .tb-icon {
+    animation: tb-pop 0.4s ease;
+}
+
+.toolbar-btn-history:not(:disabled):hover .tb-icon {
+    animation: tb-swing 0.5s ease;
+}
+
+.toolbar-btn-save.tb-save-success .tb-icon {
+    animation: tb-pop 0.35s ease forwards;
+}
+
+/* Action button base hover — glow + scale */
+.toolbar-btn-refresh:not(:disabled):hover,
+.toolbar-btn-clear:not(:disabled):hover,
+.toolbar-btn-save:not(:disabled):hover,
+.toolbar-btn-img:not(:disabled):hover,
+.toolbar-btn-history:not(:disabled):hover {
+    transform: scale(1.08);
+    filter: brightness(1.25);
+}
+
+/* Pill preset buttons hover */
+.toolbar-pill:hover {
+    transform: scale(1.05);
+    filter: brightness(1.3);
+    cursor: pointer;
+}
+
+/* Mode toggle buttons hover */
+.toolbar-mode:not(.toolbar-mode--active):hover {
+    transform: scale(1.04);
+    filter: brightness(1.3);
+    cursor: pointer;
+}
+
+.toolbar-mode.toolbar-mode--active:hover {
+    filter: brightness(1.15);
+    cursor: pointer;
+}
+
+/* ─── Column Header Design ───────────────────────────────────────────────── */
+@keyframes col-icon-float {
+
+    0%,
+    100% {
+        transform: translateY(0px) scale(1);
+    }
+
+    25% {
+        transform: translateY(-2px) scale(1.05);
+    }
+
+    75% {
+        transform: translateY(1px) scale(0.97);
+    }
+}
+
+thead.col-thead {
+    background: linear-gradient(180deg, #2a2a2a 0%, #111 28%, #030303 58%, #000 100%);
+    border-bottom: 2px solid #ff8500;
+    box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.18),
+        inset 0 -2px 5px rgba(0, 0, 0, 0.9),
+        0 6px 24px rgba(0, 0, 0, 0.98);
+}
+
+.col-hdr {
+    background: linear-gradient(180deg, #2a2a2a 0%, #111 28%, #030303 58%, #000 100%);
+    box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -2px 5px rgba(0, 0, 0, 0.85);
+    color: #ff8500;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    text-align: center;
+    border-right: 1px solid #ff8500;
+    white-space: nowrap;
+    padding: 12px 16px;
+    transition: color 0.15s ease;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    user-select: none;
+}
+
+.col-hdr>div {
+    justify-content: center;
+}
+
+.col-hdr>div>svg {
+    animation: col-icon-float 2.4s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+.col-hdr:hover>div>svg {
+    animation: col-icon-float 0.65s ease-in-out infinite;
+}
+
+.col-hdr.col-sortable:hover {
+    background: linear-gradient(180deg, #2a1a00 0%, #150c00 30%, #060300 60%, #000 100%) !important;
+    box-shadow:
+        inset 0 2px 0 rgba(255, 133, 0, 0.22),
+        inset 0 -2px 5px rgba(0, 0, 0, 0.9) !important;
+    color: #ffb733 !important;
+}
+
+.col-hdr.col-active {
+    background: linear-gradient(180deg, #301e00 0%, #190f00 30%, #070400 60%, #000 100%) !important;
+    box-shadow:
+        inset 0 2px 0 rgba(255, 133, 0, 0.28),
+        inset 0 -2px 5px rgba(0, 0, 0, 0.95) !important;
+    color: #ffb733 !important;
+}
+
+.col-hdr:last-child {
+    border-right: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 /* Custom Animations for Trading Chart */
 @keyframes fadeIn {
     from {
@@ -824,6 +1040,16 @@ body {
             inset 0 3px 6px rgba(255, 102, 0, 0.3),
             inset 0 -3px 12px rgba(0, 0, 0, 0.95),
             0 0 50px rgba(255, 102, 0, 0.4);
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
     }
 }
 

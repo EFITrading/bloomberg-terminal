@@ -35,7 +35,7 @@ export default function DataDriven() {
               gridTemplateColumns: '46% 53.75%',
               gap: '0.25%',
               width: '100%',
-              marginTop: '12px',
+              marginTop: '0',
             }}
           >
             <div style={{ minWidth: 0, width: '100%' }}>
@@ -47,8 +47,6 @@ export default function DataDriven() {
                 marginTop: '-75px',
                 height: 'calc(94vh - 40px)',
                 overflow: 'hidden',
-                border: '1px solid #B8960C',
-                outline: '1px solid rgba(184,150,12,0.4)',
               }}
             >
               <HistoricalEventsResearch />

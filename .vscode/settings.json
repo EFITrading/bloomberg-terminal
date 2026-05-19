@@ -1,5 +1,5 @@
 {
-  "files.autoSave": "afterDelay",
+  "files.autoSave": "off",
   "files.autoSaveDelay": 1000,
   "git.enableAutoFetch": false,
   "git.autofetch": false,
@@ -36,5 +36,7 @@
   "workbench.editor.limit.enabled": true,
   "workbench.editor.limit.value": 10,
   "extensions.ignoreRecommendations": true,
-  "telemetry.telemetryLevel": "off"
+  "telemetry.telemetryLevel": "off",
+  "remote.autoForwardPorts": false,
+  "workbench.localPortHost": "localhost"
 }

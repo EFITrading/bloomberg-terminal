@@ -185,7 +185,7 @@ class IncrementalStreamingProcessor {
           case 'ticker_progress':
             // Regular progress updates
             if (onProgress) {
-              onProgress([], `Worker ${workerIndex}: ${message.message}`, {
+              onProgress([], message.message, {
                 worker: workerIndex,
                 ticker: message.ticker,
                 scanning: true,
