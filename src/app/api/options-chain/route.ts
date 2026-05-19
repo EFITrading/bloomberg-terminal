@@ -93,14 +93,19 @@ export async function GET(request: NextRequest) {
 
         if (!strike || !contractType) return
 
+        const _lq = contract.last_quote || {}
+        const _day = contract.day || {}
+        const _bid = _lq.bid || 0
+        const _ask = _lq.ask || 0
+        const _lastPrice = contract.last_trade?.price || _day.close || _day.vwap || 0
         const contractData = {
           open_interest: contract.open_interest || 0,
           strike_price: contract.details.strike_price,
           expiration_date: specificExpiration,
           implied_volatility: contract.implied_volatility,
-          last_price: contract.last_quote?.last?.price || contract.day?.close || 0,
-          bid: contract.last_quote?.bid || 0,
-          ask: contract.last_quote?.ask || 0,
+          last_price: _lastPrice,
+          bid: _bid + _ask > 0 ? _bid : _lastPrice,
+          ask: _bid + _ask > 0 ? _ask : _lastPrice,
           greeks: {
             delta: contract.greeks?.delta,
             gamma: contract.greeks?.gamma,
@@ -186,14 +191,19 @@ export async function GET(request: NextRequest) {
 
         if (!groupedByExpiration[exp]) groupedByExpiration[exp] = { calls: {}, puts: {} }
 
+        const _lq = contract.last_quote || {}
+        const _day = contract.day || {}
+        const _bid = _lq.bid || 0
+        const _ask = _lq.ask || 0
+        const _lastPrice = contract.last_trade?.price || _day.close || _day.vwap || 0
         const contractData = {
           open_interest: contract.open_interest || 0,
           strike_price: contract.details.strike_price,
           expiration_date: exp,
           implied_volatility: contract.implied_volatility,
-          last_price: contract.last_quote?.last?.price || contract.day?.close || 0,
-          bid: contract.last_quote?.bid || 0,
-          ask: contract.last_quote?.ask || 0,
+          last_price: _lastPrice,
+          bid: _bid + _ask > 0 ? _bid : _lastPrice,
+          ask: _bid + _ask > 0 ? _ask : _lastPrice,
           greeks: {
             delta: contract.greeks?.delta,
             gamma: contract.greeks?.gamma,

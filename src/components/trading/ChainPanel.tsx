@@ -220,7 +220,7 @@ function ChainPanel({
       el.scrollLeft = callSideWidth - (containerW / 2) + (MSW / 2)
     }
     requestAnimationFrame(doScroll)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile, callOptions.length])
 
   // Sync symbol when initialSymbol changes
@@ -709,6 +709,16 @@ function ChainPanel({
             result.previous_close = snap.day.previous_close
           }
           result.change_percent = snap.day?.change_percent || 0
+        }
+
+        // When market is closed, bid+ask=0 — fall back to last_trade.price or day.close
+        if (result.bid === 0 && result.ask === 0) {
+          const fallbackPrice = snap.last_trade?.price || snap.day?.close || snap.day?.vwap || 0
+          if (fallbackPrice > 0) {
+            result.bid = fallbackPrice
+            result.ask = fallbackPrice
+            result.last_price = fallbackPrice
+          }
         }
       } else {
         console.warn(`No snapshot results for ${optionSymbol}:`, snapshotData)
@@ -1409,37 +1419,37 @@ function ChainPanel({
             <div className="flex items-center gap-3 pr-8">
               {/* Icon badge — desktop only */}
               {!isMobile && (
-              <div
-                className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                style={{
-                  background: 'linear-gradient(145deg, #1a1a1a 0%, #111 100%)',
-                  border: '1px solid rgba(245,158,11,0.4)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.6)',
-                }}
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#f59e0b"
-                  strokeWidth="1.5"
+                <div
+                  className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+                  style={{
+                    background: 'linear-gradient(145deg, #1a1a1a 0%, #111 100%)',
+                    border: '1px solid rgba(245,158,11,0.4)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.6)',
+                  }}
                 >
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="3" y1="9" x2="21" y2="9" />
-                  <line x1="9" y1="21" x2="9" y2="9" />
-                </svg>
-              </div>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="1.5"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <line x1="3" y1="9" x2="21" y2="9" />
+                    <line x1="9" y1="21" x2="9" y2="9" />
+                  </svg>
+                </div>
               )}
 
               <div className="flex flex-col leading-none">
                 {!isMobile && (
-                <span
-                  className="text-[9px] font-bold tracking-[0.4em] uppercase mb-0.5"
-                  style={{ color: 'rgba(245,158,11,0.7)' }}
-                >
-                  Derivatives
-                </span>
+                  <span
+                    className="text-[9px] font-bold tracking-[0.4em] uppercase mb-0.5"
+                    style={{ color: 'rgba(245,158,11,0.7)' }}
+                  >
+                    Derivatives
+                  </span>
                 )}
 
                 {/* Use div not h1 — globals.css sets h1 { font-size: 72px } */}
@@ -1558,7 +1568,7 @@ function ChainPanel({
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(145deg,rgba(127,29,29,0.85),rgba(69,10,10,0.95))', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
                     </button>
                   )}
@@ -1591,7 +1601,7 @@ function ChainPanel({
                       onChange={(e) => setOtmRange(Number(e.target.value))}
                       style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 18px 4px 8px', fontSize: 11, fontWeight: 700, color: '#fff', appearance: 'none', cursor: 'pointer' }}
                     >
-                      {[2,3,5,10,15,20,30,50,80,100,200].map((v) => <option key={v} value={v} className="bg-gray-900">±{v}%</option>)}
+                      {[2, 3, 5, 10, 15, 20, 30, 50, 80, 100, 200].map((v) => <option key={v} value={v} className="bg-gray-900">±{v}%</option>)}
                     </select>
                     <div style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666', fontSize: 9 }}>▼</div>
                   </div>
@@ -1610,15 +1620,15 @@ function ChainPanel({
                         <div style={{ padding: 12 }}>
                           <div style={{ color: '#f97316', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #1f2937' }}>Columns</div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {[{key:'watchlist',label:'★ Watchlist'},{key:'openInterest',label:'OI'},{key:'volume',label:'VOL'},{key:'iv',label:'IV%'},{key:'change',label:'CHG%'},{key:'breakeven',label:'B/E%'},{key:'bid',label:'Bid'},{key:'ask',label:'Ask'}].map(({key, label}) => (
+                            {[{ key: 'watchlist', label: '★ Watchlist' }, { key: 'openInterest', label: 'OI' }, { key: 'volume', label: 'VOL' }, { key: 'iv', label: 'IV%' }, { key: 'change', label: 'CHG%' }, { key: 'breakeven', label: 'B/E%' }, { key: 'bid', label: 'Bid' }, { key: 'ask', label: 'Ask' }].map(({ key, label }) => (
                               <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}>
-                                <input type="checkbox" checked={visibleColumns[key as keyof typeof visibleColumns]} onChange={(e) => setVisibleColumns((p) => ({...p, [key]: e.target.checked}))} style={{ width: 12, height: 12, cursor: 'pointer' }} />
+                                <input type="checkbox" checked={visibleColumns[key as keyof typeof visibleColumns]} onChange={(e) => setVisibleColumns((p) => ({ ...p, [key]: e.target.checked }))} style={{ width: 12, height: 12, cursor: 'pointer' }} />
                                 <span style={{ color: '#fff', fontSize: 11 }}>{label}</span>
                               </label>
                             ))}
                           </div>
                           <div style={{ display: 'flex', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #1f2937' }}>
-                            <button onClick={() => setVisibleColumns({openInterest:true,volume:true,delta:false,theta:false,iv:true,change:true,breakeven:true,bid:true,ask:true,watchlist:true})} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#374151', border: 'none', borderRadius: 4, cursor: 'pointer' }}>ALL</button>
+                            <button onClick={() => setVisibleColumns({ openInterest: true, volume: true, delta: false, theta: false, iv: true, change: true, breakeven: true, bid: true, ask: true, watchlist: true })} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#374151', border: 'none', borderRadius: 4, cursor: 'pointer' }}>ALL</button>
                             <button onClick={() => setShowColumnFilter(false)} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#ea580c', border: 'none', borderRadius: 4, cursor: 'pointer' }}>CLOSE</button>
                           </div>
                         </div>
@@ -1637,430 +1647,430 @@ function ChainPanel({
             ) : (
               /* ── DESKTOP full controls ──────────────────────────────── */
               <div className="px-4 pt-4 pb-3">
-              {/* Row 1: Search Bar, Price, Expiration, and Actions */}
+                {/* Row 1: Search Bar, Price, Expiration, and Actions */}
 
-              <div className="flex items-center justify-between mb-4">
-                {/* Left: Search Bar, Spot Price, and Expiration */}
+                <div className="flex items-center justify-between mb-4">
+                  {/* Left: Search Bar, Spot Price, and Expiration */}
 
-                <div className="flex items-center gap-4">
-                  {/* Liquid-style Search Bar */}
+                  <div className="flex items-center gap-4">
+                    {/* Liquid-style Search Bar */}
 
-                  <div className="search-bar-premium flex items-center space-x-2 px-4 py-2.5 rounded-md">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      style={{ color: 'rgba(128, 128, 128, 0.5)' }}
-                    >
-                      <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                    <div className="search-bar-premium flex items-center space-x-2 px-4 py-2.5 rounded-md">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        style={{ color: 'rgba(128, 128, 128, 0.5)' }}
+                      >
+                        <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
 
-                      <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
-                    </svg>
+                        <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
+                      </svg>
 
-                    <input
-                      type="text"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && searchInput.trim()) {
-                          setSymbol(searchInput.trim().toUpperCase())
+                      <input
+                        type="text"
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && searchInput.trim()) {
+                            setSymbol(searchInput.trim().toUpperCase())
 
-                          setSelectedExpiration('')
+                            setSelectedExpiration('')
 
-                          setCallOptions([])
+                            setCallOptions([])
 
-                          setPutOptions([])
+                            setPutOptions([])
 
-                          setError(null)
-                        }
-                      }}
-                      className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                            setError(null)
+                          }
+                        }}
+                        className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                        style={{
+                          color: '#ffffff',
+
+                          textShadow:
+                            '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+
+                          letterSpacing: '0.8px',
+                        }}
+                        placeholder="Search..."
+                      />
+
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        style={{ color: '#666' }}
+                      >
+                        <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
+                      </svg>
+                    </div>
+
+                    {/* Spot Price */}
+
+                    <div
+                      className="flex items-center gap-2 px-4 py-3 rounded"
                       style={{
-                        color: '#ffffff',
-
-                        textShadow:
-                          '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
-
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-
-                        letterSpacing: '0.8px',
+                        background: 'rgba(245,158,11,0.08)',
+                        border: '1px solid rgba(245,158,11,0.35)',
                       }}
-                      placeholder="Search..."
-                    />
-
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      style={{ color: '#666' }}
                     >
-                      <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
-                    </svg>
-                  </div>
+                      <span
+                        className="text-base font-black uppercase tracking-widest"
+                        style={{ color: '#f59e0b' }}
+                      >
+                        SPOT
+                      </span>
 
-                  {/* Spot Price */}
+                      <span className="text-base font-black tabular-nums" style={{ color: '#fff' }}>
+                        ${stockPrice.toFixed(2)}
+                      </span>
+                    </div>
 
-                  <div
-                    className="flex items-center gap-2 px-4 py-3 rounded"
-                    style={{
-                      background: 'rgba(245,158,11,0.08)',
-                      border: '1px solid rgba(245,158,11,0.35)',
-                    }}
-                  >
-                    <span
-                      className="text-base font-black uppercase tracking-widest"
-                      style={{ color: '#f59e0b' }}
-                    >
-                      SPOT
-                    </span>
+                    {/* Expiration Selector */}
 
-                    <span className="text-base font-black tabular-nums" style={{ color: '#fff' }}>
-                      ${stockPrice.toFixed(2)}
-                    </span>
-                  </div>
+                    <div className="relative min-w-[200px]">
+                      <select
+                        value={selectedExpiration}
+                        onChange={(e) => setSelectedExpiration(e.target.value)}
+                        className="w-full rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
+                        style={{
+                          background: '#161616',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                        }}
+                        disabled={expirationDates.length === 0}
+                      >
+                        {expirationDates.length === 0 ? (
+                          <option>Loading expirations...</option>
+                        ) : (
+                          expirationDates.map((date) => {
+                            const daysUntil = Math.ceil(
+                              (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                            )
 
-                  {/* Expiration Selector */}
+                            return (
+                              <option key={date} value={date} className="bg-gray-900">
+                                {date} ({daysUntil}d DTE)
+                              </option>
+                            )
+                          })
+                        )}
+                      </select>
 
-                  <div className="relative min-w-[200px]">
-                    <select
-                      value={selectedExpiration}
-                      onChange={(e) => setSelectedExpiration(e.target.value)}
-                      className="w-full rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
-                      style={{
-                        background: '#161616',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                      }}
-                      disabled={expirationDates.length === 0}
-                    >
-                      {expirationDates.length === 0 ? (
-                        <option>Loading expirations...</option>
-                      ) : (
-                        expirationDates.map((date) => {
-                          const daysUntil = Math.ceil(
-                            (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                          )
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <svg
+                          className="w-[18px] h-[18px] text-gray-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </div>
+                    </div>
 
-                          return (
-                            <option key={date} value={date} className="bg-gray-900">
-                              {date} ({daysUntil}d DTE)
-                            </option>
-                          )
-                        })
+                    {/* OTM Range Selector */}
+
+                    <div className="relative w-32">
+                      <select
+                        value={otmRange}
+                        onChange={(e) => setOtmRange(Number(e.target.value))}
+                        className="w-32 rounded px-3 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
+                        style={{
+                          background: '#161616',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                        }}
+                      >
+                        <option value={2} className="bg-gray-900">
+                          ±2% OTM
+                        </option>
+
+                        <option value={3} className="bg-gray-900">
+                          ±3% OTM
+                        </option>
+
+                        <option value={5} className="bg-gray-900">
+                          ±5% OTM
+                        </option>
+
+                        <option value={10} className="bg-gray-900">
+                          ±10% OTM
+                        </option>
+
+                        <option value={15} className="bg-gray-900">
+                          ±15% OTM
+                        </option>
+
+                        <option value={20} className="bg-gray-900">
+                          ±20% OTM
+                        </option>
+
+                        <option value={30} className="bg-gray-900">
+                          ±30% OTM
+                        </option>
+
+                        <option value={50} className="bg-gray-900">
+                          ±50% OTM
+                        </option>
+
+                        <option value={80} className="bg-gray-900">
+                          ±80% OTM
+                        </option>
+
+                        <option value={100} className="bg-gray-900">
+                          ±100% OTM
+                        </option>
+
+                        <option value={200} className="bg-gray-900">
+                          ±200% OTM
+                        </option>
+                      </select>
+
+                      <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <svg
+                          className="w-[18px] h-[18px] text-gray-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Chain Filter Button */}
+
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowColumnFilter(!showColumnFilter)}
+                        className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
+                        style={{
+                          background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616',
+                          border: showColumnFilter
+                            ? '1px solid rgba(245,158,11,0.6)'
+                            : '1px solid rgba(255,255,255,0.15)',
+                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                        }}
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                          />
+                        </svg>
+                        Filter
+                      </button>
+
+                      {/* Filter Dropdown Menu */}
+
+                      {showColumnFilter && (
+                        <div
+                          className="absolute top-full right-0 mt-2 w-72 rounded-lg border border-orange-500/30 shadow-2xl z-50"
+                          style={{
+                            background: 'linear-gradient(145deg, #0f0f0f, #000000)',
+
+                            boxShadow:
+                              '0 20px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(249, 115, 22, 0.2)',
+                          }}
+                        >
+                          <div className="p-4">
+                            <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 pb-2 border-b border-gray-800">
+                              Visible Columns
+                            </div>
+
+                            <div className="space-y-2.5">
+                              {[
+                                { key: 'watchlist', label: 'Watchlist Star' },
+
+                                { key: 'openInterest', label: 'Open Interest (OI)' },
+
+                                { key: 'volume', label: 'Volume (VOL)' },
+
+                                { key: 'delta', label: 'Delta' },
+
+                                { key: 'theta', label: 'Theta' },
+
+                                { key: 'iv', label: 'Implied Volatility (IV)' },
+
+                                { key: 'change', label: 'Change %' },
+
+                                { key: 'breakeven', label: 'Breakeven %' },
+
+                                { key: 'bid', label: 'Bid' },
+
+                                { key: 'ask', label: 'Ask' },
+                              ].map(({ key, label }) => (
+                                <label
+                                  key={key}
+                                  className="flex items-center gap-3 cursor-pointer group hover:bg-gray-900/50 p-2 rounded transition-colors"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={visibleColumns[key as keyof typeof visibleColumns]}
+                                    onChange={(e) =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        [key]: e.target.checked,
+                                      }))
+                                    }
+                                    className="w-4 h-4 rounded border-2 border-gray-600 bg-gray-900 checked:bg-orange-500 checked:border-orange-500 focus:ring-2 focus:ring-orange-500/30 cursor-pointer"
+                                  />
+
+                                  <span className="text-white text-sm group-hover:text-orange-300 transition-colors">
+                                    {label}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+
+                            <div className="mt-4 pt-3 border-t border-gray-800 flex gap-2">
+                              <button
+                                onClick={() =>
+                                  setVisibleColumns({
+                                    openInterest: true,
+
+                                    volume: true,
+
+                                    delta: false,
+
+                                    theta: false,
+
+                                    iv: true,
+
+                                    change: true,
+
+                                    breakeven: true,
+
+                                    bid: true,
+
+                                    ask: true,
+
+                                    watchlist: true,
+                                  })
+                                }
+                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+                              >
+                                SELECT ALL
+                              </button>
+
+                              <button
+                                onClick={() => setShowColumnFilter(false)}
+                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 rounded transition-colors"
+                              >
+                                CLOSE
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       )}
-                    </select>
-
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <svg
-                        className="w-[18px] h-[18px] text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
                     </div>
-                  </div>
 
-                  {/* OTM Range Selector */}
+                    {/* Calculator Button */}
 
-                  <div className="relative w-32">
-                    <select
-                      value={otmRange}
-                      onChange={(e) => setOtmRange(Number(e.target.value))}
-                      className="w-32 rounded px-3 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
-                      style={{
-                        background: '#161616',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                      }}
-                    >
-                      <option value={2} className="bg-gray-900">
-                        ±2% OTM
-                      </option>
-
-                      <option value={3} className="bg-gray-900">
-                        ±3% OTM
-                      </option>
-
-                      <option value={5} className="bg-gray-900">
-                        ±5% OTM
-                      </option>
-
-                      <option value={10} className="bg-gray-900">
-                        ±10% OTM
-                      </option>
-
-                      <option value={15} className="bg-gray-900">
-                        ±15% OTM
-                      </option>
-
-                      <option value={20} className="bg-gray-900">
-                        ±20% OTM
-                      </option>
-
-                      <option value={30} className="bg-gray-900">
-                        ±30% OTM
-                      </option>
-
-                      <option value={50} className="bg-gray-900">
-                        ±50% OTM
-                      </option>
-
-                      <option value={80} className="bg-gray-900">
-                        ±80% OTM
-                      </option>
-
-                      <option value={100} className="bg-gray-900">
-                        ±100% OTM
-                      </option>
-
-                      <option value={200} className="bg-gray-900">
-                        ±200% OTM
-                      </option>
-                    </select>
-
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <svg
-                        className="w-[18px] h-[18px] text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Chain Filter Button */}
-
-                  <div className="relative">
                     <button
-                      onClick={() => setShowColumnFilter(!showColumnFilter)}
+                      onClick={() => setShowCalculator(!showCalculator)}
                       className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
                       style={{
-                        background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616',
-                        border: showColumnFilter
-                          ? '1px solid rgba(245,158,11,0.6)'
+                        background: '#161616',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                      }}
+                    >
+                      <TbCalculator className="w-5 h-5" />
+                      Calculator
+                    </button>
+
+
+                  </div>
+
+                  {/* Right: Action Buttons */}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowWatchlist(!showWatchlist)}
+                      className={`px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 ${showWatchlist ? 'scale-105' : 'hover:scale-105'
+                        }`}
+                      style={{
+                        background: showWatchlist ? 'rgba(245,158,11,0.12)' : '#161616',
+                        border: showWatchlist
+                          ? '1px solid #f59e0b'
                           : '1px solid rgba(255,255,255,0.15)',
                         boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
                       }}
+                      title="Toggle Watchlist"
                     >
-                      <svg
+                      <TbEye
                         className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                        style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
+                      />
+
+                      <span
+                        className="text-base font-black tracking-wider"
+                        style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-                        />
-                      </svg>
-                      Filter
+                        WATCHLIST
+                      </span>
+
+                      {watchlist.length > 0 && (
+                        <span
+                          className="text-black text-xs rounded-full px-1.5 py-0.5 font-black min-w-[20px] text-center"
+                          style={{ background: '#f59e0b' }}
+                        >
+                          {watchlist.length}
+                        </span>
+                      )}
                     </button>
 
-                    {/* Filter Dropdown Menu */}
+                    <button
+                      onClick={() => {
+                        fetchStockPrice()
 
-                    {showColumnFilter && (
-                      <div
-                        className="absolute top-full right-0 mt-2 w-72 rounded-lg border border-orange-500/30 shadow-2xl z-50"
-                        style={{
-                          background: 'linear-gradient(145deg, #0f0f0f, #000000)',
-
-                          boxShadow:
-                            '0 20px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(249, 115, 22, 0.2)',
-                        }}
-                      >
-                        <div className="p-4">
-                          <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 pb-2 border-b border-gray-800">
-                            Visible Columns
-                          </div>
-
-                          <div className="space-y-2.5">
-                            {[
-                              { key: 'watchlist', label: 'Watchlist Star' },
-
-                              { key: 'openInterest', label: 'Open Interest (OI)' },
-
-                              { key: 'volume', label: 'Volume (VOL)' },
-
-                              { key: 'delta', label: 'Delta' },
-
-                              { key: 'theta', label: 'Theta' },
-
-                              { key: 'iv', label: 'Implied Volatility (IV)' },
-
-                              { key: 'change', label: 'Change %' },
-
-                              { key: 'breakeven', label: 'Breakeven %' },
-
-                              { key: 'bid', label: 'Bid' },
-
-                              { key: 'ask', label: 'Ask' },
-                            ].map(({ key, label }) => (
-                              <label
-                                key={key}
-                                className="flex items-center gap-3 cursor-pointer group hover:bg-gray-900/50 p-2 rounded transition-colors"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={visibleColumns[key as keyof typeof visibleColumns]}
-                                  onChange={(e) =>
-                                    setVisibleColumns((prev) => ({
-                                      ...prev,
-                                      [key]: e.target.checked,
-                                    }))
-                                  }
-                                  className="w-4 h-4 rounded border-2 border-gray-600 bg-gray-900 checked:bg-orange-500 checked:border-orange-500 focus:ring-2 focus:ring-orange-500/30 cursor-pointer"
-                                />
-
-                                <span className="text-white text-sm group-hover:text-orange-300 transition-colors">
-                                  {label}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-gray-800 flex gap-2">
-                            <button
-                              onClick={() =>
-                                setVisibleColumns({
-                                  openInterest: true,
-
-                                  volume: true,
-
-                                  delta: false,
-
-                                  theta: false,
-
-                                  iv: true,
-
-                                  change: true,
-
-                                  breakeven: true,
-
-                                  bid: true,
-
-                                  ask: true,
-
-                                  watchlist: true,
-                                })
-                              }
-                              className="flex-1 px-3 py-2 text-xs font-bold text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-                            >
-                              SELECT ALL
-                            </button>
-
-                            <button
-                              onClick={() => setShowColumnFilter(false)}
-                              className="flex-1 px-3 py-2 text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 rounded transition-colors"
-                            >
-                              CLOSE
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Calculator Button */}
-
-                  <button
-                    onClick={() => setShowCalculator(!showCalculator)}
-                    className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
-                    style={{
-                      background: '#161616',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                    }}
-                  >
-                    <TbCalculator className="w-5 h-5" />
-                    Calculator
-                  </button>
-
-
-                </div>
-
-                {/* Right: Action Buttons */}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowWatchlist(!showWatchlist)}
-                    className={`px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 ${showWatchlist ? 'scale-105' : 'hover:scale-105'
-                      }`}
-                    style={{
-                      background: showWatchlist ? 'rgba(245,158,11,0.12)' : '#161616',
-                      border: showWatchlist
-                        ? '1px solid #f59e0b'
-                        : '1px solid rgba(255,255,255,0.15)',
-                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                    }}
-                    title="Toggle Watchlist"
-                  >
-                    <TbEye
-                      className="w-5 h-5"
-                      style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
-                    />
-
-                    <span
-                      className="text-base font-black tracking-wider"
-                      style={{ color: showWatchlist ? '#f59e0b' : '#ffffff' }}
+                        fetchOptionsChain()
+                      }}
+                      disabled={loading}
+                      className="px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 disabled:opacity-40"
+                      style={{
+                        background: '#161616',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
+                      }}
+                      title="Refresh Data"
                     >
-                      WATCHLIST
-                    </span>
-
-                    {watchlist.length > 0 && (
-                      <span
-                        className="text-black text-xs rounded-full px-1.5 py-0.5 font-black min-w-[20px] text-center"
-                        style={{ background: '#f59e0b' }}
-                      >
-                        {watchlist.length}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      fetchStockPrice()
-
-                      fetchOptionsChain()
-                    }}
-                    disabled={loading}
-                    className="px-4 py-3 rounded transition-all duration-200 flex items-center gap-2 disabled:opacity-40"
-                    style={{
-                      background: '#161616',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                    }}
-                    title="Refresh Data"
-                  >
-                    <TbRefresh className={`w-5 h-5 text-white ${loading ? 'animate-spin' : ''}`} />
-                  </button>
+                      <TbRefresh className={`w-5 h-5 text-white ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
                 </div>
+
+                {/* Row 2: Removed - Now Empty */}
+
+                <div
+                  className="mb-2 pb-2"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                ></div>
               </div>
-
-              {/* Row 2: Removed - Now Empty */}
-
-              <div
-                className="mb-2 pb-2"
-                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-              ></div>
-            </div>
             )} {/* end isMobile ternary */}
 
             {/* Column Headers — desktop only; mobile chain has its own sticky header */}
@@ -2854,8 +2864,8 @@ function ChainPanel({
                             {call?.ask && stockPrice > 0 ? (
                               <span
                                 className={`${((strike + call.ask - stockPrice) / stockPrice) * 100 > 0
-                                    ? 'text-red-500'
-                                    : 'text-green-500'
+                                  ? 'text-red-500'
+                                  : 'text-green-500'
                                   }`}
                               >
                                 {(((strike + call.ask - stockPrice) / stockPrice) * 100).toFixed(1)}
@@ -2966,8 +2976,8 @@ function ChainPanel({
                             {put?.ask && stockPrice > 0 ? (
                               <span
                                 className={`${((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0
-                                    ? 'text-red-500'
-                                    : 'text-green-500'
+                                  ? 'text-red-500'
+                                  : 'text-green-500'
                                   }`}
                               >
                                 {(((stockPrice - (strike - put.ask)) / stockPrice) * 100).toFixed(
@@ -3265,8 +3275,8 @@ function ChainPanel({
                         <button
                           onClick={() => setCalculatorView('table')}
                           className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'table'
-                              ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
-                              : 'text-white/90 hover:text-white hover:bg-gray-800/30'
+                            ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
+                            : 'text-white/90 hover:text-white hover:bg-gray-800/30'
                             }`}
                           style={
                             calculatorView === 'table'
@@ -3292,8 +3302,8 @@ function ChainPanel({
                         <button
                           onClick={() => setCalculatorView('line')}
                           className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'line'
-                              ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
-                              : 'text-white/90 hover:text-white hover:bg-gray-800/30'
+                            ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
+                            : 'text-white/90 hover:text-white hover:bg-gray-800/30'
                             }`}
                           style={
                             calculatorView === 'line'
@@ -3414,8 +3424,8 @@ function ChainPanel({
                                         >
                                           <td
                                             className={`h-12 border border-gray-600 text-center font-medium text-lg ${isATM
-                                                ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
-                                                : 'bg-black text-white'
+                                              ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
+                                              : 'bg-black text-white'
                                               }`}
                                           >
                                             ${strike.toFixed(2)} {isATM && '🎯'}

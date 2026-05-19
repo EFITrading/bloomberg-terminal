@@ -455,7 +455,9 @@ export default function DealerOpenInterestChart({
                 Object.entries(expData.calls).forEach(([strike, callData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
                   const openInterest = callData.open_interest || 0
-                  const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+                  const bid = callData.bid || 0
+                  const ask = callData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
                   const premium = openInterest * midPrice * 100
 
                   if (!aggregatedData.has(strikeNum)) {
@@ -478,7 +480,9 @@ export default function DealerOpenInterestChart({
                 Object.entries(expData.puts).forEach(([strike, putData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
                   const openInterest = putData.open_interest || 0
-                  const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+                  const bid = putData.bid || 0
+                  const ask = putData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
                   const premium = openInterest * midPrice * 100
 
                   if (!aggregatedData.has(strikeNum)) {
@@ -583,7 +587,9 @@ export default function DealerOpenInterestChart({
                 Object.entries(expData.calls).forEach(([strike, callData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
                   const openInterest = callData.open_interest || 0
-                  const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+                  const bid = callData.bid || 0
+                  const ask = callData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
                   const premium = openInterest * midPrice * 100
 
                   if (!aggregatedData.has(strikeNum)) {
@@ -606,7 +612,9 @@ export default function DealerOpenInterestChart({
                 Object.entries(expData.puts).forEach(([strike, putData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
                   const openInterest = putData.open_interest || 0
-                  const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+                  const bid = putData.bid || 0
+                  const ask = putData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
                   const premium = openInterest * midPrice * 100
 
                   if (!aggregatedData.has(strikeNum)) {
@@ -692,7 +700,9 @@ export default function DealerOpenInterestChart({
             Object.entries(expirationData.calls).forEach(([strike, callData]: [string, any]) => {
               const strikeNum = parseFloat(strike)
               const openInterest = callData.open_interest || 0
-              const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+              const bid = callData.bid || 0
+              const ask = callData.ask || 0
+              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
               const premium = openInterest * midPrice * 100 // Premium in dollars
 
               if (!strikeMap.has(strikeNum)) {
@@ -709,7 +719,9 @@ export default function DealerOpenInterestChart({
             Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
               const strikeNum = parseFloat(strike)
               const openInterest = putData.open_interest || 0
-              const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+              const bid = putData.bid || 0
+              const ask = putData.ask || 0
+              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
               const premium = openInterest * midPrice * 100
 
               if (!strikeMap.has(strikeNum)) {

@@ -92,11 +92,17 @@ export async function GET(request: NextRequest) {
         const day = contract.day || {}
         const greeks = contract.greeks || {}
 
+        const bid = last_quote.bid || 0
+        const ask = last_quote.ask || 0
+        // Fallback: when market is closed bid+ask=0, use last_trade.price or day.close
+        const lastPrice = contract.last_trade?.price || day.close || day.vwap || 0
+        const midPrice = bid + ask > 0 ? (bid + ask) / 2 : lastPrice
+
         const optionData = {
           strike_price: strike,
-          bid: last_quote.bid || 0,
-          ask: last_quote.ask || 0,
-          last: day.last_price || 0,
+          bid,
+          ask,
+          last: lastPrice,
           open_interest: contract.open_interest || 0,
           volume: day.volume || 0,
           implied_volatility: contract.implied_volatility || 0,
@@ -110,12 +116,8 @@ export async function GET(request: NextRequest) {
             theta: greeks.theta || 0,
             vega: greeks.vega || 0,
           },
-          // Calculate premium
-          mid_price: ((last_quote.bid || 0) + (last_quote.ask || 0)) / 2,
-          premium:
-            (contract.open_interest || 0) *
-            (((last_quote.bid || 0) + (last_quote.ask || 0)) / 2) *
-            100,
+          mid_price: midPrice,
+          premium: (contract.open_interest || 0) * midPrice * 100,
         }
 
         if (type === 'call') {
@@ -189,11 +191,17 @@ export async function GET(request: NextRequest) {
       const day = contract.day || {}
       const greeks = contract.greeks || {}
 
+      const bid = last_quote.bid || 0
+      const ask = last_quote.ask || 0
+      // Fallback: when market is closed bid+ask=0, use last_trade.price or day.close
+      const lastPrice = contract.last_trade?.price || day.close || day.vwap || 0
+      const midPrice = bid + ask > 0 ? (bid + ask) / 2 : lastPrice
+
       const optionData = {
         strike_price: strike,
-        bid: last_quote.bid || 0,
-        ask: last_quote.ask || 0,
-        last: day.last_price || 0,
+        bid,
+        ask,
+        last: lastPrice,
         open_interest: contract.open_interest || 0,
         volume: day.volume || 0,
         implied_volatility: contract.implied_volatility || 0,
@@ -207,11 +215,8 @@ export async function GET(request: NextRequest) {
           theta: greeks.theta || 0,
           vega: greeks.vega || 0,
         },
-        mid_price: ((last_quote.bid || 0) + (last_quote.ask || 0)) / 2,
-        premium:
-          (contract.open_interest || 0) *
-          (((last_quote.bid || 0) + (last_quote.ask || 0)) / 2) *
-          100,
+        mid_price: midPrice,
+        premium: (contract.open_interest || 0) * midPrice * 100,
       }
 
       if (type === 'call') {

@@ -343,7 +343,9 @@ export default function DealerGEXChart({
                     const strikeNum = parseFloat(strike)
                     const openInterest = callData.open_interest || 0
                     const gamma = callData.greeks?.gamma || 0
-                    const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+                    const bid = callData.bid || 0
+                    const ask = callData.ask || 0
+                    const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
                     const premium = openInterest * midPrice * 100
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
@@ -368,7 +370,9 @@ export default function DealerGEXChart({
                   const strikeNum = parseFloat(strike)
                   const openInterest = putData.open_interest || 0
                   const gamma = putData.greeks?.gamma || 0
-                  const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+                  const bid = putData.bid || 0
+                  const ask = putData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
                   const premium = openInterest * midPrice * 100
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
@@ -480,7 +484,9 @@ export default function DealerGEXChart({
                     const strikeNum = parseFloat(strike)
                     const openInterest = callData.open_interest || 0
                     const gamma = callData.greeks?.gamma || 0
-                    const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+                    const bid = callData.bid || 0
+                    const ask = callData.ask || 0
+                    const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
                     const premium = openInterest * midPrice * 100
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
@@ -505,7 +511,9 @@ export default function DealerGEXChart({
                   const strikeNum = parseFloat(strike)
                   const openInterest = putData.open_interest || 0
                   const gamma = putData.greeks?.gamma || 0
-                  const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+                  const bid = putData.bid || 0
+                  const ask = putData.ask || 0
+                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
                   const premium = openInterest * midPrice * 100
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
@@ -600,7 +608,9 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = callData.open_interest || 0
               const gamma = callData.greeks?.gamma || 0
-              const midPrice = ((callData.bid || 0) + (callData.ask || 0)) / 2
+              const bid = callData.bid || 0
+              const ask = callData.ask || 0
+              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
               const premium = openInterest * midPrice * 100
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
@@ -619,7 +629,9 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = putData.open_interest || 0
               const gamma = putData.greeks?.gamma || 0
-              const midPrice = ((putData.bid || 0) + (putData.ask || 0)) / 2
+              const bid = putData.bid || 0
+              const ask = putData.ask || 0
+              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
               const premium = openInterest * midPrice * 100
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
