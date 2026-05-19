@@ -33,16 +33,16 @@ const STATUS_COLOR: Record<string, string> = { online: '#22c55e', away: '#f59e0b
 
 // ── Avatar style definitions — all circles, frame effects only ───────────
 const AVATAR_STYLES = [
-  { id: 'classic',  name: 'EFI Classic', label: 'EFI', isEmoji: false, avatarBg: 'linear-gradient(160deg,#1a0800,#3d1500,#1a0800)',             frame: 'solid',    frameGrad: '#FF6600',                                                               glowColor: '#FF6600', animDur: '2s' },
-  { id: 'blizzard', name: 'Blizzard',    label: '❄',  isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#0a2a4a,#001133,#000816)',    frame: 'ice',      frameGrad: '#88d8ff',                                                               glowColor: '#88d8ff', animDur: '9s' },
-  { id: 'wildfire', name: 'Wildfire',    label: '🔥', isEmoji: true,  avatarBg: 'linear-gradient(180deg,#ff7700,#cc2200,#200000)',             frame: 'dual',     frameGrad: 'conic-gradient(from 0deg,#ff5500,#ffaa00,#ff5500)', frameGrad2: 'conic-gradient(from 90deg,#ff2200,#ffdd00,#ff2200)', glowColor: '#ff5500', animDur: '1.8s' },
-  { id: 'plasma',   name: 'Plasma',      label: '✦',  isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#7c3aed,#3b0764,#0d0018)', frame: 'conic',    frameGrad: 'conic-gradient(from 0deg,#a855f7,#00ffff,#ff00ff,#00ffff,#a855f7)',  glowColor: '#a855f7', animDur: '0.9s' },
-  { id: 'storm',    name: 'Storm',       label: '⚡', isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#1e40af,#0a1020,#000010)', frame: 'electric', frameGrad: '#00e5ff',                                                               glowColor: '#00e5ff', animDur: '0.12s' },
-  { id: 'tsunami',  name: 'Tsunami',     label: '〜', isEmoji: false, avatarBg: 'linear-gradient(180deg,#00ccff,#0055cc,#001133)',             frame: 'ripple',   frameGrad: '#0099ff',                                                               glowColor: '#0099ff', animDur: '2s' },
-  { id: 'abyss',    name: 'Abyss',       label: '◉',  isEmoji: false, avatarBg: 'radial-gradient(circle at 40% 30%,#1e40af,#1e3a8a,#0a1020)', frame: 'conic',    frameGrad: 'conic-gradient(from 0deg,#3b82f6,#0a1020,#60a5fa,#0a1020,#3b82f6)', glowColor: '#3b82f6', animDur: '5s' },
-  { id: 'smoke',    name: 'Smoke',       label: '◌',  isEmoji: false, avatarBg: 'radial-gradient(circle,#1a1a1a,#0a0a0a,#000)',               frame: 'smoke',    frameGrad: '#888888',                                                               glowColor: '#777777', animDur: '4s' },
-  { id: 'neon',     name: 'Neon',        label: '◈',  isEmoji: false, avatarBg: 'linear-gradient(160deg,#001a00,#004400,#001a00)',             frame: 'neon',     frameGrad: '#00ff88',                                                               glowColor: '#00ff88', animDur: '3s' },
-  { id: 'galaxy',   name: 'Galaxy',      label: '✦',  isEmoji: false, avatarBg: 'radial-gradient(circle,#0d0025,#1a0040,#05000f)',             frame: 'conic',    frameGrad: 'conic-gradient(from 0deg,#9333ea,#ec4899,#6366f1,#ec4899,#9333ea)',  glowColor: '#9333ea', animDur: '7s' },
+  { id: 'classic', name: 'EFI Classic', label: 'EFI', isEmoji: false, avatarBg: 'linear-gradient(160deg,#1a0800,#3d1500,#1a0800)', frame: 'solid', frameGrad: '#FF6600', glowColor: '#FF6600', animDur: '2s' },
+  { id: 'blizzard', name: 'Blizzard', label: '❄', isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#0a2a4a,#001133,#000816)', frame: 'ice', frameGrad: '#88d8ff', glowColor: '#88d8ff', animDur: '9s' },
+  { id: 'wildfire', name: 'Wildfire', label: '🔥', isEmoji: true, avatarBg: 'linear-gradient(180deg,#ff7700,#cc2200,#200000)', frame: 'dual', frameGrad: 'conic-gradient(from 0deg,#ff5500,#ffaa00,#ff5500)', frameGrad2: 'conic-gradient(from 90deg,#ff2200,#ffdd00,#ff2200)', glowColor: '#ff5500', animDur: '1.8s' },
+  { id: 'plasma', name: 'Plasma', label: '✦', isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#7c3aed,#3b0764,#0d0018)', frame: 'conic', frameGrad: 'conic-gradient(from 0deg,#a855f7,#00ffff,#ff00ff,#00ffff,#a855f7)', glowColor: '#a855f7', animDur: '0.9s' },
+  { id: 'storm', name: 'Storm', label: '⚡', isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#1e40af,#0a1020,#000010)', frame: 'electric', frameGrad: '#00e5ff', glowColor: '#00e5ff', animDur: '0.12s' },
+  { id: 'tsunami', name: 'Tsunami', label: '〜', isEmoji: false, avatarBg: 'linear-gradient(180deg,#00ccff,#0055cc,#001133)', frame: 'ripple', frameGrad: '#0099ff', glowColor: '#0099ff', animDur: '2s' },
+  { id: 'abyss', name: 'Abyss', label: '◉', isEmoji: false, avatarBg: 'radial-gradient(circle at 40% 30%,#1e40af,#1e3a8a,#0a1020)', frame: 'conic', frameGrad: 'conic-gradient(from 0deg,#3b82f6,#0a1020,#60a5fa,#0a1020,#3b82f6)', glowColor: '#3b82f6', animDur: '5s' },
+  { id: 'smoke', name: 'Smoke', label: '◌', isEmoji: false, avatarBg: 'radial-gradient(circle,#1a1a1a,#0a0a0a,#000)', frame: 'smoke', frameGrad: '#888888', glowColor: '#777777', animDur: '4s' },
+  { id: 'neon', name: 'Neon', label: '◈', isEmoji: false, avatarBg: 'linear-gradient(160deg,#001a00,#004400,#001a00)', frame: 'neon', frameGrad: '#00ff88', glowColor: '#00ff88', animDur: '3s' },
+  { id: 'galaxy', name: 'Galaxy', label: '✦', isEmoji: false, avatarBg: 'radial-gradient(circle,#0d0025,#1a0040,#05000f)', frame: 'conic', frameGrad: 'conic-gradient(from 0deg,#9333ea,#ec4899,#6366f1,#ec4899,#9333ea)', glowColor: '#9333ea', animDur: '7s' },
 ] as const;
 type AvatarStyleId = typeof AVATAR_STYLES[number]['id'];
 
@@ -53,170 +53,170 @@ function AvatarStylePreview({ styleId, size = 68, selected, imageSrc }: { styleI
   const Deco = () => {
     switch (styleId) {
       case 'classic': return (<>
-        <circle cx="50" cy="50" r="51" fill="none" stroke="#FF6600" strokeWidth="2.5"/>
-        <polygon points="50,-8 53.5,-1 50,5 46.5,-1" fill="#FF6600"/>
-        <polygon points="50,95 53.5,102 50,108 46.5,102" fill="#FF6600"/>
-        <polygon points="-8,50 -1,53.5 5,50 -1,46.5" fill="#FF6600"/>
-        <polygon points="95,50 102,53.5 108,50 102,46.5" fill="#FF6600"/>
+        <circle cx="50" cy="50" r="51" fill="none" stroke="#FF6600" strokeWidth="2.5" />
+        <polygon points="50,-8 53.5,-1 50,5 46.5,-1" fill="#FF6600" />
+        <polygon points="50,95 53.5,102 50,108 46.5,102" fill="#FF6600" />
+        <polygon points="-8,50 -1,53.5 5,50 -1,46.5" fill="#FF6600" />
+        <polygon points="95,50 102,53.5 108,50 102,46.5" fill="#FF6600" />
       </>);
 
       case 'blizzard': return (<>
-        <g style={{animation:'acct-spin 9s linear infinite',transformOrigin:'50px 50px'}}>
-          {[0,60,120,180,240,300].map((angle, i) => {
+        <g style={{ animation: 'acct-spin 9s linear infinite', transformOrigin: '50px 50px' }}>
+          {[0, 60, 120, 180, 240, 300].map((angle, i) => {
             const rad = (angle * Math.PI) / 180;
-            const r1 = 50, r2 = 70 + (i%2===0 ? 8 : 0);
+            const r1 = 50, r2 = 70 + (i % 2 === 0 ? 8 : 0);
             const w = 0.13;
-            const x1 = 50+r1*Math.cos(rad), y1 = 50+r1*Math.sin(rad);
-            const x2 = 50+r2*Math.cos(rad), y2 = 50+r2*Math.sin(rad);
-            const lx = 50+r1*Math.cos(rad-w), ly = 50+r1*Math.sin(rad-w);
-            const rx = 50+r1*Math.cos(rad+w), ry = 50+r1*Math.sin(rad+w);
+            const x1 = 50 + r1 * Math.cos(rad), y1 = 50 + r1 * Math.sin(rad);
+            const x2 = 50 + r2 * Math.cos(rad), y2 = 50 + r2 * Math.sin(rad);
+            const lx = 50 + r1 * Math.cos(rad - w), ly = 50 + r1 * Math.sin(rad - w);
+            const rx = 50 + r1 * Math.cos(rad + w), ry = 50 + r1 * Math.sin(rad + w);
             return <polygon key={i}
               points={`${lx},${ly} ${x2},${y2} ${rx},${ry}`}
-              fill={i%2===0?'#cceeff':'#ffffff'}
-              opacity={i%2===0?0.92:0.65}
-              style={{animation:`acct-twinkle ${1.8+i*0.35}s ease-in-out infinite`,animationDelay:`${i*0.3}s`}}/>;
+              fill={i % 2 === 0 ? '#cceeff' : '#ffffff'}
+              opacity={i % 2 === 0 ? 0.92 : 0.65}
+              style={{ animation: `acct-twinkle ${1.8 + i * 0.35}s ease-in-out infinite`, animationDelay: `${i * 0.3}s` }} />;
           })}
         </g>
-        <g style={{animation:'acct-spin-r 5s linear infinite',transformOrigin:'50px 50px'}}>
-          {[30,90,150,210,270,330].map((angle, i) => {
+        <g style={{ animation: 'acct-spin-r 5s linear infinite', transformOrigin: '50px 50px' }}>
+          {[30, 90, 150, 210, 270, 330].map((angle, i) => {
             const rad = (angle * Math.PI) / 180;
-            const r = 57, x = 50+r*Math.cos(rad), y = 50+r*Math.sin(rad);
+            const r = 57, x = 50 + r * Math.cos(rad), y = 50 + r * Math.sin(rad);
             return <polygon key={i}
-              points={`${x},${y-3.5} ${x+1.5},${y-1.5} ${x+3.5},${y} ${x+1.5},${y+1.5} ${x},${y+3.5} ${x-1.5},${y+1.5} ${x-3.5},${y} ${x-1.5},${y-1.5}`}
+              points={`${x},${y - 3.5} ${x + 1.5},${y - 1.5} ${x + 3.5},${y} ${x + 1.5},${y + 1.5} ${x},${y + 3.5} ${x - 1.5},${y + 1.5} ${x - 3.5},${y} ${x - 1.5},${y - 1.5}`}
               fill="#88d8ff" opacity={0.75}
-              style={{animation:`acct-twinkle ${1.2+i*0.22}s ease-in-out infinite`,animationDelay:`${i*0.18}s`}}/>;
+              style={{ animation: `acct-twinkle ${1.2 + i * 0.22}s ease-in-out infinite`, animationDelay: `${i * 0.18}s` }} />;
           })}
         </g>
         <circle cx="50" cy="50" r="52" fill="none" stroke="#88d8ff" strokeWidth="1.5"
-          strokeDasharray="5 7" style={{animation:'acct-spin 4s linear infinite',transformOrigin:'50px 50px'}}/>
+          strokeDasharray="5 7" style={{ animation: 'acct-spin 4s linear infinite', transformOrigin: '50px 50px' }} />
       </>);
 
       case 'wildfire': return (<>
-        {[-52,-38,-22,-8,8,22,38,52].map((angle, i) => {
+        {[-52, -38, -22, -8, 8, 22, 38, 52].map((angle, i) => {
           const rad = ((angle - 90) * Math.PI) / 180;
-          const r2 = 65 + (i===3||i===4 ? 6 : 0);
-          const x1 = 50 + 50*Math.cos(rad), y1 = 50 + 50*Math.sin(rad);
-          const x2 = 50 + r2*Math.cos(rad), y2 = 50 + r2*Math.sin(rad);
+          const r2 = 65 + (i === 3 || i === 4 ? 6 : 0);
+          const x1 = 50 + 50 * Math.cos(rad), y1 = 50 + 50 * Math.sin(rad);
+          const x2 = 50 + r2 * Math.cos(rad), y2 = 50 + r2 * Math.sin(rad);
           return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={i%2===0?'#ff5500':'#ffbb00'} strokeWidth={i===3||i===4?3.5:2.5} strokeLinecap="round"
-            style={{animation:`acct-flicker ${0.33+i*0.08}s ease-in-out infinite`,animationDelay:`${i*0.05}s`,transformOrigin:`${x1}px ${y1}px`}}/>;
+            stroke={i % 2 === 0 ? '#ff5500' : '#ffbb00'} strokeWidth={i === 3 || i === 4 ? 3.5 : 2.5} strokeLinecap="round"
+            style={{ animation: `acct-flicker ${0.33 + i * 0.08}s ease-in-out infinite`, animationDelay: `${i * 0.05}s`, transformOrigin: `${x1}px ${y1}px` }} />;
         })}
-        <circle cx="50" cy="50" r="51" fill="none" stroke="#ff5500" strokeWidth="2"/>
+        <circle cx="50" cy="50" r="51" fill="none" stroke="#ff5500" strokeWidth="2" />
       </>);
 
       case 'plasma': return (<>
         <defs>
           <linearGradient id="dg_pl" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#a855f7" stopOpacity="0"/>
-            <stop offset="50%" stopColor="#00ffff"/>
-            <stop offset="100%" stopColor="#ff00ff" stopOpacity="0"/>
+            <stop offset="0%" stopColor="#a855f7" stopOpacity="0" />
+            <stop offset="50%" stopColor="#00ffff" />
+            <stop offset="100%" stopColor="#ff00ff" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <g style={{animation:'acct-spin 0.9s linear infinite',transformOrigin:'50px 50px'}}>
-          <path d="M50,0 A50,50 0 0 1 100,50" fill="none" stroke="url(#dg_pl)" strokeWidth="4.5" strokeLinecap="round"/>
-          <path d="M100,50 A50,50 0 0 1 50,100" fill="none" stroke="#ff00ff" strokeWidth="2.5" strokeLinecap="round" opacity="0.45"/>
+        <g style={{ animation: 'acct-spin 0.9s linear infinite', transformOrigin: '50px 50px' }}>
+          <path d="M50,0 A50,50 0 0 1 100,50" fill="none" stroke="url(#dg_pl)" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M100,50 A50,50 0 0 1 50,100" fill="none" stroke="#ff00ff" strokeWidth="2.5" strokeLinecap="round" opacity="0.45" />
         </g>
-        <g style={{animation:'acct-spin-r 1.6s linear infinite',transformOrigin:'50px 50px'}}>
-          <path d="M50,0 A50,50 0 0 0 0,50" fill="none" stroke="#00ffff" strokeWidth="3" strokeLinecap="round" strokeDasharray="28 72"/>
+        <g style={{ animation: 'acct-spin-r 1.6s linear infinite', transformOrigin: '50px 50px' }}>
+          <path d="M50,0 A50,50 0 0 0 0,50" fill="none" stroke="#00ffff" strokeWidth="3" strokeLinecap="round" strokeDasharray="28 72" />
         </g>
-        <circle cx="50" cy="50" r="52" fill="none" stroke="#a855f7" strokeWidth="1.5"/>
+        <circle cx="50" cy="50" r="52" fill="none" stroke="#a855f7" strokeWidth="1.5" />
       </>);
 
       case 'storm': return (<>
         <defs>
-          <filter id="dg_ef"><feGaussianBlur stdDeviation="0.8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="dg_ef"><feGaussianBlur stdDeviation="0.8" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         </defs>
-        {([[-14,-14],[114,-14],[-14,114],[114,114]] as [number,number][]).map(([bx,by],i) => {
-          const sx = bx+(bx<50?22:-22), sy = by+(by<50?22:-22);
-          const mx = bx+(bx<50?11:-11), my = by+(by<50?5:-5);
-          const ex = mx+(bx<50?7:-7), ey = my+(by<50?14:-14);
+        {([[-14, -14], [114, -14], [-14, 114], [114, 114]] as [number, number][]).map(([bx, by], i) => {
+          const sx = bx + (bx < 50 ? 22 : -22), sy = by + (by < 50 ? 22 : -22);
+          const mx = bx + (bx < 50 ? 11 : -11), my = by + (by < 50 ? 5 : -5);
+          const ex = mx + (bx < 50 ? 7 : -7), ey = my + (by < 50 ? 14 : -14);
           return <polyline key={i} points={`${sx},${sy} ${mx},${my} ${ex},${ey}`}
             fill="none" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round"
             filter="url(#dg_ef)"
-            style={{animation:'acct-electric 0.12s step-end infinite',animationDelay:`${i*0.03}s`}}/>;
+            style={{ animation: 'acct-electric 0.12s step-end infinite', animationDelay: `${i * 0.03}s` }} />;
         })}
-        <g style={{animation:'acct-spin 0.27s linear infinite',transformOrigin:'50px 50px'}}>
-          <path d="M50,0 A50,50 0 0 1 100,50" fill="none" stroke="#00e5ff" strokeWidth="4" strokeLinecap="round" strokeDasharray="14 86"/>
-          <path d="M0,50 A50,50 0 0 1 50,0" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeDasharray="7 93" opacity="0.6"/>
+        <g style={{ animation: 'acct-spin 0.27s linear infinite', transformOrigin: '50px 50px' }}>
+          <path d="M50,0 A50,50 0 0 1 100,50" fill="none" stroke="#00e5ff" strokeWidth="4" strokeLinecap="round" strokeDasharray="14 86" />
+          <path d="M0,50 A50,50 0 0 1 50,0" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeDasharray="7 93" opacity="0.6" />
         </g>
-        <circle cx="50" cy="50" r="52" fill="none" stroke="#00e5ff" strokeWidth="1.5"/>
+        <circle cx="50" cy="50" r="52" fill="none" stroke="#00e5ff" strokeWidth="1.5" />
       </>);
 
       case 'tsunami': return (<>
         <defs>
           <linearGradient id="dg_ts" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#0099ff" stopOpacity="0"/>
-            <stop offset="40%" stopColor="#00ccff" stopOpacity="0.9"/>
-            <stop offset="60%" stopColor="#0066cc" stopOpacity="0.9"/>
-            <stop offset="100%" stopColor="#0099ff" stopOpacity="0"/>
+            <stop offset="0%" stopColor="#0099ff" stopOpacity="0" />
+            <stop offset="40%" stopColor="#00ccff" stopOpacity="0.9" />
+            <stop offset="60%" stopColor="#0066cc" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#0099ff" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d="M6,89 Q20,75 35,83 Q50,91 65,83 Q80,75 94,89"
           fill="none" stroke="url(#dg_ts)" strokeWidth="3.5" strokeLinecap="round"
-          style={{animation:'acct-wave 2s ease-in-out infinite'}}/>
+          style={{ animation: 'acct-wave 2s ease-in-out infinite' }} />
         <path d="M0,102 Q18,87 36,95 Q50,101 64,95 Q82,87 100,102"
           fill="none" stroke="#0055aa" strokeWidth="2.5" strokeLinecap="round" opacity="0.55"
-          style={{animation:'acct-wave 2.6s ease-in-out infinite',animationDelay:'0.45s'}}/>
-        <circle cx="50" cy="50" r="51" fill="none" stroke="#0099ff" strokeWidth="2"/>
+          style={{ animation: 'acct-wave 2.6s ease-in-out infinite', animationDelay: '0.45s' }} />
+        <circle cx="50" cy="50" r="51" fill="none" stroke="#0099ff" strokeWidth="2" />
       </>);
 
       case 'abyss': return (<>
-        <g style={{animation:'acct-spin 5s linear infinite',transformOrigin:'50px 50px'}}>
-          <ellipse cx="50" cy="3" rx="5" ry="9" fill="#60a5fa" opacity="0.85"/>
-          <ellipse cx="97" cy="50" rx="9" ry="5" fill="#3b82f6" opacity="0.7"/>
-          <ellipse cx="50" cy="97" rx="5" ry="9" fill="#1e40af" opacity="0.9"/>
-          <ellipse cx="3" cy="50" rx="9" ry="5" fill="#60a5fa" opacity="0.65"/>
+        <g style={{ animation: 'acct-spin 5s linear infinite', transformOrigin: '50px 50px' }}>
+          <ellipse cx="50" cy="3" rx="5" ry="9" fill="#60a5fa" opacity="0.85" />
+          <ellipse cx="97" cy="50" rx="9" ry="5" fill="#3b82f6" opacity="0.7" />
+          <ellipse cx="50" cy="97" rx="5" ry="9" fill="#1e40af" opacity="0.9" />
+          <ellipse cx="3" cy="50" rx="9" ry="5" fill="#60a5fa" opacity="0.65" />
         </g>
-        <g style={{animation:'acct-spin-r 8.5s linear infinite',transformOrigin:'50px 50px'}}>
-          <ellipse cx="80" cy="13" rx="3.5" ry="6.5" fill="#93c5fd" opacity="0.5"/>
-          <ellipse cx="87" cy="80" rx="6.5" ry="3.5" fill="#1d4ed8" opacity="0.6"/>
-          <ellipse cx="20" cy="87" rx="3.5" ry="6.5" fill="#3b82f6" opacity="0.55"/>
-          <ellipse cx="13" cy="20" rx="6.5" ry="3.5" fill="#60a5fa" opacity="0.45"/>
+        <g style={{ animation: 'acct-spin-r 8.5s linear infinite', transformOrigin: '50px 50px' }}>
+          <ellipse cx="80" cy="13" rx="3.5" ry="6.5" fill="#93c5fd" opacity="0.5" />
+          <ellipse cx="87" cy="80" rx="6.5" ry="3.5" fill="#1d4ed8" opacity="0.6" />
+          <ellipse cx="20" cy="87" rx="3.5" ry="6.5" fill="#3b82f6" opacity="0.55" />
+          <ellipse cx="13" cy="20" rx="6.5" ry="3.5" fill="#60a5fa" opacity="0.45" />
         </g>
-        <circle cx="50" cy="50" r="52" fill="none" stroke="#3b82f6" strokeWidth="1.5"/>
+        <circle cx="50" cy="50" r="52" fill="none" stroke="#3b82f6" strokeWidth="1.5" />
       </>);
 
       case 'smoke': return (<>
-        {[{x:38,del:0,dur:3.2},{x:46,del:0.55,dur:2.9},{x:54,del:0.9,dur:3.5},{x:62,del:0.25,dur:3}].map(({x,del,dur},i) => (
+        {[{ x: 38, del: 0, dur: 3.2 }, { x: 46, del: 0.55, dur: 2.9 }, { x: 54, del: 0.9, dur: 3.5 }, { x: 62, del: 0.25, dur: 3 }].map(({ x, del, dur }, i) => (
           <path key={i}
-            d={`M${x},2 C${x-6+i*2},${-9} ${x+5-i*2},${-19} ${x-3+i},${-30}`}
+            d={`M${x},2 C${x - 6 + i * 2},${-9} ${x + 5 - i * 2},${-19} ${x - 3 + i},${-30}`}
             fill="none"
-            stroke={`rgba(185,185,185,${0.65-i*0.1})`}
-            strokeWidth={3.5-i*0.45}
+            stroke={`rgba(185,185,185,${0.65 - i * 0.1})`}
+            strokeWidth={3.5 - i * 0.45}
             strokeLinecap="round"
-            style={{animation:`acct-smoke ${dur}s ease-out infinite`,animationDelay:`${del}s`,transformOrigin:`${x}px 2px`}}/>
+            style={{ animation: `acct-smoke ${dur}s ease-out infinite`, animationDelay: `${del}s`, transformOrigin: `${x}px 2px` }} />
         ))}
-        <circle cx="50" cy="50" r="52" fill="none" stroke="#666" strokeWidth="2"/>
+        <circle cx="50" cy="50" r="52" fill="none" stroke="#666" strokeWidth="2" />
         <circle cx="50" cy="50" r="58" fill="none" stroke="rgba(140,140,140,0.28)" strokeWidth="1.5"
-          style={{animation:'acct-spin 7s linear infinite',transformOrigin:'50px 50px'}}/>
+          style={{ animation: 'acct-spin 7s linear infinite', transformOrigin: '50px 50px' }} />
       </>);
 
       case 'neon': return (<>
-        {([[-4,-4,1,1],[-4,104,1,-1],[104,-4,-1,1],[104,104,-1,-1]] as [number,number,number,number][]).map(([cx,cy,dx,dy],i) => (
+        {([[-4, -4, 1, 1], [-4, 104, 1, -1], [104, -4, -1, 1], [104, 104, -1, -1]] as [number, number, number, number][]).map(([cx, cy, dx, dy], i) => (
           <polyline key={i}
-            points={`${cx+dx*22},${cy} ${cx},${cy} ${cx},${cy+dy*22}`}
+            points={`${cx + dx * 22},${cy} ${cx},${cy} ${cx},${cy + dy * 22}`}
             fill="none" stroke="#00ff88" strokeWidth="4" strokeLinecap="round"
-            style={{animation:'acct-hue 3s linear infinite',animationDelay:`${i*0.75}s`}}/>
+            style={{ animation: 'acct-hue 3s linear infinite', animationDelay: `${i * 0.75}s` }} />
         ))}
         <circle cx="50" cy="50" r="52" fill="none" stroke="#00ff88" strokeWidth="2"
-          style={{animation:'acct-hue 3s linear infinite'}}/>
+          style={{ animation: 'acct-hue 3s linear infinite' }} />
       </>);
 
       case 'galaxy': return (<>
         <defs>
-          <filter id="dg_gs"><feGaussianBlur stdDeviation="0.7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="dg_gs"><feGaussianBlur stdDeviation="0.7" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         </defs>
-        <g style={{animation:'acct-spin 7s linear infinite',transformOrigin:'50px 50px'}}>
-          {([  [50,-11,'#9333ea',5],[72,-5,'#ec4899',3.5],[89,22,'#6366f1',4.5],[85,65,'#9333ea',3.5],
-               [62,90,'#ec4899',5],[31,85,'#9333ea',3.5],[11,58,'#6366f1',4.5],[13,15,'#ec4899',3.5],
-          ] as [number,number,string,number][]).map(([x,y,c,r],i) => (
-            <g key={i} filter="url(#dg_gs)" style={{animation:`acct-twinkle ${1.4+i*0.45}s ease-in-out infinite`,animationDelay:`${i*0.22}s`}}>
-              <polygon points={`${x},${y-r} ${x+r*0.4},${y-r*0.4} ${x+r},${y} ${x+r*0.4},${y+r*0.4} ${x},${y+r} ${x-r*0.4},${y+r*0.4} ${x-r},${y} ${x-r*0.4},${y-r*0.4}`} fill={c}/>
+        <g style={{ animation: 'acct-spin 7s linear infinite', transformOrigin: '50px 50px' }}>
+          {([[50, -11, '#9333ea', 5], [72, -5, '#ec4899', 3.5], [89, 22, '#6366f1', 4.5], [85, 65, '#9333ea', 3.5],
+          [62, 90, '#ec4899', 5], [31, 85, '#9333ea', 3.5], [11, 58, '#6366f1', 4.5], [13, 15, '#ec4899', 3.5],
+          ] as [number, number, string, number][]).map(([x, y, c, r], i) => (
+            <g key={i} filter="url(#dg_gs)" style={{ animation: `acct-twinkle ${1.4 + i * 0.45}s ease-in-out infinite`, animationDelay: `${i * 0.22}s` }}>
+              <polygon points={`${x},${y - r} ${x + r * 0.4},${y - r * 0.4} ${x + r},${y} ${x + r * 0.4},${y + r * 0.4} ${x},${y + r} ${x - r * 0.4},${y + r * 0.4} ${x - r},${y} ${x - r * 0.4},${y - r * 0.4}`} fill={c} />
             </g>
           ))}
         </g>
         <circle cx="50" cy="50" r="52" fill="none" stroke="#9333ea" strokeWidth="1.5"
-          style={{animation:'acct-spin-r 14s linear infinite',transformOrigin:'50px 50px',strokeDasharray:'18 10 5 10'}}/>
+          style={{ animation: 'acct-spin-r 14s linear infinite', transformOrigin: '50px 50px', strokeDasharray: '18 10 5 10' }} />
       </>);
 
       default: return null;
@@ -224,26 +224,26 @@ function AvatarStylePreview({ styleId, size = 68, selected, imageSrc }: { styleI
   };
 
   return (
-    <div style={{width:size,height:size,position:'relative',overflow:'visible',flexShrink:0,filter:`drop-shadow(0 0 ${glowSz}px ${s.glowColor})`}}>
-      <div style={{position:'absolute',inset:0,borderRadius:'50%',background:imageSrc?'transparent':s.avatarBg,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1}}>
+    <div style={{ width: size, height: size, position: 'relative', overflow: 'visible', flexShrink: 0, filter: `drop-shadow(0 0 ${glowSz}px ${s.glowColor})` }}>
+      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: imageSrc ? 'transparent' : s.avatarBg, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
         {imageSrc
-          ? <img src={imageSrc} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+          ? <img src={imageSrc} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           : <>
-              <div style={{position:'absolute',inset:0,background:'radial-gradient(circle at 35% 25%,rgba(255,255,255,0.14),transparent 60%)'}}/>
-              <span style={{fontSize:size*(s.isEmoji?0.38:0.3),lineHeight:1,position:'relative',zIndex:1,fontWeight:s.isEmoji?400:900,color:'#fff',fontFamily:"'JetBrains Mono',monospace"}}>{s.label}</span>
-            </>
+            <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 35% 25%,rgba(255,255,255,0.14),transparent 60%)' }} />
+            <span style={{ fontSize: size * (s.isEmoji ? 0.38 : 0.3), lineHeight: 1, position: 'relative', zIndex: 1, fontWeight: s.isEmoji ? 400 : 900, color: '#fff', fontFamily: "'JetBrains Mono',monospace" }}>{s.label}</span>
+          </>
         }
       </div>
-      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',overflow:'visible',pointerEvents:'none',zIndex:2}} viewBox="0 0 100 100">
-        <Deco/>
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 2 }} viewBox="0 0 100 100">
+        <Deco />
       </svg>
-      <div style={{position:'absolute',bottom:2,right:2,width:Math.max(7,size*0.13),height:Math.max(7,size*0.13),borderRadius:'50%',background:'#22c55e',border:'2px solid #000',zIndex:3}}/>
+      <div style={{ position: 'absolute', bottom: 2, right: 2, width: Math.max(7, size * 0.13), height: Math.max(7, size * 0.13), borderRadius: '50%', background: '#22c55e', border: '2px solid #000', zIndex: 3 }} />
     </div>
   );
 }
 
 function AnimatedAvatar({ size = 120, styleId = 'classic' as AvatarStyleId, imageSrc }: { size?: number; styleId?: AvatarStyleId; imageSrc?: string | null }) {
-  return <AvatarStylePreview styleId={styleId} size={size} selected imageSrc={imageSrc}/>;
+  return <AvatarStylePreview styleId={styleId} size={size} selected imageSrc={imageSrc} />;
 }
 
 export default function AccountPage() {
@@ -270,15 +270,31 @@ export default function AccountPage() {
 
   useEffect(() => { localStorage.setItem('efi_avatar_style', selectedAvatar); }, [selectedAvatar]);
   useEffect(() => {
-    if (avatarSrc) localStorage.setItem('efi_avatar_src', avatarSrc);
-    else localStorage.removeItem('efi_avatar_src');
+    try {
+      if (avatarSrc) localStorage.setItem('efi_avatar_src', avatarSrc);
+      else localStorage.removeItem('efi_avatar_src');
+    } catch {
+      // localStorage quota exceeded — skip persisting avatar
+    }
   }, [avatarSrc]);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => setAvatarSrc(ev.target?.result as string);
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 128;
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setAvatarSrc(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.src = ev.target?.result as string;
+    };
     reader.readAsDataURL(file);
   };
 
@@ -600,7 +616,7 @@ export default function AccountPage() {
                   </div>
                 ))}
               </div>
-                <button className="acct-btn-ghost" style={{ width: '100%', padding: '11px', fontSize: '13px', marginTop: '15px' }}>VIEW ALL INVOICES</button>
+              <button className="acct-btn-ghost" style={{ width: '100%', padding: '11px', fontSize: '13px', marginTop: '15px' }}>VIEW ALL INVOICES</button>
             </div>
 
             {/* Plan Options */}

@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
-import LoginModal from '@/components/LoginModal'
 import { useMarketRegime } from '@/contexts/MarketRegimeContext'
 
 import FearGreedGauge from './FearGreedGauge'
@@ -16,7 +15,6 @@ export default function Navigation() {
   const [currentTime, setCurrentTime] = useState('')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const pathname = usePathname()
@@ -615,7 +613,7 @@ export default function Navigation() {
                   ) : (
                     <button
                       onClick={() => {
-                        setIsLoginModalOpen(true)
+                        router.push('/login')
                       }}
                       style={{
                         background: 'rgba(255, 255, 255, 0.05)',
@@ -653,13 +651,6 @@ export default function Navigation() {
           </div>
         </div>
       </nav>
-
-      {/* Login Modal */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        redirectTo={pathname || '/market-overview'}
-      />
 
       {/* Mobile Menu Overlay */}
       <div
@@ -788,7 +779,7 @@ export default function Navigation() {
                     className="mobile-btn-login"
                     onClick={() => {
                       setIsMobileMenuOpen(false)
-                      setIsLoginModalOpen(true)
+                      router.push('/login')
                     }}
                   >
                     Login

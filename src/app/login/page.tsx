@@ -9,6 +9,7 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [mounted, setMounted] = useState(false)
+  const [visible, setVisible] = useState(false)
   const [inputFocused, setInputFocused] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -20,6 +21,8 @@ function LoginForm() {
   useEffect(() => {
     setMounted(true)
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    // Trigger fade-in after mount — React-controlled, no CSS animation dependency
+    requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)))
     return () => clearInterval(timer)
   }, [])
 
@@ -176,7 +179,7 @@ function LoginForm() {
     <>
       <style>{`
         @keyframes efi-blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        @keyframes efi-slideup { from{opacity:0;transform:translateY(32px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes efi-btn-shine { to{left:100%} }
         @keyframes efi-fadein { from{opacity:0} to{opacity:1} }
         @keyframes efi-btn-shine {
           0% { left: -100%; }
@@ -192,9 +195,6 @@ function LoginForm() {
             inset 0 1px 0 rgba(255,255,255,0.1),
             inset 0 -1px 0 rgba(0,0,0,0.8);
         }
-        .efi-slideup { animation: efi-slideup 0.7s cubic-bezier(0.22,1,0.36,1) both; }
-        .efi-slideup-2 { animation: efi-slideup 0.7s 0.1s cubic-bezier(0.22,1,0.36,1) both; }
-        .efi-slideup-3 { animation: efi-slideup 0.7s 0.2s cubic-bezier(0.22,1,0.36,1) both; }
         .efi-cursor::after { content:'|'; animation: efi-blink 1s step-end infinite; color:#FF6600; margin-left:1px; }
         .efi-btn { position:relative; overflow:hidden; }
         .efi-btn::before {
@@ -227,7 +227,6 @@ function LoginForm() {
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
-          filter: drop-shadow(0 0 20px rgba(255,102,0,0.7)) drop-shadow(0 2px 8px rgba(255,102,0,0.4));
         }
         .efi-input-field {
           background: linear-gradient(180deg, rgba(4,4,6,0.95) 0%, rgba(0,0,0,0.98) 100%) !important;
@@ -278,8 +277,13 @@ function LoginForm() {
           </div>
         </div>
 
-        {/* Main login card — 35% bigger: maxWidth 420 → 567 */}
-        <div className="efi-slideup-2" style={{ width: '100%', maxWidth: '567px', position: 'relative' }}>
+        {/* Main login card */}
+        <div style={{
+          width: '100%', maxWidth: '709px', position: 'relative',
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'translateY(0)' : 'translateY(28px)',
+          transition: 'opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1)',
+        }}>
 
           {/* Logo section */}
           <div style={{ textAlign: 'center', marginBottom: '54px' }}>
@@ -302,7 +306,7 @@ function LoginForm() {
             <div style={{ lineHeight: 1, marginBottom: '4px' }}>
               <span className="efi-efi-text" style={{
                 display: 'block',
-                fontSize: 'clamp(86px,16vw,130px)',
+                fontSize: 'clamp(107px,16vw,162px)',
                 fontWeight: 900,
                 letterSpacing: '-0.02em',
                 fontFamily: "'Inter', sans-serif",
@@ -310,7 +314,7 @@ function LoginForm() {
               }}>EFI</span>
               <span className="efi-terminal-text" style={{
                 display: 'block',
-                fontSize: 'clamp(43px,8vw,65px)',
+                fontSize: 'clamp(54px,8vw,81px)',
                 fontWeight: 700,
                 letterSpacing: '0.22em',
                 fontFamily: "'Inter', sans-serif",
@@ -330,7 +334,7 @@ function LoginForm() {
           <div className="efi-card" style={{
             position: 'relative',
             border: '1px solid rgba(255,102,0,0.35)',
-            padding: '48px',
+            padding: '60px',
             borderRadius: '2px',
           }}>
             {/* Gloss highlight — top edge */}
@@ -506,24 +510,30 @@ function LoginForm() {
 
             {/* Status row */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '32px' }}>
-              {[
-                { dot: '#22c55e', text: '#22c55e', label: 'LIVE' },
-                { dot: '#00D4FF', text: '#00D4FF', label: 'SECURE' },
-                { dot: '#FFFFFF', text: '#FFFFFF', label: '24/7' },
-              ].map(({ dot, text, label }) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: dot, boxShadow: `0 0 8px ${dot}, 0 0 16px ${dot}60`, animation: 'efi-blink 2.5s step-end infinite' }} />
-                  <span style={{ fontSize: '13px', color: text, letterSpacing: '0.2em', fontWeight: 800, textShadow: `0 0 10px ${dot}80` }}>
-                    {label}
-                  </span>
-                </div>
-              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="17" height="17" fill="none" stroke="#22c55e" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="3" /><path d="M5.64 5.64a9 9 0 0 1 12.73 0M3.22 3.22a13 13 0 0 1 17.56 0M8.46 8.46a5 5 0 0 1 7.07 0" />
+                </svg>
+                <span style={{ fontSize: '17px', color: '#22c55e', letterSpacing: '0.2em', fontWeight: 800 }}>LIVE</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="17" height="17" fill="none" stroke="#00D4FF" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                <span style={{ fontSize: '17px', color: '#00D4FF', letterSpacing: '0.2em', fontWeight: 800 }}>SECURE</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="17" height="17" fill="none" stroke="#FFFFFF" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+                </svg>
+                <span style={{ fontSize: '17px', color: '#FFFFFF', letterSpacing: '0.2em', fontWeight: 800 }}>24/7</span>
+              </div>
             </div>
           </div>
 
           {/* Footer */}
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <span style={{ fontSize: '12px', color: '#FFFFFF', letterSpacing: '0.2em', fontWeight: 600, opacity: 1, WebkitTextFillColor: '#FFFFFF' }}>
+            <span style={{ fontSize: '12px', color: '#ffffff', letterSpacing: '0.2em', fontWeight: 700 }}>
               © 2025 EFI TRADING INTELLIGENCE — ALL RIGHTS RESERVED
             </span>
           </div>
