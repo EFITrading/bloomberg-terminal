@@ -162,8 +162,13 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .heatmap-content {
@@ -503,6 +508,7 @@
     opacity: 0;
     transform: translateX(30px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -720,15 +726,15 @@
     min-width: 80px !important;
     min-height: 80px !important;
   }
-  
+
   .stock-symbol {
     font-size: 14px;
   }
-  
+
   .stock-price {
     font-size: 12px;
   }
-  
+
   .stock-change {
     font-size: 11px;
   }
@@ -903,4 +909,86 @@
   shape-rendering: crispEdges;
   box-shadow: none;
   display: block;
+}
+
+/* ── Mobile: 380-432px ──────────────────────────────────────────────────── */
+@media (max-width: 432px) {
+  .market-heatmap-container {
+    padding: 8px !important;
+    min-height: auto !important;
+  }
+
+  .heatmap-controls {
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+
+  .control-buttons,
+  .time-period-buttons {
+    flex-wrap: wrap !important;
+    gap: 5px !important;
+  }
+
+  .control-buttons button,
+  .time-period-buttons button {
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    letter-spacing: 0 !important;
+    border-radius: 4px !important;
+  }
+
+  .heatmap-legend {
+    flex-wrap: wrap !important;
+    gap: 5px !important;
+    padding: 8px !important;
+  }
+
+  .legend-item {
+    padding: 5px 10px !important;
+    font-size: 10px !important;
+    border-radius: 4px !important;
+  }
+
+  .heatmap-toolbar {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 8px 10px !important;
+  }
+
+  .breadth-metrics {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+
+  .breadth-metric {
+    padding: 10px 8px !important;
+  }
+
+  .breadth-header {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  .breadth-title {
+    font-size: 14px !important;
+    letter-spacing: 1px !important;
+  }
+
+  .stock-box {
+    min-width: 56px !important;
+    min-height: 56px !important;
+  }
+
+  .stock-symbol {
+    font-size: 10px !important;
+  }
+
+  .stock-price {
+    font-size: 10px !important;
+  }
+
+  .stock-change {
+    font-size: 9px !important;
+  }
 }

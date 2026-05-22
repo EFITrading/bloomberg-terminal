@@ -87,17 +87,23 @@ const RRGChart: React.FC<RRGChartProps> = ({
   onSymbolModeChange
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [renderWidth, setRenderWidth] = useState(width);
+  const [renderHeight, setRenderHeight] = useState(height);
+  // Start at 0 so mobile shows compact button mode on first render;
+  // ResizeObserver will update to actual width after mount.
+  const [headerWidth, setHeaderWidth] = useState(0);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<RRGDataPoint | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<RRGDataPoint | null>(null);
   const [lookbackIndex, setLookbackIndex] = useState<number>(0);
   const [autoFit, setAutoFit] = useState<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [selectedQuadrant, setSelectedQuadrant] = useState<string | null>(null);
-  const [panOffset, setPanOffset] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [lastMousePos, setLastMousePos] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
-  const [currentDomain, setCurrentDomain] = useState<{ x: [number, number], y: [number, number] }>({ x: [80, 120], y: [80, 120] });
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const savedTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const zoomBadgeRef = useRef<HTMLDivElement | null>(null);
   const [showWaves, setShowWaves] = useState<boolean>(false);
   const [activeWaves, setActiveWaves] = useState<Array<{ group: string, symbols: string[], quadrant: string, isActive: boolean }>>([]);
 
@@ -109,6 +115,34 @@ const RRGChart: React.FC<RRGChartProps> = ({
   const [isLongPressing, setIsLongPressing] = useState<string | null>(null);
   const [previousVisibleTickers, setPreviousVisibleTickers] = useState<Set<string> | null>(null);
 
+  // Measure chart wrapper and feed real pixel dimensions to D3
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width: w, height: h } = entry.contentRect;
+        if (w > 100 && h > 100) {
+          setRenderWidth(Math.round(w));
+          setRenderHeight(Math.round(h));
+        }
+      }
+    });
+    ro.observe(wrapperRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Measure header width for responsive legend layout
+  useEffect(() => {
+    if (!headerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setHeaderWidth(Math.round(entry.contentRect.width));
+      }
+    });
+    ro.observe(headerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   // Initialize all tickers as visible when data changes
   useEffect(() => {
     if (data && data.length > 0) {
@@ -116,9 +150,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
     }
   }, [data]);
 
-  const margin = { top: 40, right: 60, bottom: 80, left: 60 };
-  const chartWidth = width - margin.left - margin.right;
-  const chartHeight = height - margin.top - margin.bottom;
+  const isMobileChart = renderWidth < 432;
+  const margin = isMobileChart
+    ? { top: 25, right: 10, bottom: 60, left: 50 }
+    : { top: 40, right: 60, bottom: 80, left: 60 };
+  const chartWidth = renderWidth - margin.left - margin.right;
+  const chartHeight = renderHeight - margin.top - margin.bottom;
 
   // Sector group definitions
   const sectorGroups = {
@@ -161,11 +198,11 @@ const RRGChart: React.FC<RRGChartProps> = ({
       });
     }
 
-    // Filter by visible tickers
-    return currentData.filter(point => visibleTickers.has(point.symbol));
+    // Return all data — visibility is handled by D3 dimming, not filtering
+    return currentData;
   };
 
-  const currentData = useMemo(() => getCurrentData(), [data, lookbackIndex, visibleTickers]);
+  const currentData = useMemo(() => getCurrentData(), [data, lookbackIndex]);
 
   // Wave detection logic
   useEffect(() => {
@@ -177,10 +214,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
     const detectWaves = () => {
       const waves: Array<{ group: string, symbols: string[], quadrant: string, isActive: boolean }> = [];
 
-      console.log('🌊 Detecting waves with currentData:', currentData.length, 'points');
-      console.log('🌊 Data length:', data.length);
-      console.log('🌊 visibleTickers:', Array.from(visibleTickers));
-      console.log('🌊 Sector groups:', sectorGroups);
+
 
       // Helper to get quadrant
       const getQuadrant = (rsRatio: number, rsMomentum: number) => {
@@ -294,8 +328,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         }
       });
 
-      console.log('🌊 Waves detected:', waves.length, 'waves');
-      console.log('🌊 Wave details:', waves);
+
       setActiveWaves(waves);
     };
 
@@ -305,7 +338,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
   // Auto-enable waves when in waves mode
   useEffect(() => {
     if (selectedMode === 'waves') {
-      console.log('🌊 Auto-enabling waves for waves mode');
+
       setShowWaves(true);
     } else {
       setShowWaves(false);
@@ -333,17 +366,24 @@ const RRGChart: React.FC<RRGChartProps> = ({
   // Fit and center functions
   const fitToData = () => {
     setAutoFit(true);
-    setZoomLevel(1);
     setSelectedQuadrant(null);
-    setPanOffset({ x: 0, y: 0 });
+    savedTransformRef.current = d3.zoomIdentity;
+    if (svgRef.current && zoomBehaviorRef.current) {
+      d3.select(svgRef.current).transition().duration(400)
+        .call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+    }
+    if (zoomBadgeRef.current) zoomBadgeRef.current.style.display = 'none';
   };
 
   const centerChart = () => {
-    // Reset to center on 100,100
-    setZoomLevel(1);
     setAutoFit(false);
     setSelectedQuadrant(null);
-    setPanOffset({ x: 0, y: 0 });
+    savedTransformRef.current = d3.zoomIdentity;
+    if (svgRef.current && zoomBehaviorRef.current) {
+      d3.select(svgRef.current).transition().duration(400)
+        .call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+    }
+    if (zoomBadgeRef.current) zoomBadgeRef.current.style.display = 'none';
   };
 
   const playAnimation = () => {
@@ -396,7 +436,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
       setLongPressTimer(null);
 
       // Optional: Show visual feedback
-      console.log(`Isolated ticker: ${symbol}`);
+
     }, 4000); // 4 seconds
 
     setLongPressTimer(timer);
@@ -533,98 +573,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    // Add mouse event handlers with proper state closure
-    const handleMouseDown = (event: MouseEvent) => {
-      // Enable dragging for panning when zoomed in
-      if (event.button === 0) { // Left mouse button
-        setIsDragging(true);
-        setLastMousePos({ x: event.clientX, y: event.clientY });
-        event.preventDefault();
-      }
-    };
 
-    const handleMouseMove = (event: MouseEvent) => {
-      // Professional RRG drag mechanics - inverted like EFI Terminal
-      if (isDragging && zoomLevel > 1) {
-        const deltaX = event.clientX - lastMousePos.x;
-        const deltaY = event.clientY - lastMousePos.y;
-
-        // Much slower sensitivity - 90% reduction from 0.2 to 0.02
-        const sensitivity = 0.02;
-
-        // CORRECTED drag directions like EFI Terminal:
-        // Drag down = move DOWN Y axis (lower momentum values)
-        // Drag up = move UP Y axis (higher momentum values) 
-        // Drag left = move right X axis (positive strength)
-        // Drag right = move left X axis (negative strength)
-        const adjustedDeltaX = deltaX * sensitivity; // Same direction for X 
-        const adjustedDeltaY = -deltaY * sensitivity; // INVERTED for Y to fix the flip
-
-        setPanOffset(prev => {
-          const newX = prev.x + adjustedDeltaX;
-          const newY = prev.y + adjustedDeltaY;
-
-          // Calculate maximum pan based on zoom level to keep quadrants visible
-          const maxPanX = Math.max(0, (chartWidth * (zoomLevel - 1)) / (2 * zoomLevel));
-          const maxPanY = Math.max(0, (chartHeight * (zoomLevel - 1)) / (2 * zoomLevel));
-
-          // Hard stop at calculated boundaries - no gray area allowed
-          return {
-            x: Math.max(-maxPanX, Math.min(maxPanX, newX)),
-            y: Math.max(-maxPanY, Math.min(maxPanY, newY))
-          };
-        });
-
-        setLastMousePos({ x: event.clientX, y: event.clientY });
-      }
-    };
-
-    const handleMouseUp = () => {
-      // Simple mouse up - no complex boundary snapping
-      setIsDragging(false);
-    };
-
-    const handleWheel = (event: WheelEvent) => {
-      event.preventDefault();
-
-      // StockCharts-style zoom: smooth, mouse-centered, professional feel
-      const rect = svgElement.getBoundingClientRect();
-      const mouseX = (event.clientX - rect.left) / rect.width; // Normalized mouse position
-      const mouseY = (event.clientY - rect.top) / rect.height;
-
-      // StockCharts zoom increments: smooth but not too fine
-      const zoomIntensity = 0.15; // Balanced zoom speed
-      const direction = event.deltaY > 0 ? -1 : 1;
-      const oldZoom = zoomLevel;
-      const newZoom = Math.max(0.5, Math.min(4, zoomLevel + direction * zoomIntensity));
-
-      if (newZoom !== oldZoom) {
-        setZoomLevel(newZoom);
-
-        // StockCharts-style mouse-centered zoom with automatic pan adjustment
-        if (newZoom > 1) {
-          const zoomRatio = newZoom / oldZoom;
-          const zoomCenterOffsetX = (mouseX - 0.5) * 20; // Offset toward mouse position
-          const zoomCenterOffsetY = (mouseY - 0.5) * 20;
-
-          setPanOffset(prev => ({
-            x: prev.x * zoomRatio + (zoomCenterOffsetX * (newZoom - oldZoom) * 0.3),
-            y: prev.y * zoomRatio + (zoomCenterOffsetY * (newZoom - oldZoom) * 0.3)
-          }));
-        } else {
-          // Auto-center when zooming back to 1x (StockCharts behavior)
-          setPanOffset({ x: 0, y: 0 });
-        }
-      }
-    };
-
-    // Add event listeners
-    const svgElement = svgRef.current;
-    svgElement.addEventListener('mousedown', handleMouseDown);
-    svgElement.addEventListener('mousemove', handleMouseMove);
-    svgElement.addEventListener('mouseup', handleMouseUp);
-    svgElement.addEventListener('mouseleave', handleMouseUp);
-    svgElement.addEventListener('wheel', handleWheel, { passive: false });
 
     // Create scales
     const rsRatioExtent = d3.extent(currentData.flatMap(d => [
@@ -667,76 +616,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
       ];
     }
 
-    // Calculate zoom and view parameters with pan offset
-    let currentXDomain = xDomain;
-    let currentYDomain = yDomain;
-
-    // Apply pan offset first
-    const panX = panOffset.x / zoomLevel;
-    const panY = panOffset.y / zoomLevel;
-
-    // Apply quadrant-specific zoom
-    if (selectedQuadrant && zoomLevel > 1) {
-      const centerX = 100;
-      const centerY = 100;
-
-      // More aggressive zoom for quadrant focus
-      const quadrantZoomFactor = zoomLevel * 1.5;
-      const rangeX = (xDomain[1] - xDomain[0]) / quadrantZoomFactor;
-      const rangeY = (yDomain[1] - yDomain[0]) / quadrantZoomFactor;
-
-      switch (selectedQuadrant) {
-        case 'leading':
-          // Top-right quadrant (RS > 100, Momentum > 100)
-          currentXDomain = [centerX - panX, centerX + rangeX - panX];
-          currentYDomain = [centerY - panY, centerY + rangeY - panY];
-          break;
-        case 'weakening':
-          // Bottom-right quadrant (RS > 100, Momentum < 100)
-          currentXDomain = [centerX - panX, centerX + rangeX - panX];
-          currentYDomain = [centerY - rangeY - panY, centerY - panY];
-          break;
-        case 'lagging':
-          // Bottom-left quadrant (RS < 100, Momentum < 100)
-          currentXDomain = [centerX - rangeX - panX, centerX - panX];
-          currentYDomain = [centerY - rangeY - panY, centerY - panY];
-          break;
-        case 'improving':
-          // Top-left quadrant (RS < 100, Momentum > 100)
-          currentXDomain = [centerX - rangeX - panX, centerX - panX];
-          currentYDomain = [centerY - panY, centerY + rangeY - panY];
-          break;
-      }
-    } else if (zoomLevel > 1) {
-      // General zoom around center with pan
-      const centerX = (xDomain[0] + xDomain[1]) / 2;
-      const centerY = (yDomain[0] + yDomain[1]) / 2;
-      const rangeX = (xDomain[1] - xDomain[0]) / zoomLevel;
-      const rangeY = (yDomain[1] - yDomain[0]) / zoomLevel;
-
-      currentXDomain = [centerX - rangeX / 2 - panX, centerX + rangeX / 2 - panX];
-      currentYDomain = [centerY - rangeY / 2 - panY, centerY + rangeY / 2 - panY];
-    } else {
-      // Just apply pan offset to base domain
-      currentXDomain = [xDomain[0] - panX, xDomain[1] - panX];
-      currentYDomain = [yDomain[0] - panY, yDomain[1] - panY];
-    }
-
-    // Create scales for chart content (with pan/zoom)
+    // Create scales from the data domain — d3.zoom handles all pan/zoom transforms
     const xScale = d3.scaleLinear()
-      .domain(currentXDomain)
-      .range([0, chartWidth]);
-
-    const yScale = d3.scaleLinear()
-      .domain(currentYDomain)
-      .range([chartHeight, 0]);
-
-    // Create stable scales for axes (without pan/zoom)
-    const xAxisScale = d3.scaleLinear()
       .domain(xDomain)
       .range([0, chartWidth]);
 
-    const yAxisScale = d3.scaleLinear()
+    const yScale = d3.scaleLinear()
       .domain(yDomain)
       .range([chartHeight, 0]);
 
@@ -783,9 +668,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .attr('fill', 'transparent')
       .attr('pointer-events', 'all');
 
-    // Create chart content group (moves with pan/zoom) with generous clipping
-    const chartGroup = g.append('g')
+    // Clip container stays fixed — defines the visible boundary
+    const clipContainer = g.append('g')
       .attr('clip-path', `url(#${clipId})`);
+
+    // Chart content group inside the clip container — this is what d3.zoom transforms
+    const chartGroup = clipContainer.append('g');
 
     // Draw center cross grid lines only (100,100)
     const center100X = xScale(100);
@@ -1023,6 +911,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .text('RS-Momentum (Rate of Change)');
 
     // Add quadrant labels directly on the chart
+    const quadLabelSize = isMobileChart ? '11px' : '16px';
     if (isIVMode) {
       // IV RRG labels
       // Bottom-left label with background
@@ -1032,9 +921,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('y', chartHeight - 10)
         .attr('fill', '#00CED1')
         .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
+        .attr('font-size', quadLabelSize)
         .attr('font-weight', 'bold')
-        .text('Cheap Vol Getting Cheaper');
+        .text(isMobileChart ? 'Cheap Vol Falling' : 'Cheap Vol Getting Cheaper');
       const bottomLeftBBox = (bottomLeftText.node() as SVGTextElement).getBBox();
       bottomLeftLabel.insert('rect', 'text')
         .attr('x', bottomLeftBBox.x - 8)
@@ -1053,9 +942,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('y', chartHeight - 10)
         .attr('fill', '#DA70D6')
         .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
+        .attr('font-size', quadLabelSize)
         .attr('font-weight', 'bold')
-        .text('Expensive Vol Cooling Off');
+        .text(isMobileChart ? 'Exp Vol Cooling' : 'Expensive Vol Cooling Off');
       const bottomRightBBox = (bottomRightText.node() as SVGTextElement).getBBox();
       bottomRightLabel.insert('rect', 'text')
         .attr('x', bottomRightBBox.x - 8)
@@ -1074,9 +963,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('y', 20)
         .attr('fill', '#00CED1')
         .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
+        .attr('font-size', quadLabelSize)
         .attr('font-weight', 'bold')
-        .text('Cheap Vol Heating Up');
+        .text(isMobileChart ? 'Cheap Vol Rising' : 'Cheap Vol Heating Up');
       const topLeftBBox = (topLeftText.node() as SVGTextElement).getBBox();
       topLeftLabel.insert('rect', 'text')
         .attr('x', topLeftBBox.x - 8)
@@ -1095,9 +984,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('y', 20)
         .attr('fill', '#DA70D6')
         .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
+        .attr('font-size', quadLabelSize)
         .attr('font-weight', 'bold')
-        .text('Expensive Vol Getting More Expensive');
+        .text(isMobileChart ? 'Exp Vol Rising' : 'Expensive Vol Getting More Expensive');
       const topRightBBox = (topRightText.node() as SVGTextElement).getBBox();
       topRightLabel.insert('rect', 'text')
         .attr('x', topRightBBox.x - 8)
@@ -1271,10 +1160,10 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
     // Draw waves if enabled
     if (showWaves && activeWaves.length > 0) {
-      console.log('🌊 RENDERING WAVES - showWaves:', showWaves, 'activeWaves:', activeWaves.length);
+
       activeWaves.forEach((wave, waveIndex) => {
         const wavePoints = currentData.filter(d => wave.symbols.includes(d.symbol));
-        console.log('🌊 Wave', wave.group, '- points:', wavePoints.length, 'isActive:', wave.isActive);
+
         if (wavePoints.length < 1) return; // Need at least 1 point to draw something
 
         // Get wave color based on group
@@ -1437,15 +1326,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
       });
     }
 
-    // Draw main points (only those within visible bounds with strict containment)
+    // Draw main points; d3.zoom transform + clip-path handle what's visible
     // Hide points when in waves mode
-    const visiblePoints = selectedMode === 'waves' ? [] : currentData.filter(d => {
-      const x = xScale(d.rsRatio);
-      const y = yScale(d.rsMomentum);
-      return x >= 0 && x <= chartWidth && y >= 0 && y <= chartHeight &&
-        d.rsRatio >= currentXDomain[0] && d.rsRatio <= currentXDomain[1] &&
-        d.rsMomentum >= currentYDomain[0] && d.rsMomentum <= currentYDomain[1];
-    });
+    const visiblePoints = selectedMode === 'waves' ? [] : currentData;
 
     const points = chartGroup.selectAll('.rrg-point')
       .data(visiblePoints)
@@ -1493,12 +1376,6 @@ const RRGChart: React.FC<RRGChartProps> = ({
           .style('filter', `drop-shadow(0 0 5px ${tickerColors[d.symbol]}) brightness(1.3)`);
       })
       .on('mouseleave', function () {
-        // FORCE immediate reset - no transitions that can be interrupted
-        chartGroup.selectAll('.ticker-element')
-          .interrupt()
-          .style('opacity', 1)
-          .style('filter', null);
-
         chartGroup.selectAll('[class*="tail-path-"]')
           .interrupt()
           .attr('stroke-width', 2.5)
@@ -1507,6 +1384,16 @@ const RRGChart: React.FC<RRGChartProps> = ({
         chartGroup.selectAll('.tail-arrow')
           .interrupt()
           .style('filter', null);
+
+        // Restore visibility-based opacity
+        Object.keys(tickerColors).forEach(symbol => {
+          const clean = symbol.replace(/[^a-zA-Z0-9]/g, '');
+          const dimmed = !visibleTickers.has(symbol);
+          chartGroup.selectAll(`.ticker-${clean}`)
+            .interrupt()
+            .style('opacity', dimmed ? 0.12 : null)
+            .style('filter', dimmed ? 'grayscale(90%)' : null);
+        });
       });
 
     points.append('circle')
@@ -1531,6 +1418,15 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .text(d => d.symbol)
       .style('pointer-events', 'none');
 
+    // Apply ticker visibility dimming (dim hidden tickers instead of removing them)
+    Object.keys(tickerColors).forEach(symbol => {
+      const clean = symbol.replace(/[^a-zA-Z0-9]/g, '');
+      const dimmed = !visibleTickers.has(symbol);
+      chartGroup.selectAll(`.ticker-${clean}`)
+        .style('opacity', dimmed ? 0.12 : null)
+        .style('filter', dimmed ? 'grayscale(90%)' : null);
+    });
+
     // Style axes
     svg.selectAll('.x-axis text, .y-axis text')
       .attr('fill', 'white')
@@ -1539,17 +1435,43 @@ const RRGChart: React.FC<RRGChartProps> = ({
     svg.selectAll('.x-axis path, .y-axis path, .x-axis line, .y-axis line')
       .attr('stroke', 'white');
 
-    // Cleanup function
+    // Set up d3.zoom — applies SVG transforms directly with zero React re-renders
+    const svgSel = d3.select(svgRef.current!);
+
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([1, 8])
+      .constrain((transform) => {
+        // Keep content filling the chart frame at all zoom levels.
+        // At k=1: tx/ty forced to 0 (no panning). At k>1: bounded by zoom extent.
+        const k = transform.k;
+        const x = Math.min(0, Math.max((1 - k) * chartWidth, transform.x));
+        const y = Math.min(0, Math.max((1 - k) * chartHeight, transform.y));
+        return d3.zoomIdentity.scale(k).translate(x / k, y / k);
+      })
+      .on('zoom', (event) => {
+        chartGroup.attr('transform', event.transform.toString());
+        savedTransformRef.current = event.transform;
+        // Update badge via direct DOM — no React re-render needed
+        if (zoomBadgeRef.current) {
+          const { k, x, y } = event.transform;
+          const isZoomed = k !== 1 || x !== 0 || y !== 0;
+          zoomBadgeRef.current.style.display = isZoomed ? 'block' : 'none';
+          if (isZoomed) zoomBadgeRef.current.textContent = `Zoom: ${k.toFixed(1)}x | Drag to pan`;
+        }
+      });
+
+    svgSel.call(zoom);
+    // Restore saved zoom position (survives data refreshes)
+    svgSel.call(zoom.transform, savedTransformRef.current);
+    zoomBehaviorRef.current = zoom;
+
+    // Cleanup
     return () => {
-      if (svgElement) {
-        svgElement.removeEventListener('mousedown', handleMouseDown);
-        svgElement.removeEventListener('mousemove', handleMouseMove);
-        svgElement.removeEventListener('mouseup', handleMouseUp);
-        svgElement.removeEventListener('mouseleave', handleMouseUp);
-        svgElement.removeEventListener('wheel', handleWheel);
+      if (svgRef.current) {
+        d3.select(svgRef.current).on('.zoom', null);
       }
     };
-  }, [currentData, width, height, showTails, tailLength, lookbackIndex, zoomLevel, selectedQuadrant, panOffset, autoFit, isDragging, lastMousePos, currentDomain, showWaves, activeWaves]);
+  }, [currentData, renderWidth, renderHeight, showTails, tailLength, lookbackIndex, selectedQuadrant, autoFit, showWaves, activeWaves, visibleTickers, tickerColors]);
 
   const handleLookbackChange = (value: number) => {
     setLookbackIndex(value);
@@ -1559,7 +1481,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
   return (
     <div className={`rrg-chart-container${isIVMode ? ' iv-mode' : ''}`}>
       {/* Redesigned Header - One Clean Row */}
-      <div style={{
+      <div ref={headerRef} className="rrg-header-controls" style={{
         padding: '16px 20px',
         background: 'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
         borderBottom: '2px solid rgba(59, 130, 246, 0.3)',
@@ -1573,7 +1495,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         {/* Analysis Mode / Symbol Group */}
         {isIVMode ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Symbol Group:</label>
+            <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>Symbol Group:</label>
             <select
               value={symbolMode}
               onChange={(e) => {
@@ -1587,7 +1509,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: '#ffffff',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '600'
               }}
             >
@@ -1599,7 +1521,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Analysis Mode:</label>
+            <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>Analysis Mode:</label>
             <select
               value={selectedIndustryETF || selectedSectorETF || selectedMode}
               onChange={(e) => {
@@ -1629,7 +1551,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: '#ffffff',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '600',
                 maxWidth: '140px'
               }}
@@ -1666,7 +1588,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: selectedMode === 'weightedRRG' ? '#ff6b00' : '#ffffff',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '600',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 opacity: loading ? 0.5 : 1,
@@ -1680,7 +1602,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
         {/* Benchmark */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Benchmark:</label>
+          <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>Benchmark:</label>
           <select
             value={benchmark}
             onChange={(e) => onBenchmarkChange?.(e.target.value)}
@@ -1691,7 +1613,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: '1px solid rgba(255, 107, 0, 0.3)',
               borderRadius: '3px',
               color: '#ffffff',
-              fontSize: '12px',
+              fontSize: '14px',
               fontWeight: '600',
               maxWidth: '120px'
             }}
@@ -1706,7 +1628,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
         {/* Timeframe */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Timeframe:</label>
+          <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>Timeframe:</label>
           {selectedMode === 'weightedRRG' ? (
             <div
               style={{
@@ -1715,7 +1637,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: '#ff6b00',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '700',
                 textTransform: 'uppercase'
               }}
@@ -1733,7 +1655,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: '#ffffff',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '600'
               }}
             >
@@ -1756,7 +1678,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: `1px solid ${showWaves ? '#ff6b00' : 'rgba(255, 107, 0, 0.3)'}`,
               borderRadius: '4px',
               color: '#ffffff',
-              fontSize: '12px',
+              fontSize: '14px',
               fontWeight: '700',
               cursor: 'pointer',
               textTransform: 'uppercase',
@@ -1774,7 +1696,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: `1px solid ${activeWaves.filter(w => w.isActive).length > 0 ? 'rgba(255, 107, 0, 0.5)' : 'rgba(150, 150, 150, 0.5)'}`,
               borderRadius: '3px',
               color: activeWaves.filter(w => w.isActive).length > 0 ? '#ff8844' : '#aaaaaa',
-              fontSize: '11px',
+              fontSize: '13px',
               fontWeight: '700',
               animation: activeWaves.filter(w => w.isActive).length > 0 ? 'pulse 2s ease-in-out infinite' : 'none'
             }}>
@@ -1785,7 +1707,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
         {/* Tail Length */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>
+          <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>
             Tail Length: {tailLength >= maxTailLength ? 'MAX' : ''}
           </label>
           <input
@@ -1815,15 +1737,80 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: `1px solid ${tailLength >= maxTailLength ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 107, 0, 0.3)'}`,
               borderRadius: '3px',
               color: tailLength >= maxTailLength ? '#ff6b00' : '#ffffff',
-              fontSize: '12px',
+              fontSize: '14px',
               fontWeight: '600',
               textAlign: 'center'
             }}
           />
         </div>
 
+        {/* Ticker Legend - inline on wide, button+dropdown on narrow */}
+        {headerWidth >= 1100 ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, overflow: 'hidden' }}>
+            <span style={{ color: '#ff8844', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Tickers:</span>
+            <button onClick={() => toggleAllTickers(true)} style={{ padding: '3px 7px', fontSize: '12px', background: 'rgba(0,255,136,0.15)', border: '1px solid #00ff88', borderRadius: '3px', color: '#00ff88', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>All</button>
+            <button onClick={() => toggleAllTickers(false)} style={{ padding: '3px 7px', fontSize: '12px', background: 'rgba(255,68,68,0.15)', border: '1px solid #ff4444', borderRadius: '3px', color: '#ff4444', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>Off</button>
+            {previousVisibleTickers && (
+              <button onClick={restorePreviousTickers} style={{ padding: '3px 7px', fontSize: '12px', background: 'rgba(255,193,7,0.15)', border: '1px solid #ffc107', borderRadius: '3px', color: '#ffc107', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>↶</button>
+            )}
+            <div style={{ display: 'flex', gap: '3px', overflowX: 'auto', flex: 1, paddingBottom: '2px' }}>
+              {Object.entries(tickerColors).map(([symbol, color]) => {
+                const isVisible = visibleTickers.has(symbol);
+                const isLongPressActive = isLongPressing === symbol;
+                return (
+                  <div
+                    key={symbol}
+                    onClick={() => toggleTickerVisibility(symbol)}
+                    onMouseDown={() => startLongPress(symbol)}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                    onTouchStart={() => startLongPress(symbol)}
+                    onTouchEnd={cancelLongPress}
+                    onTouchCancel={cancelLongPress}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                      padding: '3px 7px',
+                      background: isVisible ? `${color}18` : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${isLongPressActive ? color : isVisible ? color : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '3px',
+                      cursor: 'pointer',
+                      opacity: isVisible ? 1 : 0.4,
+                      flexShrink: 0,
+                      transition: 'all 0.15s',
+                      transform: isLongPressActive ? 'scale(1.08)' : 'scale(1)',
+                    }}
+                  >
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: isVisible ? color : '#555', whiteSpace: 'nowrap', textDecoration: isVisible ? 'none' : 'line-through' }}>{symbol}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <span style={{ fontSize: '12px', color: '#555', whiteSpace: 'nowrap', flexShrink: 0 }}>{visibleTickers.size}/{Object.keys(tickerColors).length}</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => setLegendOpen(!legendOpen)}
+            style={{
+              padding: '6px 12px',
+              background: legendOpen ? 'rgba(255,107,0,0.2)' : '#0a0a0a',
+              border: `1px solid ${legendOpen ? '#ff6b00' : 'rgba(255,107,0,0.3)'}`,
+              borderRadius: '3px',
+              color: '#ff8844',
+              fontSize: '14px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            Tickers {legendOpen ? '▲' : '▼'} ({visibleTickers.size})
+          </button>
+        )}
+
         {/* Action Buttons */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+        <div className="rrg-action-buttons" style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
           <button
             onClick={fitToData}
             style={{
@@ -1832,7 +1819,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: '1px solid rgba(255, 107, 0, 0.3)',
               borderRadius: '3px',
               color: '#ff8844',
-              fontSize: '11px',
+              fontSize: '13px',
               fontWeight: '700',
               textTransform: 'uppercase',
               cursor: 'pointer',
@@ -1851,7 +1838,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: '1px solid rgba(255, 107, 0, 0.3)',
               borderRadius: '3px',
               color: '#ff8844',
-              fontSize: '11px',
+              fontSize: '13px',
               fontWeight: '700',
               textTransform: 'uppercase',
               cursor: 'pointer',
@@ -1870,7 +1857,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               border: '1px solid #ff8533',
               borderRadius: '3px',
               color: '#000000',
-              fontSize: '11px',
+              fontSize: '13px',
               fontWeight: '700',
               textTransform: 'uppercase',
               cursor: 'pointer',
@@ -1885,6 +1872,64 @@ const RRGChart: React.FC<RRGChartProps> = ({
         </div>
       </div>
 
+      {/* Ticker Legend Dropdown Panel (narrow screens only) */}
+      {headerWidth < 1100 && legendOpen && (
+        <div style={{
+          padding: '12px 20px',
+          background: '#050505',
+          borderBottom: '1px solid rgba(255,107,0,0.2)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>Ticker Colors</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {previousVisibleTickers && (
+                <button onClick={restorePreviousTickers} style={{ padding: '4px 8px', fontSize: '0.84rem', background: 'rgba(255,193,7,0.2)', border: '1px solid #ffc107', borderRadius: '3px', color: '#ffc107', cursor: 'pointer' }}>↶ Restore</button>
+              )}
+              <button onClick={() => toggleAllTickers(true)} style={{ padding: '4px 8px', fontSize: '0.84rem', background: 'rgba(0,255,136,0.2)', border: '1px solid #00ff88', borderRadius: '3px', color: '#00ff88', cursor: 'pointer' }}>Show All</button>
+              <button onClick={() => toggleAllTickers(false)} style={{ padding: '4px 8px', fontSize: '0.84rem', background: 'rgba(255,68,68,0.2)', border: '1px solid #ff4444', borderRadius: '3px', color: '#ff4444', cursor: 'pointer' }}>Hide All</button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '5px' }}>
+            {Object.entries(tickerColors).map(([symbol, color]) => {
+              const isVisible = visibleTickers.has(symbol);
+              const isLongPressActive = isLongPressing === symbol;
+              return (
+                <div
+                  key={symbol}
+                  className="legend-item ticker-toggle"
+                  onClick={() => toggleTickerVisibility(symbol)}
+                  onMouseDown={() => startLongPress(symbol)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onTouchStart={() => startLongPress(symbol)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchCancel={cancelLongPress}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    opacity: isVisible ? 1 : 0.4,
+                    background: isVisible ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${isVisible ? color : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '4px',
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    position: 'relative',
+                    transform: isLongPressActive ? 'scale(1.05)' : 'scale(1)',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <div style={{ backgroundColor: color, border: '1px solid white', width: '10px', height: '10px', borderRadius: '2px', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 'bold', textDecoration: isVisible ? 'none' : 'line-through', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{symbol}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>
+            Showing {visibleTickers.size} of {Object.keys(tickerColors).length} tickers
+          </div>
+        </div>
+      )}
+
       {/* Custom Symbols Input Row (if needed) */}
       {((isIVMode && symbolMode === 'custom') || (!isIVMode && selectedMode === 'custom')) && (
         <div style={{
@@ -1893,7 +1938,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
           borderBottom: '1px solid rgba(255, 107, 0, 0.2)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', minWidth: '150px' }}>
+            <label style={{ color: '#ff8844', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', minWidth: '150px' }}>
               Custom Symbols:
             </label>
             <input
@@ -1914,7 +1959,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 border: '1px solid rgba(255, 107, 0, 0.3)',
                 borderRadius: '3px',
                 color: '#ffffff',
-                fontSize: '12px',
+                fontSize: '14px',
                 fontWeight: '600'
               }}
             />
@@ -1923,7 +1968,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
       )}
 
       {/* Lookback Control Bar - Redesigned */}
-      <div style={{
+      <div className="rrg-lookback-bar" style={{
         padding: '12px 20px',
         background: '#000000',
         borderBottom: '1px solid rgba(255, 107, 0, 0.2)',
@@ -1933,7 +1978,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
       }}>
         <span style={{
           color: '#ff8844',
-          fontSize: '12px',
+          fontSize: '14px',
           fontWeight: '700',
           textTransform: 'uppercase',
           minWidth: '140px'
@@ -1955,7 +2000,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: '11px',
+            fontSize: '13px',
             color: '#888'
           }}>
             <span>Past</span>
@@ -1967,7 +2012,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         </div>
         <div style={{
           color: '#ffffff',
-          fontSize: '12px',
+          fontSize: '14px',
           fontWeight: '600',
           minWidth: '120px',
           textAlign: 'right'
@@ -1976,9 +2021,11 @@ const RRGChart: React.FC<RRGChartProps> = ({
         </div>
       </div>
 
-      <div className="rrg-chart-wrapper" style={{ position: 'relative' }}>
-        {zoomLevel > 1 && (
-          <div style={{
+      <div ref={wrapperRef} className="rrg-chart-wrapper" style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div
+          ref={zoomBadgeRef}
+          style={{
+            display: 'none',
             position: 'absolute',
             top: '10px',
             left: '10px',
@@ -1988,54 +2035,29 @@ const RRGChart: React.FC<RRGChartProps> = ({
             padding: '4px 8px',
             borderRadius: '4px',
             zIndex: 10,
-            border: '1px solid #333'
-          }}>
-            Zoom: {zoomLevel.toFixed(1)}x | Drag to pan
-          </div>
-        )}
+            border: '1px solid #333',
+            pointerEvents: 'none',
+          }}
+        />
 
-        {/* StockCharts-style boundary indicator */}
-        {(() => {
-          const maxOffset = 30 / zoomLevel;
-          const isNearBoundary = Math.abs(panOffset.x) > maxOffset * 0.8 || Math.abs(panOffset.y) > maxOffset * 0.8;
-          const isAtBoundary = Math.abs(panOffset.x) > maxOffset || Math.abs(panOffset.y) > maxOffset;
 
-          return isNearBoundary && zoomLevel > 1 && (
-            <div style={{
-              position: 'absolute',
-              bottom: '10px',
-              left: '10px',
-              color: isAtBoundary ? '#ff6b47' : '#ffa500',
-              fontSize: '10px',
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              padding: '3px 6px',
-              borderRadius: '3px',
-              zIndex: 10,
-              border: `1px solid ${isAtBoundary ? '#ff6b47' : '#ffa500'}`
-            }}>
-              {isAtBoundary ? ' Boundary reached' : ' Near boundary'}
-            </div>
-          );
-        })()}
 
         <svg
           ref={svgRef}
-          width={width}
-          height={height}
+          viewBox={`0 0 ${renderWidth} ${renderHeight}`}
+          preserveAspectRatio="none"
+          width="100%"
+          height="100%"
           style={{
+            display: 'block',
             background: '#0a0a0a',
-            cursor: zoomLevel > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            transition: isDragging ? 'none' : 'border 0.2s ease', // Smooth boundary feedback
-            border: (() => {
-              const maxOffset = 30 / zoomLevel;
-              const isAtBoundary = Math.abs(panOffset.x) > maxOffset || Math.abs(panOffset.y) > maxOffset;
-              return isAtBoundary && zoomLevel > 1 ? '2px solid #ff6b47' : '1px solid #333';
-            })()
+            cursor: 'default',
+            border: '1px solid #333',
           }}
         />
       </div>
 
-      <div className="rrg-legend">
+      <div style={{ display: 'none' }}>
         <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
           {/* Ticker Colors Legend */}
           <div style={{ flex: '1', minWidth: '300px' }}>

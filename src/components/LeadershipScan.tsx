@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { polygonService } from '../lib/polygonService'
 
@@ -1363,8 +1363,32 @@ export default function LeadershipScan() {
     </div>
   )
 
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}\u00d7${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[LEADERSHIP] ${Math.round(r.width)}\u00d7${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}\u00d7${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
+
   return (
     <div
+      ref={_dbgRef}
       className="terminal-panel"
       style={{
         margin: '20px',
@@ -1459,6 +1483,7 @@ export default function LeadershipScan() {
 
       {/* Unified Header Row */}
       <div
+        className="leadership-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1731,6 +1756,7 @@ export default function LeadershipScan() {
               {leaders.length} FRESH BREAKOUT{leaders.length !== 1 ? 'S' : ''} DETECTED
             </div>
             <div
+              className="leadership-results-grid"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',

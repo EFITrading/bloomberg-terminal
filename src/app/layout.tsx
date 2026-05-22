@@ -26,15 +26,15 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en" data-scroll-behavior="smooth" style={{ overflowX: 'hidden', width: '100%' }}>
-            <body className={`${inter.variable} antialiased`} style={{ overflowX: 'hidden', width: '100%', position: 'relative' }}>
+        <html lang="en" data-scroll-behavior="smooth" style={{ overflowX: 'clip', width: '100%' }}>
+            <body className={`${inter.variable} antialiased`} style={{ overflowX: 'clip', width: '100%', position: 'relative' }}>
                 <ClientSessionProvider>
                     <MarketRegimeProvider>
                         <AuthGuard>
-                            <div className="terminal-app" style={{ overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
+                            <div className="terminal-app" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', width: '100%', maxWidth: '100vw' }}>
                                 <Background />
                                 <ConditionalNavigation />
-                                <main className="main-content" style={{ overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
+                                <main className="main-content" style={{ flex: 1, minHeight: 0, overflow: 'hidden', width: '100%', maxWidth: '100vw' }}>
                                     {children}
                                 </main>
                             </div>

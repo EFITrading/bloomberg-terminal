@@ -829,8 +829,32 @@ export default function MarketCycleIndicator() {
   const bearStages = ['PRE-PEAK', 'DIST.', 'SELLING', 'CAPIT.', 'RECOVERY']
   const recStages = ['LOW RISK', 'ELEVATED', 'HIGH RISK', 'RECESSION']
 
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}×${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[MARKET-CYCLE] ${Math.round(r.width)}×${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}×${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
+
   return (
     <div
+      ref={_dbgRef}
       style={{
         background: '#000000',
         border: '1px solid #1a1a1a',
@@ -849,6 +873,7 @@ export default function MarketCycleIndicator() {
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
+        className="mci-header"
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
@@ -957,7 +982,7 @@ export default function MarketCycleIndicator() {
       )}
 
       {/* â”€â”€ Two panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+      <div className="mci-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
         {/* â”€â”€ LEFT: Bear Market Tracker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div style={{ padding: '20px 22px', borderRight: '1px solid #1a1a1a' }}>
           {/* panel header */}
@@ -1308,6 +1333,7 @@ export default function MarketCycleIndicator() {
       {/* â”€â”€ Sector Rotation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {/* ── History Charts ──────────────────────────────────────────────── */}
       <div
+        className="mci-history-grid"
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #1a1a1a' }}
       >
         {/* Bear History — left */}

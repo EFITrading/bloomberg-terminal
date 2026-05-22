@@ -811,7 +811,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
   const quadrantSummary = getQuadrantSummary()
 
   return (
-    <div className="rrg-analytics-container" style={{ position: 'relative' }}>
+    <div className="rrg-analytics-container" style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {loading && (
         <div className="rrg-loading">
           <div className="loading-content">
@@ -846,7 +846,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
             timeframe={timeframe}
             onShowTailsChange={setShowTails}
             onTailLengthChange={handleTailLengthChange}
-            onLookbackChange={(index) => {}}
+            onLookbackChange={(index) => { }}
             onRefresh={loadRRGData}
             // Pass control props
             selectedMode={selectedMode}

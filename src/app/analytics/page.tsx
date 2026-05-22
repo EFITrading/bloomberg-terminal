@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import dynamic from 'next/dynamic'
 
@@ -29,10 +29,20 @@ const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScann
 })
 
 export default function Analytics() {
-  const [activePanels, setActivePanels] = useState<string[]>(['rrg', 'performance'])
+  const [activePanel, setActivePanel] = useState<string>('rrg')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const panelLabels: Record<string, string> = {
+    'rrg': 'RRG', 'performance': 'Koyfin', 'iv-rrg': 'IV RRG',
+    'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
+    'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
+    'market-cycle': 'Market Cycle', 'straddle-town': 'Straddle Town',
+    'buy-sell-scanner': 'Buy/Sell Scan', 'dealer-cluster': 'Dealer Cluster',
+  }
 
   const togglePanel = (id: string) => {
-    setActivePanels((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]))
+    setActivePanel(id)
+    setMobileMenuOpen(false)
   }
 
   const renderPanel = (id: string) => {
@@ -46,7 +56,7 @@ export default function Analytics() {
     switch (id) {
       case 'rrg':
         return (
-          <div key={id} style={panelStyle}>
+          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(100vh - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <RRGAnalytics defaultTimeframe="12 weeks" defaultBenchmark="SPY" />
           </div>
         )
@@ -58,13 +68,13 @@ export default function Analytics() {
         )
       case 'hv-screener':
         return (
-          <div key={id} style={panelStyle}>
+          <div key={id} className="analytics-scroll-panel" style={panelStyle}>
             <HVScreener />
           </div>
         )
       case 'leadership-scan':
         return (
-          <div key={id} style={panelStyle}>
+          <div key={id} className="analytics-scroll-panel" style={panelStyle}>
             <LeadershipScan />
           </div>
         )
@@ -76,7 +86,7 @@ export default function Analytics() {
         )
       case 'performance':
         return (
-          <div key={id} style={panelStyle}>
+          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(100vh - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PerformanceDashboard isVisible={true} />
           </div>
         )
@@ -88,7 +98,7 @@ export default function Analytics() {
         )
       case 'iv-rrg':
         return (
-          <div key={id} style={panelStyle}>
+          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(100vh - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <IVRRGAnalytics defaultTimeframe="120 days" defaultBenchmark="SPY" />
           </div>
         )
@@ -106,7 +116,7 @@ export default function Analytics() {
         )
       case 'straddle-town':
         return (
-          <div key={id} style={{ ...panelStyle, height: 'calc(100vh - 127px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div key={id} className="analytics-straddle-panel" style={{ ...panelStyle, height: 'calc(100vh - 127px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <StraddleTownScreener />
           </div>
         )
@@ -128,7 +138,7 @@ export default function Analytics() {
   }
 
   const getIcon = (id: string) => {
-    const icons: { [key: string]: JSX.Element } = {
+    const icons: { [key: string]: React.ReactElement } = {
       rrg: (
         <svg
           width="24"
@@ -451,10 +461,11 @@ export default function Analytics() {
   }
 
   const TabButton = ({ id, label }: { id: string; label: string }) => {
-    const isActive = activePanels.includes(id)
+    const isActive = activePanel === id
     return (
       <button
         onClick={() => togglePanel(id)}
+        className="analytics-tab-btn"
         style={{
           background: isActive
             ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
@@ -462,24 +473,11 @@ export default function Analytics() {
           color: isActive ? '#FFB800' : '#FFFFFF',
           border: isActive ? '1px solid #D4AF37' : '1px solid rgba(255, 255, 255, 0.08)',
           borderLeft: isActive ? '4px solid #D4AF37' : '4px solid transparent',
-          borderRadius: '12px',
-          padding: '18px 20px',
-          margin: '6px 12px',
-          fontFamily: '"Inter", "Segoe UI", "Roboto", sans-serif',
-          fontSize: '13px',
-          fontWeight: '600',
-          textTransform: 'uppercase',
-          letterSpacing: '1.2px',
-          cursor: 'pointer',
-          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-          width: 'calc(100% - 24px)',
-          textAlign: 'left',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '14px',
           boxShadow: isActive
             ? '0 4px 12px rgba(212, 175, 55, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(212, 175, 55, 0.2)'
             : '0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03)',
+          cursor: 'pointer',
+          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
           position: 'relative',
           overflow: 'hidden',
           opacity: 1,
@@ -509,12 +507,8 @@ export default function Analytics() {
         }}
       >
         <span
-          style={{
-            lineHeight: '0',
-            display: 'flex',
-            alignItems: 'center',
-            color: isActive ? '#FFB800' : '#FFFFFF',
-          }}
+          className="analytics-tab-icon"
+          style={{ color: isActive ? '#FFB800' : '#FFFFFF' }}
         >
           {getIcon(id)}
         </span>
@@ -549,6 +543,109 @@ export default function Analytics() {
   return (
     <>
       <style>{`
+        :root { --analytics-sw: clamp(140px, 13vw, 220px); }
+
+        .analytics-sidebar {
+          width: var(--analytics-sw) !important;
+        }
+        .analytics-title-box {
+          padding: clamp(8px,0.8vh,16px) clamp(10px,0.9vw,20px);
+          margin: 0 clamp(6px,0.6vw,12px) clamp(10px,1vh,20px) clamp(6px,0.6vw,12px);
+          border-radius: clamp(8px,0.6vw,12px);
+        }
+        .analytics-title-text {
+          font-size: clamp(10px,1.05vw,18px) !important;
+          letter-spacing: clamp(1px,0.18vw,3px) !important;
+        }
+        .analytics-tab-btn {
+          border-radius: clamp(6px,0.6vw,12px);
+          padding: clamp(7px,0.82vh,18px) clamp(7px,0.82vw,20px);
+          margin: clamp(2px,0.32vh,6px) clamp(5px,0.55vw,12px);
+          font-family: "Inter", "Segoe UI", "Roboto", sans-serif;
+          font-size: clamp(7px,0.65vw,12px);
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: clamp(0.3px,0.07vw,1.2px);
+          width: calc(100% - clamp(10px,1.1vw,24px));
+          text-align: left;
+          display: flex;
+          align-items: center;
+          gap: clamp(5px,0.65vw,14px);
+        }
+        .analytics-tab-icon {
+          flex-shrink: 0;
+          width: clamp(12px,1.2vw,24px);
+          height: clamp(12px,1.2vw,24px);
+          line-height: 0;
+          display: flex;
+          align-items: center;
+        }
+        .analytics-tab-icon svg {
+          width: 100% !important;
+          height: 100% !important;
+        }
+        .analytics-mobile-header { display: none; }
+        @media (max-width: 768px) {
+          :root { --analytics-sw: 0px; }
+          .analytics-sidebar { display: none !important; }
+          .analytics-outer { flex-direction: column !important; overflow: visible !important; height: auto !important; min-height: 100vh; }
+          .analytics-content-area { margin-left: 0 !important; height: auto !important; overflow-y: visible !important; padding: 0 !important; }
+          .analytics-mobile-header { display: block; position: relative; z-index: 200; background: #0a0a0a; border-bottom: 1px solid rgba(255,255,255,0.15); flex-shrink: 0; }
+          .analytics-mobile-trigger { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: transparent; color: #FFB800; border: none; font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; font-family: "Inter", sans-serif; }
+          .analytics-mobile-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #0a0a0a; z-index: 300; display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.8); border-bottom: 1px solid rgba(255,255,255,0.1); }
+          .analytics-tab-btn { margin: 4px 8px !important; width: calc(100% - 16px) !important; font-size: 14px !important; padding: 12px 16px !important; }
+          .analytics-rrg-panel { height: calc(100vh - 116px) !important; }
+          .analytics-straddle-panel { height: calc(100vh - 200px) !important; }
+          .analytics-scroll-panel { height: calc(100vh - 116px) !important; overflow-y: auto !important; }
+
+          /* ── terminal-panel (HVScreener / LeadershipScan) ──────────────── */
+          .terminal-panel { margin: 0 !important; }
+
+          /* ── BuySellScanner ────────────────────────────────────────────── */
+          .bss-header { padding: 12px 14px 10px 14px !important; }
+          .bss-header > div { gap: 12px !important; }
+          .bss-title { font-size: 18px !important; letter-spacing: 2px !important; }
+          .bss-header button, .bss-header input { font-size: 11px !important; padding: 7px 10px !important; }
+          .bss-results-grid { grid-template-columns: 1fr !important; padding: 12px 14px 40px !important; gap: 16px !important; }
+          .bss-cards-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
+
+          /* ── Straddle Town ─────────────────────────────────────────────── */
+          .straddle-header { padding: 0 8px !important; }
+          .straddle-controls-row { flex-wrap: wrap !important; min-height: unset !important; gap: 6px !important; padding: 6px 0 !important; }
+          .straddle-brand { padding-right: 12px !important; border-right: none !important; flex-shrink: 1 !important; }
+          .straddle-brand div[style] { font-size: 15px !important; letter-spacing: 2px !important; }
+
+          /* ── MarketCycleIndicator ──────────────────────────────────────── */
+          .mci-header { flex-wrap: wrap !important; gap: 8px !important; padding: 10px 12px !important; }
+          .mci-header > div:last-child { flex-wrap: wrap !important; gap: 6px !important; }
+          .mci-grid { grid-template-columns: 1fr !important; }
+          .mci-history-grid { grid-template-columns: 1fr !important; }
+
+          /* ── PerformanceDashboard ──────────────────────────────────────── */
+          .perf-header { padding: 8px 12px !important; flex-wrap: wrap !important; gap: 6px !important; }
+          .perf-header > div { flex-wrap: wrap !important; gap: 6px !important; }
+          .perf-header select, .perf-header button { font-size: 10px !important; padding: 5px 8px !important; }
+          .perf-selected-count { padding: 5px 8px !important; font-size: 10px !important; letter-spacing: 0 !important; }
+
+          /* ── HV Screener ───────────────────────────────────────────────── */
+          .hvs-header { flex-wrap: wrap !important; padding: 10px 12px !important; gap: 10px !important; }
+          .hvs-grid { grid-template-columns: 1fr !important; min-height: auto !important; max-height: none !important; }
+
+          /* ── Leadership Scan ───────────────────────────────────────────── */
+          .leadership-header { flex-wrap: wrap !important; padding: 10px 12px !important; gap: 10px !important; }
+          .leadership-results-grid { grid-template-columns: 1fr !important; }
+
+          /* ── RRG Screener ──────────────────────────────────────────────── */
+          .rrg-screener-container { padding: 10px !important; }
+          .rrg-screener-header { padding: 10px 12px !important; margin-bottom: 12px !important; }
+
+          /* ── ScreenersPanel ────────────────────────────────────────────── */
+          .screeners-search-bar { flex-wrap: wrap !important; padding: 10px 12px !important; gap: 8px !important; }
+          .screeners-search-bar > div:first-child { font-size: 14px !important; margin-right: 0 !important; }
+          .screeners-search-bar input { padding: 10px 12px !important; font-size: 13px !important; }
+          .screeners-search-bar button { padding: 10px 14px !important; font-size: 12px !important; }
+          .screeners-tab-nav button { min-width: 100px !important; padding: 10px 12px !important; font-size: 12px !important; letter-spacing: 0 !important; }
+        }
         @keyframes pulse {
           0%, 100% {
             opacity: 1;
@@ -565,19 +662,46 @@ export default function Analytics() {
       `}</style>
 
       <div
+        className="analytics-outer"
         style={{
           display: 'flex',
-          height: '100vh',
+          height: 'calc(100vh - 140px)',
           overflow: 'hidden',
           background: '#000000',
         }}
       >
+        {/* Mobile dropdown header */}
+        <div className="analytics-mobile-header">
+          <button
+            className="analytics-mobile-trigger"
+            onClick={() => setMobileMenuOpen(o => !o)}
+          >
+            <span>&#9776; {panelLabels[activePanel] ?? 'Analytics'}</span>
+            <span style={{ fontSize: '12px', opacity: 0.7 }}>{mobileMenuOpen ? '▲' : '▼'}</span>
+          </button>
+          {mobileMenuOpen && (
+            <div className="analytics-mobile-dropdown">
+              <TabButton id="rrg" label="RRG" />
+              <TabButton id="performance" label="Koyfin" />
+              <TabButton id="iv-rrg" label="IV RRG" />
+              <TabButton id="rrg-screener" label="RRG Screener" />
+              <TabButton id="leadership-scan" label="Leadership" />
+              <TabButton id="hv-screener" label="HV Screener" />
+              <TabButton id="heatmap" label="Heatmap" />
+              <TabButton id="screeners" label="Screeners" />
+              <TabButton id="market-cycle" label="Market Cycle" />
+              <TabButton id="straddle-town" label="Straddle Town" />
+              <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
+              <TabButton id="dealer-cluster" label="Dealer Cluster" />
+            </div>
+          )}
+        </div>
         {/* Left Sidebar with Tabs - Fixed Position */}
         <div
+          className="analytics-sidebar"
           style={{
             background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
             borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-            width: '200px',
             display: 'flex',
             flexDirection: 'column',
             gap: '0',
@@ -595,11 +719,9 @@ export default function Analytics() {
         >
           {/* Title */}
           <div
+            className="analytics-title-box"
             style={{
-              padding: '16px 20px',
-              margin: '0 12px 20px 12px',
               background: 'linear-gradient(145deg, #1a1a1a 0%, #0d0d0d 100%)',
-              borderRadius: '12px',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               boxShadow:
                 '0 8px 16px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.5)',
@@ -608,13 +730,12 @@ export default function Analytics() {
             }}
           >
             <h2
+              className="analytics-title-text"
               style={{
                 margin: 0,
-                fontSize: '18px',
                 fontWeight: '800',
                 color: '#ff8500',
                 textTransform: 'uppercase',
-                letterSpacing: '3px',
                 textAlign: 'center',
                 fontFamily: '"Inter", "Segoe UI", "Roboto", sans-serif',
                 WebkitFontSmoothing: 'antialiased',
@@ -642,22 +763,23 @@ export default function Analytics() {
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}
         <div
+          className="analytics-content-area"
           style={{
             flex: 1,
             background: '#000000',
             display: 'grid',
-            gridTemplateColumns: activePanels.length > 1 ? 'repeat(2, 1fr)' : '1fr',
+            gridTemplateColumns: '1fr',
             gridAutoRows: 'auto',
             gap: '8px',
             padding: '8px',
             alignContent: 'start',
-            marginLeft: '200px',
+            marginLeft: 'var(--analytics-sw)',
             minWidth: 0,
             overflowY: 'auto',
             height: '100%',
           }}
         >
-          {activePanels.map((id) => renderPanel(id))}
+          {renderPanel(activePanel)}
         </div>
       </div>
     </>

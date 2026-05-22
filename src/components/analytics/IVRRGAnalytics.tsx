@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import RRGChart from './RRGChart';
 import IVLineChart from './IVLineChart';
 import IVRRGService, { IVRRGCalculationResult } from '@/lib/ivRRGService';
@@ -271,8 +271,31 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
     loadIVRRGData();
   };
 
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}\u00d7${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[IV-RRG] ${Math.round(r.width)}\u00d7${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}\u00d7${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
+
   return (
-    <div style={{ width: '100%', height: '100%', background: '#000000' }}>
+    <div ref={_dbgRef} style={{ width: '100%', flex: 1, minHeight: 0, background: '#000000' }}>
       {loading && getCurrentSymbols().trim() ? (
         <div style={{
           display: 'flex',

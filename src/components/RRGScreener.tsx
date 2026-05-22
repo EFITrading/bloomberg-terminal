@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RRGCalculationResult } from '@/lib/rrgService'
 
@@ -1012,10 +1012,33 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
 
   const counts = getQuadrantCounts()
 
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}\u00d7${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[RRG-SCREENER] ${Math.round(r.width)}\u00d7${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}\u00d7${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
+
   return (
-    <div style={styles.container}>
+    <div ref={_dbgRef} className="rrg-screener-container" style={styles.container}>
       {/* Header */}
-      <div style={styles.header}>
+      <div className="rrg-screener-header" style={styles.header}>
         <div style={styles.headerTop}>
           {!hideTitle && <h1 style={styles.title}>RRG SCREENER</h1>}
 

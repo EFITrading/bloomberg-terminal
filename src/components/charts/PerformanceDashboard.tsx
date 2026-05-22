@@ -1,8 +1,8 @@
-'use client'
+﻿'use client'
 
 import { createPortal } from 'react-dom'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 // ETF Definitions
 const SECTORS = [
@@ -64,6 +64,267 @@ const WAVE_GROUPS = {
   },
 }
 
+// Top 10 holdings per sector ETF
+const SECTOR_HOLDINGS: Record<string, Array<{ symbol: string; name: string; color: string }>> = {
+  XLK: [
+    { symbol: 'AAPL', name: 'Apple', color: '#00d4ff' }, { symbol: 'MSFT', name: 'Microsoft', color: '#ff6b35' },
+    { symbol: 'NVDA', name: 'NVIDIA', color: '#4ecdc4' }, { symbol: 'AVGO', name: 'Broadcom', color: '#ffd93d' },
+    { symbol: 'AMD', name: 'AMD', color: '#ff006e' }, { symbol: 'ORCL', name: 'Oracle', color: '#8338ec' },
+    { symbol: 'ADBE', name: 'Adobe', color: '#06ffa5' }, { symbol: 'CRM', name: 'Salesforce', color: '#ff9f1c' },
+    { symbol: 'CSCO', name: 'Cisco', color: '#2ec4b6' }, { symbol: 'ACN', name: 'Accenture', color: '#e71d36' },
+  ],
+  XLF: [
+    { symbol: 'BRK.B', name: 'Berkshire', color: '#00d4ff' }, { symbol: 'JPM', name: 'JPMorgan', color: '#ff6b35' },
+    { symbol: 'V', name: 'Visa', color: '#4ecdc4' }, { symbol: 'MA', name: 'Mastercard', color: '#ffd93d' },
+    { symbol: 'BAC', name: 'Bank of America', color: '#ff006e' }, { symbol: 'GS', name: 'Goldman Sachs', color: '#8338ec' },
+    { symbol: 'MS', name: 'Morgan Stanley', color: '#06ffa5' }, { symbol: 'WFC', name: 'Wells Fargo', color: '#ff9f1c' },
+    { symbol: 'BLK', name: 'BlackRock', color: '#2ec4b6' }, { symbol: 'AXP', name: 'Amex', color: '#e71d36' },
+  ],
+  XLV: [
+    { symbol: 'LLY', name: 'Eli Lilly', color: '#00d4ff' }, { symbol: 'UNH', name: 'UnitedHealth', color: '#ff6b35' },
+    { symbol: 'JNJ', name: 'J&J', color: '#4ecdc4' }, { symbol: 'ABBV', name: 'AbbVie', color: '#ffd93d' },
+    { symbol: 'MRK', name: 'Merck', color: '#ff006e' }, { symbol: 'TMO', name: 'Thermo Fisher', color: '#8338ec' },
+    { symbol: 'ABT', name: 'Abbott', color: '#06ffa5' }, { symbol: 'AMGN', name: 'Amgen', color: '#ff9f1c' },
+    { symbol: 'PFE', name: 'Pfizer', color: '#2ec4b6' }, { symbol: 'BMY', name: 'Bristol-Myers', color: '#e71d36' },
+  ],
+  XLI: [
+    { symbol: 'CAT', name: 'Caterpillar', color: '#00d4ff' }, { symbol: 'RTX', name: 'Raytheon', color: '#ff6b35' },
+    { symbol: 'HON', name: 'Honeywell', color: '#4ecdc4' }, { symbol: 'UNP', name: 'Union Pacific', color: '#ffd93d' },
+    { symbol: 'BA', name: 'Boeing', color: '#ff006e' }, { symbol: 'GE', name: 'GE Aerospace', color: '#8338ec' },
+    { symbol: 'LMT', name: 'Lockheed', color: '#06ffa5' }, { symbol: 'UPS', name: 'UPS', color: '#ff9f1c' },
+    { symbol: 'DE', name: 'Deere', color: '#2ec4b6' }, { symbol: 'MMM', name: '3M', color: '#e71d36' },
+  ],
+  XLY: [
+    { symbol: 'AMZN', name: 'Amazon', color: '#00d4ff' }, { symbol: 'TSLA', name: 'Tesla', color: '#ff6b35' },
+    { symbol: 'HD', name: 'Home Depot', color: '#4ecdc4' }, { symbol: 'MCD', name: "McDonald's", color: '#ffd93d' },
+    { symbol: 'NKE', name: 'Nike', color: '#ff006e' }, { symbol: 'LOW', name: "Lowe's", color: '#8338ec' },
+    { symbol: 'SBUX', name: 'Starbucks', color: '#06ffa5' }, { symbol: 'TJX', name: 'TJX', color: '#ff9f1c' },
+    { symbol: 'BKNG', name: 'Booking', color: '#2ec4b6' }, { symbol: 'CMG', name: 'Chipotle', color: '#e71d36' },
+  ],
+  XLP: [
+    { symbol: 'PG', name: 'P&G', color: '#00d4ff' }, { symbol: 'KO', name: 'Coca-Cola', color: '#ff6b35' },
+    { symbol: 'PEP', name: 'PepsiCo', color: '#4ecdc4' }, { symbol: 'WMT', name: 'Walmart', color: '#ffd93d' },
+    { symbol: 'COST', name: 'Costco', color: '#ff006e' }, { symbol: 'PM', name: 'Philip Morris', color: '#8338ec' },
+    { symbol: 'MDLZ', name: 'Mondelez', color: '#06ffa5' }, { symbol: 'MO', name: 'Altria', color: '#ff9f1c' },
+    { symbol: 'CL', name: 'Colgate', color: '#2ec4b6' }, { symbol: 'GIS', name: 'General Mills', color: '#e71d36' },
+  ],
+  XLE: [
+    { symbol: 'XOM', name: 'ExxonMobil', color: '#00d4ff' }, { symbol: 'CVX', name: 'Chevron', color: '#ff6b35' },
+    { symbol: 'COP', name: 'ConocoPhillips', color: '#4ecdc4' }, { symbol: 'EOG', name: 'EOG Resources', color: '#ffd93d' },
+    { symbol: 'MPC', name: 'Marathon', color: '#ff006e' }, { symbol: 'SLB', name: 'Schlumberger', color: '#8338ec' },
+    { symbol: 'OXY', name: 'Occidental', color: '#06ffa5' }, { symbol: 'VLO', name: 'Valero', color: '#ff9f1c' },
+    { symbol: 'PSX', name: 'Phillips 66', color: '#2ec4b6' }, { symbol: 'PXD', name: 'Pioneer', color: '#e71d36' },
+  ],
+  XLU: [
+    { symbol: 'NEE', name: 'NextEra', color: '#00d4ff' }, { symbol: 'DUK', name: 'Duke Energy', color: '#ff6b35' },
+    { symbol: 'SO', name: 'Southern Co', color: '#4ecdc4' }, { symbol: 'D', name: 'Dominion', color: '#ffd93d' },
+    { symbol: 'AEP', name: 'AEP', color: '#ff006e' }, { symbol: 'SRE', name: 'Sempra', color: '#8338ec' },
+    { symbol: 'EXC', name: 'Exelon', color: '#06ffa5' }, { symbol: 'XEL', name: 'Xcel Energy', color: '#ff9f1c' },
+    { symbol: 'ED', name: 'Con Edison', color: '#2ec4b6' }, { symbol: 'PEG', name: 'PSEG', color: '#e71d36' },
+  ],
+  XLRE: [
+    { symbol: 'AMT', name: 'Amer Tower', color: '#00d4ff' }, { symbol: 'PLD', name: 'Prologis', color: '#ff6b35' },
+    { symbol: 'CCI', name: 'Crown Castle', color: '#4ecdc4' }, { symbol: 'EQIX', name: 'Equinix', color: '#ffd93d' },
+    { symbol: 'PSA', name: 'Public Storage', color: '#ff006e' }, { symbol: 'O', name: 'Realty Income', color: '#8338ec' },
+    { symbol: 'WY', name: 'Weyerhaeuser', color: '#06ffa5' }, { symbol: 'AVB', name: 'AvalonBay', color: '#ff9f1c' },
+    { symbol: 'EQR', name: 'Equity Residential', color: '#2ec4b6' }, { symbol: 'DLR', name: 'Digital Realty', color: '#e71d36' },
+  ],
+  XLB: [
+    { symbol: 'LIN', name: 'Linde', color: '#00d4ff' }, { symbol: 'APD', name: 'Air Products', color: '#ff6b35' },
+    { symbol: 'SHW', name: 'Sherwin-Williams', color: '#4ecdc4' }, { symbol: 'ECL', name: 'Ecolab', color: '#ffd93d' },
+    { symbol: 'FCX', name: 'Freeport', color: '#ff006e' }, { symbol: 'NEM', name: 'Newmont', color: '#8338ec' },
+    { symbol: 'PPG', name: 'PPG', color: '#06ffa5' }, { symbol: 'NUE', name: 'Nucor', color: '#ff9f1c' },
+    { symbol: 'VMC', name: 'Vulcan Materials', color: '#2ec4b6' }, { symbol: 'MLM', name: 'Martin Marietta', color: '#e71d36' },
+  ],
+  XLC: [
+    { symbol: 'META', name: 'Meta', color: '#00d4ff' }, { symbol: 'GOOGL', name: 'Alphabet A', color: '#ff6b35' },
+    { symbol: 'GOOG', name: 'Alphabet C', color: '#4ecdc4' }, { symbol: 'NFLX', name: 'Netflix', color: '#ffd93d' },
+    { symbol: 'DIS', name: 'Disney', color: '#ff006e' }, { symbol: 'CMCSA', name: 'Comcast', color: '#8338ec' },
+    { symbol: 'VZ', name: 'Verizon', color: '#06ffa5' }, { symbol: 'T', name: 'AT&T', color: '#ff9f1c' },
+    { symbol: 'TMUS', name: 'T-Mobile', color: '#2ec4b6' }, { symbol: 'EA', name: 'EA Sports', color: '#e71d36' },
+  ],
+}
+
+// Top 10 holdings per industry ETF
+const INDUSTRY_HOLDINGS: Record<string, Array<{ symbol: string; name: string; color: string }>> = {
+  IGV: [
+    { symbol: 'MSFT', name: 'Microsoft', color: '#00d4ff' }, { symbol: 'ORCL', name: 'Oracle', color: '#ff6b35' },
+    { symbol: 'CRM', name: 'Salesforce', color: '#4ecdc4' }, { symbol: 'ADBE', name: 'Adobe', color: '#ffd93d' },
+    { symbol: 'NOW', name: 'ServiceNow', color: '#ff006e' }, { symbol: 'SAP', name: 'SAP', color: '#8338ec' },
+    { symbol: 'SNPS', name: 'Synopsys', color: '#06ffa5' }, { symbol: 'CDNS', name: 'Cadence', color: '#ff9f1c' },
+    { symbol: 'FTNT', name: 'Fortinet', color: '#2ec4b6' }, { symbol: 'WDAY', name: 'Workday', color: '#e71d36' },
+  ],
+  SMH: [
+    { symbol: 'NVDA', name: 'NVIDIA', color: '#00d4ff' }, { symbol: 'TSM', name: 'TSMC', color: '#ff6b35' },
+    { symbol: 'AVGO', name: 'Broadcom', color: '#4ecdc4' }, { symbol: 'ASML', name: 'ASML', color: '#ffd93d' },
+    { symbol: 'TXN', name: 'Texas Instruments', color: '#ff006e' }, { symbol: 'QCOM', name: 'Qualcomm', color: '#8338ec' },
+    { symbol: 'AMD', name: 'AMD', color: '#06ffa5' }, { symbol: 'INTC', name: 'Intel', color: '#ff9f1c' },
+    { symbol: 'MU', name: 'Micron', color: '#2ec4b6' }, { symbol: 'LRCX', name: 'Lam Research', color: '#e71d36' },
+  ],
+  XRT: [
+    { symbol: 'AMZN', name: 'Amazon', color: '#00d4ff' }, { symbol: 'HD', name: 'Home Depot', color: '#ff6b35' },
+    { symbol: 'WMT', name: 'Walmart', color: '#4ecdc4' }, { symbol: 'COST', name: 'Costco', color: '#ffd93d' },
+    { symbol: 'TGT', name: 'Target', color: '#ff006e' }, { symbol: 'LOW', name: "Lowe's", color: '#8338ec' },
+    { symbol: 'ROST', name: 'Ross Stores', color: '#06ffa5' }, { symbol: 'TJX', name: 'TJX', color: '#ff9f1c' },
+    { symbol: 'BBY', name: 'Best Buy', color: '#2ec4b6' }, { symbol: 'DG', name: 'Dollar General', color: '#e71d36' },
+  ],
+  KRE: [
+    { symbol: 'USB', name: 'US Bancorp', color: '#00d4ff' }, { symbol: 'FITB', name: 'Fifth Third', color: '#ff6b35' },
+    { symbol: 'HBAN', name: 'Huntington', color: '#4ecdc4' }, { symbol: 'RF', name: 'Regions', color: '#ffd93d' },
+    { symbol: 'CFG', name: 'Citizens', color: '#ff006e' }, { symbol: 'NTRS', name: 'Northern Trust', color: '#8338ec' },
+    { symbol: 'IBKR', name: 'Interactive Brokers', color: '#06ffa5' }, { symbol: 'WAL', name: 'Western Alliance', color: '#ff9f1c' },
+    { symbol: 'ZION', name: 'Zions', color: '#2ec4b6' }, { symbol: 'SNV', name: 'Synovus', color: '#e71d36' },
+  ],
+  XBI: [
+    { symbol: 'MRNA', name: 'Moderna', color: '#00d4ff' }, { symbol: 'REGN', name: 'Regeneron', color: '#ff6b35' },
+    { symbol: 'VRTX', name: 'Vertex', color: '#4ecdc4' }, { symbol: 'ALNY', name: 'Alnylam', color: '#ffd93d' },
+    { symbol: 'EXAS', name: 'Exact Sciences', color: '#ff006e' }, { symbol: 'BMRN', name: 'BioMarin', color: '#8338ec' },
+    { symbol: 'INCY', name: 'Incyte', color: '#06ffa5' }, { symbol: 'HALO', name: 'Halozyme', color: '#ff9f1c' },
+    { symbol: 'SGEN', name: 'Seagen', color: '#2ec4b6' }, { symbol: 'RARE', name: 'Ultragenyx', color: '#e71d36' },
+  ],
+  XHB: [
+    { symbol: 'DHI', name: 'D.R. Horton', color: '#00d4ff' }, { symbol: 'LEN', name: 'Lennar', color: '#ff6b35' },
+    { symbol: 'NVR', name: 'NVR', color: '#4ecdc4' }, { symbol: 'PHM', name: 'PulteGroup', color: '#ffd93d' },
+    { symbol: 'TOL', name: 'Toll Brothers', color: '#ff006e' }, { symbol: 'MDC', name: 'MDC Holdings', color: '#8338ec' },
+    { symbol: 'SKY', name: 'Skyline Champion', color: '#06ffa5' }, { symbol: 'MHO', name: 'M/I Homes', color: '#ff9f1c' },
+    { symbol: 'CCS', name: 'Century Communities', color: '#2ec4b6' }, { symbol: 'TPH', name: 'Tri Pointe', color: '#e71d36' },
+  ],
+  ITB: [
+    { symbol: 'DHI', name: 'D.R. Horton', color: '#00d4ff' }, { symbol: 'LEN', name: 'Lennar', color: '#ff6b35' },
+    { symbol: 'NVR', name: 'NVR', color: '#4ecdc4' }, { symbol: 'PHM', name: 'PulteGroup', color: '#ffd93d' },
+    { symbol: 'BLDR', name: 'Builders FirstSource', color: '#ff006e' }, { symbol: 'MAS', name: 'Masco', color: '#8338ec' },
+    { symbol: 'OC', name: 'Owens Corning', color: '#06ffa5' }, { symbol: 'AWI', name: 'Armstrong World', color: '#ff9f1c' },
+    { symbol: 'TREX', name: 'Trex', color: '#2ec4b6' }, { symbol: 'FBHS', name: 'Fortune Brands', color: '#e71d36' },
+  ],
+  XME: [
+    { symbol: 'NEM', name: 'Newmont', color: '#00d4ff' }, { symbol: 'FCX', name: 'Freeport', color: '#ff6b35' },
+    { symbol: 'X', name: 'US Steel', color: '#4ecdc4' }, { symbol: 'CLF', name: 'Cleveland-Cliffs', color: '#ffd93d' },
+    { symbol: 'AA', name: 'Alcoa', color: '#ff006e' }, { symbol: 'VALE', name: 'Vale', color: '#8338ec' },
+    { symbol: 'MP', name: 'MP Materials', color: '#06ffa5' }, { symbol: 'ATI', name: 'ATI', color: '#ff9f1c' },
+    { symbol: 'CMC', name: 'Comm Metals', color: '#2ec4b6' }, { symbol: 'STLD', name: 'Steel Dynamics', color: '#e71d36' },
+  ],
+  IYT: [
+    { symbol: 'UPS', name: 'UPS', color: '#00d4ff' }, { symbol: 'FDX', name: 'FedEx', color: '#ff6b35' },
+    { symbol: 'UNP', name: 'Union Pacific', color: '#4ecdc4' }, { symbol: 'CSX', name: 'CSX', color: '#ffd93d' },
+    { symbol: 'NSC', name: 'Norfolk Southern', color: '#ff006e' }, { symbol: 'JBHT', name: 'JB Hunt', color: '#8338ec' },
+    { symbol: 'CHRW', name: 'CH Robinson', color: '#06ffa5' }, { symbol: 'XPO', name: 'XPO', color: '#ff9f1c' },
+    { symbol: 'ODFL', name: 'Old Dominion', color: '#2ec4b6' }, { symbol: 'EXPD', name: 'Expeditors', color: '#e71d36' },
+  ],
+  XOP: [
+    { symbol: 'XOM', name: 'ExxonMobil', color: '#00d4ff' }, { symbol: 'CVX', name: 'Chevron', color: '#ff6b35' },
+    { symbol: 'COP', name: 'ConocoPhillips', color: '#4ecdc4' }, { symbol: 'EOG', name: 'EOG Resources', color: '#ffd93d' },
+    { symbol: 'DVN', name: 'Devon Energy', color: '#ff006e' }, { symbol: 'MRO', name: 'Marathon Oil', color: '#8338ec' },
+    { symbol: 'APA', name: 'APA Corp', color: '#06ffa5' }, { symbol: 'HES', name: 'Hess', color: '#ff9f1c' },
+    { symbol: 'FANG', name: 'Diamondback', color: '#2ec4b6' }, { symbol: 'PXD', name: 'Pioneer', color: '#e71d36' },
+  ],
+  KIE: [
+    { symbol: 'PGR', name: 'Progressive', color: '#00d4ff' }, { symbol: 'CB', name: 'Chubb', color: '#ff6b35' },
+    { symbol: 'MET', name: 'MetLife', color: '#4ecdc4' }, { symbol: 'AIG', name: 'AIG', color: '#ffd93d' },
+    { symbol: 'AFL', name: 'Aflac', color: '#ff006e' }, { symbol: 'TRV', name: 'Travelers', color: '#8338ec' },
+    { symbol: 'ALL', name: 'Allstate', color: '#06ffa5' }, { symbol: 'PRU', name: 'Prudential', color: '#ff9f1c' },
+    { symbol: 'HIG', name: 'Hartford', color: '#2ec4b6' }, { symbol: 'GL', name: 'Globe Life', color: '#e71d36' },
+  ],
+}
+
+// Quick-select groups
+const MAG7 = [
+  { symbol: 'AAPL', name: 'Apple', color: '#00d4ff' },
+  { symbol: 'MSFT', name: 'Microsoft', color: '#ff6b35' },
+  { symbol: 'GOOGL', name: 'Alphabet', color: '#4ecdc4' },
+  { symbol: 'AMZN', name: 'Amazon', color: '#ffd93d' },
+  { symbol: 'NVDA', name: 'NVIDIA', color: '#ff006e' },
+  { symbol: 'META', name: 'Meta', color: '#8338ec' },
+  { symbol: 'TSLA', name: 'Tesla', color: '#06ffa5' },
+]
+
+const INDICES = [
+  { symbol: 'SPY', name: 'S&P 500', color: '#00d4ff' },
+  { symbol: 'QQQ', name: 'Nasdaq 100', color: '#ff6b35' },
+  { symbol: 'IWM', name: 'Russell 2000', color: '#4ecdc4' },
+  { symbol: 'DIA', name: 'Dow Jones', color: '#ffd93d' },
+]
+
+const INTERNATIONAL = [
+  { symbol: 'EFA', name: 'Developed Mkts', color: '#00d4ff' },
+  { symbol: 'EEM', name: 'Emerging Mkts', color: '#ff6b35' },
+  { symbol: 'VEU', name: 'All-World ex-US', color: '#4ecdc4' },
+  { symbol: 'IEFA', name: 'Core Intl', color: '#ffd93d' },
+  { symbol: 'EWJ', name: 'Japan', color: '#ff006e' },
+  { symbol: 'FXI', name: 'China Large Cap', color: '#8338ec' },
+  { symbol: 'EWZ', name: 'Brazil', color: '#06ffa5' },
+  { symbol: 'MCHI', name: 'MSCI China', color: '#ff9f1c' },
+  { symbol: 'VWO', name: 'EM Vanguard', color: '#2ec4b6' },
+  { symbol: 'VXUS', name: 'Total Intl', color: '#e71d36' },
+]
+
+// Detect significant swing highs (TOPs) and lows (BOTTOMs) from price/return data.
+// A swing is confirmed when price reverses by >= minMovePct OR the trend lasted >= minDays calendar days.
+function detectSwings(
+  prices: number[],
+  timestamps: number[],
+  minMovePct = 0.04,
+  minDays = 10
+): Array<{ type: 'TOP' | 'BOTTOM'; date: string; pct: number }> {
+  const result: Array<{ type: 'TOP' | 'BOTTOM'; date: string; pct: number }> = []
+  if (prices.length < 20) return result
+
+  type Dir = 'UP' | 'DOWN'
+  let direction: Dir | null = null
+  let extremumIdx = 0
+  let extremumPrice = prices[0]
+
+  for (let i = 1; i < prices.length; i++) {
+    const p = prices[i]
+    const denom = Math.abs(extremumPrice) || 1
+    const change = (p - extremumPrice) / denom
+    const days = (timestamps[i] - timestamps[extremumIdx]) / 86_400_000
+
+    if (direction === null) {
+      if (Math.abs(change) >= minMovePct || days >= minDays) {
+        direction = change > 0 ? 'UP' : 'DOWN'
+        extremumPrice = p
+        extremumIdx = i
+      }
+    } else if (direction === 'UP') {
+      if (p >= extremumPrice) {
+        extremumPrice = p
+        extremumIdx = i
+      } else {
+        const reversal = (extremumPrice - p) / (Math.abs(extremumPrice) || 1)
+        const revDays = (timestamps[i] - timestamps[extremumIdx]) / 86_400_000
+        if (reversal >= minMovePct || revDays >= minDays) {
+          result.push({ type: 'TOP', date: new Date(timestamps[extremumIdx]).toISOString().split('T')[0], pct: extremumPrice })
+          direction = 'DOWN'
+          extremumPrice = p
+          extremumIdx = i
+        }
+      }
+    } else {
+      if (p <= extremumPrice) {
+        extremumPrice = p
+        extremumIdx = i
+      } else {
+        const reversal = (p - extremumPrice) / (Math.abs(extremumPrice) || 1)
+        const revDays = (timestamps[i] - timestamps[extremumIdx]) / 86_400_000
+        if (reversal >= minMovePct || revDays >= minDays) {
+          result.push({ type: 'BOTTOM', date: new Date(timestamps[extremumIdx]).toISOString().split('T')[0], pct: extremumPrice })
+          direction = 'UP'
+          extremumPrice = p
+          extremumIdx = i
+        }
+      }
+    }
+  }
+  return result
+}
+
+// Color palette for custom/dynamic tickers
+const DYNAMIC_COLORS = [
+  '#00d4ff','#ff6b35','#4ecdc4','#ffd93d','#ff006e','#8338ec','#06ffa5','#ff9f1c',
+  '#2ec4b6','#e71d36','#a855f7','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899',
+  '#14b8a6','#f97316','#8b5cf6','#22c55e','#facc15','#38bdf8','#fb7185','#a3e635',
+]
+
 type Timeframe = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD'
 
 interface DataPoint {
@@ -98,10 +359,58 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   // UI State
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(
-    null
-  )
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null)
   const [hoveredSeries, setHoveredSeries] = useState<string | null>(null)
+  const [expandedHoldings, setExpandedHoldings] = useState<string | null>(null)
+
+  // Legend & date range state
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
+  const [useCustomDates, setUseCustomDates] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [tickerInput, setTickerInput] = useState('')
+  const [dynamicSymbolMeta, setDynamicSymbolMeta] = useState<Record<string, { symbol: string; name: string; color: string }>>({})
+  const [customDynColorIdx, setCustomDynColorIdx] = useState(0)
+
+  // Dynamic swing-date presets — computed from live seriesData
+  const dynamicSwingDates = useMemo(() => {
+    // Use SPY as reference instrument; fall back to first loaded series
+    const ref = seriesData.find((s) => s.symbol === 'SPY') || seriesData[0]
+    const swings =
+      ref && ref.data.length >= 20
+        ? detectSwings(
+            ref.data.map((d) => d.value),
+            ref.data.map((d) => d.timestamp),
+            0.04, // 4% minimum reversal
+            10    // or 10 calendar days
+          )
+        : []
+
+    const tops    = swings.filter((s) => s.type === 'TOP')
+    const bottoms = swings.filter((s) => s.type === 'BOTTOM')
+
+    const entries: Array<{ label: string; date: string; description: string }> = []
+
+    // Up to 2 most-recent tops (oldest first so PREV TOP appears left of LAST TOP)
+    tops.slice(-2).forEach((t, i, arr) => {
+      entries.push({
+        label: i === arr.length - 1 ? 'LAST TOP' : 'PREV TOP',
+        date: t.date,
+        description: `Market Top ${t.date}`,
+      })
+    })
+
+    // Up to 2 most-recent bottoms
+    bottoms.slice(-2).forEach((b, i, arr) => {
+      entries.push({
+        label: i === arr.length - 1 ? 'LAST BTM' : 'PREV BTM',
+        date: b.date,
+        description: `Market Bottom ${b.date}`,
+      })
+    })
+
+    return entries
+  }, [seriesData])
 
   // Chart State
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
@@ -151,9 +460,32 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   }
 
   // Fetch data from API
+  // Ticker search handler
+  const handleTickerSearch = useCallback(() => {
+    if (!tickerInput.trim()) return
+    const tickers = tickerInput.split(',')
+      .map(t => t.trim().toUpperCase())
+      .filter(t => t.length > 0 && /^[A-Z.]{1,10}$/.test(t))
+    if (tickers.length === 0) return
+    setDynamicSymbolMeta(prev => {
+      const newMeta = { ...prev }
+      let idx = customDynColorIdx
+      tickers.forEach(sym => {
+        if (!newMeta[sym]) {
+          newMeta[sym] = { symbol: sym, name: sym, color: DYNAMIC_COLORS[idx % DYNAMIC_COLORS.length] }
+          idx++
+        }
+      })
+      setCustomDynColorIdx(idx)
+      return newMeta
+    })
+    setSelectedSymbols(prev => Array.from(new Set([...prev, ...tickers])))
+    setTickerInput('')
+  }, [tickerInput, customDynColorIdx])
+
   const fetchData = useCallback(async () => {
     // Create unique key for this fetch to prevent duplicates
-    const fetchKey = `${timeframe}-${[...selectedSymbols].sort().join(',')}`
+    const fetchKey = `${timeframe}-${useCustomDates ? dateFrom + dateTo : ''}-${[...selectedSymbols].sort().join(',')}`
     if (lastFetchKeyRef.current === fetchKey) {
       return
     }
@@ -200,30 +532,23 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       const apiTimeframe = timeframeMap[timeframe]
 
-      // Calculate start and end dates based on timeframe
+      // Calculate start and end dates
       const now = new Date()
-      const endDate = now.toISOString().split('T')[0]
+      let endDate: string
       let startDate: string
 
-      if (timeframe === 'YTD') {
-        // Year to date: from Jan 1 of current year
+      if (useCustomDates && dateFrom) {
+        startDate = dateFrom
+        endDate = dateTo || now.toISOString().split('T')[0]
+      } else if (timeframe === 'YTD') {
         startDate = `${now.getFullYear()}-01-01`
+        endDate = now.toISOString().split('T')[0]
       } else {
-        // Calculate days back based on timeframe (with buffer for weekends/holidays)
+        endDate = now.toISOString().split('T')[0]
         const daysBack: Record<Timeframe, number> = {
-          '1D': 5, // 1 day + 4 day buffer for weekends
-          '1W': 10, // 1 week + 3 day buffer
-          '1M': 35, // 1 month + 5 day buffer
-          '3M': 95, // 3 months + 5 day buffer
-          '6M': 185, // 6 months + 5 day buffer
-          '1Y': 370, // 1 year + 5 day buffer
-          '2Y': 735, // 2 years + 5 day buffer
-          '5Y': 1830, // 5 years + 5 day buffer
-          '10Y': 3655, // 10 years + 5 day buffer
-          '20Y': 7305, // 20 years + 5 day buffer
-          YTD: 365, // fallback
+          '1D': 5, '1W': 10, '1M': 35, '3M': 95, '6M': 185,
+          '1Y': 370, '2Y': 735, '5Y': 1830, '10Y': 3655, '20Y': 7305, YTD: 365,
         }
-
         const days = daysBack[timeframe]
         startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       }
@@ -263,8 +588,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         }
       }
 
-      // Get metadata for symbols
-      const allSymbols = [...SECTORS, ...INDUSTRIES, ...SPECIAL]
+      // Get metadata for symbols (all known groups + dynamic)
+      const allHoldings = Object.values(SECTOR_HOLDINGS).flat().concat(Object.values(INDUSTRY_HOLDINGS).flat())
+      const allSymbols = [...SECTORS, ...INDUSTRIES, ...SPECIAL, ...MAG7, ...INDICES, ...INTERNATIONAL, ...allHoldings, ...Object.values(dynamicSymbolMeta)]
 
       // First pass: filter and collect all data
       const symbolDataMap: Record<string, any[]> = {}
@@ -339,10 +665,14 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       // Process data into series with interpolation
       const series: SeriesData[] = symbolsToFetch
         .map((symbol) => {
-          const metadata = allSymbols.find((s) => s.symbol === symbol)
+          let metadata = allSymbols.find((s) => s.symbol === symbol)
+          if (!metadata) {
+            // fallback for any symbol not in known lists
+            metadata = { symbol, name: symbol, color: DYNAMIC_COLORS[selectedSymbols.indexOf(symbol) % DYNAMIC_COLORS.length] }
+          }
           const symbolData = symbolDataMap[symbol]
 
-          if (!metadata || !symbolData || symbolData.length === 0) {
+          if (!symbolData || symbolData.length === 0) {
             return null
           }
 
@@ -398,7 +728,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     } finally {
       setLoading(false)
     }
-  }, [selectedSymbols, timeframe, isWaveMode])
+  }, [selectedSymbols, timeframe, isWaveMode, useCustomDates, dateFrom, dateTo, dynamicSymbolMeta])
 
   // Save timeframe to localStorage
   // Load persisted state from localStorage after mount (avoids SSR/CSR hydration mismatch)
@@ -406,7 +736,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     const savedTimeframe = localStorage.getItem('performanceDashboard_timeframe')
     if (savedTimeframe) setTimeframe(savedTimeframe as Timeframe)
 
-    const savedSymbols = localStorage.getItem('performanceDashboard_selectedSymbols')
+    const savedSymbols = localStorage.getItem('performanceDashboard_selectedSymbols_v2')
     if (savedSymbols) {
       try {
         setSelectedSymbols(JSON.parse(savedSymbols))
@@ -422,7 +752,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   // Save selectedSymbols to localStorage
   useEffect(() => {
-    localStorage.setItem('performanceDashboard_selectedSymbols', JSON.stringify(selectedSymbols))
+    localStorage.setItem('performanceDashboard_selectedSymbols_v2', JSON.stringify(selectedSymbols))
   }, [selectedSymbols])
 
   // Fetch data when symbols or timeframe or wave mode change
@@ -527,15 +857,16 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.fillStyle = '#000000'
     ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
-    const margin = { top: 50, right: 100, bottom: 60, left: 70 }
+    const isSmall = dimensions.width < 450
+    const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
     const chartWidth = dimensions.width - margin.left - margin.right
     const chartHeight = dimensions.height - margin.top - margin.bottom
 
     if (chartWidth <= 0 || chartHeight <= 0) return
 
-    // Calculate visible data range - use waveData in wave mode
-    const activeData = isWaveMode ? waveData : seriesData
-    const maxDataPoints = Math.max(...activeData.map((s) => s.data.length))
+    // Calculate visible data range - use waveData in wave mode (skip hidden series)
+    const activeData = isWaveMode ? waveData : seriesData.filter(s => !hiddenSeries.has(s.symbol))
+    const maxDataPoints = Math.max(...(activeData.length ? activeData : seriesData).map((s) => s.data.length))
     const startIdx = Math.floor(zoomRange.start * maxDataPoints)
     const endIdx = Math.ceil(zoomRange.end * maxDataPoints)
 
@@ -543,8 +874,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     let minVal = Infinity
     let maxVal = -Infinity
 
-    // Use waveData if in wave mode, otherwise use seriesData
-    const dataForRange = isWaveMode ? waveData : seriesData
+    // Use waveData if in wave mode, otherwise use visible (non-hidden) series
+    const dataForRange = activeData
 
     dataForRange.forEach((series) => {
       const start = Math.min(startIdx, series.data.length - 1)
@@ -578,7 +909,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     }
 
     // Y-axis labels - enhanced with 20% bigger font
-    ctx.font = 'bold 18px monospace' // Increased from 15px to 18px (20% bigger)
+    ctx.font = isSmall ? 'bold 11px monospace' : 'bold 18px monospace'
     ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
     ctx.imageSmoothingEnabled = false // Crispy rendering
@@ -686,8 +1017,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       isHovered: boolean
     }> = []
 
-    // Choose which data to render: waves or regular series
-    const dataToRender = isWaveMode ? waveData : seriesData
+    // Choose which data to render: waves or regular series (filtered by hiddenSeries)
+    const dataToRender = isWaveMode ? waveData : seriesData.filter(s => !hiddenSeries.has(s.symbol))
 
     // Helper function to calculate activity status at each point in time
     const calculateActivityMap = (waveSeries: SeriesData): boolean[] => {
@@ -861,77 +1192,56 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.globalAlpha = 1
 
     // Adjust label positions to prevent overlap
-    const labelHeight = 16 // Approximate height of label
-    const minSpacing = 20 // Minimum vertical spacing between labels
-
-    // Sort by y position
+    const labelHeight = 16
+    const minSpacing = 20
     labelPositions.sort((a, b) => a.y - b.y)
-
-    // Adjust overlapping labels
     for (let i = 1; i < labelPositions.length; i++) {
       const current = labelPositions[i]
       const previous = labelPositions[i - 1]
-
-      if (current.y - previous.y < minSpacing) {
-        current.y = previous.y + minSpacing
-      }
+      if (current.y - previous.y < minSpacing) current.y = previous.y + minSpacing
     }
 
-    // Draw all labels at adjusted positions and store their bounding boxes
-    const storedLabelPositions: Array<{
-      symbol: string
-      x: number
-      y: number
-      width: number
-      height: number
-    }> = []
+    const storedLabelPositions: Array<{ symbol: string; x: number; y: number; width: number; height: number }> = []
 
-    labelPositions.forEach((label) => {
-      // Draw small circle at original end point
-      ctx.fillStyle = label.color
-      ctx.beginPath()
-      ctx.arc(label.x, label.y, 3, 0, Math.PI * 2)
-      ctx.fill()
+    // Always draw canvas labels for visible series
+    {
+      labelPositions.forEach((label) => {
+        ctx.fillStyle = label.color
+        ctx.beginPath()
+        ctx.arc(label.x, label.y, 3, 0, Math.PI * 2)
+        ctx.fill()
 
-      // Draw ticker symbol in line color with crisp rendering
-      ctx.fillStyle = label.color
-      ctx.font = label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace'
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'middle'
-      ctx.imageSmoothingEnabled = false
-      ctx.fillText(label.symbol, label.x + 8, label.y)
+        ctx.fillStyle = label.color
+        ctx.font = isSmall ? (label.isHovered ? 'bold 13px monospace' : 'bold 12px monospace') : (label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace')
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.imageSmoothingEnabled = false
+        ctx.fillText(label.symbol, label.x + 8, label.y)
 
-      // Draw percentage
-      const perfColor = label.performance >= 0 ? '#00ff88' : '#ff4444'
-      ctx.fillStyle = perfColor
-      ctx.font = label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace'
-      const perfText = `${label.performance.toFixed(2)}%`
-      const symbolWidth = ctx.measureText(label.symbol).width
-      const perfWidth = ctx.measureText(perfText).width
-      ctx.fillText(perfText, label.x + 12 + symbolWidth, label.y)
-      ctx.imageSmoothingEnabled = true
+        const perfColor = label.performance >= 0 ? '#00ff88' : '#ff4444'
+        ctx.fillStyle = perfColor
+        ctx.font = isSmall ? (label.isHovered ? 'bold 13px monospace' : 'bold 12px monospace') : (label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace')
+        const perfText = isSmall ? `${label.performance.toFixed(1)}%` : `${label.performance.toFixed(2)}%`
+        const symbolWidth = ctx.measureText(label.symbol).width
+        const perfWidth = ctx.measureText(perfText).width
+        ctx.fillText(perfText, label.x + 12 + symbolWidth, label.y)
+        ctx.imageSmoothingEnabled = true
 
-      // Store label bounding box for hover detection
-      const totalWidth = symbolWidth + perfWidth + 20
-      storedLabelPositions.push({
-        symbol: label.symbol,
-        x: label.x + 8,
-        y: label.y - 10,
-        width: totalWidth,
-        height: 20,
+        const totalWidth = symbolWidth + perfWidth + 20
+        storedLabelPositions.push({ symbol: label.symbol, x: label.x + 8, y: label.y - 10, width: totalWidth, height: 20 })
       })
-    })
+    }
 
     // Store in ref for mouse handler
     labelPositionsRef.current = storedLabelPositions
 
     // X-axis labels
     ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 22px monospace'
+    ctx.font = isSmall ? 'bold 11px monospace' : 'bold 22px monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
 
-    const numXLabels = 8
+    const numXLabels = isSmall ? 4 : 8
     const visiblePoints = endIdx - startIdx
 
     // For weekly view, find indices where market opens (6:30 AM PST) to mark day boundaries
@@ -1106,21 +1416,22 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         const normalizedY = 1 - (crosshair.y - margin.top) / chartHeight
         const yValue = minVal + normalizedY * valueRange
 
-        // Draw label box on left
+        // Draw label box on left â€” clamped so it never overflows the left canvas edge
         ctx.fillStyle = '#ff8800'
-        const yLabel = `${Math.abs(yValue).toFixed(2)}%`
-        ctx.font = 'bold 16px monospace' // Increased from 12px to 16px (33% bigger, rounded to 30%)
+        const yLabel = `${yValue >= 0 ? '+' : ''}${yValue.toFixed(2)}%`
+        ctx.font = isSmall ? 'bold 11px monospace' : 'bold 16px monospace'
         const yTextWidth = ctx.measureText(yLabel).width
-        ctx.fillRect(margin.left - yTextWidth - 15, crosshair.y - 12, yTextWidth + 10, 24)
+        const yBoxX = Math.max(0, margin.left - yTextWidth - 15)
+        ctx.fillRect(yBoxX, crosshair.y - 12, yTextWidth + 10, 24)
         ctx.fillStyle = '#000000'
-        ctx.textAlign = 'right'
+        ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
-        ctx.fillText(yLabel, margin.left - 10, crosshair.y)
+        ctx.fillText(yLabel, yBoxX + 4, crosshair.y)
       }
 
       ctx.setLineDash([])
     }
-  }, [dimensions, seriesData, zoomRange, hoveredSeries, timeframe, crosshair])
+  }, [dimensions, seriesData, zoomRange, hoveredSeries, timeframe, crosshair, hiddenSeries, isWaveMode, waveData])
 
   // Redraw on changes
   useEffect(() => {
@@ -1180,7 +1491,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       if (!canvas || dimensions.width === 0) return
 
       const rect = canvas.getBoundingClientRect()
-      const margin = { top: 50, right: 100, bottom: 60, left: 70 }
+      const isSmall = dimensions.width < 450
+      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
       const legendX = dimensions.width - margin.right
       const mouseX = e.clientX - rect.left
       const mouseY = e.clientY - rect.top
@@ -1263,7 +1575,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       if (dimensions.width === 0) return
 
       const rect = canvas.getBoundingClientRect()
-      const margin = { top: 50, right: 100, bottom: 60, left: 70 }
+      const isSmall = dimensions.width < 450
+      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
       const chartWidth = dimensions.width - margin.left - margin.right
       const mouseX = e.clientX - rect.left
 
@@ -1317,10 +1630,165 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
 
+  // â”€â”€ LAYOUT DEBUG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}\u00d7${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[KOYFIN] ${Math.round(r.width)}\u00d7${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}\u00d7${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // â”€â”€ END LAYOUT DEBUG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
   if (!isVisible) return null
+
+  // â”€â”€ Shared button/dropdown style helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const btnStyle = (active: boolean, open: boolean): React.CSSProperties => ({
+    height: '34px', padding: '0 16px', display: 'flex', alignItems: 'center', gap: '8px',
+    background: active || open
+      ? 'linear-gradient(180deg, #1c1c1c 0%, #111 100%)'
+      : 'linear-gradient(180deg, #141414 0%, #090909 100%)',
+    color: '#ffffff',
+    border: active || open ? '1px solid #383838' : '1px solid #1e1e1e',
+    borderRadius: '3px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+    cursor: 'pointer', textTransform: 'uppercase' as const, userSelect: 'none' as const,
+    letterSpacing: '1px', whiteSpace: 'nowrap' as const,
+    boxShadow: active || open
+      ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.8)'
+      : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 5px rgba(0,0,0,0.7)',
+    transition: 'all 0.1s',
+  })
+
+  const chevronStyle = (open: boolean): React.CSSProperties => ({
+    fontSize: '9px', color: '#ffffff', opacity: open ? 1 : 0.6,
+    transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s',
+    display: 'inline-block',
+  })
+
+  const dropdownContainerStyle: React.CSSProperties = {
+    position: 'fixed', background: '#060606',
+    border: '1px solid #232323', borderTop: '2px solid #00d4ff',
+    borderRadius: '0 0 4px 4px', padding: '6px', zIndex: 999999,
+    minWidth: '260px', maxHeight: '480px', overflowY: 'auto',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.98), inset 0 0 0 1px rgba(255,255,255,0.02)',
+    top: dropdownPosition ? `${dropdownPosition.top}px` : 0,
+    left: dropdownPosition ? `${dropdownPosition.left}px` : 0,
+  }
+
+  const dropdownSelectAll = (allSel: boolean, onToggle: () => void) => (
+    <div onClick={e => { e.stopPropagation(); e.preventDefault(); onToggle() }}
+      style={{
+        padding: '8px 12px', cursor: 'pointer', color: '#ffffff',
+        fontSize: '11px', fontWeight: '700', borderBottom: '1px solid #181818',
+        marginBottom: '4px', background: allSel ? 'rgba(0,212,255,0.06)' : 'transparent',
+        userSelect: 'none', letterSpacing: '1px', display: 'flex', alignItems: 'center',
+        gap: '10px', borderRadius: '2px', transition: 'background 0.1s',
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = allSel ? 'rgba(0,212,255,0.06)' : 'transparent' }}
+    >
+      <span style={{
+        width: '14px', height: '14px', borderRadius: '2px', flexShrink: 0,
+        border: allSel ? '2px solid #00d4ff' : '2px solid #333',
+        background: allSel ? '#00d4ff' : 'transparent',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: '9px', color: '#000', fontWeight: '900',
+      }}>{allSel ? 'âœ“' : ''}</span>
+      SELECT ALL
+    </div>
+  )
+
+  const dropdownItem = (
+    item: { symbol: string; name: string; color: string },
+    isSelected: boolean,
+    onToggle: () => void,
+    hasHoldings: boolean,
+    expandedHoldingsArg: string | null,
+    setExpandedHoldingsArg: ((v: string | null) => void) | null,
+    holdings?: Array<{ symbol: string; name: string; color: string }>,
+    selectedSymbolsArg?: string[],
+    toggleSymbolArg?: (s: string) => void,
+  ) => (
+    <React.Fragment key={item.symbol}>
+      <div
+        onClick={e => { e.stopPropagation(); e.preventDefault(); onToggle() }}
+        style={{
+          padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+          gap: '10px', fontSize: '12px', color: '#ffffff',
+          background: isSelected ? 'rgba(255,255,255,0.04)' : 'transparent',
+          borderRadius: '2px', transition: 'background 0.1s', userSelect: 'none',
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isSelected ? 'rgba(255,255,255,0.04)' : 'transparent' }}
+      >
+        <span style={{
+          width: '14px', height: '14px', borderRadius: '2px', flexShrink: 0,
+          border: isSelected ? '2px solid #00d4ff' : '2px solid #333',
+          background: isSelected ? '#00d4ff' : 'transparent',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '9px', color: '#000', fontWeight: '900',
+        }}>{isSelected ? 'âœ“' : ''}</span>
+        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: item.color, flexShrink: 0 }} />
+        <span style={{ fontWeight: '700', letterSpacing: '0.5px', minWidth: '48px' }}>{item.symbol}</span>
+        <span style={{ fontSize: '11px', color: '#ffffff', opacity: 0.5, marginLeft: 'auto' }}>{item.name}</span>
+        {hasHoldings && setExpandedHoldingsArg && (
+          <span
+            onClick={e => { e.stopPropagation(); e.preventDefault(); setExpandedHoldingsArg(expandedHoldingsArg === item.symbol ? null : item.symbol) }}
+            style={{
+              marginLeft: '6px', padding: '2px 6px', fontSize: '10px', fontWeight: '700',
+              color: expandedHoldingsArg === item.symbol ? '#00d4ff' : '#ffffff',
+              border: expandedHoldingsArg === item.symbol ? '1px solid #00d4ff44' : '1px solid #333',
+              borderRadius: '2px', cursor: 'pointer', opacity: expandedHoldingsArg === item.symbol ? 1 : 0.6,
+            }}>TOP 10</span>
+        )}
+      </div>
+      {/* Holdings sub-list */}
+      {hasHoldings && expandedHoldingsArg === item.symbol && holdings && holdings.map(h => {
+        const hSelected = selectedSymbolsArg?.includes(h.symbol) ?? false
+        return (
+          <div key={h.symbol}
+            onClick={e => { e.stopPropagation(); e.preventDefault(); toggleSymbolArg?.(h.symbol) }}
+            style={{
+              padding: '5px 12px 5px 36px', cursor: 'pointer', display: 'flex',
+              alignItems: 'center', gap: '10px', fontSize: '11px', color: '#ffffff',
+              background: hSelected ? 'rgba(255,255,255,0.04)' : 'transparent',
+              borderRadius: '2px', userSelect: 'none', transition: 'background 0.1s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = hSelected ? 'rgba(255,255,255,0.04)' : 'transparent' }}
+          >
+            <span style={{
+              width: '12px', height: '12px', borderRadius: '2px', flexShrink: 0,
+              border: hSelected ? '2px solid #00d4ff' : '2px solid #2a2a2a',
+              background: hSelected ? '#00d4ff' : 'transparent',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '8px', color: '#000', fontWeight: '900',
+            }}>{hSelected ? 'âœ“' : ''}</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: h.color, flexShrink: 0 }} />
+            <span style={{ fontWeight: '700', minWidth: '48px' }}>{h.symbol}</span>
+            <span style={{ fontSize: '11px', color: '#ffffff', opacity: 0.45, marginLeft: 'auto' }}>{h.name}</span>
+          </div>
+        )
+      })}
+    </React.Fragment>
+  )
 
   return (
     <div
+      ref={_dbgRef}
       style={{
         width: '100%',
         height: '100%',
@@ -1332,315 +1800,387 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         overflow: 'hidden',
       }}
     >
-      {/* Bloomberg-Style Professional Header Bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 32px',
-          background: 'linear-gradient(180deg, #0a1a15 0%, #050d0a 100%)',
-          borderBottom: '2px solid #ff8800',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.8)',
-          position: 'relative',
-          zIndex: 1,
-          overflow: 'visible',
-        }}
-      >
-        {/* Left Section - Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Timeframe Selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span
+      {/* â”€â”€ HEADER: 2-row professional bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      <div className="perf-header" style={{ background: '#000000', borderBottom: '1px solid #1c1c1c', position: 'relative', zIndex: 1, overflow: 'visible' }}>
+
+        {/* â”€â”€ ROW 1: symbol selector toolbar â”€â”€ */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '50px', gap: '6px', borderBottom: '1px solid #111' }}>
+
+          {/* Ticker search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0', marginRight: '6px' }}>
+            <input
+              type="text"
+              value={tickerInput}
+              onChange={e => setTickerInput(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && handleTickerSearch()}
+              placeholder="AAPL,TSLA,NVDA..."
               style={{
-                color: '#ffffff',
-                fontSize: '13px',
-                fontWeight: 'bold',
-                letterSpacing: '0.5px',
-                textTransform: 'uppercase',
+                height: '34px', width: '200px',
+                background: 'linear-gradient(180deg, #0e0e0e 0%, #080808 100%)',
+                color: '#ffffff', border: '1px solid #2a2a2a',
+                borderRight: 'none', borderRadius: '3px 0 0 3px',
+                fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+                padding: '0 12px', outline: 'none', letterSpacing: '1px',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
               }}
-            >
-              TIMEFRAME:
-            </span>
-            <select
-              value={timeframe}
-              onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+            />
+            <button
+              onClick={handleTickerSearch}
               style={{
-                padding: '10px 20px',
-                background: '#000000',
-                color: '#ffffff',
-                border: '2px solid #333333',
-                borderRadius: '0',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                fontFamily: 'monospace',
-                cursor: 'pointer',
-                outline: 'none',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 2px 4px rgba(255,255,255,0.1)',
-                letterSpacing: '1px',
+                height: '34px', padding: '0 14px',
+                background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
+                color: '#ffffff', border: '1px solid #2a2a2a',
+                borderLeft: '1px solid #00d4ff44', borderRadius: '0 3px 3px 0',
+                fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+                cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.7)',
               }}
-            >
-              <option value="1D">1D</option>
-              <option value="1W">1W</option>
-              <option value="1M">1M</option>
-              <option value="3M">3M</option>
-              <option value="6M">6M</option>
-              <option value="1Y">1Y</option>
-              <option value="2Y">2Y</option>
-              <option value="5Y">5Y</option>
-              <option value="10Y">10Y</option>
-              <option value="20Y">20Y</option>
-              <option value="YTD">YTD</option>
-            </select>
+            >ADD</button>
           </div>
 
-          {/* Category Buttons */}
-          {[
-            { key: 'sectors', label: 'SECTORS', data: SECTORS, color: '#00d4ff' },
-            { key: 'industries', label: 'INDUSTRIES', data: INDUSTRIES, color: '#ff6b35' },
-            { key: 'special', label: 'SPECIAL', data: SPECIAL, color: '#a855f7' },
-          ].map((category) => {
-            const allSelected = isAllSelected(category.data)
-            const someSelected = category.data.some((item) => selectedSymbols.includes(item.symbol))
-            const isOpen = openDropdown === category.key
+          {/* Timeframe select */}
+          <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
+            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '1px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', flexShrink: 0 }}>
+            {(['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
+          </select>
+          {/* Date range */}
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: useCustomDates && dateFrom ? '1px solid #00d4ff55' : '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
+          <span style={{ color: '#555', fontSize: '10px', flexShrink: 0 }}>{String.fromCharCode(0x2014)}</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: useCustomDates && dateTo ? '1px solid #00d4ff55' : '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
+          {useCustomDates && (
+            <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
+              style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)', color: '#ff4444', border: '1px solid #cc2222', borderRadius: '3px', fontSize: '11px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', flexShrink: 0 }}>
+              X
+            </button>
+          )}
 
+          {/* Divider */}
+          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
+
+          {/* MAG7 */}
+          {(() => {
+            const key = 'mag7'
+            const isOpen = openDropdown === key
+            const someSelected = MAG7.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = MAG7.every(s => selectedSymbols.includes(s.symbol))
             return (
-              <div key={category.key} style={{ position: 'relative' }}>
-                <button
-                  ref={(el) => {
-                    buttonRefs.current[category.key] = el
-                  }}
-                  data-dropdown-button
-                  onClick={(e) => {
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
                     e.stopPropagation()
-                    e.preventDefault()
-                    if (isOpen) {
-                      setOpenDropdown(null)
-                      setDropdownPosition(null)
-                    } else {
-                      const rect = buttonRefs.current[category.key]?.getBoundingClientRect()
-                      if (rect) {
-                        setDropdownPosition({
-                          top: rect.bottom + 4,
-                          left: rect.left,
-                        })
-                      }
-                      setOpenDropdown(category.key)
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
                     }
                   }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    toggleCategory(category.data)
-                    setOpenDropdown(null)
-                  }}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#000000',
-                    color: '#ffffff',
-                    border: `2px solid ${category.color}`,
-                    borderRadius: '0',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    fontFamily: 'monospace',
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                    userSelect: 'none',
-                    letterSpacing: '1px',
-                    boxShadow: someSelected
-                      ? `0 0 15px ${category.color}88, inset 0 0 10px ${category.color}33`
-                      : `0 2px 4px rgba(0,0,0,0.8)`,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {allSelected ? '☑' : someSelected ? '◩' : '☐'} {category.label} ▼
+                  style={btnStyle(someSelected, isOpen)}>
+                  MAG 7 <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
-
-                {/* Dropdown - Rendered via Portal */}
-                {isOpen &&
-                  dropdownPosition &&
-                  typeof window !== 'undefined' &&
-                  createPortal(
-                    <div
-                      data-dropdown
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                      }}
-                      style={{
-                        position: 'fixed',
-                        top: `${dropdownPosition.top}px`,
-                        left: `${dropdownPosition.left}px`,
-                        background: '#000000',
-                        border: `3px solid ${category.color}`,
-                        borderRadius: '0',
-                        padding: '12px',
-                        zIndex: 999999,
-                        minWidth: '280px',
-                        maxHeight: '450px',
-                        overflowY: 'auto',
-                        boxShadow: `0 12px 32px rgba(0,0,0,0.95), 0 0 20px ${category.color}33`,
-                      }}
-                    >
-                      {/* Select All Option */}
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          toggleCategory(category.data)
-                        }}
-                        style={{
-                          padding: '10px 14px',
-                          cursor: 'pointer',
-                          color: allSelected ? category.color : '#ffffff',
-                          fontSize: '13px',
-                          fontWeight: 'bold',
-                          borderBottom: `2px solid ${category.color}44`,
-                          marginBottom: '6px',
-                          background: allSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
-                          userSelect: 'none',
-                          transition: 'background 0.15s',
-                          letterSpacing: '0.5px',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = allSelected
-                            ? 'rgba(255,255,255,0.08)'
-                            : 'transparent'
-                        }}
-                      >
-                        {allSelected ? '☑' : '☐'} SELECT ALL
-                      </div>
-
-                      {/* Individual Items */}
-                      {category.data.map((item) => {
-                        const isSelected = selectedSymbols.includes(item.symbol)
-                        return (
-                          <div
-                            key={item.symbol}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              toggleSymbol(item.symbol)
-                            }}
-                            style={{
-                              padding: '10px 14px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '10px',
-                              fontSize: '13px',
-                              color: isSelected ? '#ffffff' : '#999999',
-                              background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
-                              background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
-                              borderRadius: '0',
-                              transition: 'background 0.15s',
-                              userSelect: 'none',
-                              fontWeight: isSelected ? 'bold' : 'normal',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = isSelected
-                                ? 'rgba(255,255,255,0.08)'
-                                : 'transparent'
-                            }}
-                          >
-                            <span style={{ color: item.color, fontSize: '16px' }}>●</span>
-                            <span>{isSelected ? '☑' : '☐'}</span>
-                            <span style={{ fontWeight: isSelected ? 'bold' : 'normal' }}>
-                              {item.symbol}
-                            </span>
-                            <span style={{ fontSize: '10px', color: '#666', marginLeft: 'auto' }}>
-                              {item.name}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>,
-                    document.body
-                  )}
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => { MAG7.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
+                    {MAG7.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
               </div>
             )
-          })}
+          })()}
 
-          {/* Waves Button */}
+          {/* INDICES */}
+          {(() => {
+            const key = 'indices'
+            const isOpen = openDropdown === key
+            const someSelected = INDICES.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = INDICES.every(s => selectedSymbols.includes(s.symbol))
+            return (
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
+                    }
+                  }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  INDICES <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => { INDICES.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
+                    {INDICES.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
+          {/* INTL */}
+          {(() => {
+            const key = 'international'
+            const isOpen = openDropdown === key
+            const someSelected = INTERNATIONAL.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = INTERNATIONAL.every(s => selectedSymbols.includes(s.symbol))
+            return (
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
+                    }
+                  }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  INTL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => { INTERNATIONAL.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
+                    {INTERNATIONAL.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px' }} />
+
+          {/* SECTORS with holdings */}
+          {(() => {
+            const key = 'sectors'
+            const isOpen = openDropdown === key
+            const someSelected = SECTORS.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = isAllSelected(SECTORS)
+            return (
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
+                    }
+                  }}
+                  onDoubleClick={e => { e.stopPropagation(); toggleCategory(SECTORS); setOpenDropdown(null) }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  SECTORS <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={{ ...dropdownContainerStyle, minWidth: '320px' }}>
+                    {dropdownSelectAll(allSel, () => toggleCategory(SECTORS))}
+                    {SECTORS.map(item => {
+                      const holdings = SECTOR_HOLDINGS[item.symbol] || []
+                      return dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), holdings.length > 0, expandedHoldings, setExpandedHoldings, holdings, selectedSymbols, toggleSymbol)
+                    })}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
+          {/* INDUSTRIES with holdings */}
+          {(() => {
+            const key = 'industries'
+            const isOpen = openDropdown === key
+            const someSelected = INDUSTRIES.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = isAllSelected(INDUSTRIES)
+            return (
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
+                    }
+                  }}
+                  onDoubleClick={e => { e.stopPropagation(); toggleCategory(INDUSTRIES); setOpenDropdown(null) }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  INDUSTRIES <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={{ ...dropdownContainerStyle, minWidth: '320px' }}>
+                    {dropdownSelectAll(allSel, () => toggleCategory(INDUSTRIES))}
+                    {INDUSTRIES.map(item => {
+                      const holdings = INDUSTRY_HOLDINGS[item.symbol] || []
+                      return dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), holdings.length > 0, expandedHoldings, setExpandedHoldings, holdings, selectedSymbols, toggleSymbol)
+                    })}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
+          {/* SPECIAL */}
+          {(() => {
+            const key = 'special'
+            const isOpen = openDropdown === key
+            const someSelected = SPECIAL.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = isAllSelected(SPECIAL)
+            return (
+              <div style={{ position: 'relative' }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
+                    else {
+                      const r = buttonRefs.current[key]?.getBoundingClientRect()
+                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
+                      setOpenDropdown(key)
+                    }
+                  }}
+                  onDoubleClick={e => { e.stopPropagation(); toggleCategory(SPECIAL); setOpenDropdown(null) }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  SPECIAL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => toggleCategory(SPECIAL))}
+                    {SPECIAL.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px' }} />
+
+          {/* WAVES toggle */}
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              setIsWaveMode(!isWaveMode)
-              setOpenDropdown(null)
-            }}
-            style={{
-              padding: '10px 20px',
-              background: '#000000',
-              color: '#ffffff',
-              border: '2px solid #ff8800',
-              borderRadius: '0',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              fontFamily: 'monospace',
-              cursor: 'pointer',
-              textTransform: 'uppercase',
-              userSelect: 'none',
-              letterSpacing: '1px',
-              boxShadow: isWaveMode
-                ? '0 0 15px #ff880088, inset 0 0 10px #ff880033'
-                : '0 2px 4px rgba(0,0,0,0.8)',
-              transition: 'all 0.15s',
-            }}
-          >
-            {isWaveMode ? '☑' : '☐'} WAVES 🌊
+            onClick={e => { e.stopPropagation(); setIsWaveMode(!isWaveMode); setOpenDropdown(null) }}
+            style={btnStyle(isWaveMode, false)}>
+            WAVES
           </button>
 
-          {/* Selected Count */}
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Selected count */}â—' : 'â—‹'}
+          </button>
+
+          {/* Selected count */}
           {selectedSymbols.length > 0 && !isWaveMode && (
-            <div
-              style={{
-                padding: '10px 20px',
-                background: '#000000',
-                border: '2px solid #00ff88',
-                borderRadius: '0',
-                fontSize: '13px',
-                fontWeight: 'bold',
-                color: '#00ff88',
-                letterSpacing: '0.5px',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 0 8px #00ff8833',
-              }}
-            >
-              {selectedSymbols.length} SYMBOL{selectedSymbols.length !== 1 ? 'S' : ''} SELECTED
+            <div className="perf-selected-count" style={{
+              marginLeft: '8px', height: '34px', padding: '0 16px',
+              display: 'flex', alignItems: 'center',
+              background: 'linear-gradient(180deg, #001a10 0%, #00100a 100%)',
+              border: '1px solid #00cc55', borderRadius: '3px',
+              fontSize: '12px', fontWeight: '700', color: '#00ff88',
+              letterSpacing: '1px', fontFamily: 'monospace', whiteSpace: 'nowrap',
+              boxShadow: 'inset 0 1px 0 rgba(0,255,136,0.08)',
+            }}>
+              {selectedSymbols.length} SELECTED
             </div>
+          )}
+
+          {/* Reset Zoom */}
+          {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
+            <button onClick={resetZoom} style={{
+              marginLeft: '8px', height: '34px', padding: '0 16px',
+              background: 'linear-gradient(180deg, #1a0000 0%, #100000 100%)',
+              color: '#ff4444', border: '1px solid #cc2222',
+              borderRadius: '3px', fontSize: '12px', fontWeight: '700',
+              fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '1px',
+              textTransform: 'uppercase',
+              boxShadow: 'inset 0 1px 0 rgba(255,68,68,0.08)',
+              transition: 'all 0.12s',
+            }}>RESET ZOOM</button>
           )}
         </div>
 
-        {/* Right Section - Reset Zoom */}
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
-            <button
-              onClick={resetZoom}
+        {/* â”€â”€ ROW 2: timeframe + date range â”€â”€ */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '42px', gap: '8px' }}>
+          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>TIMEFRAME:</span>
+          <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
+            style={{
+              height: '28px', padding: '0 10px',
+              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
+              color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px',
+              fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+              cursor: 'pointer', outline: 'none', letterSpacing: '1px',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.7)',
+            }}>
+            {['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
+          </select>
+
+          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px' }} />
+
+          {/* Custom date range */}
+          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>FROM:</span>
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{
+              height: '28px', padding: '0 8px',
+              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
+              color: '#ffffff', border: useCustomDates && dateFrom ? '1px solid #00d4ff55' : '1px solid #2a2a2a',
+              borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace',
+              cursor: 'pointer', outline: 'none',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+              colorScheme: 'dark',
+            }} />
+          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>TO:</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{
+              height: '28px', padding: '0 8px',
+              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
+              color: '#ffffff', border: useCustomDates && dateTo ? '1px solid #00d4ff55' : '1px solid #2a2a2a',
+              borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace',
+              cursor: 'pointer', outline: 'none',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+              colorScheme: 'dark',
+            }} />
+          {useCustomDates && (
+            <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
               style={{
-                padding: '10px 20px',
-                background: '#000000',
-                color: '#ffffff',
-                border: '2px solid #ff0000',
-                borderRadius: '0',
-                fontSize: '13px',
-                fontWeight: 'bold',
-                fontFamily: 'monospace',
-                cursor: 'pointer',
-                letterSpacing: '0.5px',
-                textTransform: 'uppercase',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.8)',
-                transition: 'all 0.15s',
-              }}
-            >
-              RESET ZOOM
-            </button>
+                height: '28px', padding: '0 10px',
+                background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)',
+                color: '#ff4444', border: '1px solid #cc2222',
+                borderRadius: '3px', fontSize: '11px', fontWeight: '700',
+                fontFamily: 'monospace', cursor: 'pointer',
+                boxShadow: 'inset 0 1px 0 rgba(255,68,68,0.08)',
+              }}>âœ• CLEAR</button>
           )}
+
+          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px' }} />
+
+          {/* Dynamic swing-date presets */}
+          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>START:</span>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap', overflowX: 'auto' }}>
+            {dynamicSwingDates.length === 0 && (
+              <span style={{ color: '#444', fontSize: '11px', fontFamily: 'monospace', letterSpacing: '0.5px', alignSelf: 'center' }}>— load data first —</span>
+            )}
+            {dynamicSwingDates.map(sd => (
+              <button key={sd.label}
+                title={sd.description}
+                onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
+                style={{
+                  height: '28px', padding: '0 10px', whiteSpace: 'nowrap',
+                  background: useCustomDates && dateFrom === sd.date
+                    ? 'linear-gradient(180deg, #001830 0%, #000d1a 100%)'
+                    : 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
+                  color: useCustomDates && dateFrom === sd.date ? '#00d4ff' : '#ffffff',
+                  border: useCustomDates && dateFrom === sd.date ? '1px solid #00d4ff66' : '1px solid #222',
+                  borderRadius: '3px', fontSize: '11px', fontWeight: '700',
+                  fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
+                  transition: 'all 0.1s',
+                }}>{sd.label}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1662,22 +2202,25 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               left: '50%',
               transform: 'translate(-50%, -50%)',
               textAlign: 'center',
-              color: '#666',
-              fontSize: '14px',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontFamily: 'monospace',
+              letterSpacing: '1px',
+              fontWeight: '700',
             }}
           >
             <div
               style={{
-                width: '40px',
-                height: '40px',
-                border: '3px solid #1a1a1a',
-                borderTop: '3px solid #00d4ff',
+                width: '36px',
+                height: '36px',
+                border: '2px solid #1e1e1e',
+                borderTop: '2px solid #00d4ff',
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite',
-                margin: '0 auto 12px',
+                margin: '0 auto 14px',
               }}
             />
-            Loading {selectedSymbols.length} symbol{selectedSymbols.length !== 1 ? 's' : ''}...
+            LOADING {selectedSymbols.length} SYMBOL{selectedSymbols.length !== 1 ? 'S' : ''}...
           </div>
         )}
 
@@ -1689,12 +2232,15 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               left: '50%',
               transform: 'translate(-50%, -50%)',
               textAlign: 'center',
-              color: '#666',
-              fontSize: '14px',
+              color: '#ffffff',
+              fontSize: '12px',
+              fontFamily: 'monospace',
+              letterSpacing: '1px',
+              fontWeight: '700',
             }}
           >
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
-            <div>Select symbols to view performance comparison</div>
+            <div style={{ fontSize: '40px', marginBottom: '16px', opacity: 0.4 }}>ðŸ“Š</div>
+            <div>SELECT SYMBOLS TO VIEW PERFORMANCE</div>
           </div>
         )}
 

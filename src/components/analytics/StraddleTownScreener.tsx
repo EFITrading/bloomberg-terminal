@@ -2025,7 +2025,28 @@ export default function StraddleTownScreener() {
   const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
   const abortRef = useRef<AbortController | null>(null)
 
-  // Fetch live risk-free rate on mount and update module-level constant
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}×${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[STRADDLE-TOWN] ${Math.round(r.width)}×${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}×${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
   useEffect(() => {
     getRiskFreeRate().then(r => { if (r !== null) RISK_FREE_RATE = r })
   }, [])
@@ -2608,6 +2629,7 @@ export default function StraddleTownScreener() {
 
   return (
     <div
+      ref={_dbgRef}
       style={{
         background: '#000000',
         border: '1px solid rgba(255,255,255,0.08)',
@@ -2636,10 +2658,10 @@ export default function StraddleTownScreener() {
           @keyframes stPulse { 0%,100% { transform: scale(1); opacity:1; } 50% { transform: scale(0.85); opacity:0.6; } }
           @keyframes stScanDot { 0%,100% { transform: translateX(0); opacity:1; } 50% { transform: translateX(3px); opacity:0.4; } }
         `}</style>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58 }}>
+        <div className="straddle-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58 }}>
 
           {/* Brand */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 24, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+          <div className="straddle-brand" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 24, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
             <div style={{ width: 4, height: 30, background: 'linear-gradient(180deg,#FF8C00,#FFD700)', borderRadius: 2, flexShrink: 0, boxShadow: '0 0 10px rgba(255,140,0,0.45)' }} />
             <div>
               <div style={{ ...mono, fontWeight: 900, fontSize: 21, color: '#FFFFFF', letterSpacing: '4px', lineHeight: 1 }}>STRADDLE TOWN</div>

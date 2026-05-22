@@ -2,7 +2,7 @@
 
 
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { polygonService } from '../lib/polygonService';
 
@@ -1179,11 +1179,32 @@ const HVScreener: React.FC = () => {
 
     );
 
-
+    // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+    const _dbgRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const el = _dbgRef.current
+        if (!el) return
+        const log = () => {
+            const r = el.getBoundingClientRect()
+            let chain = ''
+            let p = el.parentElement
+            for (let i = 0; i < 4 && p; i++) {
+                const pr = p.getBoundingClientRect()
+                chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}×${Math.round(pr.height)}`
+                p = p.parentElement
+            }
+            console.log(`[HV-SCREENER] ${Math.round(r.width)}×${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}×${window.innerHeight} |${chain}`)
+        }
+        log()
+        const ro = new ResizeObserver(log)
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
+    // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
 
     return (
 
-        <div className="terminal-panel" style={{
+        <div ref={_dbgRef} className="terminal-panel" style={{
 
             margin: '20px',
 
@@ -1317,7 +1338,7 @@ const HVScreener: React.FC = () => {
 
             {/* Unified Header Row */}
 
-            <div style={{
+            <div className="hvs-header" style={{
 
                 display: 'flex',
 
@@ -1581,7 +1602,7 @@ const HVScreener: React.FC = () => {
 
             {/* Three Main Sections */}
 
-            <div style={{
+            <div className="hvs-grid" style={{
 
                 display: 'grid',
 

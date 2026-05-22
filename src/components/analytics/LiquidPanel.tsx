@@ -5326,10 +5326,27 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                   {onClose && (
                     <button
                       onClick={onClose}
-                      className="absolute -top-2 -right-2 w-8 h-8 flex items-center justify-center bg-black border-2 border-orange-500 hover:bg-orange-500 hover:text-black text-orange-500 transition-all rounded"
-                      style={{ zIndex: 10 }}
+                      className="flex items-center justify-center font-bold transition-all"
+                      style={{
+                        width: '44px',
+                        flexShrink: 0,
+                        alignSelf: 'stretch',
+                        fontSize: '16px',
+                        color: '#FF6600',
+                        border: '2px solid rgba(255,102,0,0.5)',
+                        background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = '#FF6600'
+                        e.currentTarget.style.color = '#000'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'
+                        e.currentTarget.style.color = '#FF6600'
+                      }}
                     >
-                      <span className="text-xl font-bold leading-none">&#x2715;</span>
+                      &#x2715;
                     </button>
                   )}
                 </div>

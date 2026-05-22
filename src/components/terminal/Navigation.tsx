@@ -17,6 +17,7 @@ export default function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [isSmallMobile, setIsSmallMobile] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
 
@@ -24,10 +25,16 @@ export default function Navigation() {
   useEffect(() => {
     setIsClient(true)
     setIsMobile(window.innerWidth <= 768)
-    const handleResize = () => setIsMobile(window.innerWidth <= 768)
+    setIsSmallMobile(window.innerWidth <= 400)
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setIsSmallMobile(window.innerWidth <= 400)
+    }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+
 
   useEffect(() => {
     if (!isClient) return
@@ -104,14 +111,17 @@ export default function Navigation() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0 24px',
-            height: isMobile ? '60px' : '90px',
+            paddingTop: '0',
+            paddingBottom: '0',
+            paddingLeft: isSmallMobile ? '8px' : isMobile ? '12px' : '24px',
+            paddingRight: isSmallMobile ? '8px' : isMobile ? '12px' : '24px',
+            gap: isMobile ? '10px' : '0',
+            height: isMobile ? '56px' : '90px',
             position: 'relative',
             zIndex: 1,
-            paddingTop: '0',
           }}
         >
-          <div className="nav-brand">
+          <div className="nav-brand" style={{ flexShrink: 1, minWidth: 0 }}>
             <Link href="/" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
               <div
                 style={{
@@ -129,9 +139,9 @@ export default function Navigation() {
                 >
                   <span
                     style={{
-                      fontSize: isMobile ? '15px' : '22px',
+                      fontSize: isSmallMobile ? '12px' : isMobile ? '15px' : '22px',
                       fontWeight: '800',
-                      letterSpacing: '1.5px',
+                      letterSpacing: isSmallMobile ? '0.5px' : '1.5px',
                       background: 'linear-gradient(135deg, #FFFFFF 0%, #999999 100%)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
@@ -142,9 +152,9 @@ export default function Navigation() {
                   </span>
                   <span
                     style={{
-                      fontSize: isMobile ? '15px' : '22px',
+                      fontSize: isSmallMobile ? '12px' : isMobile ? '15px' : '22px',
                       fontWeight: '800',
-                      letterSpacing: '1.5px',
+                      letterSpacing: isSmallMobile ? '0.5px' : '1.5px',
                       background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
@@ -162,18 +172,20 @@ export default function Navigation() {
                     boxShadow: '0 0 10px rgba(255, 133, 0, 0.5)',
                   }}
                 />
-                <div
-                  style={{
-                    fontSize: isMobile ? '7px' : '9px',
-                    fontWeight: '700',
-                    letterSpacing: '3px',
-                    color: '#999',
-                    textAlign: 'center',
-                    marginTop: '2px',
-                  }}
-                >
-                  INSTITUTE
-                </div>
+                {!isSmallMobile && (
+                  <div
+                    style={{
+                      fontSize: '7px',
+                      fontWeight: '700',
+                      letterSpacing: '3px',
+                      color: '#999',
+                      textAlign: 'center',
+                      marginTop: '2px',
+                    }}
+                  >
+                    INSTITUTE
+                  </div>
+                )}
               </div>
             </Link>
           </div>
@@ -249,64 +261,58 @@ export default function Navigation() {
             }}
           >
             {/* Mobile Menu Button */}
-            <button
-              className="mobile-menu-btn"
-              onClick={() => {
-                setIsMobileMenuOpen(!isMobileMenuOpen)
-              }}
-              aria-label="Toggle mobile menu"
-              style={{
-                display: 'flex',
-                zIndex: 10001,
-                position: 'relative',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                width: '50px',
-                height: '50px',
-                background: 'rgba(0, 0, 0, 0.8)',
-                border: '2px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '8px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4)',
-              }}
-            >
-              <span
-                className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`}
-                style={{
-                  width: '30px',
-                  height: '4px',
-                  background: '#FFFFFF',
-                  margin: '2px 0',
-                  borderRadius: '2px',
-                  display: 'block',
-                  boxShadow: '0 0 3px rgba(255, 255, 255, 0.8)',
-                }}
-              ></span>
-              <span
-                className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`}
-                style={{
-                  width: '30px',
-                  height: '4px',
-                  background: '#FFFFFF',
-                  margin: '2px 0',
-                  borderRadius: '2px',
-                  display: 'block',
-                  boxShadow: '0 0 3px rgba(255, 255, 255, 0.8)',
-                }}
-              ></span>
-              <span
-                className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`}
-                style={{
-                  width: '30px',
-                  height: '4px',
-                  background: '#FFFFFF',
-                  margin: '2px 0',
-                  borderRadius: '2px',
-                  display: 'block',
-                  boxShadow: '0 0 3px rgba(255, 255, 255, 0.8)',
-                }}
-              ></span>
-            </button>
+            {(() => {
+              const activePageName = navLinks.find(l => l.path === pathname)?.name ?? null
+              return (
+                <button
+                  className="mobile-menu-btn"
+                  onClick={() => {
+                    setIsMobileMenuOpen(!isMobileMenuOpen)
+                  }}
+                  aria-label="Toggle mobile menu"
+                  style={{
+                    display: 'flex',
+                    zIndex: 10001,
+                    position: 'relative',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: activePageName ? '10px' : '0',
+                    width: activePageName ? 'auto' : (isSmallMobile ? '38px' : '44px'),
+                    height: isSmallMobile ? '36px' : '44px',
+                    padding: activePageName ? (isSmallMobile ? '0 10px' : '0 14px') : '0',
+                    background: 'rgba(0, 0, 0, 0.85)',
+                    border: '2px solid rgba(255, 133, 0, 0.5)',
+                    borderRadius: '8px',
+                    boxShadow: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {/* Hamburger lines */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
+                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
+                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
+                  </div>
+                  {/* Active page label */}
+                  {activePageName && (
+                    <span
+                      style={{
+                        fontSize: isSmallMobile ? '9px' : '11px',
+                        fontWeight: 700,
+                        letterSpacing: isSmallMobile ? '0.03em' : '0.06em',
+                        textTransform: 'uppercase',
+                        color: '#FF8500',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {activePageName}
+                    </span>
+                  )}
+                </button>
+              )
+            })()}
 
             {/* Desktop Status and Auth */}
             <div

@@ -609,6 +609,11 @@ interface Drawing {
   clickY?: number
 }
 
+// Chart left margin constant (px offset from canvas left edge to chart plot area)
+const CHART_LEFT_MARGIN = 8 // Reduced from 40 (80% reduction) to minimize empty left space
+// Time axis (X-axis) height at the bottom of the canvas
+const TIME_AXIS_HEIGHT = 5 // Reduced from 25 by 80%
+
 // TradingView Professional Timeframes with extensive historical data
 const TRADINGVIEW_TIMEFRAMES = [
   { label: '1m', value: '1m', lookback: 7 }, // 7 days for 1-minute data
@@ -2275,7 +2280,7 @@ const renderExpectedRangeLines = (
     const candleWidth = Math.max(2, (chartWidth / visibleCandleCount) * 0.8)
     const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
     lastCandleX =
-      40 + lastVisibleIndex * candleSpacing + (candleSpacing - candleWidth) / 2 + candleWidth
+      CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + (candleSpacing - candleWidth) / 2 + candleWidth
   }
 
   // Define colors for the lines (including custom)
@@ -2459,7 +2464,7 @@ const renderGEXLevels = (
     const candleWidth = Math.max(2, (width / visibleCandleCount) * 0.8)
     const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
     lastCandleX =
-      40 + lastVisibleIndex * candleSpacing + (candleSpacing - candleWidth) / 2 + candleWidth
+      CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + (candleSpacing - candleWidth) / 2 + candleWidth
   }
 
   // Collect all text labels for smart positioning
@@ -2810,12 +2815,12 @@ const renderExpansionLiquidationZone = (
 
   // Calculate X positions - need to find the relative position within visible data
   const relativeBreakoutIndex = zone.breakoutIndex - startIndex
-  const zoneStartX = 40 + relativeBreakoutIndex * candleSpacing
+  const zoneStartX = CHART_LEFT_MARGIN + relativeBreakoutIndex * candleSpacing
 
   // Calculate the last candle position in the visible data
   const lastCandleIndex = allData.length - 1
   const relativeLastCandleIndex = lastCandleIndex - startIndex
-  const lastCandleX = 40 + relativeLastCandleIndex * candleSpacing
+  const lastCandleX = CHART_LEFT_MARGIN + relativeLastCandleIndex * candleSpacing
 
   // Extend exactly 5 trading days from the last candlestick
   const fiveDaysExtension = 5 * candleSpacing
@@ -3263,7 +3268,7 @@ const renderTechnalysisIndicators = (
   const candleSpacing = chartWidth / visibleCandleCount
   const priceToY = (price: number) =>
     chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight
-  const indexToX = (index: number) => 40 + (index - startIndex) * candleSpacing
+  const indexToX = (index: number) => CHART_LEFT_MARGIN + (index - startIndex) * candleSpacing
 
   if (activeFeatures.orderBlocks) {
     const orderBlocks = detectOrderBlocks(data)
@@ -3351,7 +3356,7 @@ const renderTechnalysisIndicators = (
       if (liq.isSwept || liq.index < startIndex || liq.index > startIndex + visibleCandleCount + 50)
         return
       const y = priceToY(liq.price)
-      const startX = Math.max(40, indexToX(liq.index - 10))
+      const startX = Math.max(CHART_LEFT_MARGIN, indexToX(liq.index - 10))
       const endX = indexToX(data.length - 1) + 5 * candleSpacing
       ctx.strokeStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600'
       ctx.lineWidth = Math.min(liq.strength, 4)
@@ -3429,7 +3434,7 @@ const renderTechnalysisIndicators = (
     )
     pdZones.forEach((zone) => {
       const y = priceToY(zone.priceLevel)
-      const startX = 40
+      const startX = CHART_LEFT_MARGIN
       const endX = indexToX(data.length - 1) + 5 * candleSpacing
       let color = '#888888'
       if (zone.type === 'premium') color = '#ff4444'
@@ -3686,7 +3691,11 @@ export function TradePopupChart({
       ctx.font = 'bold 17px "Courier New", monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
+      const labelW = PAD_R - 6
+      const labelH = 20
       ctx.fillStyle = '#FF6600'
+      ctx.fillRect(W - PAD_R + 1, lastY - labelH / 2, labelW, labelH)
+      ctx.fillStyle = '#000000'
       ctx.fillText(lastLabel, W - PAD_R + 5, lastY)
     }
 
@@ -4059,13 +4068,15 @@ export function TradePopupChart({
             color: '#ff6600',
             border: '1px solid rgba(255,133,0,0.5)',
             borderRadius: '4px',
-            padding: '3px 6px',
+            paddingTop: '3px',
+            paddingBottom: '3px',
+            paddingLeft: '6px',
+            paddingRight: '18px',
             cursor: 'pointer',
             backdropFilter: 'blur(4px)',
             outline: 'none',
             appearance: 'none' as const,
             WebkitAppearance: 'none' as const,
-            paddingRight: '18px',
             backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23ff6600' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E")`,
             backgroundRepeat: 'no-repeat',
             backgroundPosition: 'right 5px center',
@@ -5336,6 +5347,9 @@ export default function TradingViewChart({
   // isMobile — true after mount if viewport < 768px. Avoids typeof window in JSX render path.
   const [isMobile, setIsMobile] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
+  const [isMobileGroup1Open, setIsMobileGroup1Open] = useState(false)
+  const [isMobileGroup2Open, setIsMobileGroup2Open] = useState(false)
+  const [isMobileGroup3Open, setIsMobileGroup3Open] = useState(false)
   useEffect(() => {
     setIsMounted(true)
     setIsMobile(window.innerWidth < 768)
@@ -5355,6 +5369,9 @@ export default function TradingViewChart({
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLDivElement>(null)
+  const [isHamburgerOpen, setIsHamburgerOpen] = useState(false)
+  const [hmDropPos, setHmDropPos] = useState({ top: 48, left: 8 })
+  const [hmPressed, setHmPressed] = useState(false)
   const [invalidTicker, setInvalidTicker] = useState(false)
 
   // Benchmark mode state
@@ -14032,18 +14049,17 @@ export default function TradingViewChart({
         const dateTextWidth = ctx.measureText(dateText).width + 24 // Increased padding
         const dateX = crosshairPosition.x
 
-        // Calculate price chart height (excluding volume, IV panels, flow chart)
-        const timeAxisHeight = 25
-        const volumeAreaHeight = 80
-        const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
-        const ivPanelSpace = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
-        const priceChartBottom =
-          height - timeAxisHeight - volumeAreaHeight - flowChartSpace - ivPanelSpace
+        // Align crosshair date label with the actual time axis label position
+        // Time axis labels are drawn at: desktop → height-70, mobile → height-45
+        // Background top = labelCenter - 14, so: desktop → height-84, mobile → height-59
+        const isMobileDevice = window.innerWidth < 768
+        const xLabelCenterY = isMobileDevice ? height - 45 : height - 70
+        const priceChartBottom = xLabelCenterY - 14
 
         // Ensure date label doesn't go off screen
         const labelX = Math.max(dateTextWidth / 2, Math.min(width - dateTextWidth / 2, dateX))
 
-        // Date label background (at bottom of price chart area) - darker for contrast
+        // Date label background aligned with time axis - darker for contrast
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748'
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568'
         ctx.lineWidth = 1
@@ -14057,7 +14073,7 @@ export default function TradingViewChart({
         ctx.shadowOffsetY = 1
         ctx.fillStyle = '#FF6600'
         ctx.textAlign = 'center'
-        ctx.fillText(dateText, labelX, priceChartBottom + 14)
+        ctx.fillText(dateText, labelX, xLabelCenterY)
 
         // Reset shadow
         ctx.shadowColor = 'transparent'
@@ -14448,7 +14464,7 @@ export default function TradingViewChart({
           if (visibleData.length > 0) {
             // Get current range (manual or auto)
             const currentRange = manualPriceRange || getCurrentPriceRange(visibleData)
-            const timeAxisHeight = 25
+            const timeAxisHeight = 18
             const priceChartHeight = canvasHeight - timeAxisHeight
 
             // Price at mouse position
@@ -14600,7 +14616,7 @@ export default function TradingViewChart({
     const candleSpacing = chartWidth / visibleCandleCount
 
     visibleData.forEach((candle, index) => {
-      const x = 40 + index * candleSpacing
+      const x = CHART_LEFT_MARGIN + index * candleSpacing
 
       // Convert timestamp to PST (Pacific Standard Time)
       const date = new Date(candle.timestamp)
@@ -14666,7 +14682,7 @@ export default function TradingViewChart({
     ctx.fillRect(0, 0, width, height)
 
     // Calculate chart areas - reserve space for volume and time axis
-    const timeAxisHeight = 30
+    const timeAxisHeight = 20
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
     const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
@@ -14702,7 +14718,7 @@ export default function TradingViewChart({
     if (visibleData.length === 0 && !showingFutureSpace && data.length === 0) return
 
     // Calculate chart dimensions - only extend when scrolled near the end
-    const chartWidth = width - 120 // Leave more space for price scale to prevent overlap
+    const chartWidth = width - CHART_LEFT_MARGIN - 80 // Leave more space for price scale to prevent overlap
 
     // Check if we're showing future area (scrolled beyond data)
     const actualDataEnd = startIndex + visibleData.length
@@ -14801,7 +14817,7 @@ export default function TradingViewChart({
         ctx.beginPath()
 
         visibleData.forEach((candle, index) => {
-          const x = 40 + index * candleSpacing + candleSpacing / 2
+          const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2
           const closeY =
             priceChartHeight -
             ((candle.close - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
@@ -14818,7 +14834,7 @@ export default function TradingViewChart({
         // Draw dots at each price point
         ctx.fillStyle = colors.bullish
         visibleData.forEach((candle, index) => {
-          const x = 40 + index * candleSpacing + candleSpacing / 2
+          const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2
           const closeY =
             priceChartHeight -
             ((candle.close - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
@@ -14832,7 +14848,7 @@ export default function TradingViewChart({
       // Draw candlesticks/bars/area/hollow candles - pixel-perfect positioning
       visibleData.forEach((candle, index) => {
         // Calculate x position and ensure it's pixel-aligned
-        const xPos = 40 + index * candleSpacing
+        const xPos = CHART_LEFT_MARGIN + index * candleSpacing
         const candleX = Math.floor(xPos) // Floor for consistent left edge
         const width = Math.floor(candleWidth)
         drawCandle(ctx, candle, candleX, width, priceChartHeight, adjustedMin, adjustedMax)
@@ -14840,7 +14856,7 @@ export default function TradingViewChart({
 
       // ENHANCED: Draw future space grid when scrolled beyond actual data
       if (showingFutureSpace && beyondDataOffset > 0) {
-        const futureStartX = Math.round(40 + visibleData.length * candleSpacing)
+        const futureStartX = Math.round(CHART_LEFT_MARGIN + visibleData.length * candleSpacing)
         const futureWidth = width - futureStartX - 80 // Leave space for Y-axis
       }
     }
@@ -14864,7 +14880,7 @@ export default function TradingViewChart({
       if (lpY >= 0 && lpY <= priceChartHeight) {
         const lpAbs = Math.abs(lp)
         const lpLabel = `$${lpAbs >= 1000 ? lpAbs.toFixed(0) : lpAbs >= 100 ? lpAbs.toFixed(1) : lpAbs.toFixed(2)}`
-        const lpFontSize = Math.round(config.axisStyle.yAxis.textSize * 1.2)
+        const lpFontSize = Math.round(config.axisStyle.yAxis.textSize)
         ctx.font = `bold ${lpFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
@@ -14873,8 +14889,8 @@ export default function TradingViewChart({
         const boxPadY = 4
         const boxW = lpTextW + boxPadX * 2
         const boxH = lpFontSize + boxPadY * 2
-        // Right-anchor: box ends 2px from canvas edge
-        const boxX = width - boxW - 2
+        // Align with Y-axis labels which start at width - 85
+        const boxX = width - 85 - boxPadX
         // Orange pill background
         ctx.fillStyle = '#FF6600'
         ctx.beginPath()
@@ -14891,7 +14907,7 @@ export default function TradingViewChart({
     if (isRRGCandleActive && (rrgMode === 'iv' || rrgMode === 'ivspy') && rrgIvStartTimestamp) {
       const startIndex = visibleData.findIndex((candle) => candle.timestamp === rrgIvStartTimestamp)
       if (startIndex !== -1) {
-        const lineX = Math.round(40 + startIndex * candleSpacing + candleSpacing / 2)
+        const lineX = Math.round(CHART_LEFT_MARGIN + startIndex * candleSpacing + candleSpacing / 2)
         ctx.save()
         ctx.strokeStyle = '#FFD700' // Gold color
         ctx.lineWidth = 2
@@ -14962,7 +14978,7 @@ export default function TradingViewChart({
 
       // Calculate where the last data candle appears on screen
       const lastDataPositionOnScreen = lastDataIndex - startIndex
-      const lastCandleX = 40 + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+      const lastCandleX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
 
       const lastCandleTime = new Date(lastDataCandle.timestamp).getTime()
       const lastCandlePrice = lastDataCandle.close
@@ -15095,7 +15111,7 @@ export default function TradingViewChart({
         // Calculate last candle x position using same coordinate system as candlesticks
         // Last visible candle is at index (visibleData.length - 1)
         const lastCandleIndex = visibleData.length - 1
-        const lastCandleX = 40 + lastCandleIndex * candleSpacing + candleSpacing / 2
+        const lastCandleX = CHART_LEFT_MARGIN + lastCandleIndex * candleSpacing + candleSpacing / 2
 
         // Draw the projection line starting from last visible candle
         ctx.save()
@@ -15229,7 +15245,7 @@ export default function TradingViewChart({
         )
         if (idx === -1) continue // not visible right now — skip, but rank is preserved
 
-        const cx = 40 + idx * candleSpacing + candleSpacing / 2
+        const cx = CHART_LEFT_MARGIN + idx * candleSpacing + candleSpacing / 2
         const printY =
           priceChartHeight -
           ((print.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
@@ -15353,7 +15369,7 @@ export default function TradingViewChart({
       for (const ev of contractionEvents) {
         const idx = dateToIdx.get(ev.date)
         if (idx === undefined) continue
-        const cx = 40 + idx * candleSpacing + candleSpacing / 2
+        const cx = CHART_LEFT_MARGIN + idx * candleSpacing + candleSpacing / 2
         const candleLowY =
           priceChartHeight -
           ((visibleData[idx].low - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
@@ -15597,17 +15613,17 @@ export default function TradingViewChart({
       } else {
         // Loading placeholder
         ctx.fillStyle = 'rgba(0,0,0,0.85)'
-        ctx.fillRect(40, pePanelY, chartWidth - 120, pePanelHeight)
+        ctx.fillRect(CHART_LEFT_MARGIN, pePanelY, chartWidth - 120, pePanelHeight)
         ctx.strokeStyle = 'rgba(0, 229, 255, 0.3)'
         ctx.lineWidth = 1
         ctx.beginPath()
-        ctx.moveTo(40, pePanelY)
+        ctx.moveTo(CHART_LEFT_MARGIN, pePanelY)
         ctx.lineTo(chartWidth - 80, pePanelY)
         ctx.stroke()
         ctx.font = 'bold 10px JetBrains Mono, monospace'
         ctx.fillStyle = '#00E5FF'
         ctx.textAlign = 'left'
-        ctx.fillText(peLoading ? 'Loading P/E data…' : 'No P/E data', (40 + chartWidth - 80) / 2, pePanelY + pePanelHeight / 2 + 4)
+        ctx.fillText(peLoading ? 'Loading P/E data…' : 'No P/E data', (CHART_LEFT_MARGIN + chartWidth - 80) / 2, pePanelY + pePanelHeight / 2 + 4)
       }
     }
 
@@ -15628,7 +15644,7 @@ export default function TradingViewChart({
       } else {
         // Loading placeholder
         ctx.fillStyle = 'rgba(0,0,0,0.85)'
-        ctx.fillRect(40, buySellStartY, chartWidth - 160, buySellPanelHeight)
+        ctx.fillRect(CHART_LEFT_MARGIN, buySellStartY, chartWidth - 160, buySellPanelHeight)
 
         const barW = chartWidth - 200
         const barX = 100
@@ -15756,7 +15772,7 @@ export default function TradingViewChart({
   ) => {
     if (!visibleData.length) return
 
-    const padLeft = 40
+    const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
     const titleHeight = 28
     const panelContentTop = panelStartY + titleHeight + 4
@@ -15800,7 +15816,7 @@ export default function TradingViewChart({
 
     for (let i = 0; i < visibleData.length; i++) {
       const d = visibleData[i].date ?? new Date(visibleData[i].timestamp).toISOString().split('T')[0]
-      const x = 40 + i * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + i * candleSpacing + candleSpacing / 2
       const v = findLatest(trailingSorted, d)
       if (v != null) pts.push({ x, v })
     }
@@ -15930,7 +15946,7 @@ export default function TradingViewChart({
   ) => {
     if (!bsData.length || !visibleData.length) return
 
-    const padLeft = 40
+    const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
 
     // Clip all drawing to the panel bounds so the line never overflows right
@@ -16111,7 +16127,7 @@ export default function TradingViewChart({
     visibleCandleCount: number,
     width: number,
     volumeAreaHeight: number = 80,
-    timeAxisHeight: number = 25,
+    timeAxisHeight: number = 18,
     config: ChartConfig
   ) => {
     // Early return if no data or no volume data
@@ -16126,7 +16142,7 @@ export default function TradingViewChart({
 
     // Draw subtle volume background area (reduced height)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)'
-    ctx.fillRect(40, volumeStartY, chartWidth - 80, volumeEndY - volumeStartY)
+    ctx.fillRect(CHART_LEFT_MARGIN, volumeStartY, chartWidth - 80, volumeEndY - volumeStartY)
 
     // Find max volume for scaling
     const volumes = visibleData.map((d) => d.volume || 0).filter((v) => v > 0)
@@ -16148,7 +16164,7 @@ export default function TradingViewChart({
 
     // Draw volume bars
     visibleData.forEach((candle, index) => {
-      const x = Math.round(40 + index * candleSpacing + (candleSpacing - candleWidth) / 2)
+      const x = Math.round(CHART_LEFT_MARGIN + index * candleSpacing + (candleSpacing - candleWidth) / 2)
 
       // Use only real volume data
       const volumeValue = candle.volume
@@ -16174,8 +16190,8 @@ export default function TradingViewChart({
     ctx.textAlign = 'left'
     ctx.globalAlpha = 1.0
 
-    // Draw volume labels (3 levels: 0, 50%, 100%) - strictly within volume area only
-    for (let i = 0; i <= 2; i++) {
+    // Draw volume labels (2 levels: 50%, 100%) - strictly within volume area only, skip 0
+    for (let i = 1; i <= 2; i++) {
       const volumeLevel = (maxVolume / 2) * i
       const y = volumeEndY - (i * volumeAreaHeight) / 2
 
@@ -16237,7 +16253,7 @@ export default function TradingViewChart({
 
     // Draw background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
-    ctx.fillRect(40, flowStartY, chartWidth - 120, flowChartHeight)
+    ctx.fillRect(CHART_LEFT_MARGIN, flowStartY, chartWidth - 120, flowChartHeight)
 
     // Add padding for Y-axis labels inside the box
     const yAxisPadding = 25
@@ -16252,7 +16268,7 @@ export default function TradingViewChart({
     const candlePositions = new Map<number, number>()
     visibleData.forEach((candle, index) => {
       const candleTime = new Date(candle.timestamp).getTime()
-      const x = 40 + index * candleSpacing + candleSpacing / 2 // Center of candle
+      const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2 // Center of candle
       candlePositions.set(candleTime, x)
     })
 
@@ -16303,7 +16319,7 @@ export default function TradingViewChart({
       ctx.lineWidth = 1
       ctx.setLineDash([5, 5])
       ctx.beginPath()
-      ctx.moveTo(40, zeroY)
+      ctx.moveTo(CHART_LEFT_MARGIN, zeroY)
       ctx.lineTo(chartWidth - 40, zeroY)
       ctx.stroke()
       ctx.setLineDash([])
@@ -16537,13 +16553,13 @@ export default function TradingViewChart({
 
     // Draw panel background - solid black
     ctx.fillStyle = config.bgColor
-    ctx.fillRect(40, panelStartY, chartWidth - 120, panelHeight)
+    ctx.fillRect(CHART_LEFT_MARGIN, panelStartY, chartWidth - 120, panelHeight)
 
     // Draw panel border at top
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(40, panelStartY)
+    ctx.moveTo(CHART_LEFT_MARGIN, panelStartY)
     ctx.lineTo(chartWidth - 80, panelStartY)
     ctx.stroke()
 
@@ -16566,7 +16582,7 @@ export default function TradingViewChart({
     const datePositions = new Map<string, number>()
     visibleData.forEach((candle, index) => {
       const dateStr = candle.date
-      const x = 40 + index * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2
       datePositions.set(dateStr, x)
     })
 
@@ -16718,7 +16734,7 @@ export default function TradingViewChart({
       ctx.lineWidth = 1
       ctx.setLineDash([3, 3])
       ctx.beginPath()
-      ctx.moveTo(40, y50)
+      ctx.moveTo(CHART_LEFT_MARGIN, y50)
       ctx.lineTo(chartWidth - 80, y50)
       ctx.stroke()
       ctx.setLineDash([])
@@ -16944,7 +16960,7 @@ export default function TradingViewChart({
 
     const startOffset = period - 1
     sma.forEach((value, index) => {
-      const x = 40 + (index + startOffset) * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + (index + startOffset) * candleSpacing + candleSpacing / 2
       const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight
 
       if (index === 0) {
@@ -16977,7 +16993,7 @@ export default function TradingViewChart({
 
     const startOffset = period - 1
     ema.forEach((value, index) => {
-      const x = 40 + (index + startOffset) * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + (index + startOffset) * candleSpacing + candleSpacing / 2
       const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight
 
       if (index === 0) {
@@ -17013,7 +17029,7 @@ export default function TradingViewChart({
 
       bands.forEach((band, index) => {
         const value = band[line as keyof typeof band]
-        const x = 40 + (index + 19) * candleSpacing + candleSpacing / 2
+        const x = CHART_LEFT_MARGIN + (index + 19) * candleSpacing + candleSpacing / 2
         const y = chartHeight - ((value - minPrice) / (maxPrice - minPrice)) * chartHeight
 
         if (index === 0) {
@@ -17046,12 +17062,12 @@ export default function TradingViewChart({
 
     // Draw RSI panel background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'
-    ctx.fillRect(40, rsiStartY, chartWidth - 80, rsiHeight)
+    ctx.fillRect(CHART_LEFT_MARGIN, rsiStartY, chartWidth - 80, rsiHeight)
 
     // Draw RSI panel border
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
     ctx.lineWidth = 1
-    ctx.strokeRect(40, rsiStartY, chartWidth - 80, rsiHeight)
+    ctx.strokeRect(CHART_LEFT_MARGIN, rsiStartY, chartWidth - 80, rsiHeight)
 
     // RSI reference lines (30, 50, 70) with proper scaling
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
@@ -17061,7 +17077,7 @@ export default function TradingViewChart({
       ;[30, 50, 70].forEach((level) => {
         const y = rsiStartY + rsiHeight - (level / 100) * rsiHeight
         ctx.beginPath()
-        ctx.moveTo(40, y)
+        ctx.moveTo(CHART_LEFT_MARGIN, y)
         ctx.lineTo(chartWidth - 40, y)
         ctx.stroke()
 
@@ -17085,11 +17101,11 @@ export default function TradingViewChart({
       // Calculate x position to align with the candlestick data
       // RSI index 0 corresponds to candlestick at dataStartIndex (14th candle)
       const candlestickIndex = index + dataStartIndex
-      const x = 40 + candlestickIndex * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + candlestickIndex * candleSpacing + candleSpacing / 2
       const y = rsiStartY + rsiHeight - (value / 100) * rsiHeight
 
       // Only draw if within chart bounds and we have valid data
-      if (x >= 40 && x <= chartWidth - 40 && candlestickIndex < visibleData.length) {
+      if (x >= CHART_LEFT_MARGIN && x <= chartWidth - 40 && candlestickIndex < visibleData.length) {
         if (index === 0) {
           ctx.moveTo(x, y)
         } else {
@@ -17132,12 +17148,12 @@ export default function TradingViewChart({
 
     // Draw MACD panel background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'
-    ctx.fillRect(40, macdStartY, chartWidth - 80, macdHeight)
+    ctx.fillRect(CHART_LEFT_MARGIN, macdStartY, chartWidth - 80, macdHeight)
 
     // Draw MACD panel border
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
     ctx.lineWidth = 1
-    ctx.strokeRect(40, macdStartY, chartWidth - 80, macdHeight)
+    ctx.strokeRect(CHART_LEFT_MARGIN, macdStartY, chartWidth - 80, macdHeight)
 
     // Find MACD range for scaling
     const allValues = [...macdLine, ...signalLine]
@@ -17151,7 +17167,7 @@ export default function TradingViewChart({
     ctx.lineWidth = 1
     ctx.setLineDash([2, 2])
     ctx.beginPath()
-    ctx.moveTo(40, zeroY)
+    ctx.moveTo(CHART_LEFT_MARGIN, zeroY)
     ctx.lineTo(chartWidth - 40, zeroY)
     ctx.stroke()
     ctx.setLineDash([])
@@ -17162,10 +17178,10 @@ export default function TradingViewChart({
       if (index < signalLine.length) {
         const histogram = macdValue - signalLine[index]
         const dataIndex = index + 26 // MACD calculation offset
-        const x = 40 + dataIndex * candleSpacing + candleSpacing / 2
+        const x = CHART_LEFT_MARGIN + dataIndex * candleSpacing + candleSpacing / 2
 
         // Only draw if within chart bounds and we have valid data
-        if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+        if (x >= CHART_LEFT_MARGIN && x <= chartWidth - 40 && dataIndex < visibleData.length) {
           const barHeight = Math.abs((histogram / macdRange) * macdHeight)
           const barY = histogram >= 0 ? zeroY - barHeight : zeroY
 
@@ -17182,11 +17198,11 @@ export default function TradingViewChart({
 
     macdLine.forEach((value, index) => {
       const dataIndex = index + 26 // MACD calculation offset
-      const x = 40 + dataIndex * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + dataIndex * candleSpacing + candleSpacing / 2
       const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight
 
       // Only draw if within chart bounds and we have valid data
-      if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+      if (x >= CHART_LEFT_MARGIN && x <= chartWidth - 40 && dataIndex < visibleData.length) {
         if (index === 0) {
           ctx.moveTo(x, y)
         } else {
@@ -17204,11 +17220,11 @@ export default function TradingViewChart({
 
     signalLine.forEach((value, index) => {
       const dataIndex = index + 35 // Signal line calculation offset (26 + 9)
-      const x = 40 + dataIndex * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + dataIndex * candleSpacing + candleSpacing / 2
       const y = macdStartY + macdHeight - ((value - macdMin) / macdRange) * macdHeight
 
       // Only draw if within chart bounds and we have valid data
-      if (x >= 40 && x <= chartWidth - 40 && dataIndex < visibleData.length) {
+      if (x >= CHART_LEFT_MARGIN && x <= chartWidth - 40 && dataIndex < visibleData.length) {
         if (index === 0) {
           ctx.moveTo(x, y)
         } else {
@@ -17276,7 +17292,7 @@ export default function TradingViewChart({
     // Convert prices to canvas coordinates - pixel-perfect alignment
     const priceToY = (price: number) => {
       const ratio = (price - minPrice) / (maxPrice - minPrice)
-      const chartArea = height - 25 // Reserve 25px at bottom for time labels
+      const chartArea = height - 5 // Reserve 5px at bottom for time labels
       return Math.floor(chartArea - ratio * (chartArea - 20) - 10) // Floor for consistent alignment
     }
 
@@ -17583,9 +17599,9 @@ export default function TradingViewChart({
         // Set appropriate color
         ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor
 
-        const labelY = isMobile ? height - 55 : height - 80
-        const tickStartY = isMobile ? height - 75 : height - 97
-        const tickEndY = isMobile ? height - 65 : height - 92
+        const labelY = isMobile ? height - 45 : height - 70
+        const tickStartY = isMobile ? height - 75 : height - 95
+        const tickEndY = isMobile ? height - 52 : height - 77
 
         // Draw the label below volume bars
         ctx.fillText(text, x, labelY)
@@ -17617,7 +17633,7 @@ export default function TradingViewChart({
     visibleData.forEach((candle, visIndex) => {
       const absIndex = startAbsIndex + visIndex
       if (absIndex % labelStep === 0) {
-        const x = 40 + visIndex * candleSpacing + candleSpacing / 2
+        const x = CHART_LEFT_MARGIN + visIndex * candleSpacing + candleSpacing / 2
         const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format)
         addLabel(x, timeLabel, false)
       }
@@ -17626,7 +17642,7 @@ export default function TradingViewChart({
     // Always try to add the last visible data point if not already added
     if (visibleData.length > 0) {
       const lastIndex = visibleData.length - 1
-      const x = 40 + lastIndex * candleSpacing + candleSpacing / 2
+      const x = CHART_LEFT_MARGIN + lastIndex * candleSpacing + candleSpacing / 2
       const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format)
       addLabel(x, timeLabel, false)
     }
@@ -17649,7 +17665,7 @@ export default function TradingViewChart({
         const lastDataCandle = allData[allData.length - 1]
         const lastDataIndex = allData.length - 1
         const lastDataPositionOnScreen = lastDataIndex - Math.floor(scrollOffset)
-        const lastDataX = 40 + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+        const lastDataX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
         const lastDataDate = new Date(lastDataCandle.timestamp)
         lastDataDate.setHours(0, 0, 0, 0)
 
@@ -17674,9 +17690,9 @@ export default function TradingViewChart({
         // Place a label every ~10 trading days, using addLabel for collision detection
         const labelEvery = 10
         let lastLabelTradingDay = 0
-        const labelY = isMobile ? height - 55 : height - 80
-        const tickStartY = isMobile ? height - 75 : height - 97
-        const tickEndY = isMobile ? height - 65 : height - 92
+        const labelY = isMobile ? height - 45 : height - 70
+        const tickStartY = isMobile ? height - 75 : height - 95
+        const tickEndY = isMobile ? height - 52 : height - 77
 
         ctx.save()
         ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
@@ -17734,7 +17750,7 @@ export default function TradingViewChart({
             ctx.globalAlpha = 0.8
 
             ctx.beginPath()
-            ctx.moveTo(40, y)
+            ctx.moveTo(CHART_LEFT_MARGIN, y)
             ctx.lineTo(dimensions.width - 80, y)
             ctx.stroke()
 
@@ -17905,7 +17921,7 @@ export default function TradingViewChart({
 
   // Stable helper function to get EXACT same priceChartHeight as renderChart function
   const actualPriceChartHeight = useMemo((): number => {
-    const timeAxisHeight = 25
+    const timeAxisHeight = 18
     const volumeAreaHeight = 80
     const totalBottomSpace = volumeAreaHeight + timeAxisHeight
     return dimensions.height - totalBottomSpace
@@ -17969,7 +17985,7 @@ export default function TradingViewChart({
       const dataIndex = visibleData.findIndex((d) => d.timestamp >= timestamp)
       const relativeIndex = dataIndex >= 0 ? dataIndex : visibleData.length - 1
 
-      return 40 + relativeIndex * candleWidth
+      return CHART_LEFT_MARGIN + relativeIndex * candleWidth
     },
     [dimensions.width, visibleCandleCount, scrollOffset, data]
   )
@@ -18024,7 +18040,7 @@ export default function TradingViewChart({
       // Convert screen X to actual timestamp - using same logic as crosshair
       const chartWidth = dimensions.width - 100 // Match crosshair calculation
       const candleWidth = chartWidth / visibleCandleCount
-      const relativeX = Math.max(0, screenX - 40) // Account for left margin (match crosshair)
+      const relativeX = Math.max(0, screenX - CHART_LEFT_MARGIN) // Account for left margin (match crosshair)
       const visibleCandleIndex = Math.floor(relativeX / candleWidth)
 
       // Get visible data slice to work with actual visible candles
@@ -18165,7 +18181,7 @@ export default function TradingViewChart({
         const currentVisibleData = data.slice(startIndex, endIndex)
 
         if (currentVisibleData.length > 0) {
-          const timeAxisHeight = 25
+          const timeAxisHeight = 18
           const volumeAreaHeight = 80
           const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight
           const minPrice = Math.min(...currentVisibleData.map((d) => d.low))
@@ -18184,7 +18200,7 @@ export default function TradingViewChart({
       }
 
       // Default chart panning behavior
-      const timeAxisHeight = 25
+      const timeAxisHeight = 18
       const priceChartHeight = dimensions.height - timeAxisHeight
 
       // BUY/SELL panel resize — check if clicking on the panel's top border
@@ -18656,7 +18672,7 @@ export default function TradingViewChart({
       setSelectedDrawings([])
 
       // Check if click is within valid chart bounds
-      const timeAxisHeight = 25
+      const timeAxisHeight = 18
       const priceChartHeight = dimensions.height - timeAxisHeight
 
       if (y > priceChartHeight) {
@@ -18712,7 +18728,7 @@ export default function TradingViewChart({
       // Handle Y-axis drag to zoom (drag UP = compress, drag DOWN = expand)
       if (isDraggingYAxisZoom && yAxisZoomDragStart) {
         const deltaY = y - yAxisZoomDragStart.y
-        const timeAxisHeight = 25
+        const timeAxisHeight = 18
         const priceChartHeight = dimensions.height - timeAxisHeight
 
         // Drag UP (negative deltaY) = compress (zoom in)
@@ -18753,7 +18769,7 @@ export default function TradingViewChart({
       // TradingView: Handle Y-axis resize drag
       if (isResizingYAxis && yAxisResizeStart) {
         const deltaY = y - yAxisResizeStart.y
-        const timeAxisHeight = 25
+        const timeAxisHeight = 18
         const priceChartHeight = dimensions.height - timeAxisHeight
 
         // Calculate zoom based on vertical drag
@@ -18846,7 +18862,7 @@ export default function TradingViewChart({
       // Handle drawing dragging
       if (isDraggingDrawing && selectedDrawing) {
         // Convert Y to price using the same calculation as chart rendering
-        const timeAxisHeight = 25
+        const timeAxisHeight = 18
         const priceChartHeight = dimensions.height - timeAxisHeight
 
         // Calculate visible data range for accurate price conversion
@@ -18920,7 +18936,7 @@ export default function TradingViewChart({
       // Y-AXIS PAN (PRICE)
       // =====================
       if (startPriceRange) {
-        const timeAxisHeight = 25
+        const timeAxisHeight = 18
         const priceChartHeight = dimensions.height - timeAxisHeight
 
         const priceSpan = startPriceRange.max - startPriceRange.min
@@ -18995,8 +19011,8 @@ export default function TradingViewChart({
           const candleWidth = chartWidth / visibleCandleCount
 
           // Calculate new time range (X-axis)
-          const startCandleIndex = Math.floor((startX - 40) / candleWidth)
-          const endCandleIndex = Math.floor((endX - 40) / candleWidth)
+          const startCandleIndex = Math.floor((startX - CHART_LEFT_MARGIN) / candleWidth)
+          const endCandleIndex = Math.floor((endX - CHART_LEFT_MARGIN) / candleWidth)
           const newVisibleCount = Math.max(20, Math.min(300, endCandleIndex - startCandleIndex))
           const newScrollOffset = Math.max(
             0,
@@ -19004,7 +19020,7 @@ export default function TradingViewChart({
           )
 
           // Calculate new price range (Y-axis)
-          const timeAxisHeight = 25
+          const timeAxisHeight = 18
           const priceChartHeight = dimensions.height - timeAxisHeight
 
           // Get current price range for conversion
@@ -20481,8 +20497,10 @@ export default function TradingViewChart({
               style={{
                 gridTemplateColumns:
                   isMobile
-                    ? '45px 50px 44px 40px 40px 36px 40px 42px 36px 44px'
+                    ? '45fr 50fr 44fr 40fr 40fr 36fr 40fr 42fr 36fr 44fr'
                     : '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
+                marginTop: 0,
+                paddingTop: 0,
               }}
             >
               <div className="md:py-5 md:px-3 p-1 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600 text-center">
@@ -20697,7 +20715,7 @@ export default function TradingViewChart({
                           style={{
                             gridTemplateColumns:
                               isMobile
-                                ? '45px 50px 44px 40px 40px 36px 40px 42px 36px 44px'
+                                ? '45fr 50fr 44fr 40fr 40fr 36fr 40fr 42fr 36fr 44fr'
                                 : '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 0.9fr 1fr',
                           }}
                           title={(() => {
@@ -25925,6 +25943,8 @@ export default function TradingViewChart({
  position: relative;
  overflow-x: auto;
  overflow-y: hidden;
+ padding-top: 0 !important;
+ padding-bottom: 0 !important;
  }
  .navigation-bar-premium::-webkit-scrollbar {
  height: 3px;
@@ -25977,7 +25997,9 @@ export default function TradingViewChart({
             ref={topBarRef}
             className="border-b flex items-center justify-between px-6 relative navigation-bar-premium flex-shrink-0"
             style={{
-              height: isMobile ? '40px' : '56px',
+              height: isMobile ? '48px' : '48px',
+              paddingTop: 0,
+              paddingBottom: 0,
               background: '#000000',
               backgroundSize: '400% 400%',
               borderColor: '#333333',
@@ -26041,6 +26063,273 @@ export default function TradingViewChart({
             >
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
+                {/* ── HAMBURGER MENU (mobile only) ── */}
+                {isMobile && (() => {
+                  const hmAccent: Record<string, string> = {
+                    orange: '#F97316', blue: '#3B82F6', emerald: '#10B981', amber: '#F59E0B',
+                    red: '#EF4444', cyan: '#06B6D4', purple: '#A855F7', pink: '#EC4899',
+                    lime: '#84CC16', teal: '#14B8A6', rose: '#F43F5E', platinum: '#C4CBD6',
+                  }
+                  const hmItems: Array<{ id: string; label: string; accent: string; icon: React.ReactNode }> = [
+                    {
+                      id: 'liquid', label: 'LIQUID', accent: 'orange', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="4" width="18" height="4" rx="1" strokeWidth="1.8" />
+                          <rect x="3" y="10" width="14" height="4" rx="1" strokeWidth="1.8" />
+                          <rect x="3" y="16" width="10" height="4" rx="1" strokeWidth="1.8" />
+                          <path d="M19 17l3-3-3-3" strokeWidth="1.8" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'watch', label: 'WATCH', accent: 'blue', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12c0 0 3.5-6 9-6s9 6 9 6-3.5 6-9 6-9-6-9-6z" strokeWidth="1.8" />
+                          <circle cx="12" cy="12" r="2.5" strokeWidth="1.8" />
+                          <path d="M8 12l1.5-2.5 2 2.5 2-4 2 3" strokeWidth="1.4" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'markets', label: 'MARKETS', accent: 'emerald', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round">
+                          <line x1="5" y1="20" x2="5" y2="10" strokeWidth="3.5" /><line x1="5" y1="8" x2="5" y2="6" strokeWidth="1.5" /><line x1="5" y1="22" x2="5" y2="20" strokeWidth="1.5" />
+                          <line x1="12" y1="20" x2="12" y2="7" strokeWidth="3.5" /><line x1="12" y1="5" x2="12" y2="3" strokeWidth="1.5" /><line x1="12" y1="22" x2="12" y2="20" strokeWidth="1.5" />
+                          <line x1="19" y1="20" x2="19" y2="13" strokeWidth="3.5" /><line x1="19" y1="11" x2="19" y2="9" strokeWidth="1.5" /><line x1="19" y1="22" x2="19" y2="20" strokeWidth="1.5" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'news', label: 'NEWS', accent: 'amber', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth="1.8" />
+                          <path d="M8 9h8M8 13h8M8 17h5" strokeWidth="1.7" />
+                          <path d="M8 6h2v2H8z" strokeWidth="0" fill="currentColor" opacity="0.4" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'alerts', label: 'ALERTS', accent: 'red', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 3a7 7 0 017 7c0 3.5-1 5-2 7H7c-1-2-2-3.5-2-7a7 7 0 017-7z" strokeWidth="1.8" />
+                          <path d="M10.5 20.5a1.5 1.5 0 003 0" strokeWidth="1.8" />
+                          <line x1="12" y1="3" x2="12" y2="1.5" strokeWidth="1.8" />
+                          <circle cx="17.5" cy="5" r="2.5" fill="#EF4444" stroke="none" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'chain', label: 'CHAIN', accent: 'cyan', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="2" y="2" width="9" height="9" rx="1.5" strokeWidth="1.7" />
+                          <rect x="13" y="2" width="9" height="9" rx="1.5" strokeWidth="1.7" />
+                          <rect x="2" y="13" width="9" height="9" rx="1.5" strokeWidth="1.7" />
+                          <rect x="13" y="13" width="9" height="9" rx="1.5" strokeWidth="1.7" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'plan', label: 'PLAN', accent: 'purple', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.6" />
+                          <path d="M3 9h18M3 15h18M9 3v18M15 3v18" strokeWidth="1" opacity="0.45" />
+                          <path d="M14 7l2.5 2.5L10 16l-3 .5.5-3L14 7z" strokeWidth="1.7" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'seasonality', label: 'SEASONAL', accent: 'pink', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="5" width="18" height="16" rx="2" strokeWidth="1.7" />
+                          <path d="M3 10h18" strokeWidth="1.5" />
+                          <path d="M8 3v4M16 3v4" strokeWidth="2" />
+                          <path d="M4 17q2-3 4 0t4 0 4 0" strokeWidth="1.7" fill="none" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'flow', label: 'FLOW', accent: 'lime', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7c4 0 4 4 8 4s4-4 8-4" strokeWidth="1.8" />
+                          <path d="M4 12h16" strokeWidth="1.5" strokeDasharray="2 2" />
+                          <path d="M4 17c4 0 4-4 8-4s4 4 8 4" strokeWidth="1.8" />
+                          <path d="M18 5l3 2-3 2M18 15l3 2-3 2" strokeWidth="1.8" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'screeners', label: 'SCREENERS', accent: 'teal', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 4h18l-6.5 8V19l-5-2.5V12L3 4z" strokeWidth="1.8" strokeLinejoin="round" />
+                          <path d="M7 10h5M8 13h3" strokeWidth="1.4" opacity="0.55" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'rrg', label: 'RRG', accent: 'rose', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="9" strokeWidth="1.7" />
+                          <path d="M12 3v18M3 12h18" strokeWidth="1" opacity="0.4" />
+                          <path d="M15 7a6 6 0 10-8 8" strokeWidth="2" />
+                          <path d="M16.5 5.5l-1.5 2 2 1" strokeWidth="1.8" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: 'insight', label: 'INSIGHT', accent: 'platinum', icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9.5 21h5M12 3a6 6 0 016 6c0 2.5-1.4 4.4-3 6H9c-1.6-1.6-3-3.5-3-6a6 6 0 016-6z" strokeWidth="1.8" />
+                          <path d="M9.5 18h5" strokeWidth="1.7" />
+                          <path d="M10.5 14.5l1.5-3.5 1.5 3.5M10.5 14.5h3" strokeWidth="1.4" />
+                        </svg>
+                      )
+                    },
+                  ]
+                  return (
+                    <div style={{ position: 'relative', flexShrink: 0, marginRight: '10px' }}>
+                      {isHamburgerOpen && (
+                        <div
+                          style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                          onClick={() => setIsHamburgerOpen(false)}
+                        />
+                      )}
+                      <button
+                        onClick={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          const nextOpen = !isHamburgerOpen
+                          setHmDropPos({ top: r.bottom + 8, left: r.left })
+                          setIsHamburgerOpen(nextOpen)
+                        }}
+                        onMouseDown={() => setHmPressed(true)}
+                        onMouseUp={() => setHmPressed(false)}
+                        onMouseLeave={() => setHmPressed(false)}
+                        onTouchStart={() => setHmPressed(true)}
+                        onTouchEnd={() => setHmPressed(false)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          position: 'relative', overflow: 'hidden',
+                          width: isMobile ? '34px' : '40px',
+                          height: isMobile ? '36px' : '42px',
+                          padding: 0, flexShrink: 0,
+                          background: isHamburgerOpen
+                            ? 'linear-gradient(175deg, #111111 0%, #050505 40%, #000000 100%)'
+                            : 'linear-gradient(175deg, #181818 0%, #080808 45%, #000000 100%)',
+                          borderTop: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.85)' : 'rgba(255,140,30,0.45)'}`,
+                          borderRight: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.6)' : 'rgba(255,140,30,0.25)'}`,
+                          borderBottom: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.45)' : 'rgba(255,140,30,0.15)'}`,
+                          borderLeft: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.6)' : 'rgba(255,140,30,0.25)'}`,
+                          borderRadius: '8px',
+                          boxShadow: hmPressed
+                            ? `0 1px 4px rgba(0,0,0,0.9), 0 0 0 1px rgba(0,0,0,0.6), inset 0 2px 6px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04)${isHamburgerOpen ? ', 0 0 10px rgba(255,102,0,0.2)' : ''}`
+                            : isHamburgerOpen
+                              ? '0 0 20px rgba(255,102,0,0.3), 0 4px 16px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.7)'
+                              : '0 6px 20px rgba(0,0,0,0.95), 0 2px 6px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -2px 0 rgba(0,0,0,0.8)',
+                          cursor: 'pointer',
+                          transform: hmPressed ? 'translateY(1px) scale(0.97)' : 'translateY(0) scale(1)',
+                          transition: 'all 0.18s cubic-bezier(0.34,1.56,0.64,1)',
+                        }}
+                        aria-label="Toggle navigation menu"
+                      >
+                        {/* Gloss overlay */}
+                        <div style={{
+                          position: 'absolute', top: 0, left: 0, right: 0,
+                          height: '52%', borderRadius: '8px 8px 40% 40%',
+                          background: 'linear-gradient(180deg, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.03) 70%, transparent 100%)',
+                          pointerEvents: 'none', zIndex: 1,
+                        }} />
+                        {/* Edge glow when open */}
+                        {isHamburgerOpen && (
+                          <div style={{
+                            position: 'absolute', inset: 0, borderRadius: '8px',
+                            boxShadow: 'inset 0 0 12px rgba(255,102,0,0.12)',
+                            pointerEvents: 'none', zIndex: 2,
+                          }} />
+                        )}
+                        <svg width={isMobile ? 14 : 15} height={isMobile ? 12 : 13} viewBox="0 0 15 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 3 }}>
+                          <g style={{ opacity: isHamburgerOpen ? 0 : 1, transition: 'opacity 0.2s ease', pointerEvents: 'none' }}>
+                            <line x1="0" y1="1" x2="15" y2="1" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
+                            <line x1="0" y1="6" x2="15" y2="6" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
+                            <line x1="0" y1="11" x2="15" y2="11" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
+                          </g>
+                          <g style={{ opacity: isHamburgerOpen ? 1 : 0, transition: 'opacity 0.2s ease', pointerEvents: 'none' }}>
+                            <line x1="1.5" y1="1.5" x2="13.5" y2="10.5" stroke="#FF6600" strokeWidth="2" strokeLinecap="round" />
+                            <line x1="13.5" y1="1.5" x2="1.5" y2="10.5" stroke="#FF6600" strokeWidth="2" strokeLinecap="round" />
+                          </g>
+                        </svg>
+                      </button>
+                      {isHamburgerOpen && (
+                        <div style={{
+                          position: 'fixed', top: hmDropPos.top, left: hmDropPos.left, zIndex: 99999,
+                          background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
+                          borderTop: '1px solid rgba(255,255,255,0.25)',
+                          borderRight: '1px solid rgba(255,255,255,0.1)',
+                          borderBottom: '1px solid rgba(255,255,255,0.1)',
+                          borderLeft: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '10px',
+                          boxShadow: '0 24px 60px rgba(0,0,0,0.95),0 8px 24px rgba(0,0,0,0.8),inset 0 1px 0 rgba(255,255,255,0.06)',
+                          backdropFilter: 'blur(24px)', overflow: 'hidden', width: 'max-content', minWidth: '160px',
+                          animation: 'hmDrop 0.18s cubic-bezier(0.22,1,0.36,1)',
+                        }}>
+                          <style>{`@keyframes hmDrop{from{opacity:0;transform:translateY(-8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
+                          {hmItems.map((item, idx) => {
+                            const clr = hmAccent[item.accent]
+                            const active = activeSidebarPanel === item.id
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={() => { handleSidebarClick(item.id); setIsHamburgerOpen(false) }}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: '12px',
+                                  width: '100%', padding: '10px 14px',
+                                  background: active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent',
+                                  borderLeft: `3px solid ${active ? clr : 'transparent'}`,
+                                  borderRight: 'none', borderTop: 'none',
+                                  borderBottom: idx < hmItems.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                                  cursor: 'pointer', transition: 'all 0.15s ease',
+                                  position: 'relative', overflow: 'hidden',
+                                }}
+                                onMouseEnter={e => {
+                                  e.currentTarget.style.background = `linear-gradient(90deg,${clr}14 0%,rgba(255,255,255,0.02) 100%)`
+                                  e.currentTarget.style.borderLeft = `3px solid ${clr}80`
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.style.background = active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent'
+                                  e.currentTarget.style.borderLeft = `3px solid ${active ? clr : 'transparent'}`
+                                }}
+                              >
+                                <div style={{
+                                  width: '34px', height: '34px', borderRadius: '8px', flexShrink: 0,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  background: `linear-gradient(145deg,${clr}30 0%,${clr}10 50%,rgba(0,0,0,0.5) 100%)`,
+                                  borderTop: `1px solid ${clr}80`, borderRight: `1px solid ${clr}50`, borderBottom: `1px solid ${clr}50`, borderLeft: `1px solid ${clr}50`,
+                                  boxShadow: `0 4px 12px ${clr}25,inset 0 1px 0 ${clr}30,inset 0 -1px 0 rgba(0,0,0,0.5)`,
+                                  color: clr, position: 'relative', overflow: 'hidden',
+                                }}>
+                                  <div style={{ position: 'absolute', inset: 0, borderRadius: '8px', background: 'linear-gradient(160deg,rgba(255,255,255,0.18) 0%,transparent 55%)', pointerEvents: 'none' }} />
+                                  <div style={{ width: '18px', height: '18px', position: 'relative', zIndex: 1, filter: `drop-shadow(0 0 4px ${clr}80)` }}>
+                                    {item.icon}
+                                  </div>
+                                </div>
+                                <span style={{
+                                  fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em',
+                                  color: active ? clr : 'rgba(255,255,255,0.85)',
+                                  textTransform: 'uppercase',
+                                  textShadow: active ? `0 0 10px ${clr}60` : '0 1px 3px rgba(0,0,0,0.8)',
+                                  fontFamily: 'system-ui,-apple-system,sans-serif',
+                                }}>
+                                  {item.label}
+                                </span>
+                                {active && (
+                                  <div style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: clr, boxShadow: `0 0 6px ${clr}`, flexShrink: 0 }} />
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div className="flex items-center space-x-3">
                   <div
                     className="relative flex items-center"
@@ -26051,8 +26340,10 @@ export default function TradingViewChart({
                         display: 'inline-flex',
                         alignItems: 'center',
                         background: 'linear-gradient(145deg, #2a2a2a, #0a0a0a)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
                         borderTop: '1px solid rgba(255, 255, 255, 0.4)',
+                        borderRight: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderLeft: '1px solid rgba(255, 255, 255, 0.2)',
                         borderRadius: '6px',
                         padding: isMobile ? '3px 5px' : '8px 14px',
                         gap: isMobile ? '2px' : '8px',
@@ -26341,7 +26632,7 @@ export default function TradingViewChart({
                       <select
                         value={config.timeframe}
                         onChange={(e) => handleTimeframeChange(e.target.value)}
-                        className="btn-3d-carved text-white rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        className="btn-3d-carved text-white rounded-md px-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
                         style={{
                           background: '#000000',
                           border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -26349,6 +26640,9 @@ export default function TradingViewChart({
                           boxShadow:
                             '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
                           outline: 'none',
+                          height: '34px',
+                          paddingTop: '0',
+                          paddingBottom: '0',
                         }}
                       >
                         <option value="5m">5M</option>
@@ -26368,6 +26662,7 @@ export default function TradingViewChart({
                 <div
                   className="flex items-center chart-type-dropdown"
                   style={{
+                    display: isMobile ? 'none' : undefined,
                     background: '#000000',
                     border: '1px solid rgba(255, 255, 255, 0.15)',
                     borderRadius: '4px',
@@ -26487,8 +26782,153 @@ export default function TradingViewChart({
                   </div>
                 </div>
 
+                {isMobile && isMounted && (
+                  <>
+                    <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
+                    <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
+                    <button onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: currentDrawingTool !== 'select' ? '#000' : '#fff', background: currentDrawingTool !== 'select' ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DRAW</button>
+                    {/* Group 1 Panel - Data */}
+                    {isMobileGroup1Open && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup1Open(false)} />
+                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Data</span>
+                            <button onClick={() => setIsMobileGroup1Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Expected Range</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Weekly{isWeeklyActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Monthly{isMonthlyActive ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>GEX</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { setIsLiveGexActive(!isLiveGexActive); if (!isLiveGexActive) handleLiveGEXClick(); if (!isLiveGexActive || isOiGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isLiveGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX Live{isLiveGexActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { setIsOiGexActive(!isOiGexActive); if (!isOiGexActive) handleOIGEXClick(); if (!isOiGexActive || isLiveGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isOiGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX OI{isOiGexActive ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IV</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => setShowIVRankIndicator(v => !v)} className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV Rank{showIVRankIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => setShowIVPercentileIndicator(v => !v)} className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV %ile{showIVPercentileIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => setShowDarkPoolIndicator(v => !v)} className={`btn-3d-carved ${showDarkPoolIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>POI{showDarkPoolIndicator ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>RRG Candle</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'price') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); setRrgMode('price'); setRrgLookbackPeriod(10); } else { setRrgMode('price'); handleRRGCandleClick(rrgLookbackPeriod, 'price'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'price' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Price{isRRGCandleActive && rrgMode === 'price' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'iv') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('iv'); handleRRGCandleClick(rrgIvLookbackPeriod, 'iv'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'iv' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV{isRRGCandleActive && rrgMode === 'iv' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'ivspy') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('ivspy'); handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'ivspy' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV/SPY{isRRGCandleActive && rrgMode === 'ivspy' ? ' ✓' : ''}</button>
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* Group 2 Panel - Tools */}
+                    {isMobileGroup2Open && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup2Open(false)} />
+                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Tools</span>
+                            <button onClick={() => setIsMobileGroup2Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
+                          {/* ── SEASONAL ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonal</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const d10 = await calculateSeasonalityProjection(symbol, 10, data); setSeasonal10YData(d10); setIsSeasonal10YActive(true); if (maxSeasonalYears >= 15) { const d15 = await calculateSeasonalityProjection(symbol, 15, data); setSeasonal15YData(d15); setIsSeasonal15YActive(true); } if (maxSeasonalYears >= 20) { const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data); setSeasonal20YData(dMax); setIsSeasonal20YActive(true); } setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isLoadingSeasonalProjection ? 'Loading...' : `Seasonality${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? ' ✓' : ''}`}</button>
+                            <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const proj = await calculateSeasonalityProjection(symbol, 20, data, cycle); setIsLoadingSeasonalProjection(false); if (!proj) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(proj); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election (N/A)' : `Election${isSeasonalElectionActive ? ' ✓' : ''}`}</button>
+                          </div>
+                          {/* ── TECHNALYSIS ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Technalysis</div>
+                          <button onClick={() => { const next = !technalysisActive; setTechnalysisActive(next); setTechnalysisFeatures({ orderBlocks: next, fvg: next, liquidity: next, structure: next, premiumDiscount: next }); }} className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', width: '100%' }}>Enable All{technalysisActive ? ' ✓' : ''}</button>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, orderBlocks: !p.orderBlocks })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Zones{technalysisFeatures.orderBlocks ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, fvg: !p.fvg })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Fills{technalysisFeatures.fvg ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, liquidity: !p.liquidity })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hunting{technalysisFeatures.liquidity ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, structure: !p.structure })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Trend{technalysisFeatures.structure ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, premiumDiscount: !p.premiumDiscount })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Prem/Disc{technalysisFeatures.premiumDiscount ? ' ✓' : ''}</button>
+                          </div>
+                          {/* ── OTHER ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => setShowBuySellIndicator(v => !v)} className={`btn-3d-carved ${showBuySellIndicator ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Buy/Sell{showBuySellIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showPEPanel; setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E Ratio{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
+                          </div>
+                          {/* ── LIVE FLOWMOVES ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Live FlowMoves</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1D{isFlowChartActive && flowMovesTimeframe === '1D' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '3D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('3D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('3D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '3D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>3D{isFlowChartActive && flowMovesTimeframe === '3D' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1W') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1W'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1W'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1W' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1W{isFlowChartActive && flowMovesTimeframe === '1W' ? ' ✓' : ''}</button>
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* Group 3 Panel - Drawing Tools */}
+                    {isMobileGroup3Open && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup3Open(false)} />
+                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '70vh', overflowY: 'auto', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ background: 'linear-gradient(180deg,#fff 20%,#888 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 800, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '3px' }}>Drawing Tools</span>
+                            <button onClick={() => setIsMobileGroup3Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+                            {([
+                              { tool: 'trendline', icon: '/', label: 'Trend' },
+                              { tool: 'horizontal', icon: '—', label: 'H-Line' },
+                              { tool: 'vertical', icon: '|', label: 'V-Line' },
+                              { tool: 'parallelChannel', icon: '‖', label: 'Channel' },
+                              { tool: 'rectangle', icon: '□', label: 'Box' },
+                              { tool: 'buyZone', icon: '□', label: 'Buy' },
+                              { tool: 'sellZone', icon: '□', label: 'Sell' },
+                              { tool: 'priceRange', icon: '↕', label: 'Range' },
+                              { tool: 'brush', icon: 'brush', label: 'Brush' },
+                              { tool: 'text', icon: 'T', label: 'Text' },
+                            ] as const).map(({ tool, icon, label }) => (
+                              <button key={tool} onClick={() => setCurrentDrawingTool(currentDrawingTool === tool ? 'select' : tool)} className={`btn-3d-carved ${currentDrawingTool === tool ? 'active' : ''}`} style={{ padding: '8px 2px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px', minWidth: 0, background: tool === 'buyZone' && currentDrawingTool === tool ? 'linear-gradient(135deg,#22c55e,#16a34a)' : tool === 'sellZone' && currentDrawingTool === tool ? 'linear-gradient(135deg,#ef4444,#dc2626)' : undefined, border: tool === 'buyZone' ? (currentDrawingTool === tool ? '2px solid #22c55e' : '2px solid rgba(34,197,94,0.3)') : tool === 'sellZone' ? (currentDrawingTool === tool ? '2px solid #ef4444' : '2px solid rgba(239,68,68,0.3)') : undefined, color: tool === 'buyZone' ? (currentDrawingTool === tool ? '#000' : '#22c55e') : tool === 'sellZone' ? (currentDrawingTool === tool ? '#000' : '#ef4444') : undefined }}>
+                                {icon === 'brush' ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" /><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7" /><path d="M14.5 17.5 4.5 15" /></svg>
+                                ) : (
+                                  <span style={{ fontSize: '14px', fontWeight: 700, lineHeight: 1 }}>{icon}</span>
+                                )}
+                                <span style={{ fontSize: '9px', letterSpacing: '0.2px', whiteSpace: 'nowrap' }}>{label}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+                            <button onClick={() => setIsDrawingToolLocked(!isDrawingToolLocked)} className="btn-3d-carved" style={{ padding: '8px 2px', fontWeight: 700, fontSize: '9px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: isDrawingToolLocked ? '#FFD700' : undefined, color: isDrawingToolLocked ? '#000' : '#fff' }}>
+                              {isDrawingToolLocked ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}
+                              <span>Lock</span>
+                            </button>
+                            <button onClick={() => { if (currentHistoryIndex > 0) { const ni = currentHistoryIndex - 1; setHistoryIndex(prev => ({ ...prev, [currentSymbol]: ni })); setLwChartDrawings(prev => ({ ...prev, [currentSymbol]: currentHistory[ni] })); } }} disabled={currentHistoryIndex <= 0} className="btn-3d-carved" style={{ padding: '8px 2px', fontWeight: 700, fontSize: '9px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', opacity: currentHistoryIndex <= 0 ? 0.5 : 1 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg>
+                              <span>Undo</span>
+                            </button>
+                            <button onClick={() => { if (currentHistoryIndex < currentHistory.length - 1) { const ni = currentHistoryIndex + 1; setHistoryIndex(prev => ({ ...prev, [currentSymbol]: ni })); setLwChartDrawings(prev => ({ ...prev, [currentSymbol]: currentHistory[ni] })); } }} disabled={currentHistoryIndex >= currentHistory.length - 1} className="btn-3d-carved" style={{ padding: '8px 2px', fontWeight: 700, fontSize: '9px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', opacity: currentHistoryIndex >= currentHistory.length - 1 ? 0.5 : 1 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14L20 9L15 4" /><path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" /></svg>
+                              <span>Redo</span>
+                            </button>
+                            <button onClick={() => setIsBackgroundVisible(!isBackgroundVisible)} className="btn-3d-carved" style={{ padding: '8px 2px', fontWeight: 700, fontSize: '9px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: isBackgroundVisible ? '#22c55e' : undefined, color: isBackgroundVisible ? '#000' : '#fff' }}>
+                              {isBackgroundVisible ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6 1.507 0 2.91-.494 4.11-1.282" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6-.34.64-.8 1.326-1.373 2" /></svg>}
+                              <span>{isBackgroundVisible ? 'Shown' : 'Hidden'}</span>
+                            </button>
+                            <button onClick={() => { setLwChartDrawings(prev => ({ ...prev, [currentSymbol]: [] })); setDrawingHistory(prev => ({ ...prev, [currentSymbol]: [[]] })); setHistoryIndex(prev => ({ ...prev, [currentSymbol]: 0 })); setCurrentDrawingTool('select'); }} className="btn-3d-carved" style={{ padding: '8px 2px', fontWeight: 700, fontSize: '9px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', border: '1px solid #DC143C', color: '#DC143C' }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                              <span>Clear</span>
+                            </button>
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                  </>
+                )}
+
                 {/* Expected Range Button - Standalone */}
-                <div className="ml-4 relative">
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                   <button
                     ref={expectedRangeButtonRef}
                     onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
@@ -26825,7 +27265,7 @@ export default function TradingViewChart({
                 </div>
 
                 {/* Seasonal Button */}
-                <div className="ml-4 relative">
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                   {maxSeasonalYears < 10 ? (
                     <button
                       className="btn-3d-carved btn-seasonal"
@@ -27244,7 +27684,7 @@ export default function TradingViewChart({
                 </div>
 
                 {/* GEX Button with Dropdown - Next to Expected Range */}
-                <div className="ml-4 relative">
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                   <button
                     ref={gexButtonRef}
                     onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
@@ -27382,7 +27822,7 @@ export default function TradingViewChart({
                 </div>
 
                 {/* IV & HV Button with Dropdown */}
-                <div className="ml-4 relative">
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                   <button
                     ref={ivhvButtonRef}
                     onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
@@ -27705,7 +28145,7 @@ export default function TradingViewChart({
                 </div>
 
                 {/* Technalysis Button */}
-                <div className="ml-4 relative">
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                   <button
                     ref={technalysisButtonRef}
                     onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
@@ -27938,7 +28378,7 @@ export default function TradingViewChart({
               </div>
 
               {/* Live FlowMoves Button with Dropdown */}
-              <div className="ml-4 relative">
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                 <button
                   ref={flowMovesButtonRef}
                   onClick={() => setIsFlowMovesDropdownOpen(!isFlowMovesDropdownOpen)}
@@ -28085,7 +28525,7 @@ export default function TradingViewChart({
               </div>
 
               {/* RRG Candle Button with Dropdown */}
-              <div className="ml-4 relative">
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                 <button
                   ref={rrgButtonRef}
                   onClick={() => setIsRrgDropdownOpen(!isRrgDropdownOpen)}
@@ -28369,21 +28809,25 @@ export default function TradingViewChart({
               </div>
 
               {/* BUY/SELL Button */}
-              <BuySellButton
-                isActive={showBuySellIndicator}
-                onClick={() => setShowBuySellIndicator((v) => !v)}
-              />
+              {!isMobile && (
+                <BuySellButton
+                  isActive={showBuySellIndicator}
+                  onClick={() => setShowBuySellIndicator((v) => !v)}
+                />
+              )}
 
               {/* DARK POOL Button */}
-              <DarkPoolButton
-                isActive={showDarkPoolIndicator}
-                isLoading={darkPoolLoading}
-                progress={darkPoolProgress}
-                onClick={() => setShowDarkPoolIndicator((v) => !v)}
-              />
+              {!isMobile && (
+                <DarkPoolButton
+                  isActive={showDarkPoolIndicator}
+                  isLoading={darkPoolLoading}
+                  progress={darkPoolProgress}
+                  onClick={() => setShowDarkPoolIndicator((v) => !v)}
+                />
+              )}
 
               {/* P/E RATIO Indicator Button — toggles canvas bottom panel like IV Rank */}
-              <div className="ml-4 relative">
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                 <button
                   ref={peButtonRef}
                   onClick={() => {
@@ -28424,7 +28868,7 @@ export default function TradingViewChart({
               </div>
 
               {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
-              {lwToolbarPosition !== 'left' && (
+              {lwToolbarPosition !== 'left' && !isMobile && (
                 <div
                   className="ml-4 flex items-center space-x-2"
                   style={{
@@ -29737,10 +30181,10 @@ export default function TradingViewChart({
 
           {/* Chart Container with Sidebar */}
           <div className="flex flex-1 bg-[#0a0a0a]">
-            {/* Clean Professional Sidebar */}
+            {/* Sidebar — visible on desktop, hidden on mobile (hamburger used instead) */}
             <div
-              className="sidebar-container w-[100px] md:w-[100px] sm:w-[80px] bg-black/95 border-r border-gray-800/50 backdrop-blur-sm relative overflow-y-auto mobile-sidebar"
-              style={{ overscrollBehavior: 'contain' }}
+              className="sidebar-container"
+              style={{ display: isMobile ? 'none' : undefined }}
             >
               <div className="relative z-10 flex flex-col items-center h-full gap-4" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '12px', paddingBottom: '12px' }}>
                 {/* Sidebar Buttons */}
@@ -30270,12 +30714,12 @@ export default function TradingViewChart({
                         const candleWidth = (dimensions.width - 100) / visibleCandleCount
                         const startIndex = Math.max(0, Math.floor(scrollOffset))
                         const relativeIndex = index - startIndex
-                        return 40 + relativeIndex * candleWidth
+                        return CHART_LEFT_MARGIN + relativeIndex * candleWidth
                       }}
                       screenToTime={(x) => {
                         const candleWidth = (dimensions.width - 100) / visibleCandleCount
                         const startIndex = Math.max(0, Math.floor(scrollOffset))
-                        const relativeX = x - 40
+                        const relativeX = x - CHART_LEFT_MARGIN
                         const relativeIndex = Math.floor(relativeX / candleWidth)
                         // Allow future indices beyond data.length for drawing tools
                         return Math.max(0, startIndex + relativeIndex)
@@ -30780,35 +31224,42 @@ export default function TradingViewChart({
           {typeof window !== 'undefined' &&
             createPortal(
               <div
-                className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out rounded-lg overflow-y-auto`}
+                className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out overflow-y-auto`}
                 style={{
                   zIndex: 9999,
                   display: activeSidebarPanel ? 'block' : 'none',
-                  left: isMobile ? '40px' : '100px',
+                  left: isMobile ? '0px' : '80px',
                   width: isMobile
-                    ? 'calc(100vw - 40px)'
-                    : activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
-                      ? 'calc(100vw - 100px)'
-                      : '100%',
+                    ? '100vw'
+                    : 'calc(100vw - 80px)',
                   maxWidth: isMobile
-                    ? 'calc(100vw - 40px)'
-                    : activeSidebarPanel === 'liquid'
-                      ? 'fit-content'
-                      : activeSidebarPanel === 'flow'
-                        ? '1500px'
-                        : activeSidebarPanel === 'news' && newsActiveTab === 'calendar'
-                          ? 'calc(100vw - 100px)'
-                          : '1200px',
+                    ? '100vw'
+                    : 'calc(100vw - 80px)',
+                  borderRadius: isMobile ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
-                  top: isMobile ? '60px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
+                  top: isMobile ? '48px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
                   bottom:
                     isMobile ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
                 }}
                 data-sidebar-panel={activeSidebarPanel}
               >
-                {/* Sidebar panel debugging */}
-
-                {/* Panel Content */}
+                {/* Responsive font/table scaling for mobile */}
+                {isMobile && (
+                  <style>{`
+                    [data-sidebar-panel] table { width: 100% !important; table-layout: fixed; }
+                    [data-sidebar-panel] table td,
+                    [data-sidebar-panel] table th { font-size: clamp(9px, 2.8vw, 13px) !important; padding: 3px 4px !important; word-break: break-word; }
+                    [data-sidebar-panel] .text-xs { font-size: clamp(9px, 2.6vw, 12px) !important; }
+                    [data-sidebar-panel] .text-sm { font-size: clamp(10px, 3vw, 13px) !important; }
+                    [data-sidebar-panel] .text-base { font-size: clamp(11px, 3.2vw, 14px) !important; }
+                    [data-sidebar-panel] .text-lg, [data-sidebar-panel] .text-xl { font-size: clamp(12px, 3.8vw, 16px) !important; }
+                    [data-sidebar-panel] .text-2xl, [data-sidebar-panel] .text-3xl { font-size: clamp(14px, 4.5vw, 20px) !important; }
+                    [data-sidebar-panel] .px-4 { padding-left: clamp(6px, 2vw, 16px) !important; padding-right: clamp(6px, 2vw, 16px) !important; }
+                    [data-sidebar-panel] .px-3 { padding-left: clamp(5px, 1.8vw, 12px) !important; padding-right: clamp(5px, 1.8vw, 12px) !important; }
+                    [data-sidebar-panel] .gap-4 { gap: clamp(6px, 2vw, 16px) !important; }
+                    [data-sidebar-panel] .gap-3 { gap: clamp(5px, 1.5vw, 12px) !important; }
+                  `}</style>
+                )}
                 <div className={`h-full overflow-y-auto`} style={activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}}>
                   {activeSidebarPanel === 'liquid' && (
                     <LiquidPanel onClose={() => setActiveSidebarPanel(null)} />

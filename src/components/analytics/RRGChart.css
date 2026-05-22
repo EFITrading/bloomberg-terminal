@@ -3,7 +3,12 @@
   border: 1px solid #ff8500;
   border-radius: 0;
   padding: 0;
-  margin: 20px 0;
+  margin: 0;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   color: #ffffff;
   font-family: 'Bloomberg Terminal', 'Consolas', 'Monaco', monospace;
 }
@@ -972,6 +977,127 @@
   opacity: 1 !important;
   transform: scale(1.3) !important;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6)) brightness(1.2);
+}
+
+/* ── Mobile responsive ─────────────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* Compact header row */
+  .rrg-header-controls {
+    padding: 8px 10px !important;
+    gap: 8px !important;
+    row-gap: 6px !important;
+  }
+
+  /* Shrink all labels */
+  .rrg-header-controls label {
+    font-size: 10px !important;
+    min-width: unset !important;
+    letter-spacing: 0.3px !important;
+  }
+
+  /* Shrink all selects */
+  .rrg-header-controls select {
+    font-size: 10px !important;
+    padding: 3px 4px !important;
+    max-width: 90px !important;
+    min-width: unset !important;
+  }
+
+  /* Shrink all buttons */
+  .rrg-header-controls button {
+    font-size: 10px !important;
+    padding: 4px 7px !important;
+    min-width: unset !important;
+  }
+
+  /* Shrink number/text inputs (tail length) */
+  .rrg-header-controls input[type="number"],
+  .rrg-header-controls input[type="text"] {
+    font-size: 10px !important;
+    padding: 3px 5px !important;
+    width: 38px !important;
+  }
+
+  /* Compact lookback bar */
+  .rrg-lookback-bar {
+    padding: 6px 10px !important;
+    gap: 8px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  /* Shrink lookback label */
+  .rrg-lookback-bar>span:first-child {
+    font-size: 10px !important;
+    min-width: 60px !important;
+    white-space: nowrap;
+  }
+
+  /* Hide "Current / X weeks ago" text - saves space */
+  .rrg-lookback-bar>div:last-of-type {
+    display: none !important;
+  }
+
+  /* Chart container fills remaining height properly */
+  .rrg-chart-container {
+    min-height: 0;
+  }
+}
+
+/* ── Ultra-compact mobile: 380-432px ───────────────────────────────────── */
+@media (max-width: 432px) {
+
+  /* Hide all text labels */
+  .rrg-header-controls label {
+    display: none !important;
+  }
+
+  /* Tighten outer flex — gap:4px forces correct 2-row wrap point */
+  .rrg-header-controls {
+    padding: 5px 8px !important;
+    gap: 4px !important;
+  }
+
+  /* Tighten inner control-group gaps */
+  .rrg-header-controls>div {
+    gap: 4px !important;
+  }
+
+  /* Compact selects:
+     max-width:85px makes benchmark drop from 105→85px
+     so row1=[mode:~161] + [bench:85] + [time:78] = 332px ✓  */
+  .rrg-header-controls select {
+    padding: 4px 4px !important;
+    font-size: 11px !important;
+    max-width: 85px !important;
+    min-width: unset !important;
+  }
+
+  /* Compact all buttons — padding:4px 3px trims waves(85→77) tickers(93→85)
+     and action buttons (each -8px) so row2 fits                            */
+  .rrg-header-controls button {
+    padding: 4px 3px !important;
+    font-size: 10px !important;
+    min-width: unset !important;
+  }
+
+  /* Compact tail-length input */
+  .rrg-header-controls input[type="number"] {
+    width: 34px !important;
+    padding: 4px 3px !important;
+    font-size: 10px !important;
+  }
+
+  /* Action buttons: no auto-push + tighter internal gap (saves 8px) */
+  .rrg-action-buttons {
+    margin-left: 0 !important;
+    gap: 4px !important;
+  }
+
+  /* Compact lookback bar */
+  .rrg-lookback-bar {
+    padding: 4px 8px !important;
+  }
 }
 
 /* Ticker highlighting system */

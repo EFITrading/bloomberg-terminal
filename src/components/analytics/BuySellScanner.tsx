@@ -1058,8 +1058,32 @@ export default function BuySellScanner() {
   const visibleBuy = filterView !== 'sell' ? confluenceBuyResults : []
   const visibleSell = filterView !== 'buy' ? confluenceSellResults : []
 
+  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
+  const _dbgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = _dbgRef.current
+    if (!el) return
+    const log = () => {
+      const r = el.getBoundingClientRect()
+      let chain = ''
+      let p = el.parentElement
+      for (let i = 0; i < 4 && p; i++) {
+        const pr = p.getBoundingClientRect()
+        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}×${Math.round(pr.height)}`
+        p = p.parentElement
+      }
+      console.log(`[BUY-SELL] ${Math.round(r.width)}×${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}×${window.innerHeight} |${chain}`)
+    }
+    log()
+    const ro = new ResizeObserver(log)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
+
   return (
     <div
+      ref={_dbgRef}
       style={{
         minHeight: '100vh',
         background: '#000000',
@@ -1071,6 +1095,7 @@ export default function BuySellScanner() {
     >
       {/* ── Header ── */}
       <div
+        className="bss-header"
         style={{
           position: 'sticky',
           top: 0,
@@ -1084,6 +1109,7 @@ export default function BuySellScanner() {
           {/* Title */}
           <div>
             <div
+              className="bss-title"
               style={{
                 fontSize: '28px',
                 fontWeight: '900',
@@ -1353,7 +1379,7 @@ export default function BuySellScanner() {
 
       {/* ── Results grid ── */}
       {totalFound > 0 && (
-        <div style={{ padding: '24px 32px 80px 32px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', alignItems: 'start' }}>
+        <div className="bss-results-grid" style={{ padding: '24px 32px 80px 32px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', alignItems: 'start' }}>
 
           {/* LEFT: BUY section */}
           <div>
@@ -1386,7 +1412,7 @@ export default function BuySellScanner() {
                 {visibleBuy.length}
               </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+            <div className="bss-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
               {visibleBuy.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} earnings={earningsMap.get(r.symbol)} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)}
               {visibleBuy.length === 0 && (
                 <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 700, letterSpacing: '1px', padding: '20px 0' }}>NO BUY SIGNALS</div>
@@ -1425,7 +1451,7 @@ export default function BuySellScanner() {
                 {visibleSell.length}
               </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+            <div className="bss-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
               {visibleSell.map((r) => <ConfluenceCard key={r.symbol} result={r} tfSelectionMap={confluenceTfSelectionRef.current} earnings={earningsMap.get(r.symbol)} onAddToPortfolio={makeAddHandler({ symbol: r.symbol, signal: r.signal, optionDesc: `$${r.trade.strike % 1 === 0 ? r.trade.strike.toFixed(0) : r.trade.strike.toFixed(1)} ${r.signal === 'BUY' ? 'Calls' : 'Puts'} ${r.trade.expiration}`, strike: r.trade.strike, expiration: r.trade.expiration, optionType: r.signal === 'BUY' ? 'call' : 'put', score: r.chartResult?.score, label: r.chartResult?.label, currentStockPrice: r.currentPrice, priceChangePct: r.priceChangePct, dte: r.trade.dte, t1Stock: r.trade.t1Stock, t2Stock: r.trade.t2Stock, stopPremium: r.trade.stopPremium, seasonality: r.seasonality ? { sweetSpot: r.seasonality.sweetSpot, painPoint: r.seasonality.painPoint, best30Day: r.seasonality.best30Day, inSweetSpot: r.seasonality.inSweetSpot, inPainPoint: r.seasonality.inPainPoint, seasonallyConfirmed: r.seasonality.seasonallyConfirmed } : undefined })} />)}
               {visibleSell.length === 0 && (
                 <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 700, letterSpacing: '1px', padding: '20px 0' }}>NO SELL SIGNALS</div>

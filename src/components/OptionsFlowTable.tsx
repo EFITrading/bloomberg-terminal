@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
@@ -829,6 +829,126 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [leapSeasonalData, setLeapSeasonalData] = useState<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>>(new Map())
   const [modeLoadingStep, setModeLoadingStep] = useState<{ mode: 'LEAP' | 'EFI'; step: string } | null>(null)
 
+  // ---- Canvas scene components for loading screen art ----
+  // ---- Bloomberg-graphic loading scenes (panel built dynamically from live data) ----
+  const _sceneFont = '"Arial Black","Arial Bold",Impact,sans-serif'
+
+  const LoadingCrashScene = React.useCallback(() => (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
+      {/* Bear photo — right 60%, fade left */}
+      <div style={{ position: 'absolute', right: 0, top: 0, width: '62%', height: '100%', overflow: 'hidden' }}>
+        <img src="/loading/bear.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.4)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,#060102 0%,rgba(6,1,2,0.75) 28%,rgba(6,1,2,0) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.22)', mixBlendMode: 'screen' }} />
+      </div>
+      {/* Left text panel */}
+      <div style={{ position: 'absolute', left: 0, top: 0, width: '66%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingLeft: '5%', paddingRight: '2%', gap: 0 }}>
+        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(24px,4.8vw,52px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>MARKETS IN</div>
+        <div style={{ color: '#e01010', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(38px,7.5vw,82px)', lineHeight: 1.0, textTransform: 'uppercase', letterSpacing: '0.01em', textShadow: '0 0 30px rgba(230,0,0,0.5)', marginBottom: '4%' }}>FREEFALL</div>
+        <div style={{ width: '80%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '4%' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)' }}>
+          {([['S&P 500', '-4.32%'], ['NASDAQ', '-5.16%'], ['DOW', '-1,276.37']] as [string, string][]).map(([t, v]) => (
+            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
+              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4.5em' }}>{t}</span>
+              <span style={{ color: '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Top-right badge */}
+      <div style={{ position: 'absolute', top: '4%', right: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CIRCUIT BREAKER TRIGGERED</div>
+      {/* Scanlines */}
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+    </div>
+  ), [])
+
+  const LoadingBullScene = React.useCallback(() => (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010602' }}>
+      {/* Bull statue photo — left 55%, fade right */}
+      <div style={{ position: 'absolute', left: 0, top: 0, width: '55%', height: '100%', overflow: 'hidden' }}>
+        <img src="/loading/bull.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.6) brightness(0.5) saturate(0.3)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(270deg,#010602 0%,rgba(1,6,2,0.65) 25%,rgba(1,6,2,0) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,200,60,0.28)', mixBlendMode: 'screen' }} />
+      </div>
+      {/* Right text panel */}
+      <div style={{ position: 'absolute', right: 0, top: 0, width: '58%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingRight: '5%', paddingLeft: '2%', gap: 0, textAlign: 'right', alignItems: 'flex-end' }}>
+        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(24px,4.8vw,52px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>BULL MARKET</div>
+        <div style={{ color: '#00e040', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(26px,5.2vw,58px)', lineHeight: 1.0, textTransform: 'uppercase', letterSpacing: '0.01em', textShadow: '0 0 30px rgba(0,220,60,0.5)', marginBottom: '4%' }}>STILL ALIVE?</div>
+        <div style={{ width: '80%', height: '2px', background: 'rgba(0,200,60,0.7)', marginBottom: '4%' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)', alignItems: 'flex-end' }}>
+          {([['S&P 500', '+1.42%'], ['DOW', '+1.18%'], ['NASDAQ', '+2.35%'], ['VIX', '-8.91%']] as [string, string][]).map(([t, v]) => (
+            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
+              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4.5em', textAlign: 'right' }}>{t}</span>
+              <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Top-left badge */}
+      <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,60,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ON — BULLS IN CONTROL</div>
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+    </div>
+  ), [])
+
+  const LoadingWatchScene = React.useCallback(() => (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010308' }}>
+      {/* Trader photo — right 60%, fade left */}
+      <div style={{ position: 'absolute', right: 0, top: 0, width: '60%', height: '100%', overflow: 'hidden' }}>
+        <img src="/loading/trader.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', filter: 'contrast(1.6) brightness(0.45) saturate(0.3) hue-rotate(180deg)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,#010308 0%,rgba(1,3,8,0.72) 25%,rgba(1,3,8,0) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,140,255,0.2)', mixBlendMode: 'screen' }} />
+      </div>
+      {/* Left text panel */}
+      <div style={{ position: 'absolute', left: 0, top: 0, width: '65%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingLeft: '5%', paddingRight: '2%', gap: 0 }}>
+        <div style={{ color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2%' }}>REAL-TIME SWEEP SCANNER</div>
+        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>UNUSUAL</div>
+        <div style={{ color: '#00aaff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '0 0 30px rgba(0,150,255,0.5)' }}>OPTIONS</div>
+        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', marginBottom: '4%' }}>ACTIVITY</div>
+        <div style={{ width: '80%', height: '2px', background: 'rgba(0,150,255,0.7)', marginBottom: '4%' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)' }}>
+          {([['SWEEPS', 'DETECTED'], ['BLOCKS', 'DETECTED'], ['DARK POOL', 'ACTIVE'], ['IV RANK', 'ELEVATED']] as [string, string][]).map(([t, v]) => (
+            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', minWidth: '5.5em' }}>{t}</span>
+              <span style={{ color: '#00ccff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)' }}>● {v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ position: 'absolute', top: '4%', right: '2%', color: 'rgba(0,200,255,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>● SCANNING FLOW...</div>
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+    </div>
+  ), [])
+
+  const LoadingFloorScene = React.useCallback(() => (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060400' }}>
+      {/* NYSE building — left 55%, fade right */}
+      <div style={{ position: 'absolute', left: 0, top: 0, width: '55%', height: '100%', overflow: 'hidden' }}>
+        <img src="/loading/nyse.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.5) saturate(0.4)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(270deg,#060400 0%,rgba(6,4,0,0.62) 25%,rgba(6,4,0,0) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,140,0,0.2)', mixBlendMode: 'screen' }} />
+      </div>
+      {/* Right text panel */}
+      <div style={{ position: 'absolute', right: 0, top: 0, width: '58%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingRight: '5%', paddingLeft: '2%', gap: 0, textAlign: 'right', alignItems: 'flex-end' }}>
+        <div style={{ color: 'rgba(255,180,50,0.7)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2%' }}>NEW YORK STOCK EXCHANGE</div>
+        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(28px,5.5vw,60px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>TRADING</div>
+        <div style={{ color: '#ffaa00', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(28px,5.5vw,60px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '0 0 30px rgba(255,140,0,0.5)', marginBottom: '4%' }}>THE FLOOR</div>
+        <div style={{ width: '80%', height: '2px', background: 'rgba(255,140,0,0.7)', marginBottom: '4%' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)', alignItems: 'flex-end' }}>
+          {([['AAPL', '+2.3%'], ['NVDA', '+4.1%'], ['TSLA', '-1.8%'], ['SPY', '+0.9%']] as [string, string][]).map(([t, v]) => (
+            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
+              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4em', textAlign: 'right' }}>{t}</span>
+              <span style={{ color: v.startsWith('+') ? '#00e060' : '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,160,30,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>NYSE · MARKET OPEN</div>
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+    </div>
+  ), [])
+  // ---- end Bloomberg-graphic scenes ----
+
+
   const EFI_LOADING_QUOTES = [
     { text: 'The trend is your friend — until it bends.', author: 'Wall Street Proverb' },
     { text: 'Block trades don\'t lie. Institutions leave footprints.', author: 'EFI Research' },
@@ -846,6 +966,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     { text: 'Every large position started as an idea someone believed in enough to size up.', author: 'EFI Research' },
   ]
   const [loadingQuoteIndex, setLoadingQuoteIndex] = useState(0)
+  const [loadingArtIndex, setLoadingArtIndex] = useState(0)
 
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set())
 
@@ -855,6 +976,393 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const iv = setInterval(() => setLoadingQuoteIndex(i => (i + 1) % EFI_LOADING_QUOTES.length), 10000)
     return () => clearInterval(iv)
   }, [gradingProgress !== null, modeLoadingStep !== null, loading])
+
+  // Cycle art panel every 8s — only when snapshot hasn't locked a scene yet
+  const [snapDriven, setSnapDriven] = React.useState(false)
+  const [mktSnap, setMktSnap] = React.useState<Record<string, number> | null>(null)
+  const [mktCtx, setMktCtx] = React.useState<{ sectors: Record<string, number>; movers: Array<{ ticker: string; pct: number; price: number }>; headlines: Array<{ title: string; urgency: number; time_ago: string; tickers: string[] }> } | null>(null)
+
+  React.useEffect(() => {
+    if (!loading || snapDriven) return
+    const iv = setInterval(() => setLoadingArtIndex(i => (i + 1) % 7), 8000)
+    return () => clearInterval(iv)
+  }, [loading, snapDriven])
+
+  // Fetch live SPY + sector data on mount (pre-load before any scan) and lock scene
+  // Headlines use /api/news — same endpoint + filtering as the news panel
+  React.useEffect(() => {
+    let cancelled = false
+    const doFetch = async () => {
+      try {
+        const [snapRes, newsRes] = await Promise.all([
+          fetch('/api/market-snapshot'),
+          fetch('/api/news?category=breaking&limit=6'),
+        ])
+        if (cancelled) return
+        if (!snapRes.ok) return
+        const d: Record<string, any> = await snapRes.json()
+        if (cancelled || !d || typeof d !== 'object' || d.error) return
+        const sectors: Record<string, number> = d.sectors && typeof d.sectors === 'object' ? d.sectors : d
+        const spy = sectors['SPY'] ?? NaN
+        if (isNaN(spy)) return // markets closed / no data — keep cycling
+        setMktSnap(sectors)
+        // Use /api/news headlines (same quality filters as news panel) — fall back to market-snapshot headlines
+        let headlines: Array<{ title: string; urgency: number; time_ago: string; tickers: string[] }> = d.headlines ?? []
+        if (newsRes.ok) {
+          const newsData = await newsRes.json()
+          if (newsData.success && Array.isArray(newsData.articles) && newsData.articles.length > 0) {
+            headlines = newsData.articles.slice(0, 6).map((a: any) => ({
+              title: String(a.title ?? ''),
+              urgency: typeof a.urgency === 'number' ? a.urgency : 0.5,
+              time_ago: String(a.time_ago ?? ''),
+              tickers: Array.isArray(a.tickers) ? a.tickers : [],
+            }))
+          }
+        }
+        setMktCtx({ sectors, movers: Array.isArray(d.movers) ? d.movers : [], headlines })
+        setSnapDriven(true)
+        const bearVariants = [0, 4]  // bear.jpg, cryptocrash.jpg
+        const bullVariants = [1, 5, 6]  // bull.jpg, bullwall.jpg, cryptorally.jpg
+        const rng = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)]
+        setLoadingArtIndex(spy <= -1.5 ? rng(bearVariants) : spy >= 1.5 ? rng(bullVariants) : spy < 0 ? 2 : 3)
+      } catch { /* silent */ }
+    }
+    doFetch()
+    return () => { cancelled = true }
+  }, [])
+
+  // Single scene renderer — uses live data when available, hardcoded fallback otherwise
+  const LoadingScenePanel = React.useCallback((): React.ReactElement => {
+    const fnt = _sceneFont
+    const spyRaw = mktSnap != null ? (mktSnap['SPY'] ?? NaN) : NaN
+    const sceneIdx: number = loadingArtIndex
+    const fmtChg = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+    const allSectors = mktSnap
+      ? Object.entries(mktSnap)
+        .filter(([s]) => s !== 'SPY')
+        .map(([s, v]) => ({ s, v }))
+        .sort((a, b) => a.v - b.v) // ascending: worst first
+      : null
+    const spyVal = mktSnap ? mktSnap['SPY'] : null
+
+    // Live movers + headlines from enriched snapshot
+    const movers = mktCtx?.movers ?? []
+    const headlines = mktCtx?.headlines ?? []
+    const bigLosers: [string, string][] = movers.filter(m => m.pct < 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
+    const bigGainers: [string, string][] = movers.filter(m => m.pct > 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
+    const findH = (re: RegExp) => headlines.find(h => re.test(h.title)) ?? headlines[0] ?? null
+    const truncate = (s: string, n = 85) => s.length > n ? s.slice(0, n - 1) + '…' : s
+
+    if (sceneIdx === 0) {
+      // MARKETS IN FREEFALL — bear photo full bg, biggest losers + bearish headline
+      const headline = findH(/crash|plunge|selloff|sell.off|tariff|rout|recession|halt|circuit/i)
+      const rows: [string, string][] = bigLosers.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? -2.1)], ...bigLosers.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '-4.32%'], ['NASDAQ', '-5.16%'], ['DOW', '-1,276.37']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
+          {/* Full-screen image */}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/bear.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.6) saturate(0.45)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,1,2,0) 55%, rgba(6,1,2,0.7) 72%, rgba(6,1,2,0.96) 88%, #060102 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.18)', mixBlendMode: 'screen' }} />
+          </div>
+          {/* Narrow text panel — right 26% */}
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>MARKETS IN</div>
+              <div style={{ color: '#e01010', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(230,0,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>FREEFALL</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#aa1111', margin: '5% 0 3%' }} />
+                <div style={{ color: '#ff4422', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#ff9988', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CIRCUIT BREAKER TRIGGERED</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    if (sceneIdx === 1) {
+      // BULL MARKET STILL ALIVE — bull statue full bg, biggest gainers + bullish headline
+      const headline = findH(/beat|earnings beat|surge|rally|bullish|upgrade|record high|raises guidance|soar/i)
+      const rows: [string, string][] = bigGainers.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '+1.42%'], ['DOW', '+1.18%'], ['NASDAQ', '+2.35%']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010602' }}>
+          {/* Full-screen image */}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/bull.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.62) saturate(0.35)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,6,2,0) 55%, rgba(1,6,2,0.7) 72%, rgba(1,6,2,0.96) 88%, #010602 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,200,60,0.2)', mixBlendMode: 'screen' }} />
+          </div>
+          {/* Narrow text panel — right 26% */}
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>BULL MARKET</div>
+              <div style={{ color: '#00e040', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(15px,2.4vw,30px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,220,60,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>STILL ALIVE?</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(0,200,60,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#007733', margin: '5% 0 3%' }} />
+                <div style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#88ffaa', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,60,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ON — BULLS IN CONTROL</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    if (sceneIdx === 2) {
+      // UNUSUAL ACTIVITY — trader photo full bg, most volatile movers + related headline
+      const volatileMvs: [string, string][] = [...movers].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
+      const topMoverTicker = movers[0]?.ticker ?? ''
+      const headline = headlines.find(h => topMoverTicker !== '' && h.tickers.includes(topMoverTicker))
+        ?? findH(/options|flow|unusual|sweep|block|volatile|implied|puts|calls/i)
+      const rows: [string, string][] = volatileMvs.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? -0.4)], ...volatileMvs.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...[...allSectors].sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '-0.4%'], ['XLK', '-1.2%'], ['XLY', '-0.8%']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010308' }}>
+          {/* Full-screen image */}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/trader.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', filter: 'contrast(1.5) brightness(0.55) saturate(0.35) hue-rotate(180deg)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,3,8,0) 55%, rgba(1,3,8,0.7) 72%, rgba(1,3,8,0.96) 88%, #010308 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,140,255,0.18)', mixBlendMode: 'screen' }} />
+          </div>
+          {/* Narrow text panel — right 26% */}
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(8px,1vw,11px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '6%', background: '#000', padding: '2px 10px' }}>REAL-TIME SWEEP SCANNER</div>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>UNUSUAL</div>
+              <div style={{ color: '#00aaff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,150,255,0.6)', background: '#000', padding: '2px 10px' }}>OPTIONS</div>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>ACTIVITY</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(0,150,255,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: v.startsWith('-') ? '#e03535' : '#00ccff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#0066bb', margin: '5% 0 3%' }} />
+                <div style={{ color: '#00ccff', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#88ddff', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,255,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>● SCANNING FLOW...</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    // sceneIdx === 4: CRYPTO CRASH — alternate bear scene (cryptocrash.jpg)
+    if (sceneIdx === 4) {
+      const headline = findH(/crash|plunge|collapse|selloff|bitcoin|crypto|halt|suspend|circuit/i)
+      const rows: [string, string][] = bigLosers.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? -2)], ...bigLosers.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '-2.1%'], ['XLK', '-3.2%'], ['XLY', '-2.8%']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/cryptocrash.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.6)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,1,2,0) 55%, rgba(6,1,2,0.7) 72%, rgba(6,1,2,0.96) 88%, #060102 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.2)', mixBlendMode: 'screen' }} />
+          </div>
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>CRYPTO</div>
+              <div style={{ color: '#cc0000', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(200,0,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>IN FREEFALL</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: '#cc0000', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#880000', margin: '5% 0 3%' }} />
+                <div style={{ color: '#ff2200', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#ff7766', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CRYPTO MARKET SELLOFF</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    // sceneIdx === 5: WALL ST BULL RUN — golden bull scene (bullwall.jpg)
+    if (sceneIdx === 5) {
+      const headline = findH(/beat|earnings beat|surge|rally|bullish|upgrade|record high|raises guidance|soar|ath/i)
+      const rows: [string, string][] = bigGainers.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '+1.8%'], ['XLK', '+2.1%'], ['XLY', '+1.6%']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020100' }}>
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/bullwall.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.6) saturate(0.5)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(2,1,0,0) 55%, rgba(2,1,0,0.7) 72%, rgba(2,1,0,0.96) 88%, #020100 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(180,130,0,0.15)', mixBlendMode: 'screen' }} />
+          </div>
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>WALL ST</div>
+              <div style={{ color: '#ffd700', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(255,200,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>BULL RUN</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(255,200,0,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#997700', margin: '5% 0 3%' }} />
+                <div style={{ color: '#ffd700', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#ffdd88', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,200,0,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ WALL ST RALLYING</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    // sceneIdx === 6: MARKET SURGING — crypto rally neon green scene (cryptorally.jpg)
+    if (sceneIdx === 6) {
+      const headline = findH(/surge|rally|record|soar|bitcoin|crypto|btc|eth|ath|all.time/i)
+      const rows: [string, string][] = bigGainers.length > 0
+        ? [['S&P 500', fmtChg(spyVal ?? 2)], ...bigGainers.slice(0, 2)]
+        : spyVal != null && allSectors
+          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
+          : [['S&P 500', '+2.0%'], ['XLK', '+3.1%'], ['NVDA', '+5.2%']]
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010208' }}>
+          <div style={{ position: 'absolute', inset: 0 }}>
+            <img src="/loading/cryptorally.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.45)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,2,8,0) 55%, rgba(1,2,8,0.7) 72%, rgba(1,2,8,0.96) 88%, #010208 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,220,100,0.12)', mixBlendMode: 'screen' }} />
+          </div>
+          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>MARKET</div>
+              <div style={{ color: '#00ff88', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,255,100,0.7)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>SURGING</div>
+              <div style={{ width: '100%', height: '2px', background: 'rgba(0,255,100,0.7)', marginBottom: '8%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+                {rows.map(([t, v]) => (
+                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                    <span style={{ color: '#00ff88', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {headline && <>
+                <div style={{ width: '100%', height: '2px', background: '#007744', margin: '5% 0 3%' }} />
+                <div style={{ color: '#00ff88', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
+                <div style={{ color: '#88ffcc', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+              </>}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,255,100,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ASSETS SURGING</div>
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+        </div>
+      )
+    }
+    // sceneIdx === 3: TRADING THE FLOOR — NYSE photo full bg, top gainer + loser + headline
+    const headline3 = headlines[0] ?? null
+    const rows3: [string, string][] = (() => {
+      const spyR: [string, string] = ['S&P 500', fmtChg(spyVal ?? 0.3)]
+      if (bigGainers.length > 0 || bigLosers.length > 0) {
+        const picks: [string, string][] = []
+        if (bigGainers[0]) picks.push(bigGainers[0])
+        if (bigLosers[0]) picks.push(bigLosers[0])
+        return [spyR, ...picks]
+      }
+      if (spyVal != null && allSectors && allSectors.length > 1) {
+        const top1 = allSectors[allSectors.length - 1]
+        const bot1 = allSectors[0]
+        return [spyR, [top1.s, fmtChg(top1.v)], [bot1.s, fmtChg(bot1.v)]]
+      }
+      return [spyR, ['XLU', '+1.1%'], ['XLE', '-0.8%']]
+    })()
+    return (
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060400' }}>
+        {/* Full-screen image */}
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <img src="/loading/nyse.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.62) saturate(0.45)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,4,0,0) 55%, rgba(6,4,0,0.7) 72%, rgba(6,4,0,0.96) 88%, #060400 100%)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,140,0,0.15)', mixBlendMode: 'screen' }} />
+        </div>
+        {/* Narrow text panel — right 26% */}
+        <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
+            <div style={{ color: 'rgba(255,180,50,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(8px,1vw,11px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '6%', background: '#000', padding: '2px 10px' }}>NEW YORK STOCK EXCHANGE</div>
+            <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(16px,2.6vw,34px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>TRADING</div>
+            <div style={{ color: '#ffaa00', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(16px,2.6vw,34px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(255,140,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>THE FLOOR</div>
+            <div style={{ width: '100%', height: '2px', background: 'rgba(255,140,0,0.7)', marginBottom: '8%' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
+              {rows3.map(([t, v]) => (
+                <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
+                  <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
+                  <span style={{ color: v.startsWith('+') ? '#00e060' : '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {headline3 && <>
+              <div style={{ width: '100%', height: '2px', background: '#aa7700', margin: '5% 0 3%' }} />
+              <div style={{ color: '#ffaa00', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
+              <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline3.title)}</div>
+              <div style={{ color: '#ffcc66', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline3.time_ago}{headline3.tickers.length > 0 ? ` · ${headline3.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
+            </>}
+          </div>
+        </div>
+        <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,160,30,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>NYSE · MARKET OPEN</div>
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
+      </div>
+    )
+  }, [mktSnap, mktCtx, snapDriven, loadingArtIndex])
 
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null)
 
@@ -2564,7 +3072,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const leapRsForBreakdown = leapRsData.get(trade.underlying_ticker)
     const breakdown =
       `LEAP Score: ${confidenceScore}/75\n\n` +
-      `Contract P&L: ${scores.contractPrice}/15  (option Δ: ${((currentPrice - entryPrice) / entryPrice * 100).toFixed(1)}%)\n` +
+      `Contract P&L: ${scores.contractPrice}/15  (option ?: ${((currentPrice - entryPrice) / entryPrice * 100).toFixed(1)}%)\n` +
       `RS (5D/13D/21D): ${scores.relativeStrength}/30  ` +
       (leapRsForBreakdown
         ? `(5D: ${leapRsForBreakdown.rs5d.toFixed(2)}%, 13D: ${leapRsForBreakdown.rs13d.toFixed(2)}%, 21D: ${leapRsForBreakdown.rs21d.toFixed(2)}%)`
@@ -2903,7 +3411,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
     window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: newTrackedFlows } }))
-    console.log('[FlowTracking] addToFlowTracking → saved', newTrackedFlows.length, 'flows to localStorage')
+    console.log('[FlowTracking] addToFlowTracking ? saved', newTrackedFlows.length, 'flows to localStorage')
 
     // Generate flow ID for chart data
 
@@ -2925,7 +3433,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
     window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: newTrackedFlows } }))
-    console.log('[FlowTracking] removeFromFlowTracking → saved', newTrackedFlows.length, 'flows to localStorage')
+    console.log('[FlowTracking] removeFromFlowTracking ? saved', newTrackedFlows.length, 'flows to localStorage')
   }
 
   // Save current flow data to database
@@ -4148,7 +4656,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (activeFlows.length !== trackedFlows.length) {
         localStorage.setItem('flowTrackingWatchlist', JSON.stringify(activeFlows))
         window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: activeFlows } }))
-        console.log('[FlowTracking] expired flows removed → saved', activeFlows.length, 'flows to localStorage')
+        console.log('[FlowTracking] expired flows removed ? saved', activeFlows.length, 'flows to localStorage')
 
         setTrackedFlows(activeFlows)
 
@@ -5619,7 +6127,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   color: '#000',
                                   lineHeight: 1,
                                 }}>
-                                  {active ? '✓' : ''}
+                                  {active ? '?' : ''}
                                 </span>
                                 {label}
                               </button>
@@ -8315,6 +8823,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   85% { opacity: 0.3; }
                   100% { transform: translateY(-90px) translateX(14px); opacity: 0; }
                 }
+                @keyframes artFadeIn {
+                  0% { opacity: 0; }
+                  100% { opacity: 1; }
+                }
               `}</style>
 
               {/* === ABSTRACT DYNAMIC BACKGROUND === */}
@@ -8421,6 +8933,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                     animationDelay: (i * 0.75) + 's',
                   }} />
                 ))}
+              </div>
+
+              {/* === LOADING ART PANEL — rendered after abstract bg so same zIndex wins (later in DOM = on top) === */}
+              <div key={loadingArtIndex} style={{ position: 'absolute', inset: 0, zIndex: 0, opacity: 0.72, animation: 'artFadeIn 1.4s ease-in-out', pointerEvents: 'none' }}>
+                {LoadingScenePanel()}
               </div>
 
               {/* Content */}
@@ -8539,7 +9056,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <div style={{ position: 'absolute', top: '-140px', left: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,149,0,0.09) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite' }} />
                 <div style={{ position: 'absolute', bottom: '-140px', right: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,102,0,0.09) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite 2.2s' }} />
                 {/* Floating data stream labels */}
-                {['0xA4F1 ▸ SWEEP +23.4%', '0xB2E3 ▸ BLOCK 847K', '0xC1D5 ▸ OI RATIO 2.14', '0xD3F7 ▸ IV RANK 0.77', '0xE5A9 ▸ DELTA 0.38', '0xF6B2 ▸ GAMMA 0.021'].map((txt, i) => (
+                {['0xA4F1 ? SWEEP +23.4%', '0xB2E3 ? BLOCK 847K', '0xC1D5 ? OI RATIO 2.14', '0xD3F7 ? IV RANK 0.77', '0xE5A9 ? DELTA 0.38', '0xF6B2 ? GAMMA 0.021'].map((txt, i) => (
                   <div key={i} style={{
                     position: 'absolute',
                     left: `${6 + i * 15}%`,
@@ -8779,14 +9296,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </th>
 
-                    {/* SPOT → CURR */}
+                    {/* SPOT ? CURR */}
                     <th
                       className={`col-hdr col-sortable text-left${sortField === 'spot_price' ? ' col-active' : ''}`}
                       onClick={() => handleSort('spot_price')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
-                        <span className="hidden md:inline">SPOT → CURR</span>
+                        <span className="hidden md:inline">SPOT ? CURR</span>
                         <span className="md:hidden" style={{ fontSize: 10 }}>SPOT</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'spot_price' && (
@@ -9050,7 +9567,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           </td>
 
                           <td
-                            className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-left ${getCallPutColor(trade.type)}`}
+                            className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}
                           >
                             {/* Mobile: Strike + Call/Put stacked */}
 
@@ -9073,11 +9590,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             {/* Desktop: Call/Put only */}
 
-                            <div className="hidden md:block">{trade.type.toUpperCase()}</div>
+                            <div className="hidden md:block text-center">{trade.type.toUpperCase()}</div>
                           </td>
 
                           <td
-                            className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell"
+                            className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell text-center"
                             style={
                               isNotablePick
                                 ? { color: '#FFD700', fontWeight: 'bold' }
@@ -9294,7 +9811,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             )}
                           </td>
 
-                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
+                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30 text-center">
                             <span
                               className={`${getTradeTypeColor(trade.classification || trade.trade_type).className} px-4 py-2 text-xs md:text-lg`}
                               style={getTradeTypeColor(trade.classification || trade.trade_type).style}
@@ -10370,7 +10887,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               {/* Toggle buttons */}
               {([
                 { key: 'showWeeklies' as const, label: 'Weeklies', color: '#a78bfa' },
-                { key: 'showDownSixtyPlus' as const, label: '↓60%+', color: '#ef4444' },
+                { key: 'showDownSixtyPlus' as const, label: '?60%+', color: '#ef4444' },
                 { key: 'showCharts' as const, label: 'Charts', color: '#22d3ee' },
               ]).map(({ key, label, color }) => {
                 const active = flowTrackingFilters[key]
