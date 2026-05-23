@@ -654,6 +654,8 @@ interface OptionsFlowTableProps {
   historicalDays?: string
 
   onHistoricalDaysChange?: (days: string) => void
+
+  onAlgoFlowClick?: () => void
 }
 
 const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'WEEKLY_ONLY', 'MINI_ONLY']
@@ -694,6 +696,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   historicalDays = '1D',
 
   onHistoricalDaysChange,
+
+  onAlgoFlowClick,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade' | 'leap_grade'>(
     'trade_timestamp'
@@ -8159,6 +8163,36 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {/* Action Buttons */}
 
                 <div className="flex items-center gap-1.5">
+                  {/* Algo Flow Button */}
+                  {onAlgoFlowClick && (
+                    <button
+                      onClick={onAlgoFlowClick}
+                      title="Algo Flow"
+                      className="hidden md:flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none"
+                      style={{
+                        height: '35px',
+                        padding: '0 13px',
+                        background: 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)',
+                        border: '1px solid #ff8500',
+                        borderRadius: '7px',
+                        fontSize: '12px',
+                        letterSpacing: '1.2px',
+                        fontWeight: '700',
+                        color: '#ffaa55',
+                        cursor: 'pointer',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.18)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center' }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                        </svg>
+                      </span>
+                      Algo Flow
+                    </button>
+                  )}
+
                   {!isSidebarPanel && (
                     <button
                       onClick={() => onRefresh?.()}

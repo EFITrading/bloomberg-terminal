@@ -3466,6 +3466,7 @@ interface TradingViewChartProps {
   lwToolbarPosition?: 'top' | 'left'
   disableSidebarAutoScan?: boolean
   initialShowBuySell?: boolean
+  hideDesktopSidebar?: boolean
 }
 
 // ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
@@ -5085,6 +5086,7 @@ export default function TradingViewChart({
   onTimeframeChange,
   lwToolbarPosition = 'top',
   disableSidebarAutoScan = false,
+  hideDesktopSidebar = false,
   initialShowBuySell = false,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
@@ -26063,8 +26065,8 @@ export default function TradingViewChart({
             >
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
-                {/* ── HAMBURGER MENU (mobile only) ── */}
-                {isMobile && (() => {
+                {/* ── HAMBURGER MENU (mobile or when desktop sidebar is hidden) ── */}
+                {(isMobile || hideDesktopSidebar) && (() => {
                   const hmAccent: Record<string, string> = {
                     orange: '#F97316', blue: '#3B82F6', emerald: '#10B981', amber: '#F59E0B',
                     red: '#EF4444', cyan: '#06B6D4', purple: '#A855F7', pink: '#EC4899',
@@ -26195,9 +26197,7 @@ export default function TradingViewChart({
                       )}
                       <button
                         onClick={(e) => {
-                          const r = e.currentTarget.getBoundingClientRect()
                           const nextOpen = !isHamburgerOpen
-                          setHmDropPos({ top: r.bottom + 8, left: r.left })
                           setIsHamburgerOpen(nextOpen)
                         }}
                         onMouseDown={() => setHmPressed(true)}
@@ -26259,7 +26259,7 @@ export default function TradingViewChart({
                       </button>
                       {isHamburgerOpen && (
                         <div style={{
-                          position: 'fixed', top: hmDropPos.top, left: hmDropPos.left, zIndex: 99999,
+                          position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 99999,
                           background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
                           borderTop: '1px solid rgba(255,255,255,0.25)',
                           borderRight: '1px solid rgba(255,255,255,0.1)',
@@ -30184,7 +30184,7 @@ export default function TradingViewChart({
             {/* Sidebar — visible on desktop, hidden on mobile (hamburger used instead) */}
             <div
               className="sidebar-container"
-              style={{ display: isMobile ? 'none' : undefined }}
+              style={{ display: (isMobile || hideDesktopSidebar) ? 'none' : undefined }}
             >
               <div className="relative z-10 flex flex-col items-center h-full gap-4" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '12px', paddingBottom: '12px' }}>
                 {/* Sidebar Buttons */}
@@ -31226,20 +31226,19 @@ export default function TradingViewChart({
               <div
                 className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out overflow-y-auto`}
                 style={{
-                  zIndex: 9999,
+                  zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
                   display: activeSidebarPanel ? 'block' : 'none',
-                  left: isMobile ? '0px' : '80px',
-                  width: isMobile
+                  left: (isMobile || hideDesktopSidebar) ? '0px' : '80px',
+                  width: (isMobile || hideDesktopSidebar)
                     ? '100vw'
                     : 'calc(100vw - 80px)',
-                  maxWidth: isMobile
+                  maxWidth: (isMobile || hideDesktopSidebar)
                     ? '100vw'
                     : 'calc(100vw - 80px)',
-                  borderRadius: isMobile ? '0px' : '8px',
+                  borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
-                  top: isMobile ? '48px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
-                  bottom:
-                    isMobile ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
+                  top: (isMobile || hideDesktopSidebar) ? '0px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
+                  bottom: (isMobile || hideDesktopSidebar) ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
                 }}
                 data-sidebar-panel={activeSidebarPanel}
               >

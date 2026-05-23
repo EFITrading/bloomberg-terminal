@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 import { OptionsFlowTable } from '@/components/OptionsFlowTable'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import AlgoFlowScreener from '@/components/AlgoFlowScreener'
 
 // Polygon API key
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
@@ -483,6 +484,106 @@ interface MarketInfo {
   market_open: boolean
 }
 
+// Client-side trading-day calculator (mirrors server getLastNTradingDays)
+const getLastNTradingDays = (n: number): string[] => {
+  const US_HOLIDAYS = new Set([
+    '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-07-03', '2026-09-07',
+    '2026-11-26', '2026-12-25', '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+    '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+  ])
+  const result: string[] = []
+  const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const cur = new Date(pst)
+  while (result.length < n) {
+    const dow = cur.getDay()
+    const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+    if (dow !== 0 && dow !== 6 && !US_HOLIDAYS.has(ds)) result.push(ds)
+    cur.setDate(cur.getDate() - 1)
+  }
+  return result.reverse()
+}
+
+// For historical multi-day scans: check storage for each needed day, return cached trades + list of missing days
+const tryLoadHistoricalFromSaved = async (
+  ticker: string,
+  tradingDays: string[]
+): Promise<{ cachedTrades: OptionsFlowData[]; missingDays: string[] }> => {
+  try {
+    const datesResp = await fetch('/api/flows/dates')
+    if (!datesResp.ok) return { cachedTrades: [], missingDays: tradingDays }
+    const savedDates: { date: string }[] = await datesResp.json()
+    // Build a set of saved day strings (YYYY-MM-DD)
+    const savedDaySet = new Set(
+      savedDates.map((d) => new Date(d.date).toISOString().split('T')[0])
+    )
+
+    const cachedTrades: OptionsFlowData[] = []
+    const missingDays: string[] = []
+
+    await Promise.all(
+      tradingDays.map(async (day) => {
+        if (!savedDaySet.has(day)) {
+          missingDays.push(day)
+          return
+        }
+        try {
+          const flowResp = await fetch(`/api/flows/${encodeURIComponent(day)}`)
+          if (!flowResp.ok) { missingDays.push(day); return }
+          const flowData = await flowResp.json()
+          const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+          const filtered = ticker
+            ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
+            : allTrades
+          filtered.forEach((t: any) => { if (!t.trading_date) t.trading_date = day })
+          cachedTrades.push(...filtered)
+          console.log(`[tryLoadHistoricalFromSaved] ${day}: ${filtered.length} trades from storage`)
+        } catch {
+          missingDays.push(day)
+        }
+      })
+    )
+
+    missingDays.sort() // chronological
+    return { cachedTrades, missingDays }
+  } catch (err) {
+    console.warn('[tryLoadHistoricalFromSaved] error:', err)
+    return { cachedTrades: [], missingDays: tradingDays }
+  }
+}
+
+// Load today's saved flow for a single ticker — returns filtered trades or null
+const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | null> => {
+  try {
+    // Get stored dates so we use the actual saved date key (avoids UTC/local mismatch)
+    const datesResp = await fetch('/api/flows/dates')
+    if (!datesResp.ok) return null
+    const dates: { date: string }[] = await datesResp.json()
+    if (dates.length === 0) return null
+
+    // Compare latest saved date against today's local date
+    const now = new Date()
+    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const latestDateRaw = dates[0].date // ordered by createdAt desc
+    const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
+    console.log('[tryLoadFromSaved] localToday:', localToday, '| latestSaved:', latestDateDay)
+    if (latestDateDay !== localToday) return null
+
+    // Fetch using the actual stored date key
+    const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
+    if (!flowResp.ok) return null
+    const flowData = await flowResp.json()
+    const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    const filtered = allTrades.filter(
+      (t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase()
+    )
+    console.log('[tryLoadFromSaved]', ticker, '→', filtered.length, 'trades from', allTrades.length, 'total')
+    return filtered.length > 0 ? filtered : null
+  } catch (err) {
+    console.warn('[tryLoadFromSaved] error:', err)
+    return null
+  }
+}
+
 export default function OptionsFlowPage() {
   const [data, setData] = useState<OptionsFlowData[]>([])
   const [summary, setSummary] = useState<OptionsFlowSummary>({
@@ -511,6 +612,7 @@ export default function OptionsFlowPage() {
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
   // Historical scan: '1D' = today only, '2'–'20' = N trading days back
   const [historicalDays, setHistoricalDays] = useState<string>('1D')
+  const [showAlgoFlow, setShowAlgoFlow] = useState<boolean>(false)
 
   // Live options flow fetch
   const fetchOptionsFlowStreaming = async (tickerOverride?: string) => {
@@ -531,6 +633,139 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker
       const isAllScan = tickerParam === 'ALL'
+      const isSingleTicker =
+        !isAllScan && tickerParam !== 'MAG7' && tickerParam !== 'ETF' && !tickerParam.includes(',')
+
+      // Single-ticker, today-only: load from saved flow before scanning
+      if (isSingleTicker && historicalDays === '1D') {
+        setStreamingStatus('Checking saved data...')
+        const saved = await tryLoadFromSaved(tickerParam)
+        if (saved) {
+          const computedSummary: OptionsFlowSummary = {
+            total_trades: saved.length,
+            total_premium: saved.reduce((s, t) => s + (t.total_premium || 0), 0),
+            unique_symbols: new Set(saved.map((t) => t.underlying_ticker)).size,
+            trade_types: {
+              BLOCK: saved.filter((t) => t.trade_type === 'BLOCK').length,
+              SWEEP: saved.filter((t) => t.trade_type === 'SWEEP').length,
+              MINI: saved.filter((t) => t.trade_type === 'MINI').length,
+              'MULTI-LEG': saved.filter((t) => t.trade_type === 'MULTI-LEG').length,
+            },
+            call_put_ratio: {
+              calls: saved.filter((t) => t.type?.toLowerCase() === 'call').length,
+              puts: saved.filter((t) => t.type?.toLowerCase() === 'put').length,
+            },
+            processing_time_ms: 0,
+          }
+          setData(saved)
+          setSummary(computedSummary)
+          setLastUpdate(new Date().toLocaleString())
+          setIsStreamComplete(true)
+          setLoading(false)
+          setStreamingStatus('')
+          return
+        }
+        setStreamingStatus('')
+      }
+
+      // Multi-day scan: check storage first, only scan missing days via API
+      if (historicalDays !== '1D' && !isAllScan) {
+        const numDays = historicalDays === '3D' ? 3 : historicalDays === '1W' ? 5 : Math.max(1, Math.min(parseInt(historicalDays) || 3, 252))
+        const tradingDays = getLastNTradingDays(numDays)
+        setStreamingStatus('Checking saved flow history...')
+        const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(tickerParam, tradingDays)
+
+        if (cachedTrades.length > 0) {
+          // Show cached data immediately
+          setData(cachedTrades)
+          setStreamingStatus(
+            missingDays.length > 0
+              ? `Loaded ${cachedTrades.length} trades from storage. Scanning ${missingDays.length} missing day(s)...`
+              : ''
+          )
+        }
+
+        if (missingDays.length === 0) {
+          // All days found in storage — done
+          const computedSummary: OptionsFlowSummary = {
+            total_trades: cachedTrades.length,
+            total_premium: cachedTrades.reduce((s, t) => s + (t.total_premium || 0), 0),
+            unique_symbols: new Set(cachedTrades.map((t) => t.underlying_ticker)).size,
+            trade_types: {
+              BLOCK: cachedTrades.filter((t) => t.trade_type === 'BLOCK').length,
+              SWEEP: cachedTrades.filter((t) => t.trade_type === 'SWEEP').length,
+              MINI: cachedTrades.filter((t) => t.trade_type === 'MINI').length,
+              'MULTI-LEG': cachedTrades.filter((t) => t.trade_type === 'MULTI-LEG').length,
+            },
+            call_put_ratio: {
+              calls: cachedTrades.filter((t) => t.type?.toLowerCase() === 'call').length,
+              puts: cachedTrades.filter((t) => t.type?.toLowerCase() === 'put').length,
+            },
+            processing_time_ms: 0,
+          }
+          setSummary(computedSummary)
+          setLastUpdate(new Date().toLocaleString())
+          setIsStreamComplete(true)
+          setLoading(false)
+          setStreamingStatus('')
+          return
+        }
+
+        // Some days missing — stream only those days via &dates= param then merge
+        const datesParam = `&dates=${missingDays.join(',')}`
+        const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}${datesParam}`)
+        const stallTimeout = setTimeout(() => {
+          eventSource.close()
+          setStreamError('Scan timed out after 5 minutes')
+          setStreamingStatus('')
+          setLoading(false)
+        }, 5 * 60 * 1000)
+
+        eventSource.onmessage = (event) => {
+          try {
+            const d = JSON.parse(event.data)
+            if (d.type === 'status') { setStreamingStatus(d.message); return }
+            if (d.type === 'ticker_complete' && d.trades?.length > 0) {
+              setData((prev) => {
+                const existingIds = new Set(prev.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+                const newTrades = (d.trades as OptionsFlowData[]).filter((t: OptionsFlowData) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+                return [...prev, ...newTrades]
+              })
+              return
+            }
+            if (d.type === 'complete') {
+              clearTimeout(stallTimeout)
+              setIsStreamComplete(true)
+              eventSource.close()
+              setLastUpdate(new Date().toLocaleString())
+              setStreamingProgress(null)
+              setStreamingStatus('Enriching vol/OI & fill style...')
+              setData((rawTrades) => {
+                enrichTradeDataCombined(rawTrades, (partial) => setData(partial)).then((final) => {
+                  setStreamingStatus('Computing live OI...')
+                  setData(applyLiveOI(final))
+                  setLoading(false)
+                  setStreamingStatus('')
+                })
+                return rawTrades
+              })
+            }
+            if (d.type === 'error') {
+              clearTimeout(stallTimeout)
+              setStreamError(d.error || 'Stream error')
+              setLoading(false)
+              eventSource.close()
+            }
+          } catch { /* ignore */ }
+        }
+        eventSource.onerror = () => {
+          clearTimeout(stallTimeout)
+          eventSource.close()
+          setStreamingStatus('')
+          setLoading(false)
+        }
+        return // handled
+      }
 
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG'
@@ -898,6 +1133,14 @@ export default function OptionsFlowPage() {
     fetchOptionsFlowStreaming()
   }
 
+  if (showAlgoFlow) {
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', zIndex: 50, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#000' }}>
+        <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Main Content */}
@@ -925,6 +1168,7 @@ export default function OptionsFlowPage() {
           streamError={streamError}
           historicalDays={historicalDays}
           onHistoricalDaysChange={setHistoricalDays}
+          onAlgoFlowClick={() => setShowAlgoFlow(true)}
         />
       </div>
     </div>

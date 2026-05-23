@@ -2,6 +2,11 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
+  webpack: (config) => {
+    // Required for monaco-editor font assets
+    config.module.rules.push({ test: /\.ttf$/, type: 'asset/resource' })
+    return config
+  },
   eslint: {
     // Warning: This allows production builds to successfully complete even if
     // your project has ESLint errors.

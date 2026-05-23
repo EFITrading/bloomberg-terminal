@@ -401,6 +401,43 @@ export class OptionsFlowService {
     return filteredTrades
   }
 
+  // Scan specific trading dates (already determined by the caller, e.g. only the days not in cache)
+  async fetchSpecificDaysFlow(
+    ticker?: string,
+    specificDays: string[] = [],
+    onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
+  ): Promise<ProcessedTrade[]> {
+    if (specificDays.length === 0) return []
+
+    const buildDateRange = (date: string) => ({
+      currentDate: date,
+      isLive: false,
+      startTimestamp: marketOpenTimestampForDate(date),
+      endTimestamp: marketCloseTimestampForDate(date),
+    })
+
+    onProgress?.([], `[SPECIFIC-DAYS] Scanning ${specificDays.length} day(s): ${specificDays.join(', ')}...`)
+
+    const mostRecentDay = specificDays[specificDays.length - 1]
+    const smartRange = await getSmartDateRange()
+
+    const dayResults = await Promise.all(
+      specificDays.map(async (date) => {
+        const dateRange = date === mostRecentDay ? smartRange : buildDateRange(date)
+        onProgress?.([], `[Day ${date}] Starting scan...`)
+        const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange)
+        trades.forEach((t) => { (t as any).trading_date = date })
+        onProgress?.([], `[Day ${date}] ${trades.length} trades found`)
+        return trades
+      })
+    )
+
+    const allTrades = dayResults.flat()
+    const filteredTrades = this.filterAndClassifyTrades(allTrades, ticker)
+    onProgress?.([], `[OK] Specific-days scan done: ${filteredTrades.length} trades`)
+    return filteredTrades
+  }
+
   // Helper: Calculate last N trading days
   private getLastNTradingDays(n: number): string[] {
     const result: string[] = []

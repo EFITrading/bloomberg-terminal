@@ -48,6 +48,8 @@ export async function GET(request: NextRequest) {
   const ticker = searchParams.get('ticker')
   const timeframe = searchParams.get('timeframe') || '1D'
   const isMultiDay = timeframe !== '1D'
+  // Specific-dates override: comma-separated YYYY-MM-DD strings from client cache-miss logic
+  const datesParam = searchParams.get('dates') // e.g. "2026-05-19,2026-05-20"
   // Chunked ALL scan: browser sends offset+limit to stay within Vercel's 300s limit
   const chunkOffset = parseInt(searchParams.get('offset') || '0', 10)
   const chunkLimit = parseInt(searchParams.get('limit') || '50', 10)
@@ -262,6 +264,26 @@ export async function GET(request: NextRequest) {
               finalTrades.push(...tickerTrades)
             }
           }
+        } else if (datesParam) {
+          // Specific-dates mode: client determined which days are missing from cache
+          const specificDays = datesParam.split(',').map((d: string) => d.trim()).filter(Boolean)
+          sendData({ type: 'status', message: `[SERVER] Specific-dates scan: ${specificDays.join(', ')}` })
+          finalTrades = await optionsFlowService.fetchSpecificDaysFlow(
+            ticker || undefined,
+            specificDays,
+            streamingCallback
+          )
+          console.log(`[OK] Specific-Dates Scan Complete: ${finalTrades.length} trades`)
+          // Stream per ticker (same pattern as multi-day path)
+          const sdByTicker = new Map<string, any[]>()
+          for (const trade of finalTrades) {
+            const t = (trade as any).underlying_ticker || (trade as any).ticker
+            if (!sdByTicker.has(t)) sdByTicker.set(t, [])
+            sdByTicker.get(t)!.push(trade)
+          }
+          for (const [t, trades] of sdByTicker) {
+            sendData({ type: 'ticker_complete', ticker: t, trades, count: trades.length, timestamp: new Date().toISOString() })
+          }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
@@ -273,6 +295,7 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise
           console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`)
+
 
           // Stream all trades to the client grouped by ticker (same pattern as 1D scan)
           // Without this the client's accumulatedTradesRef stays empty and the table shows nothing

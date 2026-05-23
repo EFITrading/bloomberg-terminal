@@ -1601,8 +1601,6 @@ export default function FlowTrackingPanel({
             {/* Chart fills full 55% */}
             <div style={{ width: '100%', height: '100%' }}>
               <style>{`
-            .sidebar-container { display: none !important; }
-            .w-full.h-full.flex > div:first-child { width: 100% !important; }
             button[title*='Watchlist'], button[title*='watchlist'], button[title*='favorite'],
             button[title*='star'], button[title*='multi chart'], button[title*='Multi Chart'],
             button[title*='Chart Layout'] { display: none !important; }
@@ -1615,6 +1613,7 @@ export default function FlowTrackingPanel({
                 height={Math.max(200, chartContainerHeight - 110)}
                 lwToolbarPosition="left"
                 disableSidebarAutoScan={true}
+                hideDesktopSidebar={true}
                 onSymbolChange={(s) => setChartSymbol(s)}
               />
             </div>
