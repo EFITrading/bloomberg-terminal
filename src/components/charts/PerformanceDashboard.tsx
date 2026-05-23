@@ -2070,9 +2070,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           {/* Spacer */}
           <div style={{ flex: 1 }} />
 
-          {/* Selected count */}â—' : 'â—‹'}
-          </button>
-
           {/* Selected count */}
           {selectedSymbols.length > 0 && !isWaveMode && (
             <div className="perf-selected-count" style={{
