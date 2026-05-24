@@ -6697,10 +6697,6 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
-  // DEBUG: trace every activeSidebarPanel change
-  useEffect(() => {
-    console.debug('[HamburgerDebug][PANEL CHANGE] activeSidebarPanel is now:', activeSidebarPanel, '| isMobile:', isMobile, '| hideDesktopSidebar:', hideDesktopSidebar, '| portal will display:', activeSidebarPanel ? 'block' : 'none')
-  }, [activeSidebarPanel, isMobile, hideDesktopSidebar])
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
@@ -20009,16 +20005,7 @@ export default function TradingViewChart({
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
-    const nextPanel = activeSidebarPanel === id ? null : id
-    console.debug('[HamburgerDebug][handleSidebarClick] CALLED', {
-      requestedId: id,
-      currentActiveSidebarPanel: activeSidebarPanel,
-      willSetTo: nextPanel,
-      isMobile,
-      hideDesktopSidebar,
-      timestamp: new Date().toISOString(),
-    })
-    setActiveSidebarPanel(nextPanel)
+    setActiveSidebarPanel(activeSidebarPanel === id ? null : id)
   }
 
   // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
@@ -26211,14 +26198,10 @@ export default function TradingViewChart({
                       <button
                         onClick={(e) => {
                           const nextOpen = !isHamburgerOpen
-                          console.debug('[HamburgerDebug][BUTTON CLICK] hamburger toggled', {
-                            wasOpen: isHamburgerOpen,
-                            nowOpen: nextOpen,
-                            isMobile,
-                            hideDesktopSidebar,
-                            activeSidebarPanel,
-                            timestamp: new Date().toISOString(),
-                          })
+                          if (nextOpen) {
+                            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                            setHmDropPos({ top: rect.bottom + 8, left: rect.left })
+                          }
                           setIsHamburgerOpen(nextOpen)
                         }}
                         onMouseDown={() => setHmPressed(true)}
@@ -26280,7 +26263,7 @@ export default function TradingViewChart({
                       </button>
                       {isHamburgerOpen && (
                         <div style={{
-                          position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 99999,
+                          position: 'fixed', top: `${hmDropPos.top}px`, left: `${hmDropPos.left}px`, zIndex: 99999,
                           background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
                           borderTop: '1px solid rgba(255,255,255,0.25)',
                           borderRight: '1px solid rgba(255,255,255,0.1)',
@@ -26298,19 +26281,7 @@ export default function TradingViewChart({
                             return (
                               <button
                                 key={item.id}
-                                onClick={() => {
-                                  console.debug('[HamburgerDebug][ITEM CLICK]', {
-                                    itemId: item.id,
-                                    itemLabel: item.label,
-                                    currentActiveSidebarPanel: activeSidebarPanel,
-                                    isAlreadyActive: activeSidebarPanel === item.id,
-                                    willSetTo: activeSidebarPanel === item.id ? null : item.id,
-                                    isMobile,
-                                    timestamp: new Date().toISOString(),
-                                  })
-                                  handleSidebarClick(item.id)
-                                  setIsHamburgerOpen(false)
-                                }}
+                                onClick={() => { handleSidebarClick(item.id); setIsHamburgerOpen(false) }}
                                 style={{
                                   display: 'flex', alignItems: 'center', gap: '12px',
                                   width: '100%', padding: '10px 14px',
@@ -31262,8 +31233,6 @@ export default function TradingViewChart({
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
                   display: activeSidebarPanel ? 'block' : 'none',
                   left: (isMobile || hideDesktopSidebar) ? '0px' : '80px',
-                  // DEBUG marker — check DevTools Elements for data-sidebar-debug attr
-                  /* [HamburgerDebug] if this div has display:none, activeSidebarPanel is null/falsy */
                   width: (isMobile || hideDesktopSidebar)
                     ? '100vw'
                     : 'calc(100vw - 80px)',
