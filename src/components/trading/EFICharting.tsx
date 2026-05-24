@@ -6697,6 +6697,9 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
+  useEffect(() => {
+    console.log('[DBG-PANEL] activeSidebarPanel =', activeSidebarPanel, '| isMobile =', isMobile, '| hideDesktopSidebar =', hideDesktopSidebar, '| portal display =', activeSidebarPanel ? 'BLOCK' : 'NONE (hidden)')
+  }, [activeSidebarPanel, isMobile, hideDesktopSidebar])
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
@@ -20005,7 +20008,9 @@ export default function TradingViewChart({
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
-    setActiveSidebarPanel(activeSidebarPanel === id ? null : id)
+    const next = activeSidebarPanel === id ? null : id
+    console.log('[DBG-CLICK] handleSidebarClick id =', id, '| current =', activeSidebarPanel, '| setting to =', next)
+    setActiveSidebarPanel(next)
   }
 
   // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
@@ -26200,7 +26205,11 @@ export default function TradingViewChart({
                           const nextOpen = !isHamburgerOpen
                           if (nextOpen) {
                             const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
-                            setHmDropPos({ top: rect.bottom + 8, left: rect.left })
+                            const pos = { top: rect.bottom + 8, left: rect.left }
+                            setHmDropPos(pos)
+                            console.log('[DBG-HM] OPEN — rect =', rect.top, rect.bottom, rect.left, '| dropPos =', pos, '| isMobile =', isMobile, '| hideDesktopSidebar =', hideDesktopSidebar)
+                          } else {
+                            console.log('[DBG-HM] CLOSE')
                           }
                           setIsHamburgerOpen(nextOpen)
                         }}
@@ -26274,6 +26283,8 @@ export default function TradingViewChart({
                           backdropFilter: 'blur(24px)', overflow: 'hidden', width: 'max-content', minWidth: '160px',
                           animation: 'hmDrop 0.18s cubic-bezier(0.22,1,0.36,1)',
                         }}>
+                          {/* eslint-disable-next-line no-console */}
+                          {(() => { console.log('[DBG-DROP] dropdown rendered — top =', hmDropPos.top, 'left =', hmDropPos.left, '| items =', hmItems.length); return null })()}
                           <style>{`@keyframes hmDrop{from{opacity:0;transform:translateY(-8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
                           {hmItems.map((item, idx) => {
                             const clr = hmAccent[item.accent]
@@ -26281,7 +26292,11 @@ export default function TradingViewChart({
                             return (
                               <button
                                 key={item.id}
-                                onClick={() => { handleSidebarClick(item.id); setIsHamburgerOpen(false) }}
+                                onClick={() => {
+                                  console.log('[DBG-ITEM] clicked =', item.id, '| activeSidebarPanel =', activeSidebarPanel, '| hmDropPos =', hmDropPos)
+                                  handleSidebarClick(item.id)
+                                  setIsHamburgerOpen(false)
+                                }}
                                 style={{
                                   display: 'flex', alignItems: 'center', gap: '12px',
                                   width: '100%', padding: '10px 14px',
