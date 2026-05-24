@@ -822,10 +822,9 @@ async function run() {
 return run();`;
 
 const TPL_REGIME = `// =============================================================================
-//  REGIME INDUSTRY PICKER  v3  -  Visual Dashboard
-//  Outputs a live mini-dashboard with regime banner, momentum bar cards for
-//  all 11 sectors, and live holding prices for the top 3 sectors.
-//  Uses: api.bulkHistorical  api.prices  html()
+//  REGIME INDUSTRY PICKER  v4
+//  Visual dashboard — solid colors, bold typography, ranked sector bars,
+//  live holdings with prices, and a clear regime verdict.
 // =============================================================================
 
 const SECTORS = {
@@ -841,186 +840,181 @@ const SECTORS = {
   'Real Estate':      'XLRE',
   'Communication':    'XLC',
 };
-
-const REGIME_SCORE = {
-  XLK:1, XLY:1, XLF:1, XLI:1, XLB:1, XLC:1,
-  XLV:-1, XLU:-1, XLP:-1, XLRE:-1, XLE:0,
-};
-
-// Top 5 holdings per sector ETF
+const REGIME_SCORE = { XLK:1,XLY:1,XLF:1,XLI:1,XLB:1,XLC:1, XLV:-1,XLU:-1,XLP:-1,XLRE:-1,XLE:0 };
 const HOLDINGS = {
-  XLK:  ['AAPL','MSFT','NVDA','AVGO','AMD'],
-  XLV:  ['LLY','UNH','JNJ','ABBV','MRK'],
-  XLF:  ['JPM','V','MA','BAC','GS'],
-  XLE:  ['XOM','CVX','COP','SLB','PSX'],
-  XLU:  ['NEE','SO','DUK','AEP','SRE'],
-  XLY:  ['AMZN','TSLA','HD','MCD','NKE'],
-  XLP:  ['PG','KO','PEP','COST','WMT'],
-  XLI:  ['GE','RTX','HON','UNP','CAT'],
-  XLB:  ['LIN','APD','ECL','SHW','FCX'],
-  XLRE: ['PLD','AMT','EQIX','CCI','PSA'],
-  XLC:  ['META','GOOGL','NFLX','DIS','VZ'],
+  XLK:['AAPL','MSFT','NVDA','AVGO','AMD'], XLV:['LLY','UNH','JNJ','ABBV','MRK'],
+  XLF:['JPM','V','MA','BAC','GS'],         XLE:['XOM','CVX','COP','SLB','PSX'],
+  XLU:['NEE','SO','DUK','AEP','SRE'],      XLY:['AMZN','TSLA','HD','MCD','NKE'],
+  XLP:['PG','KO','PEP','COST','WMT'],      XLI:['GE','RTX','HON','UNP','CAT'],
+  XLB:['LIN','APD','ECL','SHW','FCX'],     XLRE:['PLD','AMT','EQIX','CCI','PSA'],
+  XLC:['META','GOOGL','NFLX','DIS','VZ'],
 };
+const COL = ['#38bdf8','#34d399','#fb923c','#a78bfa','#22d3ee','#f472b6','#4ade80','#fbbf24','#e879f9','#60a5fa','#f87171'];
 
-const ACCENT = ['#4da6ff','#4dffb0','#ffb84d','#c084fc','#4df3ff','#ff8c44','#44d4ff','#b0ff4d','#ff4dc8','#ffd04d','#4dffcf'];
-
-function calcRSI(bars, period) {
-  if (bars.length < period + 1) return 50;
-  let g = 0, l = 0;
-  for (let i = bars.length - period; i < bars.length; i++) {
-    const d = bars[i].c - bars[i-1].c;
-    if (d > 0) g += d; else l -= d;
-  }
-  const ag = g / period, al = l / period;
-  return al === 0 ? 100 : 100 - (100 / (1 + ag / al));
+function rsi14(bars) {
+  if (bars.length < 15) return 50;
+  let g=0,l=0;
+  for (let i=bars.length-14;i<bars.length;i++){const d=bars[i].c-bars[i-1].c;d>0?g+=d:l-=d;}
+  const ag=g/14,al=l/14;return al===0?100:100-(100/(1+ag/al));
 }
-
-function rc(v) { return v > 0 ? '#44cc77' : v < 0 ? '#ff5544' : '#888'; }
-function rf(v, d) { return (v >= 0 ? '+' : '') + v.toFixed(d || 1) + '%'; }
+function G(v){return v>0?'#00e676':v<0?'#ff1744':'#ffffff';}
+function F(v,d){return(v>=0?'+':'')+v.toFixed(d||1)+'%';}
 
 async function run() {
-  log('Loading sector data + SPY...');
-  const bulk = await api.bulkHistorical(Object.values(SECTORS).concat(['SPY']), 252);
+  log('Fetching sector data...');
+  const bulk = await api.bulkHistorical(Object.values(SECTORS).concat(['SPY']),252);
+  const sb=bulk['SPY']||[];
+  const spyNow=sb.length?sb[sb.length-1].c:1;
+  const spy1m=((spyNow-(sb.length>=22?sb[sb.length-22].c:spyNow))/spyNow)*100;
 
-  const spyB  = bulk['SPY'] || [];
-  const spyNow = spyB.length ? spyB[spyB.length-1].c : 1;
-  const spyD22 = spyB.length >= 22 ? spyB[spyB.length-22].c : spyNow;
-  const spy1m  = ((spyNow - spyD22) / spyD22) * 100;
-
-  const rows = [];
-  for (const [sector, ticker] of Object.entries(SECTORS)) {
-    const b = bulk[ticker];
-    if (!b || b.length < 22) continue;
-    const now  = b[b.length-1].c;
-    const h52  = Math.max(...b.map(x => x.h));
-    const l52  = Math.min(...b.map(x => x.l));
-    const d5   = b[Math.max(0,b.length-5)].c;
-    const d22  = b[Math.max(0,b.length-22)].c;
-    const d63  = b.length>=63  ? b[b.length-63].c  : null;
-    const d126 = b.length>=126 ? b[b.length-126].c : null;
-    const r5   = ((now-d5)/d5)*100;
-    const r1m  = ((now-d22)/d22)*100;
-    const r3m  = d63  ? ((now-d63)/d63)*100  : null;
-    const r6m  = d126 ? ((now-d126)/d126)*100 : null;
-    const rsi  = calcRSI(b, 14);
-    const relStr = r1m - spy1m;
-    const v5   = b.slice(-5).reduce((s,x)=>s+x.v,0)/5;
-    const v20  = b.slice(-20).reduce((s,x)=>s+x.v,0)/20;
-    const volT = v20>0 ? v5/v20 : 1;
-    const rng  = h52>l52 ? ((now-l52)/(h52-l52))*100 : 50;
-    const score = r5*0.15 + r1m*0.35 + (r3m!==null?r3m:r1m)*0.25 + relStr*0.15 + (volT-1)*10*0.10;
-    rows.push({ sector, ticker, now, h52, l52, r5, r1m, r3m, r6m, rsi, relStr, volT, rng, score });
+  const rows=[];
+  for(const[sec,tk]of Object.entries(SECTORS)){
+    const b=bulk[tk];if(!b||b.length<22)continue;
+    const now=b[b.length-1].c,d5=b[Math.max(0,b.length-5)].c,d22=b[Math.max(0,b.length-22)].c;
+    const d63=b.length>=63?b[b.length-63].c:null,d126=b.length>=126?b[b.length-126].c:null;
+    const r5=((now-d5)/d5)*100,r1m=((now-d22)/d22)*100;
+    const r3m=d63?((now-d63)/d63)*100:null,r6m=d126?((now-d126)/d126)*100:null;
+    const h52=Math.max(...b.map(x=>x.h)),l52=Math.min(...b.map(x=>x.l));
+    const rsi=rsi14(b),rel=r1m-spy1m;
+    const v5=b.slice(-5).reduce((s,x)=>s+x.v,0)/5,v20=b.slice(-20).reduce((s,x)=>s+x.v,0)/20;
+    const volT=v20>0?v5/v20:1,rng=h52>l52?((now-l52)/(h52-l52))*100:50;
+    const score=r5*0.15+r1m*0.35+(r3m!==null?r3m:r1m)*0.25+rel*0.15+(volT-1)*10*0.10;
+    rows.push({sec,tk,now,h52,l52,r5,r1m,r3m,r6m,rsi,rel,volT,rng,score});
   }
-
   rows.sort((a,b)=>b.score-a.score);
-  const ranked = rows.map((r,i)=>Object.assign({},r,{rank:i+1}));
+  const ranked=rows.map((r,i)=>Object.assign({},r,{rank:i+1}));
+  const top4=ranked.slice(0,4);
+  const regSum=top4.reduce((s,r)=>s+(REGIME_SCORE[r.tk]||0),0);
+  const regime=regSum>=2?'RISK-ON':regSum<=-1?'DEFENSIVE':'MIXED';
 
-  const top4   = ranked.slice(0,4);
-  const regSum = top4.reduce((s,r)=>s+(REGIME_SCORE[r.ticker]||0),0);
-  const regime = regSum>=2 ? 'RISK-ON' : regSum<=-1 ? 'DEFENSIVE' : 'MIXED';
-
-  // Fetch live prices for top 3 sector holdings
   log('Fetching live holding prices...');
-  const top3tickers = ranked.slice(0,3).flatMap(r => HOLDINGS[r.ticker]||[]);
-  const hpx = await api.prices(top3tickers);
+  const hpx=await api.prices(ranked.slice(0,3).flatMap(r=>HOLDINGS[r.tk]||[]));
 
-  // ─── Build HTML ──────────────────────────────────────────────────────────────
-  const RGC = regime==='RISK-ON'
-    ? {bg:'#001800',border:'#44cc77',text:'#44cc77'}
+  // ─── max score for bar width normalization ──────────────────────────────────
+  const maxS=ranked[0].score,minS=ranked[ranked.length-1].score;
+  const bw=s=>Math.max(3,Math.min(100,((s-minS)/(maxS-minS+0.001))*100)).toFixed(1);
+
+  // ─── REGIME BANNER ──────────────────────────────────────────────────────────
+  const RB = regime==='RISK-ON'
+    ? {bg:'#003316',border:'#00e676',text:'#00e676',sub:'Risk-on sectors leading. Favor growth and cyclicals.'}
     : regime==='DEFENSIVE'
-    ? {bg:'#1a0000',border:'#ff5544',text:'#ff5544'}
-    : {bg:'#0d0d00',border:'#ffcc44',text:'#ffcc44'};
+    ? {bg:'#330008',border:'#ff1744',text:'#ff1744',sub:'Defensive rotation. Favor staples, utilities, healthcare.'}
+    : {bg:'#1a1500',border:'#ffd600',text:'#ffd600',sub:'Mixed signals. Monitor for directional confirmation.'};
 
-  const maxS = Math.max(...ranked.map(r=>r.score));
-  const minS = Math.min(...ranked.map(r=>r.score));
-  const bw   = s => Math.max(4, Math.min(100, ((s-minS)/(maxS-minS+0.001))*100)).toFixed(1);
-
-  // Sector cards
-  const cards = ranked.map((r,i) => {
-    const col  = ACCENT[i] || '#888';
-    const isTop = i < 3;
-    const isBot = i >= ranked.length-3;
-    const bord  = isTop ? col+'44' : isBot ? '#ff554422' : '#141414';
-    const ncol  = isTop ? col : isBot ? '#ff6655' : '#666';
-    const barClr = isTop ? 'linear-gradient(90deg,'+col+','+col+'55)' : isBot ? '#331111' : '#1e1e1e';
-    const rsiCol = r.rsi>70?'#ff9944':r.rsi<30?'#4499ff':'#777';
-    return '<div style="background:#050505;border:1px solid '+bord+';border-radius:5px;padding:11px 13px;">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">'
-      +'<span style="font-size:13px;font-weight:900;color:'+ncol+';">'+r.ticker+'</span>'
-      +'<span style="font-size:9px;color:#444;background:#0a0a0a;border:1px solid #191919;border-radius:3px;padding:1px 5px;">#'+r.rank+'</span>'
+  // ─── SECTOR RANKING ROWS ───────────────────────────────────────────────────
+  const rankRows=ranked.map((r,i)=>{
+    const col=COL[i]||'#fff';
+    const isTop=i<3,isBot=i>=ranked.length-3;
+    const rowBg=isTop?'#0d1a0d':isBot?'#1a0d0d':'#0a0a0a';
+    const leftBorder=isTop?'3px solid '+col:isBot?'3px solid #ff1744':'3px solid #222';
+    const signal=r.score>3?'STRONG BUY':r.score>1?'BUY':r.score>-1?'NEUTRAL':r.score>-3?'SELL':'STRONG SELL';
+    const sigCol=signal.includes('STRONG BUY')?'#00e676':signal==='BUY'?'#69f0ae':signal==='NEUTRAL'?'#ffd600':signal==='SELL'?'#ff6d00':'#ff1744';
+    const volLbl=r.volT>=1.15?'VOL UP':r.volT<=0.85?'VOL DN':'VOL FLAT';
+    const volC=r.volT>=1.15?'#00e676':r.volT<=0.85?'#ff1744':'#ffffff';
+    return '<div style="display:flex;align-items:center;gap:0;background:'+rowBg+';border-left:'+leftBorder+';border-bottom:1px solid #151515;padding:10px 14px;">'
+      // rank
+      +'<div style="width:28px;font-size:11px;font-weight:900;color:#ffffff;flex-shrink:0;">#'+r.rank+'</div>'
+      // ticker + sector
+      +'<div style="width:120px;flex-shrink:0;">'
+      +'<div style="font-size:13px;font-weight:900;color:'+col+';">'+r.tk+'</div>'
+      +'<div style="font-size:10px;color:#888;margin-top:1px;">'+r.sec+'</div>'
       +'</div>'
-      +'<div style="font-size:10px;color:#555;margin-bottom:7px;">'+r.sector+'</div>'
-      +'<div style="height:3px;background:#111;border-radius:2px;margin-bottom:8px;">'
-      +'<div style="height:100%;width:'+bw(r.score)+'%;background:'+barClr+';border-radius:2px;"></div>'
+      // bar
+      +'<div style="flex:1;margin:0 14px;">'
+      +'<div style="height:5px;background:#1a1a1a;border-radius:3px;">'
+      +'<div style="height:100%;width:'+bw(r.score)+'%;background:'+col+';border-radius:3px;"></div>'
       +'</div>'
-      +'<div style="display:flex;gap:9px;font-size:10px;flex-wrap:wrap;">'
-      +'<span style="color:'+rc(r.r1m)+';">1M '+rf(r.r1m)+'</span>'
-      +(r.r3m!==null?'<span style="color:'+rc(r.r3m)+';">3M '+rf(r.r3m)+'</span>':'')
-      +'<span style="color:'+rc(r.relStr)+';">vsSPY '+rf(r.relStr)+'</span>'
-      +'<span style="color:'+rsiCol+';">RSI '+r.rsi.toFixed(0)+'</span>'
       +'</div>'
-      +'<div style="font-size:10px;color:#444;margin-top:6px;">'
-      +'$'+r.now.toFixed(2)+'  52W '+r.rng.toFixed(0)+'%  vol '+(r.volT>=1.1?'<span style=color:#44cc77>UP</span>':r.volT<=0.9?'<span style=color:#ff5544>DN</span>':'<span style=color:#666>FL</span>')
+      // stats
+      +'<div style="display:flex;gap:18px;flex-shrink:0;align-items:center;">'
+      +'<div style="text-align:center;">'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.08em;">1M</div>'
+      +'<div style="font-size:12px;font-weight:800;color:'+G(r.r1m)+';">'+F(r.r1m)+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;">'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.08em;">3M</div>'
+      +'<div style="font-size:12px;font-weight:800;color:'+(r.r3m!==null?G(r.r3m):'#666')+';">'+(r.r3m!==null?F(r.r3m):'--')+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;">'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.08em;">vsSPY</div>'
+      +'<div style="font-size:12px;font-weight:800;color:'+G(r.rel)+';">'+F(r.rel)+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;">'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.08em;">RSI</div>'
+      +'<div style="font-size:12px;font-weight:800;color:'+(r.rsi>70?'#ff6d00':r.rsi<30?'#40c4ff':'#ffffff')+';">'+r.rsi.toFixed(0)+'</div>'
+      +'</div>'
+      +'<div style="text-align:center;width:52px;">'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.08em;">VOL</div>'
+      +'<div style="font-size:10px;font-weight:800;color:'+volC+';">'+volLbl+'</div>'
+      +'</div>'
+      +'<div style="width:80px;text-align:right;">'
+      +'<span style="font-size:9px;font-weight:800;color:'+sigCol+';letter-spacing:0.06em;">'+signal+'</span>'
+      +'</div>'
       +'</div>'
       +'</div>';
   }).join('');
 
-  // Holdings panels for top 3
-  const holdPanels = ranked.slice(0,3).map((r,i)=>{
-    const col = ACCENT[i];
-    const tix = HOLDINGS[r.ticker] || [];
-    const rows2 = tix.map(t=>{
-      const p = hpx[t];
-      return '<tr>'
-        +'<td style="padding:5px 10px 5px 0;color:#ccc;font-weight:700;font-size:11px;">'+t+'</td>'
-        +'<td style="padding:5px 0;color:#fff;font-weight:900;font-size:12px;text-align:right;">$'+(p?Number(p).toFixed(2):'—')+'</td>'
-        +'</tr>';
+  // ─── TOP 3 HOLDINGS PANELS ─────────────────────────────────────────────────
+  const holdPanels=ranked.slice(0,3).map((r,i)=>{
+    const col=COL[i];
+    const hRows=(HOLDINGS[r.tk]||[]).map(t=>{
+      const p=hpx[t];
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a1a;">'
+        +'<span style="font-size:12px;font-weight:800;color:#ffffff;">'+t+'</span>'
+        +'<span style="font-size:13px;font-weight:900;color:'+col+';">$'+(p?Number(p).toFixed(2):'--')+'</span>'
+        +'</div>';
     }).join('');
-    return '<div style="flex:1;min-width:160px;background:#050505;border:1px solid '+col+'33;border-radius:5px;padding:13px 15px;">'
-      +'<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">'
-      +'<span style="font-size:13px;font-weight:900;color:'+col+';">'+r.ticker+'</span>'
-      +'<span style="font-size:10px;color:#555;">'+r.sector+'</span>'
-      +'<span style="margin-left:auto;font-size:10px;color:'+rc(r.r1m)+';">'+rf(r.r1m,2)+'</span>'
+    return '<div style="flex:1;min-width:175px;background:#0a0a0a;border:1px solid '+col+';border-radius:6px;padding:14px 16px;">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      +'<div>'
+      +'<div style="font-size:16px;font-weight:900;color:'+col+';">'+r.tk+' <span style="font-size:11px;font-weight:600;color:#ffffff;">#'+r.rank+'</span></div>'
+      +'<div style="font-size:11px;color:#aaaaaa;margin-top:2px;">'+r.sec+'</div>'
       +'</div>'
-      +'<table style="width:100%;border-collapse:collapse;">'
-      +'<thead><tr>'
-      +'<th style="font-size:9px;color:#ff6600;text-align:left;padding-bottom:6px;letter-spacing:0.1em;border-bottom:1px solid #111;">TICKER</th>'
-      +'<th style="font-size:9px;color:#ff6600;text-align:right;padding-bottom:6px;letter-spacing:0.1em;border-bottom:1px solid #111;">LIVE PRICE</th>'
-      +'</tr></thead>'
-      +'<tbody>'+rows2+'</tbody></table>'
+      +'<div style="text-align:right;">'
+      +'<div style="font-size:18px;font-weight:900;color:'+G(r.r1m)+';">'+F(r.r1m,2)+'</div>'
+      +'<div style="font-size:9px;color:#666;letter-spacing:0.1em;">1-MONTH</div>'
+      +'</div>'
+      +'</div>'
+      +'<div style="font-size:9px;color:#ff6600;letter-spacing:0.12em;font-weight:800;margin-bottom:6px;">TOP HOLDINGS</div>'
+      +hRows
       +'</div>';
   }).join('');
 
-  html(\`<div style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 0 10px;">
+  html(\`<div style="font-family:'JetBrains Mono',monospace;padding:6px 0 14px;color:#ffffff;">
 
-    <!-- Regime Banner -->
-    <div style="background:\${RGC.bg};border:1px solid \${RGC.border}55;border-radius:6px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-      <div>
-        <div style="font-size:10px;color:#555;letter-spacing:0.14em;margin-bottom:5px;">MARKET REGIME</div>
-        <div style="font-size:22px;font-weight:900;color:\${RGC.text};letter-spacing:0.04em;">\${regime}</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:#555;margin-bottom:3px;">SPY 1-MONTH</div>
-        <div style="font-size:18px;font-weight:800;color:\${rc(spy1m)};">\${rf(spy1m,2)}</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:#555;margin-bottom:6px;letter-spacing:0.1em;">LEADING SECTORS</div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-          \${top4.map((r,i)=>'<span style="background:'+ACCENT[i]+'18;border:1px solid '+ACCENT[i]+'44;border-radius:3px;padding:3px 9px;font-size:11px;font-weight:700;color:'+ACCENT[i]+';">'+r.ticker+'</span>').join('')}
+    <!-- REGIME BANNER -->
+    <div style="background:\${RB.bg};border:2px solid \${RB.border};border-radius:8px;padding:18px 22px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+        <div>
+          <div style="font-size:10px;color:#ffffff;letter-spacing:0.18em;font-weight:700;margin-bottom:6px;">MARKET REGIME DETECTION</div>
+          <div style="font-size:28px;font-weight:900;color:\${RB.text};letter-spacing:0.05em;line-height:1;">\${regime}</div>
+          <div style="font-size:11px;color:#ffffff;margin-top:7px;">\${RB.sub}</div>
+        </div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:9px;color:#ffffff;letter-spacing:0.12em;margin-bottom:4px;">SPY 1M</div>
+            <div style="font-size:22px;font-weight:900;color:\${G(spy1m)};">\${F(spy1m,2)}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#ffffff;letter-spacing:0.12em;margin-bottom:6px;">LEADERS</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              \${top4.map((r,i)=>'<div style="background:'+COL[i]+';color:#000000;font-size:11px;font-weight:900;border-radius:4px;padding:4px 10px;letter-spacing:0.06em;">'+r.tk+'</div>').join('')}
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Sector Grid -->
-    <div style="font-size:9px;color:#444;letter-spacing:0.12em;margin-bottom:7px;">SECTOR MOMENTUM RANKING  ·  SCORE = 5d(15%) + 1M(35%) + 3M(25%) + vs SPY(15%) + VOL(10%)</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:6px;margin-bottom:16px;">
-      \${cards}
+    <!-- TOP 3 HOLDINGS -->
+    <div style="font-size:9px;color:#ff6600;letter-spacing:0.14em;font-weight:800;margin-bottom:8px;">TOP 3 ROTATION PICKS — LIVE HOLDINGS</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+      \${holdPanels}
     </div>
 
-    <!-- Holdings -->
-    <div style="font-size:9px;color:#444;letter-spacing:0.12em;margin-bottom:7px;">TOP 3 SECTOR HOLDINGS  ·  LIVE PRICES</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      \${holdPanels}
+    <!-- SECTOR RANKING -->
+    <div style="font-size:9px;color:#ff6600;letter-spacing:0.14em;font-weight:800;margin-bottom:6px;">FULL SECTOR RANKING  ·  SCORE = 5D(15%) + 1M(35%) + 3M(25%) + vsSPY(15%) + VOL(10%)</div>
+    <div style="border:1px solid #1e1e1e;border-radius:6px;overflow:hidden;">
+      \${rankRows}
     </div>
 
   </div>\`);
