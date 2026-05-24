@@ -26194,11 +26194,13 @@ export default function TradingViewChart({
                   ]
                   return (
                     <div style={{ position: 'relative', flexShrink: 0, marginRight: '10px' }}>
-                      {isHamburgerOpen && (
+                      {isHamburgerOpen && createPortal(
                         <div
-                          style={{ position: 'fixed', inset: 0, zIndex: 998 }}
-                          onClick={() => setIsHamburgerOpen(false)}
-                        />
+                          style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(255,0,0,0.15)' }}
+                          onTouchStart={() => console.log('[DBG-BACKDROP] touchstart fired — backdrop intercepted the touch!')}
+                          onClick={() => { console.log('[DBG-BACKDROP] click fired — backdrop closing menu'); setIsHamburgerOpen(false) }}
+                        />,
+                        document.body
                       )}
                       <button
                         onClick={(e) => {
@@ -26270,7 +26272,7 @@ export default function TradingViewChart({
                           </g>
                         </svg>
                       </button>
-                      {isHamburgerOpen && (
+                      {isHamburgerOpen && createPortal(
                         <div style={{
                           position: 'fixed', top: `${hmDropPos.top}px`, left: `${hmDropPos.left}px`, zIndex: 99999,
                           background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
@@ -26292,6 +26294,7 @@ export default function TradingViewChart({
                             return (
                               <button
                                 key={item.id}
+                                onTouchStart={() => console.log('[DBG-ITEM-TOUCH] touchstart on item =', item.id)}
                                 onClick={() => {
                                   console.log('[DBG-ITEM] clicked =', item.id, '| activeSidebarPanel =', activeSidebarPanel, '| hmDropPos =', hmDropPos)
                                   handleSidebarClick(item.id)
@@ -26344,7 +26347,8 @@ export default function TradingViewChart({
                               </button>
                             )
                           })}
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </div>
                   )
@@ -26803,9 +26807,11 @@ export default function TradingViewChart({
 
                 {isMobile && isMounted && (
                   <>
+                    <div style={{ display: 'flex', gap: '4px' }}>
                     <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
                     <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
                     <button onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: currentDrawingTool !== 'select' ? '#000' : '#fff', background: currentDrawingTool !== 'select' ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DRAW</button>
+                    </div>
                     {/* Group 1 Panel - Data */}
                     {isMobileGroup1Open && createPortal(
                       <>
