@@ -947,31 +947,8 @@ export default function DealerClusterScreener() {
   const isAnyLoading = loading || premiumLoading
   const hasData = positiveItems.length > 0 || negativeItems.length > 0
 
-  // ── LAYOUT DEBUG ──────────────────────────────────────────────────────────
-  const _dbgRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = _dbgRef.current
-    if (!el) return
-    const log = () => {
-      const r = el.getBoundingClientRect()
-      let chain = ''
-      let p = el.parentElement
-      for (let i = 0; i < 4 && p; i++) {
-        const pr = p.getBoundingClientRect()
-        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}×${Math.round(pr.height)}`
-        p = p.parentElement
-      }
-      console.log(`[DEALER-CLUSTER] ${Math.round(r.width)}×${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}×${window.innerHeight} |${chain}`)
-    }
-    log()
-    const ro = new ResizeObserver(log)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
-
   return (
-    <div ref={_dbgRef} style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 0, overflow: 'hidden', fontFamily: '"Bloomberg", "Roboto Mono", "IBM Plex Mono", monospace' }}>
+    <div style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 0, overflow: 'hidden', fontFamily: '"Bloomberg", "Roboto Mono", "IBM Plex Mono", monospace' }}>
 
       {/* ════════════════════════════════════════════════════════
            HEADER — solid black, subtle glass shine strip

@@ -506,7 +506,8 @@ const getLastNTradingDays = (n: number): string[] => {
 // For historical multi-day scans: check storage for each needed day, return cached trades + list of missing days
 const tryLoadHistoricalFromSaved = async (
   ticker: string,
-  tradingDays: string[]
+  tradingDays: string[],
+  tickerSet?: Set<string> // optional: for MAG7/ETF multi-day expansion
 ): Promise<{ cachedTrades: OptionsFlowData[]; missingDays: string[] }> => {
   try {
     const datesResp = await fetch('/api/flows/dates')
@@ -531,9 +532,11 @@ const tryLoadHistoricalFromSaved = async (
           if (!flowResp.ok) { missingDays.push(day); return }
           const flowData = await flowResp.json()
           const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
-          const filtered = ticker
-            ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
-            : allTrades
+          const filtered = tickerSet
+            ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
+            : ticker
+              ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
+              : allTrades
           filtered.forEach((t: any) => { if (!t.trading_date) t.trading_date = day })
           cachedTrades.push(...filtered)
           console.log(`[tryLoadHistoricalFromSaved] ${day}: ${filtered.length} trades from storage`)
@@ -548,6 +551,34 @@ const tryLoadHistoricalFromSaved = async (
   } catch (err) {
     console.warn('[tryLoadHistoricalFromSaved] error:', err)
     return { cachedTrades: [], missingDays: tradingDays }
+  }
+}
+
+// Load today's saved flow filtered by a set of tickers (pass null to load all) — returns filtered trades or null
+const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<OptionsFlowData[] | null> => {
+  try {
+    const datesResp = await fetch('/api/flows/dates')
+    if (!datesResp.ok) return null
+    const dates: { date: string }[] = await datesResp.json()
+    if (dates.length === 0) return null
+    const now = new Date()
+    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const latestDateRaw = dates[0].date
+    const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
+    console.log('[tryLoadFromSavedFiltered] localToday:', localToday, '| latestSaved:', latestDateDay)
+    if (latestDateDay !== localToday) return null
+    const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
+    if (!flowResp.ok) return null
+    const flowData = await flowResp.json()
+    const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    const filtered = tickerSet
+      ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
+      : allTrades
+    console.log('[tryLoadFromSavedFiltered]', filtered.length, 'of', allTrades.length, 'total')
+    return filtered.length > 0 ? filtered : null
+  } catch (err) {
+    console.warn('[tryLoadFromSavedFiltered] error:', err)
+    return null
   }
 }
 
@@ -673,7 +704,11 @@ export default function OptionsFlowPage() {
         const numDays = historicalDays === '3D' ? 3 : historicalDays === '1W' ? 5 : Math.max(1, Math.min(parseInt(historicalDays) || 3, 252))
         const tradingDays = getLastNTradingDays(numDays)
         setStreamingStatus('Checking saved flow history...')
-        const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(tickerParam, tradingDays)
+        // Expand MAG7/ETF to a tickerSet so the cache filter matches underlying_ticker values
+        const MAG7_SET_HIST = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'])
+        const ETF_SET_HIST = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
+        const multiTickerSet = tickerParam === 'MAG7' ? MAG7_SET_HIST : tickerParam === 'ETF' ? ETF_SET_HIST : undefined
+        const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(tickerParam, tradingDays, multiTickerSet)
 
         if (cachedTrades.length > 0) {
           // Show cached data immediately
@@ -767,15 +802,83 @@ export default function OptionsFlowPage() {
         return // handled
       }
 
+      // MAG7/ETF 1D: check saved data first before expanding to comma list
+      if (historicalDays === '1D' && (tickerParam === 'MAG7' || tickerParam === 'ETF')) {
+        setStreamingStatus('Checking saved data...')
+        const MAG7_SET = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'])
+        const ETF_SET = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
+        const tSet = tickerParam === 'MAG7' ? MAG7_SET : ETF_SET
+        const saved = await tryLoadFromSavedFiltered(tSet)
+        if (saved) {
+          const computedSummary: OptionsFlowSummary = {
+            total_trades: saved.length,
+            total_premium: saved.reduce((s, t) => s + (t.total_premium || 0), 0),
+            unique_symbols: new Set(saved.map((t) => t.underlying_ticker)).size,
+            trade_types: {
+              BLOCK: saved.filter((t) => t.trade_type === 'BLOCK').length,
+              SWEEP: saved.filter((t) => t.trade_type === 'SWEEP').length,
+              MINI: saved.filter((t) => t.trade_type === 'MINI').length,
+              'MULTI-LEG': saved.filter((t) => t.trade_type === 'MULTI-LEG').length,
+            },
+            call_put_ratio: {
+              calls: saved.filter((t) => t.type?.toLowerCase() === 'call').length,
+              puts: saved.filter((t) => t.type?.toLowerCase() === 'put').length,
+            },
+            processing_time_ms: 0,
+          }
+          setData(saved)
+          setSummary(computedSummary)
+          setLastUpdate(new Date().toLocaleString())
+          setIsStreamComplete(true)
+          setLoading(false)
+          setStreamingStatus('')
+          return
+        }
+        setStreamingStatus('')
+      }
+
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG'
       } else if (tickerParam === 'ETF') {
         tickerParam =
           'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'
       }
+      // ALL scan: check saved data first, then fire SSEs if nothing found
       // ALL scan: fire all SSEs simultaneously in one shot — no while loop
       // 70 SSEs × 10 tickers = covers up to 700 symbols; extras beyond totalSymbols resolve instantly
       if (isAllScan) {
+        // ALL 1D: check saved data first
+        if (historicalDays === '1D') {
+          setStreamingStatus('Checking saved data...')
+          const savedAll = await tryLoadFromSavedFiltered(null)
+          if (savedAll) {
+            const computedSummary: OptionsFlowSummary = {
+              total_trades: savedAll.length,
+              total_premium: savedAll.reduce((s, t) => s + (t.total_premium || 0), 0),
+              unique_symbols: new Set(savedAll.map((t) => t.underlying_ticker)).size,
+              trade_types: {
+                BLOCK: savedAll.filter((t) => t.trade_type === 'BLOCK').length,
+                SWEEP: savedAll.filter((t) => t.trade_type === 'SWEEP').length,
+                MINI: savedAll.filter((t) => t.trade_type === 'MINI').length,
+                'MULTI-LEG': savedAll.filter((t) => t.trade_type === 'MULTI-LEG').length,
+              },
+              call_put_ratio: {
+                calls: savedAll.filter((t) => t.type?.toLowerCase() === 'call').length,
+                puts: savedAll.filter((t) => t.type?.toLowerCase() === 'put').length,
+              },
+              processing_time_ms: 0,
+            }
+            setData(savedAll)
+            setSummary(computedSummary)
+            setLastUpdate(new Date().toLocaleString())
+            setIsStreamComplete(true)
+            setLoading(false)
+            setStreamingStatus('')
+            return
+          }
+          setStreamingStatus('')
+        }
+
         const BATCH = 10
         const MAX_SSE = 70 // ceil(700/10) — covers any realistic symbol list
         let totalSymbols = 0
@@ -842,9 +945,31 @@ export default function OptionsFlowPage() {
         try {
           setStreamingStatus(`[ALL Scan] Scanning all tickers simultaneously...`)
 
-          // Fire all 70 SSEs at once — one shot, no rounds
+          // Helper: open one SSE for a comma-separated ticker list, resolves when complete
+          const openCommaSSE = (tickers: string): Promise<{ trades: OptionsFlowData[] }> =>
+            new Promise((resolve) => {
+              const trades: OptionsFlowData[] = []
+              const es = new EventSource(`/api/stream-options-flow?ticker=${tickers}`)
+              const t = setTimeout(() => { es.close(); resolve({ trades }) }, 5 * 60 * 1000)
+              es.onmessage = (event) => {
+                try {
+                  const d = JSON.parse(event.data)
+                  if (d.type === 'ticker_complete') trades.push(...(d.trades || []))
+                  else if (d.type === 'complete' || d.type === 'close' || d.type === 'error') {
+                    clearTimeout(t); es.close(); resolve({ trades })
+                  }
+                } catch { /* ignore */ }
+              }
+              es.onerror = () => { clearTimeout(t); es.close(); resolve({ trades }) }
+            })
+
+          // Fire all 70 ALL_EXCLUDE_ETF_MAG7 SSEs + MAG7 + ETF in parallel
           const offsets = Array.from({ length: MAX_SSE }, (_, i) => i * BATCH)
-          const results = await Promise.all(offsets.map((off) => openSSE(off)))
+          const [results, mag7Result, etfResult] = await Promise.all([
+            Promise.all(offsets.map((off) => openSSE(off))),
+            openCommaSSE('AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG'),
+            openCommaSSE('SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'),
+          ])
 
           // Collect everything
           const allTrades: OptionsFlowData[] = []
@@ -854,6 +979,7 @@ export default function OptionsFlowPage() {
             if (r.summary) setSummary(r.summary)
             if (r.market_info) setMarketInfo(r.market_info)
           }
+          allTrades.push(...mag7Result.trades, ...etfResult.trades)
 
           setLastUpdate(new Date().toLocaleString())
 
@@ -1135,7 +1261,7 @@ export default function OptionsFlowPage() {
 
   if (showAlgoFlow) {
     return (
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', zIndex: 50, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#000' }}>
+      <div style={{ height: 'calc(100% + 60px)', marginTop: '-60px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
       </div>
     )

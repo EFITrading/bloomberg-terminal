@@ -161,7 +161,7 @@ function LoginForm() {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
+      timeZone: 'America/Los_Angeles',
     })
   }
 
@@ -261,7 +261,7 @@ function LoginForm() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#FF6600', boxShadow: '0 0 10px #FF6600, 0 0 20px rgba(255,102,0,0.5)' }} />
             <span style={{ fontSize: '12px', color: '#FF6600', letterSpacing: '0.15em', fontWeight: 700 }}>
-              EFI TRADING INTELLIGENCE
+              EFI TRADING
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
@@ -271,7 +271,7 @@ function LoginForm() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e', animation: 'efi-blink 2s step-end infinite' }} />
               <span style={{ fontSize: '12px', color: '#FFFFFF', fontFamily: 'monospace', letterSpacing: '0.12em', fontWeight: 600 }}>
-                {formatTime(currentTime)} EST
+                {formatTime(currentTime)} PST
               </span>
             </div>
           </div>
@@ -287,20 +287,6 @@ function LoginForm() {
 
           {/* Logo section */}
           <div style={{ textAlign: 'center', marginBottom: '54px' }}>
-            {/* Overline tag */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '10px',
-              marginBottom: '26px',
-              padding: '7px 18px',
-              border: '1px solid rgba(255,102,0,0.45)',
-              background: 'linear-gradient(90deg, rgba(255,102,0,0.08), rgba(255,102,0,0.14), rgba(255,102,0,0.08))',
-              boxShadow: '0 0 20px rgba(255,102,0,0.1), inset 0 1px 0 rgba(255,255,255,0.06)',
-            }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6600', boxShadow: '0 0 8px #FF6600' }} />
-              <span style={{ fontSize: '11px', color: '#FF6600', letterSpacing: '0.25em', fontWeight: 700 }}>
-                PROFESSIONAL TRADING INTELLIGENCE
-              </span>
-            </div>
 
             {/* EFI wordmark */}
             <div style={{ lineHeight: 1, marginBottom: '4px' }}>

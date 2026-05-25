@@ -585,6 +585,40 @@ export default function Analytics() {
           height: 100% !important;
         }
         .analytics-mobile-header { display: none; }
+        /* ── Koyfin toolbar buttons ─────────────────────────────────────── */
+        .analytics-rrg-panel button {
+          font-size: 13px !important; height: 38px !important; padding: 0 16px !important;
+          letter-spacing: 1px !important; font-family: monospace !important; font-weight: 700 !important;
+        }
+        /* Swing preset buttons + WAVES (non-dropdown) */
+        .analytics-rrg-panel button:not([data-dropdown-button]) {
+          color: #ff8800 !important; border-color: #ff8800 !important;
+        }
+        /* ADD button (directly after ticker input) */
+        .analytics-rrg-panel input[type="text"] + button {
+          color: #00ff88 !important; border-color: #00ff88 !important;
+        }
+        /* Dropdown buttons: MAG7 / INDICES / INTL / SECTORS / INDUSTRIES / SPECIAL */
+        .analytics-rrg-panel [data-dropdown-button] {
+          color: #00d4ff !important; border-color: #00d4ff !important;
+        }
+        /* Ticker input */
+        .analytics-rrg-panel input[type="text"] {
+          font-size: 13px !important; height: 38px !important;
+        }
+        /* Date inputs */
+        .analytics-rrg-panel input[type="date"] {
+          font-size: 13px !important; height: 38px !important; color: #aaaaff !important;
+        }
+        /* Timeframe select */
+        .analytics-rrg-panel select {
+          font-size: 13px !important; height: 38px !important;
+          background: #0c0c0c !important; color: #ffffff !important;
+          border: 1px solid #2a2a2a !important;
+        }
+        .analytics-rrg-panel select option {
+          background: #0c0c0c !important; color: #ffffff !important;
+        }
         @media (max-width: 768px) {
           :root { --analytics-sw: 0px; }
           .analytics-sidebar { display: none !important; }
@@ -622,8 +656,8 @@ export default function Analytics() {
           .mci-history-grid { grid-template-columns: 1fr !important; }
 
           /* ── PerformanceDashboard ──────────────────────────────────────── */
-          .perf-header { padding: 8px 12px !important; flex-wrap: wrap !important; gap: 6px !important; }
-          .perf-header > div { flex-wrap: wrap !important; gap: 6px !important; }
+          .perf-header { padding: 8px 12px !important; flex-wrap: nowrap !important; gap: 6px !important; overflow-x: auto !important; }
+          .perf-header > div { flex-wrap: nowrap !important; gap: 6px !important; }
           .perf-header select, .perf-header button { font-size: 10px !important; padding: 5px 8px !important; }
           .perf-selected-count { padding: 5px 8px !important; font-size: 10px !important; letter-spacing: 0 !important; }
 

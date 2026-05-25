@@ -33,8 +33,6 @@ const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 const fetchVolumeAndOpenInterest = async (
   trades: OptionsFlowData[]
 ): Promise<OptionsFlowData[]> => {
-  console.log(`🔍 Fetching volume/OI data for ${trades.length} trades`)
-
   // Group trades by underlying ticker to minimize API calls
   const tradesByUnderlying = trades.reduce(
     (acc, trade) => {
@@ -56,8 +54,6 @@ const fetchVolumeAndOpenInterest = async (
     let currentSpotPrice: number | null = null
 
     try {
-      console.log(`📊 Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`)
-
       // First, get the current spot price for this underlying - this will be overridden by contract data if available
       try {
         const spotPriceUrl =
@@ -65,13 +61,11 @@ const fetchVolumeAndOpenInterest = async (
             ? `https://api.polygon.io/v2/last/trade/SPX?apikey=${POLYGON_API_KEY}`
             : `https://api.polygon.io/v2/last/trade/${underlying}?apikey=${POLYGON_API_KEY}`
 
-        console.log(`💰 Fetching current ${underlying} price as fallback...`)
         const priceResponse = await fetch(spotPriceUrl)
         if (priceResponse.ok) {
           const priceData = await priceResponse.json()
           if (priceData.status === 'OK' && priceData.results) {
             currentSpotPrice = priceData.results.p
-            console.log(`✅ Fallback ${underlying} price: $${currentSpotPrice}`)
           }
         }
       } catch (error) {
@@ -80,16 +74,12 @@ const fetchVolumeAndOpenInterest = async (
 
       // Get unique expiration dates for this underlying to fetch specific expirations
       const uniqueExpirations = [...new Set(underlyingTrades.map((t) => t.expiry))]
-      console.log(`📅 Unique expirations for ${underlying}:`, uniqueExpirations)
 
       const allContracts = new Map()
 
       // Fetch data for each expiration date separately to get all contracts WITH FULL PAGINATION
       for (const expiry of uniqueExpirations) {
         const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
-        console.log(
-          `📊 Fetching ${underlying} contracts for expiry: ${expiryParam} WITH FULL PAGINATION`
-        )
 
         // Use underlying ticker directly (SPX works as-is)
         const apiUnderlying = underlying
@@ -101,7 +91,6 @@ const fetchVolumeAndOpenInterest = async (
 
         while (nextUrl && totalContractsForExpiry < 10000) {
           // Safety limit
-          console.log(`🔄 Paginating: ${nextUrl}`)
           const response: Response = await fetch(nextUrl)
 
           if (response.ok) {
@@ -110,7 +99,6 @@ const fetchVolumeAndOpenInterest = async (
               // Get SPX price from the first contract's underlying_asset.value
               if (!currentSpotPrice && chainData.results[0]?.underlying_asset?.value) {
                 currentSpotPrice = chainData.results[0].underlying_asset.value
-                console.log(`💰 ${underlying} Price from contract data: $${currentSpotPrice}`)
               }
 
               chainData.results.forEach((contract: any, index: number) => {
@@ -122,16 +110,12 @@ const fetchVolumeAndOpenInterest = async (
                 }
               })
               totalContractsForExpiry += chainData.results.length
-              console.log(
-                `  📈 Added ${chainData.results.length} contracts, total for ${expiryParam}: ${totalContractsForExpiry}`
-              )
 
               // Check for next page
               nextUrl = chainData.next_url
                 ? `${chainData.next_url}&apikey=${POLYGON_API_KEY}`
                 : null
             } else {
-              console.log(`  ✅ No more results for ${expiryParam}`)
               break
             }
           } else {
@@ -144,13 +128,7 @@ const fetchVolumeAndOpenInterest = async (
           // Small delay to avoid rate limiting
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
-
-        console.log(
-          `✅ COMPLETED PAGINATION for ${expiryParam}: ${totalContractsForExpiry} total contracts`
-        )
       }
-
-      console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`)
 
       // Skip if no contracts found for any expiration
       if (allContracts.size === 0) {
@@ -171,8 +149,6 @@ const fetchVolumeAndOpenInterest = async (
 
       // Match trades to contracts and update with vol/OI data
       for (const trade of underlyingTrades) {
-        console.log(`🔍 Looking for contract using trade.ticker: ${trade.ticker}`)
-
         // First try: Use the ticker directly from the trade (like DealerAttraction does)
         let contractData = contractLookup.get(trade.ticker)
 
@@ -198,10 +174,6 @@ const fetchVolumeAndOpenInterest = async (
           // Use underlying ticker directly (SPX works as-is)
           const tickerUnderlying = underlying
           const optionTicker = `O:${tickerUnderlying}${formattedExpiry}${optionType}${formattedStrike}`
-
-          console.log(
-            `🔍 Trying constructed ticker: ${optionTicker} (from expiry: ${trade.expiry}, strike: ${trade.strike})`
-          )
           contractData = contractLookup.get(optionTicker)
         }
 
@@ -210,26 +182,9 @@ const fetchVolumeAndOpenInterest = async (
             ...trade,
             volume: contractData.volume,
             open_interest: contractData.open_interest,
-            spot_price: currentSpotPrice || trade.spot_price, // Use current spot price if available
+            spot_price: currentSpotPrice || trade.spot_price,
           })
-          console.log(
-            `✅ FOUND contract: Vol=${contractData.volume}, OI=${contractData.open_interest}, Spot=$${currentSpotPrice || trade.spot_price}`
-          )
         } else {
-          // Contract not found - show more debug info
-          console.log(`❌ NOT FOUND: ${trade.ticker}`)
-          console.log(`🔍 Trade details:`, {
-            ticker: trade.ticker,
-            underlying: trade.underlying_ticker,
-            strike: trade.strike,
-            expiry: trade.expiry,
-            type: trade.type,
-          })
-
-          // Show a few actual tickers for comparison
-          const allTickers = Array.from(contractLookup.keys()).slice(0, 10)
-          console.log(`📋 First 10 actual tickers in lookup:`, allTickers)
-
           updatedTrades.push({
             ...trade,
             volume: 0,
@@ -252,7 +207,6 @@ const fetchVolumeAndOpenInterest = async (
     }
   }
 
-  console.log(`✅ Volume/OI fetch complete for ${updatedTrades.length} trades`)
   return updatedTrades
 }
 
@@ -263,8 +217,6 @@ const liveOICache = new Map<string, number>()
 const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string): number => {
   // SIMPLIFIED: Just return the original OI since fill styles are unreliable
   // The OI from Polygon is already the most current available
-
-  console.log(`» LIVE OI (SIMPLIFIED): ${contractKey} - Returning original OI: ${originalOI}`)
 
   if (!trades || trades.length === 0) {
     return originalOI
@@ -295,7 +247,6 @@ const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string)
     const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`
 
     if (processedTradeIds.has(tradeId)) {
-      console.log(`⚠️ SKIPPING DUPLICATE: ${tradeId}`)
       return
     }
 
@@ -304,39 +255,24 @@ const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string)
     const contracts = trade.trade_size || 0
     const fillStyle = trade.fill_style
 
-    console.log(
-      `🔄 ${new Date(trade.trade_timestamp).toLocaleTimeString()} - ${contracts} contracts, Fill: ${fillStyle}, Before OI: ${liveOI}`
-    )
-
     switch (fillStyle) {
       case 'A': // Add to OI (opening)
       case 'AA': // Add to OI (opening)
       case 'BB': // Add to OI (opening)
         liveOI += contracts
-        console.log(`✅ ADDED ${contracts} -> New OI: ${liveOI}`)
         break
       case 'B': // Smart B fill logic
         if (contracts > originalOI) {
           // If B fill exceeds original OI, it's actually opening positions
           liveOI += contracts
-          console.log(
-            `🔄 B FILL EXCEEDS ORIGINAL OI: ADDED ${contracts} (${contracts} > ${originalOI}) -> New OI: ${liveOI}`
-          )
         } else {
-          // Normal B fill - closing positions
           liveOI -= contracts
-          console.log(`❌ SUBTRACTED ${contracts} -> New OI: ${liveOI}`)
         }
         break
       default:
-        console.log(`⚪ NO CHANGE for fill: ${fillStyle}`)
         break
     }
   })
-
-  console.log(
-    `📊 FINAL: ${contractKey} - Original: ${originalOI}, Final: ${liveOI}, Processed: ${processedTradeIds.size} trades`
-  )
 
   return Math.max(0, liveOI)
 }
@@ -489,6 +425,7 @@ interface AlgoFlowAnalysis {
     netFlow: number
     bullishTotal: number // Combined bullish calls + bullish puts
     bearishTotal: number // Combined bearish calls + bearish puts
+    pcRatio: number // Cumulative puts / cumulative calls premium
   }>
   priceData: Array<{
     time: number // Timestamp for proper x-axis formatting
@@ -508,6 +445,11 @@ interface AlgoFlowAnalysis {
   tier8Count: number
   // Trades with fill_style
   trades: any[]
+  // Fill-style quadrant premiums
+  bullCallPremium: number
+  bearCallPremium: number
+  bullPutPremium: number
+  bearPutPremium: number
 }
 
 // BID/ASK EXECUTION ANALYSIS - Same logic as OptionsFlowTable intentions button
@@ -548,10 +490,6 @@ const computeFillStyle = (fillPrice: number, bid: number, ask: number): string =
 
 const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
   if (trades.length === 0) return trades
-
-  console.log(
-    `⚡ BID/ASK ANALYSIS: fetching per-trade quotes at execution timestamp for ${trades.length} trades`
-  )
 
   // Build deduplicated batch payload — unique by contract+second bucket
   // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
@@ -608,15 +546,11 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
   })
 }
 const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => {
-  console.log(`» Starting ULTRA-FAST parallel bid/ask analysis for ${trades.length} trades`)
-
   if (trades.length === 0) return trades
 
   // Process ALL trades - no sampling for accurate fill_style classification
   const tradesToAnalyze = trades
   const useStatisticalInference = false
-
-  console.log(`📊 Processing ALL ${tradesToAnalyze.length} trades for accurate fill_style analysis`)
 
   // Create optimal batches for parallel processing
   const BATCH_SIZE = 20 // Optimal batch size for API rate limits
@@ -627,10 +561,6 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
     batches.push(tradesToAnalyze.slice(i, i + BATCH_SIZE))
   }
 
-  console.log(
-    `⚡ Processing ${batches.length} batches with max ${MAX_CONCURRENT_BATCHES} concurrent batches`
-  )
-
   // Process batches in controlled parallel chunks
   const allResults: any[] = []
   const totalChunks = Math.ceil(batches.length / MAX_CONCURRENT_BATCHES)
@@ -638,9 +568,6 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
   for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
     const currentChunk = Math.floor(i / MAX_CONCURRENT_BATCHES) + 1
     const batchChunk = batches.slice(i, i + MAX_CONCURRENT_BATCHES)
-    console.log(
-      `🔄 Processing batch chunk ${currentChunk}/${totalChunks} (${batchChunk.length} batches)`
-    )
 
     // Update progress if possible (would need to pass callback from component)
     if (typeof window !== 'undefined' && (window as any).updateAnalysisProgress) {
@@ -801,14 +728,6 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
   const bearishCount = finalTrades.filter((t) => t.executionType === 'BEARISH').length
   const neutralCount = finalTrades.filter((t) => t.executionType === 'NEUTRAL').length
 
-  console.log(`🎯 ULTRA-FAST analysis complete in seconds instead of hours!`)
-  console.log(
-    `📊 Results: ${bullishCount} BULLISH (${((bullishCount / finalTrades.length) * 100).toFixed(1)}%), ${bearishCount} BEARISH (${((bearishCount / finalTrades.length) * 100).toFixed(1)}%), ${neutralCount} NEUTRAL (${((neutralCount / finalTrades.length) * 100).toFixed(1)}%)`
-  )
-  console.log(
-    `⚡ Processed ${finalTrades.length} trades using ${useStatisticalInference ? 'STATISTICAL INFERENCE' : 'DIRECT ANALYSIS'}`
-  )
-
   return finalTrades
 }
 
@@ -899,6 +818,41 @@ const CHART_VIEW_OPTIONS = [
   { label: '1Y', days: 252 },
 ]
 
+const MAG7_TICKERS = ['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG']
+const ETF_TICKERS = [
+  'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI',
+  'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG',
+  'LQD', 'EEM', 'EFA', 'VXX', 'UVXY',
+]
+
+// Module-level holiday list used by both the chart slot generator (inside calculateAlgoFlowAnalysis)
+// and the saved-data check in fetchTickerFlow.
+const ALGO_MARKET_HOLIDAYS = [
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+  '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+  '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+]
+
+// Returns the last N trading days (oldest → newest) for the given timeframe string.
+function getAlgoTradingDays(timeframe: string): string[] {
+  const days: string[] = []
+  const pstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const daysNeeded =
+    timeframe === '1D' ? 1
+      : timeframe === '3D' ? 3
+        : timeframe === '1W' ? 5
+          : Math.max(1, parseInt(timeframe) || 1)
+  const cur = new Date(pstNow)
+  while (days.length < daysNeeded) {
+    const dow = cur.getDay()
+    const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+    if (dow !== 0 && dow !== 6 && !ALGO_MARKET_HOLIDAYS.includes(ds)) days.push(ds)
+    cur.setDate(cur.getDate() - 1)
+  }
+  return days.reverse()
+}
+
 export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {}) {
   const [ticker, setTicker] = useState('')
   const [searchTicker, setSearchTicker] = useState('')
@@ -910,7 +864,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const accumulatedTradesRef = useRef<OptionsFlowData[]>([])
   const [streamStatus, setStreamStatus] = useState('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
-  const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour')
+  const [timeInterval, setTimeInterval] = useState<'1min' | '5min' | '15min' | '30min' | '1hour'>('1hour')
   const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed')
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
   const toggleLine = (key: string) => setHiddenLines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
@@ -919,6 +873,17 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const [brushIndices, setBrushIndices] = useState<{ start: number; end: number } | null>(null)
   const chartDragRef = useRef<{ dragging: boolean; startX: number; startIndices: { start: number; end: number } }>({ dragging: false, startX: 0, startIndices: { start: 0, end: 0 } })
   const chartDivRef = useRef<HTMLDivElement>(null)
+  // Tracks the current multi-scan label (MAG7 / ALL) so re-analysis on timeframe change preserves it
+  const multiScanLabelRef = useRef<string | undefined>(undefined)
+
+  // Missing-days dialog state
+  const [missingDaysDialog, setMissingDaysDialog] = useState<{
+    missingDays: string[]
+    savedTrades: OptionsFlowData[]
+    originalSearch: string
+    tf: string
+    displayLabel: string | undefined
+  } | null>(null)
 
   // Pagination and sorting state
   const [currentPage, setCurrentPage] = useState(1)
@@ -938,12 +903,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
   // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
   const calculateAlgoFlowAnalysis = async (
-    trades: OptionsFlowData[]
+    trades: OptionsFlowData[],
+    displayLabel?: string
   ): Promise<AlgoFlowAnalysis | null> => {
     if (!trades.length) return null
 
-    const ticker = trades[0].underlying_ticker
-    const currentPrice = trades[0].spot_price
+    const ticker = displayLabel ?? trades[0].underlying_ticker
+    const currentPrice = displayLabel ? 0 : trades[0].spot_price
 
     // Convert to ProcessedTrade format - PRESERVE fill_style if it exists
     const processedTrades = trades.map((trade) => ({
@@ -1059,7 +1025,6 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     const classifiedTrades = tieredTrades
 
     // BID/ASK EXECUTION ANALYSIS - Only analyze trades WITHOUT fill_style
-    console.log('🚀 Checking which trades need bid/ask analysis...')
     const tradesNeedingAnalysis = classifiedTrades.filter(
       (t) => !t.fill_style || t.fill_style === 'N/A'
     )
@@ -1067,113 +1032,66 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       (t) => t.fill_style && t.fill_style !== 'N/A'
     )
 
-    console.log(
-      `📊 ${tradesWithExistingFillStyle.length} trades already have fill_style, ${tradesNeedingAnalysis.length} need analysis`
-    )
-
     let analyzedTrades = []
     if (tradesNeedingAnalysis.length > 0) {
-      console.log('🚀 Running bid/ask analysis for trades without fill_style...')
       analyzedTrades = await analyzeBidAskExecutionLightning(tradesNeedingAnalysis)
     }
 
     // Combine trades: those with existing fill_style + newly analyzed trades
     const tradesWithExecution = [...tradesWithExistingFillStyle, ...analyzedTrades]
 
-    console.log(
-      '🔍 TRADES WITH FILL_STYLE:',
-      tradesWithExecution.slice(0, 5).map((t) => ({
-        ticker: t.underlying_ticker,
-        premium: t.total_premium,
-        fill_style: t.fill_style,
-      }))
-    )
-
-    // Calculate premium flows
-    const callTrades = tradesWithExecution.filter((t: any) => t.type === 'call')
-    const putTrades = tradesWithExecution.filter((t: any) => t.type === 'put')
-
-    const totalCallPremium = callTrades.reduce((sum: number, t: any) => sum + t.total_premium, 0)
-    const totalPutPremium = putTrades.reduce((sum: number, t: any) => sum + t.total_premium, 0)
+    // Single pass replaces ~17 separate filter/reduce operations — critical for large ALL scans
+    let totalCallPremium = 0, totalPutPremium = 0
+    let callCount = 0, putCount = 0
+    let sweepCount = 0, blockCount = 0, miniCount = 0
+    let tier1Count = 0, tier2Count = 0, tier3Count = 0, tier4Count = 0
+    let tier5Count = 0, tier6Count = 0, tier7Count = 0, tier8Count = 0
+    let aggressiveCalls = 0, aggressivePuts = 0
+    let aggressiveCallPremium = 0, aggressivePutPremium = 0
+    let nonAggressiveCallPremium = 0, nonAggressivePutPremium = 0
+    let sweepBlockCalls = 0, sweepBlockPuts = 0
+    let bullCallPremium = 0, bearCallPremium = 0, bullPutPremium = 0, bearPutPremium = 0
+    for (const t of tradesWithExecution) {
+      const isCall = (t as any).type === 'call'
+      const premium = (t as any).total_premium
+      if (isCall) { totalCallPremium += premium; callCount++ } else { totalPutPremium += premium; putCount++ }
+      switch ((t as any).trade_type) {
+        case 'SWEEP': sweepCount++; if (isCall) sweepBlockCalls++; else sweepBlockPuts++; break
+        case 'BLOCK': blockCount++; if (isCall) sweepBlockCalls++; else sweepBlockPuts++; break
+        default: miniCount++
+      }
+      switch ((t as any).tier) {
+        case 'TIER_1': tier1Count++; break; case 'TIER_2': tier2Count++; break
+        case 'TIER_3': tier3Count++; break; case 'TIER_4': tier4Count++; break
+        case 'TIER_5': tier5Count++; break; case 'TIER_6': tier6Count++; break
+        case 'TIER_7': tier7Count++; break; default: tier8Count++
+      }
+      if (premium >= 50_000) {
+        if (isCall) { aggressiveCalls++; aggressiveCallPremium += premium }
+        else { aggressivePuts++; aggressivePutPremium += premium }
+      } else {
+        if (isCall) nonAggressiveCallPremium += premium; else nonAggressivePutPremium += premium
+      }
+      // Fill-style quadrant tracking (A/AA = bullish, B/BB = bearish)
+      const fs = (t as any).fill_style
+      const isBull = fs === 'A' || fs === 'AA'
+      const isBear = fs === 'B' || fs === 'BB'
+      if (isCall) { if (isBull) bullCallPremium += premium; else if (isBear) bearCallPremium += premium }
+      else { if (isBull) bullPutPremium += premium; else if (isBear) bearPutPremium += premium }
+    }
     const netFlow = totalCallPremium - totalPutPremium
-
-    // Count trade types using YOUR REAL classification
-    const sweepCount = classifiedTrades.filter((t: any) => t.trade_type === 'SWEEP').length
-    const blockCount = classifiedTrades.filter((t: any) => t.trade_type === 'BLOCK').length
-    const miniCount = classifiedTrades.filter((t: any) => t.trade_type === 'MINI').length
-
-    // Count by YOUR REAL TIER SYSTEM
-    const tier1Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_1').length
-    const tier2Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_2').length
-    const tier3Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_3').length
-    const tier4Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_4').length
-    const tier5Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_5').length
-    const tier6Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_6').length
-    const tier7Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_7').length
-    const tier8Count = classifiedTrades.filter((t: any) => t.tier === 'TIER_8').length
-
-    // No EFI highlights needed
-
-    // Calculate aggressive calls/puts (large premium trades)
-    const aggressiveCalls = callTrades.filter((t: any) => t.total_premium >= 50000).length
-    const aggressivePuts = putTrades.filter((t: any) => t.total_premium >= 50000).length
-
-    const callPutRatio =
-      putTrades.length > 0 ? callTrades.length / putTrades.length : callTrades.length
-
-    // Enhanced AlgoFlow Score Calculation
-    // Component 1: Premium Ratio (base sentiment from dollar flow)
+    const callPutRatio = putCount > 0 ? callCount / putCount : callCount
     const totalPremium = totalCallPremium + totalPutPremium
     const premiumRatio = totalPremium > 0 ? netFlow / totalPremium : 0
-
-    // Component 2: Volume Ratio (directional trade count)
-    const volumeRatio =
-      classifiedTrades.length > 0
-        ? (callTrades.length - putTrades.length) / classifiedTrades.length
-        : 0
-
-    // Component 3: Aggressive Trades Ratio (large trades ≥$50K - institutional conviction)
-    const aggressiveCallPremium = callTrades
-      .filter((t: any) => t.total_premium >= 50000)
-      .reduce((sum: number, t: any) => sum + t.total_premium, 0)
-    const aggressivePutPremium = putTrades
-      .filter((t: any) => t.total_premium >= 50000)
-      .reduce((sum: number, t: any) => sum + t.total_premium, 0)
+    const volumeRatio = tradesWithExecution.length > 0 ? (callCount - putCount) / tradesWithExecution.length : 0
     const aggressiveTotalPremium = aggressiveCallPremium + aggressivePutPremium
-    const aggressiveRatio =
-      aggressiveTotalPremium > 0
-        ? (aggressiveCallPremium - aggressivePutPremium) / aggressiveTotalPremium
-        : 0
-
-    // Component 4: Non-Aggressive Trades Ratio (smaller trades <$50K - retail/smaller players)
-    const nonAggressiveCallPremium = callTrades
-      .filter((t: any) => t.total_premium < 50000)
-      .reduce((sum: number, t: any) => sum + t.total_premium, 0)
-    const nonAggressivePutPremium = putTrades
-      .filter((t: any) => t.total_premium < 50000)
-      .reduce((sum: number, t: any) => sum + t.total_premium, 0)
+    const aggressiveRatio = aggressiveTotalPremium > 0 ? (aggressiveCallPremium - aggressivePutPremium) / aggressiveTotalPremium : 0
     const nonAggressiveTotalPremium = nonAggressiveCallPremium + nonAggressivePutPremium
-    const nonAggressiveRatio =
-      nonAggressiveTotalPremium > 0
-        ? (nonAggressiveCallPremium - nonAggressivePutPremium) / nonAggressiveTotalPremium
-        : 0
-
-    // Component 5: Put/Call Ratio Score (normalized - higher C/P ratio = more bullish)
-    // Normalize P/C ratio to -1 to +1 scale (0.5 = neutral, >1 = bearish, <0.5 = bullish)
-    const pcRatioScore = callPutRatio > 0 ? Math.tanh((callPutRatio - 1) * 0.5) : -1 // tanh keeps it bounded
-
-    // Component 6: Sweep/Block Concentration (high-conviction institutional flow)
+    const nonAggressiveRatio = nonAggressiveTotalPremium > 0 ? (nonAggressiveCallPremium - nonAggressivePutPremium) / nonAggressiveTotalPremium : 0
+    const pcRatioScore = callPutRatio > 0 ? Math.tanh((callPutRatio - 1) * 0.5) : -1
     const sweepBlockCount = sweepCount + blockCount
-    const sweepBlockRatio =
-      classifiedTrades.length > 0 ? sweepBlockCount / classifiedTrades.length : 0
-    const sweepBlockCalls = classifiedTrades.filter(
-      (t: any) => (t.trade_type === 'SWEEP' || t.trade_type === 'BLOCK') && t.type === 'call'
-    ).length
-    const sweepBlockPuts = classifiedTrades.filter(
-      (t: any) => (t.trade_type === 'SWEEP' || t.trade_type === 'BLOCK') && t.type === 'put'
-    ).length
-    const sweepBlockScore =
-      sweepBlockCount > 0 ? (sweepBlockCalls - sweepBlockPuts) / sweepBlockCount : 0
+    const sweepBlockRatio = tradesWithExecution.length > 0 ? sweepBlockCount / tradesWithExecution.length : 0
+    const sweepBlockScore = sweepBlockCount > 0 ? (sweepBlockCalls - sweepBlockPuts) / sweepBlockCount : 0
 
     // Enhanced AlgoFlow Score with weighted components
     const algoFlowScore =
@@ -1255,6 +1173,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
       // Convert interval to minutes
       switch (interval) {
+        case '1min':
+          intervalMinutes = 1
+          break
         case '5min':
           intervalMinutes = 5
           break
@@ -1287,8 +1208,8 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
           slots.push(timeKey)
         }
-        // Always add the final market close slot (4:00 PM)
-        slots.push('16:00')
+        // Always add the final market close slot (1:00 PM PST = market close)
+        slots.push('13:00')
       } else {
         // Multi-day: For each trading day, add key time points
         // Use 9:30AM, 12PM, 4PM for each day
@@ -1302,7 +1223,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       return slots
     }
 
-    const timeSlots = getTimeSlots(timeInterval, scanTimeframe)
+    // Derive effective interval from scanTimeframe so chart resolution adapts automatically
+    const scanDaysForInterval = getScanDays(scanTimeframe)
+    const effectiveInterval: '1min' | '5min' | '15min' | '30min' | '1hour' =
+      scanDaysForInterval <= 2 ? '1min'
+        : scanDaysForInterval <= 5 ? '30min'
+          : '1hour'
+
+    const timeSlots = getTimeSlots(effectiveInterval, scanTimeframe)
     timeSlots.forEach((slot) => {
       intervalData[slot] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
     })
@@ -1333,6 +1261,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
           let slotMinutes: number
           switch (interval) {
+            case '1min':
+              slotMinutes = Math.floor(totalMinutes / 1) * 1
+              break
             case '5min':
               slotMinutes = Math.floor(totalMinutes / 5) * 5
               break
@@ -1354,7 +1285,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
           return `${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
         }
-        timeKey = getTimeSlot(hour, minute, timeInterval)
+        timeKey = getTimeSlot(hour, minute, effectiveInterval)
       } else {
         // Multi-day: Match to closest key time point (9:30AM, 12PM, 4PM)
         if (hour < 12) {
@@ -1377,9 +1308,6 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
         } else {
           // For trades without fill_style, default to false (bearish)
           isBullish = false
-          console.log(
-            `» BEARISH ${trade.type.toUpperCase()}: ${trade.fill_style} - $${trade.total_premium.toLocaleString()}`
-          )
         }
 
         if (trade.type === 'call') {
@@ -1490,23 +1418,26 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           callsMinus: prev.callsMinus + data.callsMinus,
           putsPlus: prev.putsPlus + data.putsPlus,
           putsMinus: prev.putsMinus + data.putsMinus,
-          netFlow: 0, // Initialize netFlow
-          bullishTotal: 0, // Initialize bullishTotal
-          bearishTotal: 0, // Initialize bearishTotal
+          netFlow: 0,
+          bullishTotal: 0,
+          bearishTotal: 0,
+          pcRatio: 0,
         }
         cumulative.netFlow =
           cumulative.callsPlus -
           cumulative.callsMinus +
           (cumulative.putsPlus - cumulative.putsMinus)
         cumulative.bullishTotal = cumulative.callsPlus + cumulative.putsPlus
-        cumulative.bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus) // Negative for bearish
+        cumulative.bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus)
+        // P/C: Bearish (bear calls + bear puts) ÷ Bullish (bull calls + bull puts)
+        const cumBullish = cumulative.callsPlus + cumulative.putsPlus
+        const cumBearish = cumulative.callsMinus + cumulative.putsMinus
+        cumulative.pcRatio = cumBullish > 0 ? cumBearish / cumBullish : 1
         acc.push(cumulative)
         return acc
       }, [])
 
-    // 🚨 FETCH REAL PRICE DATA FROM POLYGON API - NO FAKE DATA!
-    console.log(`» FETCHING REAL OHLC DATA from Polygon API for ${ticker}...`)
-
+    // 🚨 FETCH REAL PRICE DATA FROM POLYGON API — skipped for multi-ticker scans
     let finalPriceData: Array<{
       time: number
       open: number
@@ -1515,56 +1446,54 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       close: number
     }> = []
 
-    try {
-      // Determine interval: day bars for multi-week, hour bars for multi-day, minute for 1D
-      const scanDays = getScanDays(scanTimeframe)
-      const tradingDays = getTradingDays(scanTimeframe)
-      const startDate = tradingDays[0]
-      const endDate = tradingDays[tradingDays.length - 1]
+    if (!displayLabel) {
+      try {
+        // Determine interval: day bars for multi-week, hour bars for multi-day, minute for 1D
+        const scanDays = getScanDays(scanTimeframe)
+        const tradingDays = getTradingDays(scanTimeframe)
+        const startDate = tradingDays[0]
+        const endDate = tradingDays[tradingDays.length - 1]
 
-      let priceMultiplier = 60
-      let priceTimespan = 'minute'
-      if (scanDays > 5) {
-        priceMultiplier = 1
-        priceTimespan = 'day'
-      } else if (scanDays > 1) {
-        priceMultiplier = 1
-        priceTimespan = 'hour'
-      }
+        let priceMultiplier = 5
+        let priceTimespan = 'minute'
+        if (scanDays > 10) {
+          priceMultiplier = 1
+          priceTimespan = 'day'
+        } else if (scanDays > 5) {
+          priceMultiplier = 60
+          priceTimespan = 'minute' // 1-hour bars
+        } else if (scanDays > 2) {
+          priceMultiplier = 30
+          priceTimespan = 'minute' // 30-min bars
+        } // else: 1-2 days → 5-min bars (default)
 
-      // Fetch REAL aggregated bars from Polygon covering full scan range
-      const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${priceMultiplier}/${priceTimespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+        // Fetch REAL aggregated bars from Polygon covering full scan range
+        const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${priceMultiplier}/${priceTimespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+        const response = await fetch(polygonUrl)
+        const data = await response.json()
 
-      console.log(`📈 REAL DATA REQUEST: ${ticker} ${priceMultiplier}${priceTimespan} bars from ${startDate} to ${endDate}`)
+        if (data.results && data.results.length > 0) {
 
-      const response = await fetch(polygonUrl)
-      const data = await response.json()
 
-      if (data.results && data.results.length > 0) {
-        console.log(`✅ REAL DATA RECEIVED: ${data.results.length} candlesticks from Polygon API`)
+          // Convert Polygon results to our chart format
+          finalPriceData = data.results.map((bar: any) => ({
+            time: bar.t, // Polygon timestamp in milliseconds
+            open: bar.o,
+            high: bar.h,
+            low: bar.l,
+            close: bar.c,
+          }))
 
-        // Convert Polygon results to our chart format
-        finalPriceData = data.results.map((bar: any) => ({
-          time: bar.t, // Polygon timestamp in milliseconds
-          open: bar.o,
-          high: bar.h,
-          low: bar.l,
-          close: bar.c,
-        }))
-
-        console.log(
-          `✅ REAL OHLC DATA LOADED: ${finalPriceData.length} real candlesticks`,
-          finalPriceData.slice(0, 3)
-        )
-      } else {
-        console.warn(
-          `⚠️ NO REAL DATA from Polygon for ${ticker} from ${startDate} to ${endDate} - chart will be empty`
-        )
+        } else {
+          console.warn(
+            `⚠️ NO REAL DATA from Polygon for ${ticker} from ${startDate} to ${endDate} - chart will be empty`
+          )
+          finalPriceData = []
+        }
+      } catch (error) {
+        console.error(`❌ FAILED TO FETCH REAL PRICE DATA for ${ticker}:`, error)
         finalPriceData = []
       }
-    } catch (error) {
-      console.error(`❌ FAILED TO FETCH REAL PRICE DATA for ${ticker}:`, error)
-      finalPriceData = []
     }
 
     // Merge stock price into each chartData point by nearest timestamp
@@ -1612,6 +1541,11 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       tier8Count,
       // Return trades with fill_style
       trades: tradesWithExecution,
+      // Fill-style quadrant premiums for the gauge
+      bullCallPremium,
+      bearCallPremium,
+      bullPutPremium,
+      bearPutPremium,
     }
   }
 
@@ -1632,30 +1566,19 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
   // Effect to handle async analysis calculation
   // Function to perform analysis - will be called manually after volume/OI enrichment
-  const performAnalysis = async (tradesData: any[]) => {
+  const performAnalysis = async (tradesData: any[], displayLabel?: string) => {
     if (tradesData.length > 0) {
-      console.log(`🚀 Starting analysis for ${tradesData.length} flow trades`)
       setIsAnalyzing(true)
       try {
-        const result = await calculateAlgoFlowAnalysis(tradesData)
-        console.log(`📊 Analysis complete, result:`, result ? 'SUCCESS' : 'FAILED')
+        const result = await calculateAlgoFlowAnalysis(tradesData, displayLabel)
 
-        // DIRECT FIX: Merge volume/OI data into analysis trades
+        // Merge volume/OI data into analysis trades
         if (result && result.trades) {
-          console.log(`🔧 MERGING VOLUME/OI DATA INTO ANALYSIS TRADES`)
-          console.log(`🔍 SAMPLE ANALYSIS TICKER:`, result.trades[0]?.ticker)
-          console.log(`🔍 SAMPLE ENRICHED TICKER:`, tradesData[0]?.ticker)
-
           result.trades = result.trades.map((analyzedTrade: any) => {
-            console.log(
-              `🔍 LOOKING FOR MATCH - Analysis: ${analyzedTrade.ticker} (${analyzedTrade.underlying_ticker} ${analyzedTrade.strike} ${analyzedTrade.expiry} ${analyzedTrade.type})`
-            )
-
             // Find matching trade - try exact ticker first, then by contract details
             let enrichedTrade = tradesData.find((t) => t.ticker === analyzedTrade.ticker)
 
             if (!enrichedTrade) {
-              // Try matching by contract details since ticker formats may differ
               enrichedTrade = tradesData.find(
                 (t) =>
                   t.underlying_ticker === analyzedTrade.underlying_ticker &&
@@ -1663,55 +1586,30 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   t.expiry === analyzedTrade.expiry &&
                   t.type === analyzedTrade.type
               )
-              console.log(
-                `🔄 FALLBACK MATCH ATTEMPT:`,
-                enrichedTrade ? `Found ${enrichedTrade.ticker}` : 'No match'
-              )
             }
 
             if (
               enrichedTrade &&
               (enrichedTrade.volume !== undefined || enrichedTrade.open_interest !== undefined)
             ) {
-              console.log(
-                `✅ MERGING VOL/OI: ${enrichedTrade.ticker} -> ${analyzedTrade.ticker} Vol=${enrichedTrade.volume} OI=${enrichedTrade.open_interest}`
-              )
               return {
                 ...analyzedTrade,
                 volume: enrichedTrade.volume,
                 open_interest: enrichedTrade.open_interest,
               }
-            } else {
-              console.log(`❌ NO MATCH FOUND for ${analyzedTrade.ticker}`)
             }
             return analyzedTrade
           })
         }
 
-        console.log(`🎯 SETTING ANALYSIS STATE:`, !!result)
-        console.log(
-          `🔍 ANALYSIS TRADES SAMPLE:`,
-          result?.trades?.[0]
-            ? {
-              ticker: result.trades[0].ticker,
-              volume: result.trades[0].volume,
-              open_interest: result.trades[0].open_interest,
-              hasVolume: !!result.trades[0].volume,
-              hasOI: !!result.trades[0].open_interest,
-            }
-            : 'NO TRADES'
-        )
         setAnalysis(result)
-        console.log(`✅ ANALYSIS STATE SET - Should show table now!`)
       } catch (error) {
-        console.error('❌ Error in bid/ask analysis:', error)
-        console.log(`❌ CLEARING ANALYSIS STATE due to error`)
+        console.error('Error in analysis:', error)
         setAnalysis(null)
       } finally {
         setIsAnalyzing(false)
       }
     } else {
-      console.log(`❌ CLEARING ANALYSIS STATE - no flow data`)
       setAnalysis(null)
     }
   }
@@ -1723,23 +1621,89 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     }
   }, [flowData])
 
-  // Re-analyze when scan timeframe changes
-  useEffect(() => {
-    if (flowData.length > 0) {
-      performAnalysis(flowData)
-    }
-  }, [scanTimeframe])
-
-  // Sync chart view window when scan timeframe changes
+  // Sync chart view window when scan timeframe changes (no auto re-analyze — user must click ANALYZE)
   useEffect(() => {
     setChartDisplayDays(getScanDays(scanTimeframe))
     setBrushIndices(null)
   }, [scanTimeframe])
 
-  // Reset brush when chartDisplayDays changes
-  useEffect(() => {
-    setBrushIndices(null)
-  }, [chartDisplayDays])
+  // Reset brush when chartDisplayDays changes — merged into button click handler, no separate effect needed
+
+  // Memoize trades-table OI computation — prevents rerunning 36k-trade loop on every render
+  const tradeOIMemo = useMemo(() => {
+    const allTrades: any[] = analysis?.trades || flowData || []
+    const isMultiDay = getScanDays(scanTimeframe) > 1
+    const contractDayGroups = new Map<string, any[]>()
+    const firstDayPerContract = new Map<string, string>()
+    const lastDayPerContract = new Map<string, string>()
+    for (const t of allTrades) {
+      const day = new Date(t.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      const ck = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
+      const k = `${ck}_${day}`
+      if (!contractDayGroups.has(k)) contractDayGroups.set(k, [])
+      contractDayGroups.get(k)!.push(t)
+      const fd = firstDayPerContract.get(ck); if (!fd || day < fd) firstDayPerContract.set(ck, day)
+      const ld = lastDayPerContract.get(ck); if (!ld || day > ld) lastDayPerContract.set(ck, day)
+    }
+    const liveOIMap = new Map<string, number>()
+    const baseOIMap = new Map<string, number>()
+    for (const [k, group] of contractDayGroups) {
+      const sorted = group.slice().sort((a: any, b: any) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime())
+      const baseOI = sorted[0].open_interest ?? 0
+      baseOIMap.set(k, baseOI)
+      let oi = baseOI
+      const seen = new Set<string>()
+      for (const t of sorted) {
+        const id = `${t.ticker}_${t.trade_timestamp}_${t.trade_size}_${t.premium_per_contract}`
+        if (seen.has(id)) continue
+        seen.add(id)
+        const qty = t.trade_size ?? 0
+        switch (t.fill_style) {
+          case 'A': case 'AA': case 'BB': oi += qty; break
+          case 'B': oi += qty > baseOI ? qty : -qty; break
+        }
+      }
+      liveOIMap.set(k, Math.max(0, oi))
+    }
+    const multiDayOIChange = new Map<string, number>()
+    const lastDayVolumeMap = new Map<string, number | undefined>()
+    const lastDayOISnapshotMap = new Map<string, number | undefined>()
+    if (isMultiDay) {
+      for (const [ck, firstDay] of firstDayPerContract) {
+        const lastDay = lastDayPerContract.get(ck)!
+        const firstBaseOI = baseOIMap.get(`${ck}_${firstDay}`) ?? 0
+        const lastLiveOI = liveOIMap.get(`${ck}_${lastDay}`) ?? firstBaseOI
+        multiDayOIChange.set(ck, lastLiveOI - firstBaseOI)
+        const lastGroup = contractDayGroups.get(`${ck}_${lastDay}`)
+        if (lastGroup) {
+          const lastSorted = lastGroup.slice().sort((a: any, b: any) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime())
+          const lt = lastSorted[lastSorted.length - 1]
+          lastDayVolumeMap.set(ck, lt.volume)
+          lastDayOISnapshotMap.set(ck, lt.open_interest)
+        }
+      }
+    }
+    return { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap }
+  }, [analysis?.trades, flowData, scanTimeframe])
+
+  // Memoize chart data so button clicks don't recompute on unrelated re-renders
+  const chartMemo = useMemo(() => {
+    if (!analysis?.chartData) return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+    const scanDays = getScanDays(scanTimeframe)
+    const baseData = chartDisplayDays >= scanDays
+      ? analysis.chartData
+      : analysis.chartData.filter((d: any) => d.time >= Date.now() - chartDisplayDays * 1.5 * 24 * 60 * 60 * 1000)
+    const len = baseData.length
+    const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
+    const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
+    const visibleData = baseData.slice(bStart, bEnd + 1)
+    const xInterval = Math.max(0, Math.floor(visibleData.length / 12) - 1)
+    const priceLows = visibleData.map((d: any) => d.stockLow).filter((p: any) => p != null && !isNaN(p))
+    const priceHighs = visibleData.map((d: any) => d.stockHigh).filter((p: any) => p != null && !isNaN(p))
+    const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
+    const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
+    return { visibleData, xInterval, priceMin, priceMax }
+  }, [analysis?.chartData, chartDisplayDays, scanTimeframe, brushIndices])
 
   // Attach wheel listener as non-passive so preventDefault() works for chart zoom
   useEffect(() => {
@@ -1772,49 +1736,112 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   // Auto-load SPY data on component mount
   // Removed auto-loading of SPY data - let users search for their own ticker
 
-  // Fetch flow data for specific ticker
-  const fetchTickerFlow = async (tickerToSearch: string, tfOverride?: string) => {
+  // Fetch flow data for specific ticker (or MAG7 / ALL group)
+  const fetchTickerFlow = async (
+    tickerToSearch: string,
+    tfOverride?: string,
+    options?: { specificDates?: string; preMergedTrades?: OptionsFlowData[] }
+  ) => {
     if (!tickerToSearch.trim()) return
     const tf = tfOverride ?? scanTimeframe
+
+    // Expand group keywords → comma-list of actual tickers
+    const upper = tickerToSearch.trim().toUpperCase()
+    let actualTickers: string
+    let displayLabel: string | undefined
+    if (upper === 'MAG7') {
+      actualTickers = MAG7_TICKERS.join(',')
+      displayLabel = 'MAG7'
+    } else if (upper === 'ALL') {
+      actualTickers = [...MAG7_TICKERS, ...ETF_TICKERS].join(',')
+      displayLabel = 'ALL'
+    } else {
+      actualTickers = upper
+      displayLabel = undefined
+    }
 
     setLoading(true)
     setError('')
     setIsStreamComplete(false)
+    multiScanLabelRef.current = displayLabel
 
-    // Today-only: load from saved flow before hitting the stream API
-    if (tf === '1D') {
+    // Check saved data first (skip when scanning specific missing dates)
+    if (!options?.specificDates) {
       setStreamStatus('Checking saved data...')
       try {
         const datesResp = await fetch('/api/flows/dates')
         if (datesResp.ok) {
           const dates: { date: string }[] = await datesResp.json()
           if (dates.length > 0) {
-            const now = new Date()
-            const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-            const latestDateRaw = dates[0].date
-            const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-            console.log('[AlgoFlow] localToday:', localToday, '| latestSaved:', latestDateDay)
-            if (latestDateDay === localToday) {
-              const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
-              if (flowResp.ok) {
-                const flowData = await flowResp.json()
-                const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
-                const saved = allTrades.filter(
-                  (t: OptionsFlowData) =>
-                    t.underlying_ticker?.toUpperCase() === tickerToSearch.toUpperCase()
-                )
-                console.log('[AlgoFlow]', tickerToSearch, '→', saved.length, 'trades from', allTrades.length, 'total')
-                if (saved.length > 0) {
-                  setFlowData(saved)
-                  accumulatedTradesRef.current = saved
-                  liveOICache.clear()
-                  setIsStreamComplete(true)
-                  setStreamStatus(`Loaded from saved — ${saved.length} trades`)
-                  setLoading(false)
-                  performAnalysis(saved).catch(() => { })
-                  return
-                }
+            const allRequiredDays = getAlgoTradingDays(tf)
+            const requiredDayCount = allRequiredDays.length
+
+            // Take the N most recent unique calendar-day rows (N = days needed for timeframe).
+            // We group by UTC date of the DB key — NOT used for trading-day matching,
+            // just to avoid loading duplicate saves from the same day.
+            const seenDayKeys = new Set<string>()
+            const rowsToLoad: string[] = []
+            for (const { date: rawDate } of dates) {
+              const dayKey = new Date(rawDate).toISOString().split('T')[0]
+              if (!seenDayKeys.has(dayKey)) {
+                seenDayKeys.add(dayKey)
+                rowsToLoad.push(rawDate)
               }
+              if (rowsToLoad.length >= requiredDayCount) break
+            }
+
+            if (rowsToLoad.length > 0) {
+              const dayPayloads = await Promise.all(
+                rowsToLoad.map(async (rawDate) => {
+                  const r = await fetch(`/api/flows/${encodeURIComponent(rawDate)}`)
+                  return r.ok ? r.json() : null
+                })
+              )
+              const combinedTrades: OptionsFlowData[] = []
+              for (const payload of dayPayloads) {
+                if (Array.isArray(payload?.data)) combinedTrades.push(...payload.data)
+              }
+
+              // Determine which required trading days are actually present in the
+              // trade data — uses trade_timestamp in PST (same timezone as getAlgoTradingDays).
+              // toISOString() gives UTC which can shift the date for after-hours timestamps;
+              // en-CA locale gives YYYY-MM-DD in the specified timezone.
+              const tradeDaySet = new Set(
+                combinedTrades.map((t: OptionsFlowData) =>
+                  new Date(t.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                )
+              )
+              const coveredDays = allRequiredDays.filter((d) => tradeDaySet.has(d))
+              const missingDays = allRequiredDays.filter((d) => !tradeDaySet.has(d))
+
+              // When scanning ALL (or MAG7), skip the ticker filter — return every trade
+              // in the saved data. The DB was saved from a broader scan so filtering
+              // to a hardcoded 33-ticker set throws away legitimate data.
+              const saved = displayLabel === 'ALL' || displayLabel === 'MAG7'
+                ? combinedTrades
+                : combinedTrades.filter((t: OptionsFlowData) =>
+                  new Set(actualTickers.split(',').map((x) => x.trim().toUpperCase()))
+                    .has(t.underlying_ticker?.toUpperCase() ?? '')
+                )
+
+              if (saved.length > 0 && missingDays.length === 0) {
+                // Full coverage and ticker data found — use saved
+                setFlowData(saved)
+                accumulatedTradesRef.current = saved
+                liveOICache.clear()
+                setIsStreamComplete(true)
+                setStreamStatus(`Loaded from saved — ${saved.length} trades`)
+                setLoading(false)
+                performAnalysis(saved, displayLabel).catch(() => { })
+                return
+              } else if (saved.length > 0 && coveredDays.length > 0) {
+                // Partial coverage but have some ticker data — show missing days dialog
+                setLoading(false)
+                setStreamStatus('')
+                setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
+                return
+              }
+              // saved.length === 0 means ticker not in saved data → fall through to live scan
             }
           }
         }
@@ -1822,7 +1849,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     }
 
     setStreamStatus('Connecting...')
-    const url = `/api/stream-options-flow?ticker=${tickerToSearch.toUpperCase()}&timeframe=${tf}`
+    const url = options?.specificDates
+      ? `/api/stream-options-flow?ticker=${actualTickers}&timeframe=${tf}&dates=${options.specificDates}`
+      : `/api/stream-options-flow?ticker=${actualTickers}&timeframe=${tf}`
     setFlowData([])
     accumulatedTradesRef.current = [] // Reset accumulated trades ref
     liveOICache.clear() // Clear Live OI cache when starting new search
@@ -1871,8 +1900,11 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
               // Server sends trades via ticker_complete events, so data.trades is [].
               // Use accumulatedTradesRef which was built up by ticker_complete handlers.
-              const completeTrades: OptionsFlowData[] =
-                data.trades?.length > 0 ? data.trades : accumulatedTradesRef.current
+              // Also merge any pre-loaded saved trades (from partial-coverage scan).
+              const completeTrades: OptionsFlowData[] = [
+                ...(data.trades?.length > 0 ? data.trades : accumulatedTradesRef.current),
+                ...(options?.preMergedTrades ?? []),
+              ]
 
               if (completeTrades.length > 0) {
                 setStreamStatus('Fetching volume/OI data...')
@@ -1884,17 +1916,17 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     setIsStreamComplete(true)
                     setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
-                    performAnalysis(tradesWithVolOI).catch(() => { })
+                    performAnalysis(tradesWithVolOI, displayLabel).catch(() => { })
                   })
                   .catch(() => {
                     setFlowData(completeTrades)
                     liveOICache.clear()
                     setStreamStatus('Complete (volume/OI unavailable)')
                     setLoading(false)
-                    performAnalysis(completeTrades).catch(() => { })
+                    performAnalysis(completeTrades, displayLabel).catch(() => { })
                   })
               } else {
-                setError(`No options flow data found for ${tickerToSearch}`)
+                setError(`No options flow data found for ${actualTickers}`)
                 setLoading(false)
               }
               eventSource.close()
@@ -1944,8 +1976,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   }
 
   const formatCurrency = (value: number) => {
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`
+    if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`
+    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+    if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`
     return `$${value.toFixed(0)}`
   }
 
@@ -1966,8 +1999,75 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     }
   }
 
-  // Gauge component
-  const GaugeChart = ({
+  // Flow Quadrant Gauge — 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
+  const FlowQuadrantGauge = ({
+    bullCall, bearCall, bullPut, bearPut, score, label,
+  }: {
+    bullCall: number; bearCall: number; bullPut: number; bearPut: number; score: number; label: string
+  }) => {
+    const total = bullCall + bearCall + bullPut + bearPut || 1
+    const W = 68, H = 50, amp = 3
+    const quads = [
+      { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 4 },
+      { id: 'rc', lbl: 'BEAR CALLS', val: bearCall, color: '#ef4444', x: 90, y: 4 },
+      { id: 'bp', lbl: 'BULL PUTS', val: bullPut, color: '#3b82f6', x: 2, y: 66 },
+      { id: 'rp', lbl: 'BEAR PUTS', val: bearPut, color: '#f97316', x: 90, y: 66 },
+    ]
+    const speeds = [2.0, 2.6, 1.8, 2.3]
+    const absScore = Math.abs(score)
+    const scoreColor = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 4px 4px', width: '100%' }}>
+        <svg width="200" height="148" viewBox="0 0 160 118" style={{ overflow: 'visible' }}>
+          <style>{`
+            @keyframes fqw0{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes fqw1{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes fqw2{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes fqw3{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+          `}</style>
+          {quads.map((q, i) => {
+            const fill = q.val / total
+            const liquidH = fill * H
+            const waveY = q.y + H - liquidH
+            const clipId = `fq${i}`
+            const wx = q.x - W
+            const bottom = q.y + H
+            const wp = `M${wx} ${waveY} ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `V${bottom} H${wx} Z`
+            return (
+              <g key={q.id}>
+                <defs><clipPath id={clipId}><rect x={q.x} y={q.y} width={W} height={H} rx="3" /></clipPath></defs>
+                <rect x={q.x} y={q.y} width={W} height={H} rx="3" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
+                <g clipPath={`url(#${clipId})`}>
+                  {fill > 0.005 && (
+                    <>
+                      <rect x={q.x} y={Math.max(q.y, waveY + amp)} width={W} height={Math.max(0, bottom - Math.max(q.y, waveY + amp))} fill={q.color} opacity={0.35} />
+                      <g style={{ animationName: `fqw${i}`, animationDuration: `${speeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                        <path d={wp} fill={q.color} opacity={0.65} />
+                      </g>
+                    </>
+                  )}
+                </g>
+                <text x={q.x + W / 2} y={q.y + 11} textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.5">{q.lbl}</text>
+                <text x={q.x + W / 2} y={q.y + H - 5} textAnchor="middle" fill="#ffffff" fontSize="14" fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+              </g>
+            )
+          })}
+          {/* Center neutral circle */}
+          <circle cx={80} cy={59} r={15} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+          <text x={80} y={54} textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize="7.5" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
+          <text x={80} y={66} textAnchor="middle" dominantBaseline="middle" fill={scoreColor} fontSize="9" fontFamily="JetBrains Mono,monospace" fontWeight="800">{score.toFixed(2)}</text>
+        </svg>
+        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, color: '#ff8500', letterSpacing: '0.22em', marginTop: 10 }}>{label}</div>
+      </div>
+    )
+  }
+
+  // Legacy gauge (unused — kept for reference)
+  const _GaugeChart = ({
     value,
     max,
     label,
@@ -2100,8 +2200,109 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     )
   }
 
+  // --- Missing-days dialog handlers ---
+  const handleScanMissingDays = () => {
+    if (!missingDaysDialog) return
+    const { missingDays, savedTrades, originalSearch, tf, displayLabel } = missingDaysDialog
+    setMissingDaysDialog(null)
+    setLoading(true)
+    multiScanLabelRef.current = displayLabel
+    fetchTickerFlow(originalSearch, tf, {
+      specificDates: missingDays.join(','),
+      preMergedTrades: savedTrades,
+    })
+  }
+
+  const handleUseAvailableOnly = () => {
+    if (!missingDaysDialog) return
+    const { savedTrades, displayLabel } = missingDaysDialog
+    setMissingDaysDialog(null)
+    if (savedTrades.length > 0) {
+      setFlowData(savedTrades)
+      accumulatedTradesRef.current = savedTrades
+      liveOICache.clear()
+      setIsStreamComplete(true)
+      setStreamStatus(`Loaded from saved — ${savedTrades.length} trades`)
+      performAnalysis(savedTrades, displayLabel).catch(() => { })
+    } else {
+      setError('No saved data available for this selection.')
+    }
+  }
+
   return (
     <div className="h-full bg-black flex flex-col" style={{ overflow: 'hidden' }}>
+
+      {/* MISSING DAYS DIALOG */}
+      {missingDaysDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.75)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'linear-gradient(180deg, #111 0%, #0a0a0a 100%)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 8,
+            padding: '35px 40px',
+            maxWidth: 600,
+            width: '90%',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+          }}>
+            <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 18, fontWeight: 800, color: '#ff8500', letterSpacing: '0.2em', marginBottom: 18 }}>MISSING DATA</div>
+            <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#ffffff', lineHeight: 1.7, marginBottom: 23 }}>
+              The following trading days are not in saved storage:
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 25 }}>
+              {missingDaysDialog.missingDays.map((d) => (
+                <span key={d} style={{
+                  fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 700,
+                  background: '#ef4444', borderRadius: 3,
+                  padding: '3px 10px', color: '#fff',
+                }}>{d}</span>
+              ))}
+            </div>
+            {missingDaysDialog.savedTrades.length > 0 && (
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#ffffff', marginBottom: 28 }}>
+                {missingDaysDialog.savedTrades.length} trades available from saved days.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={handleScanMissingDays}
+                style={{
+                  flex: 1, padding: '11px 0',
+                  background: 'linear-gradient(135deg, #ff8500, #ff6000)',
+                  border: 'none', borderRadius: 4,
+                  fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800,
+                  letterSpacing: '0.12em', color: '#000', cursor: 'pointer',
+                }}
+              >SCAN MISSING DAYS</button>
+              {missingDaysDialog.savedTrades.length > 0 && (
+                <button
+                  onClick={handleUseAvailableOnly}
+                  style={{
+                    flex: 1, padding: '11px 0',
+                    background: 'transparent',
+                    border: '1px solid rgba(255,255,255,0.25)', borderRadius: 4,
+                    fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800,
+                    letterSpacing: '0.12em', color: '#ffffff', cursor: 'pointer',
+                  }}
+                >USE SAVED ONLY</button>
+              )}
+              <button
+                onClick={() => { setMissingDaysDialog(null); setLoading(false) }}
+                style={{
+                  padding: '11px 18px',
+                  background: 'transparent',
+                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: 4,
+                  fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 700,
+                  color: '#ffffff', cursor: 'pointer',
+                }}
+              >✕</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* HEADER BAR */}
       <div style={{
         background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)',
@@ -2167,10 +2368,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           </select>
           <button
             onClick={handleSearch}
-            disabled={loading || !ticker.trim()}
-            style={{ padding: '5px 20px', background: loading ? '#333' : 'linear-gradient(135deg, #ff8500, #ff6000)', color: '#000', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.15em', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: (!ticker.trim() || loading) ? 0.4 : 1, transition: 'all 0.2s' }}
+            disabled={loading || isAnalyzing || !ticker.trim()}
+            style={{ padding: '5px 20px', background: (loading || isAnalyzing) ? '#333' : 'linear-gradient(135deg, #ff8500, #ff6000)', color: (loading || isAnalyzing) ? '#fff' : '#000', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.15em', border: 'none', cursor: (loading || isAnalyzing) ? 'not-allowed' : 'pointer', opacity: (!ticker.trim() || loading || isAnalyzing) ? 0.7 : 1, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}
           >
-            {loading ? 'SCANNING...' : 'ANALYZE'}
+            {isAnalyzing
+              ? (<><div className="animate-spin" style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #22d3ee', borderTopColor: 'transparent' }} />ANALYZING {flowData.length.toLocaleString()}</>)
+              : loading ? 'SCANNING...'
+                : 'ANALYZE'
+            }
           </button>
         </div>
       </div>
@@ -2178,33 +2383,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       {/* SCROLLABLE CONTENT */}
       <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: '12px 20px 20px' }}>
 
-        {/* LOADING STATE */}
-        {isAnalyzing && flowData.length > 0 && (
-          <div className="bg-black border border-white/20 p-8">
-            <div className="flex items-center justify-center gap-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-cyan-400 border-t-transparent"></div>
-              <div className="text-white text-lg font-bold tracking-wider">
-                ANALYZING {flowData.length} TRADES
-              </div>
-            </div>
-            {analysisProgress.total > 0 && (
-              <div className="mt-6">
-                <div className="flex justify-between text-xs text-white mb-2 font-bold tracking-wider">
-                  <span>PROGRESS</span>
-                  <span>
-                    {analysisProgress.current}/{analysisProgress.total}
-                  </span>
-                </div>
-                <div className="w-full bg-white/10 h-1">
-                  <div
-                    className="bg-cyan-400 h-1 transition-all duration-300"
-                    style={{ width: `${(analysisProgress.current / analysisProgress.total) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* LOADING STATE - removed; analyzing indicator is now inside the ANALYZE button */}
 
         {analysis && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -2233,11 +2412,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 }}>
                   {/* Subtle radial glow behind gauge */}
                   <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 200, height: 125, borderRadius: '50%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,133,0,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-                  <GaugeChart
-                    value={analysis.algoFlowScore}
-                    max={1}
+                  <FlowQuadrantGauge
+                    bullCall={analysis.bullCallPremium ?? 0}
+                    bearCall={analysis.bearCallPremium ?? 0}
+                    bullPut={analysis.bullPutPremium ?? 0}
+                    bearPut={analysis.bearPutPremium ?? 0}
+                    score={analysis.algoFlowScore}
                     label="ALGOFLOW SCORE"
-                    color="#ff8500"
                   />
                 </div>
 
@@ -2303,7 +2484,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                       overflow: 'hidden',
                     }}>
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
-                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 36, fontWeight: 900, color: '#eab308', lineHeight: 1, textShadow: '0 0 14px rgba(234,179,8,0.6), 0 0 28px rgba(234,179,8,0.2)' }}>{analysis.sweepCount}</div>
+                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.sweepCount >= 100000 ? 20 : analysis.sweepCount >= 10000 ? 26 : analysis.sweepCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#eab308', lineHeight: 1, textShadow: '0 0 14px rgba(234,179,8,0.6), 0 0 28px rgba(234,179,8,0.2)' }}>{analysis.sweepCount}</div>
                       <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#eab308', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>SWEEPS</div>
                     </div>
                     <div style={{
@@ -2317,7 +2498,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                       overflow: 'hidden',
                     }}>
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
-                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 36, fontWeight: 900, color: '#22d3ee', lineHeight: 1, textShadow: '0 0 14px rgba(34,211,238,0.6), 0 0 28px rgba(34,211,238,0.2)' }}>{analysis.blockCount}</div>
+                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.blockCount >= 100000 ? 20 : analysis.blockCount >= 10000 ? 26 : analysis.blockCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#22d3ee', lineHeight: 1, textShadow: '0 0 14px rgba(34,211,238,0.6), 0 0 28px rgba(34,211,238,0.2)' }}>{analysis.blockCount}</div>
                       <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>BLOCKS</div>
                     </div>
                   </div>
@@ -2357,11 +2538,11 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   {/* LEFT: ticker + FLOW + timeframe buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
-                    <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>
+                    {analysis.currentPrice > 0 && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: analysis.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : analysis.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: analysis.flowTrend === 'BULLISH' ? '#10b981' : analysis.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${analysis.flowTrend === 'BULLISH' ? '#10b981' : analysis.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{analysis.flowTrend}</span>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', letterSpacing: '0.15em', marginRight: 4 }}>FLOW</span>
                     {CHART_VIEW_OPTIONS.filter(o => o.days <= getScanDays(scanTimeframe)).map(({ label, days }) => (
-                      <button key={label} onClick={() => setChartDisplayDays(days)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,165,0,0.6)', background: chartDisplayDays === days ? '#ff8500' : 'transparent', color: chartDisplayDays === days ? '#000' : '#ff8500', cursor: 'pointer' }}>{label}</button>
+                      <button key={label} onClick={() => { setChartDisplayDays(days); setBrushIndices(null) }} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,165,0,0.6)', background: chartDisplayDays === days ? '#ff8500' : 'transparent', color: chartDisplayDays === days ? '#000' : '#ff8500', cursor: 'pointer' }}>{label}</button>
                     ))}
                     {brushIndices && (
                       <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', letterSpacing: '0.08em' }}>RESET</button>
@@ -2414,6 +2595,8 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   cursor: chartDragRef.current.dragging ? 'grabbing' : 'grab',
                   userSelect: 'none',
                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
                   onMouseDown={(e) => {
                     const data = analysis.chartData
@@ -2440,77 +2623,89 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 >
                   {/* Glossy top-edge sheen */}
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
-                  <ResponsiveContainer width="100%" height={572} debounce={50}>
-                    {(() => {
-                      const scanDays = getScanDays(scanTimeframe)
-                      const baseData = chartDisplayDays >= scanDays
-                        ? analysis.chartData
-                        : analysis.chartData.filter((d: any) => d.time >= Date.now() - chartDisplayDays * 1.5 * 24 * 60 * 60 * 1000)
-                      const len = baseData.length
-                      const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
-                      const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
-                      const visibleData = baseData.slice(bStart, bEnd + 1)
-                      const xInterval = Math.max(0, Math.floor(visibleData.length / 12) - 1)
-                      const prices = visibleData.map((d: any) => d.stockClose).filter((p: any) => p != null && !isNaN(p))
-                      const priceLows = visibleData.map((d: any) => d.stockLow).filter((p: any) => p != null && !isNaN(p))
-                      const priceHighs = visibleData.map((d: any) => d.stockHigh).filter((p: any) => p != null && !isNaN(p))
-                      const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
-                      const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
-                      return (
-                        <LineChart data={visibleData} margin={{ top: 10, right: 0, bottom: -5, left: 30 }}>
-                          <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 16, fontWeight: 'bold' }} height={36} interval={xInterval} padding={{ left: 10, right: 10 }}
-                            tickFormatter={(label: string) => {
-                              if (chartDisplayDays <= 1) {
-                                return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
-                              } else if (chartDisplayDays <= 5) {
-                                return label.replace(/\/\d{4} /, ' ')
-                              } else {
-                                return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
-                              }
-                            }}
-                          />
-                          <YAxis yAxisId="flow" orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 18, fontWeight: 'bold' }} width={82}
-                            tickFormatter={(value) => {
-                              const absValue = Math.abs(value)
-                              const sign = value < 0 ? '-' : ''
-                              if (absValue >= 1000000) return `${sign}$${(absValue / 1000000).toFixed(1)}M`
-                              if (absValue >= 1000) return `${sign}$${(absValue / 1000).toFixed(0)}K`
-                              return `${sign}$${absValue}`
-                            }}
-                          />
-                          <YAxis yAxisId="price" orientation="right" hide={true}
-                            domain={[priceMin, priceMax]}
-                          />
-                          <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
-                            formatter={(value: any) => {
-                              const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
-                              if (absNum >= 1000000) return `${sign}$${(absNum / 1000000).toFixed(2)}M`
-                              if (absNum >= 1000) return `${sign}$${(absNum / 1000).toFixed(1)}K`
-                              return `${sign}$${absNum.toLocaleString()}`
-                            }}
-                          />
-                          {chartViewMode === 'detailed' ? (<>
-                            <Line type="monotone" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
-                            <Line type="monotone" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={3} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
-                            <Line type="monotone" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={3} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
-                            <Line type="monotone" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={3} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
-                          </>) : chartViewMode === 'simplified' ? (<>
-                            <Line type="monotone" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
-                            <Line type="monotone" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
-                          </>) : (<>
-                            <Line type="monotone" yAxisId="flow" dataKey="netFlow" stroke="#00ff7f" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')}
-                              strokeDasharray={undefined}
-                            />
-                            {!hiddenLines.has('netFlow') && <Customized component={NetFlowColoredLine} visibleData={visibleData} isHidden={false} />}
-                          </>)}
-                          <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
-                          <Customized component={CandlestickLayer} visibleData={visibleData} />
-                        </LineChart>
-                      )
-                    })()}
+                  <ResponsiveContainer width="100%" height={445} debounce={50}>
+                    <LineChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: -5, left: 30 }}>
+                      <XAxis dataKey="timeLabel" hide />
+                      <YAxis yAxisId="flow" orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 18, fontWeight: 'bold' }} width={82}
+                        tickFormatter={(value) => {
+                          const absValue = Math.abs(value)
+                          const sign = value < 0 ? '-' : ''
+                          if (absValue >= 1_000_000_000) return `${sign}$${(absValue / 1_000_000_000).toFixed(2)}B`
+                          if (absValue >= 1_000_000) return `${sign}$${Math.round(absValue / 1_000_000)}M`
+                          if (absValue >= 1_000) return `${sign}$${Math.round(absValue / 1_000)}K`
+                          return `${sign}$${absValue}`
+                        }}
+                      />
+                      <YAxis yAxisId="price" orientation="right" hide={true}
+                        domain={[chartMemo.priceMin, chartMemo.priceMax]}
+                      />
+                      <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
+                        formatter={(value: any) => {
+                          const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
+                          if (absNum >= 1_000_000_000) return `${sign}$${(absNum / 1_000_000_000).toFixed(2)}B`
+                          if (absNum >= 1_000_000) return `${sign}$${(absNum / 1_000_000).toFixed(2)}M`
+                          if (absNum >= 1_000) return `${sign}$${(absNum / 1_000).toFixed(1)}K`
+                          return `${sign}$${absNum.toLocaleString()}`
+                        }}
+                      />
+                      {chartViewMode === 'detailed' ? (<>
+                        <Line type="monotone" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
+                        <Line type="monotone" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={3} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
+                        <Line type="monotone" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={3} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
+                        <Line type="monotone" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={3} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
+                      </>) : chartViewMode === 'simplified' ? (<>
+                        <Line type="monotone" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
+                        <Line type="monotone" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
+                      </>) : (<>
+                        <Line type="monotone" yAxisId="flow" dataKey="netFlow" stroke="#00ff7f" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')}
+                          strokeDasharray={undefined}
+                        />
+                        {!hiddenLines.has('netFlow') && <Customized component={NetFlowColoredLine} visibleData={chartMemo.visibleData} isHidden={false} />}
+                      </>)}
+                      <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
+                      <Customized component={CandlestickLayer} visibleData={chartMemo.visibleData} />
+                    </LineChart>
                   </ResponsiveContainer>
-                </div>
-              </div>
+
+                  {/* P/C Ratio sub-panel */}
+                  <div style={{ borderTop: '1px solid rgba(167,139,250,0.15)', background: 'rgba(0,0,0,0.3)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>P/C RATIO</span>
+                      {chartMemo.visibleData.length > 0 && (() => {
+                        const last = chartMemo.visibleData[chartMemo.visibleData.length - 1]
+                        const val = last?.pcRatio ?? 1
+                        const col = val > 1.1 ? '#ef4444' : val < 0.9 ? '#10b981' : '#eab308'
+                        return <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, color: col }}>{val.toFixed(2)}</span>
+                      })()}
+                    </div>
+                    <ResponsiveContainer width="100%" height={100} debounce={50}>
+                      <LineChart data={chartMemo.visibleData} margin={{ top: 2, right: 0, bottom: -5, left: 30 }}>
+                        <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 16, fontWeight: 'bold' }} height={36} interval={chartMemo.xInterval} padding={{ left: 10, right: 10 }}
+                          tickFormatter={(label: string) => {
+                            if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
+                            else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
+                            else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
+                          }}
+                        />
+                        <YAxis orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 13, fontWeight: 700 }} width={82}
+                          domain={[
+                            (dataMin: number) => Math.max(0, parseFloat((dataMin * 0.9).toFixed(2))),
+                            (dataMax: number) => parseFloat((dataMax * 1.1).toFixed(2)),
+                          ]}
+                          tickFormatter={(v) => v.toFixed(2)}
+                        />
+                        <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
+                          formatter={(v: any) => [Number(v).toFixed(3), 'P/C']}
+                        />
+                        <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
+                        <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="P/C"
+                          activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>{/* end P/C sub-panel */}
+                </div>{/* end chart body */}
+              </div>{/* end chart column */}
             </div>{/* end ROW 2 */}
 
             {/* ── ROW 3: TRADES TABLE + EFI CHART ── */}
@@ -2542,7 +2737,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                           { key: null, label: 'SPOT' },
                           { key: null, label: 'EXPIRY' },
                           { key: null, label: 'VOL/OI' },
-                          { key: null, label: 'LIVE OI' },
+                          { key: null, label: getScanDays(scanTimeframe) > 1 ? 'OI CHANGE' : 'LIVE OI' },
                           { key: null, label: 'STYLE' },
                         ].map(({ key, label }) => (
                           <th key={label}
@@ -2568,39 +2763,18 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                         const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
                         const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
 
-                        // Pre-compute live OI once per contract using ALL trades (same logic as Options Flow applyLiveOI).
-                        // Using first-trade OI as base and deduping by ticker+timestamp+size+premium — identical to Options Flow.
-                        const allTrades: any[] = analysis?.trades || flowData || []
-                        const contractGroups = new Map<string, any[]>()
-                        for (const t of allTrades) {
-                          const k = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
-                          if (!contractGroups.has(k)) contractGroups.set(k, [])
-                          contractGroups.get(k)!.push(t)
-                        }
-                        const liveOIMap = new Map<string, number>()
-                        for (const [k, group] of contractGroups) {
-                          const baseOI = group[0].open_interest ?? 0
-                          const sorted = [...group].sort((a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime())
-                          let oi = baseOI
-                          const seen = new Set<string>()
-                          for (const t of sorted) {
-                            const id = `${t.ticker}_${t.trade_timestamp}_${t.trade_size}_${t.premium_per_contract}`
-                            if (seen.has(id)) continue
-                            seen.add(id)
-                            const qty = t.trade_size ?? 0
-                            switch (t.fill_style) {
-                              case 'A': case 'AA': case 'BB': oi += qty; break
-                              case 'B': oi += qty > baseOI ? qty : -qty; break
-                            }
-                          }
-                          liveOIMap.set(k, Math.max(0, oi))
-                        }
+                        // Use memoized OI computation (tradeOIMemo) — avoids rerunning on every render
+                        const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
 
                         return paginatedTrades.map((trade, idx) => {
+                          const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                           const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-                          const originalOI = contractGroups.get(contractKey)?.[0]?.open_interest ?? trade.open_interest ?? 0
-                          const liveOI = liveOIMap.get(contractKey) ?? originalOI
-                          const change = liveOI - originalOI
+                          const contractDayKey = `${contractKey}_${day}`
+                          const originalOI = baseOIMap.get(contractDayKey) ?? trade.open_interest ?? 0
+                          const liveOI = liveOIMap.get(contractDayKey) ?? originalOI
+                          const oiChange = isMultiDay ? (multiDayOIChange.get(contractKey) ?? 0) : (liveOI - originalOI)
+                          const displayVolume = isMultiDay ? lastDayVolumeMap.get(contractKey) : trade.volume
+                          const displayOISnapshot = isMultiDay ? lastDayOISnapshotMap.get(contractKey) : trade.open_interest
                           return (
                             <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent' }}
                               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
@@ -2629,12 +2803,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                                 <button onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: selectedExpiry === trade.expiry ? '#22d3ee' : '#ffffff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{trade.expiry.split('T')[0]}</button>
                               </td>
                               <td style={{ padding: '5px 10px', whiteSpace: 'nowrap' }}>
-                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,153,255)' }}>{trade.volume?.toLocaleString() || 'N/A'}</span>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,153,255)' }}>{displayVolume?.toLocaleString() || 'N/A'}</span>
                                 <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgba(255,255,255,0.35)', margin: '0 4px' }}>/</span>
-                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,255,94)' }}>{trade.open_interest?.toLocaleString() || 'N/A'}</span>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,255,94)' }}>{displayOISnapshot?.toLocaleString() || 'N/A'}</span>
                               </td>
                               <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#eab308', fontWeight: 700 }}>
-                                {liveOI.toLocaleString()} <span style={{ color: change > 0 ? '#00cc00' : change < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontSize: 20 }}>({change > 0 ? '+' : ''}{change})</span>
+                                {isMultiDay
+                                  ? <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{oiChange > 0 ? '+' : ''}{oiChange.toLocaleString()}</span>
+                                  : <>{liveOI.toLocaleString()} <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontSize: 20 }}>({oiChange > 0 ? '+' : ''}{oiChange})</span></>}
                               </td>
                               <td style={{ padding: '5px 10px' }}>
                                 <span style={{

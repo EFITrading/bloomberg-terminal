@@ -2030,6 +2030,13 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     SPY: { data: [], loading: false },
   })
   const [activeTab, setActiveTab] = useState<'ATTRACTION' | 'DEALER_CLUSTER'>('ATTRACTION')
+  const [isMobilePanel, setIsMobilePanel] = useState<boolean>(false)
+  useEffect(() => {
+    const checkMobile = () => setIsMobilePanel(typeof window !== 'undefined' && window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -2062,8 +2069,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
           // OI + 1 table: 1200px + 900px = 2100px
           sidebarPanel.style.width = '2100px'
         } else if (duoMode && !showOI && activeTableCount === 2) {
-          // DUO MODE: wider to fit all header controls
-          sidebarPanel.style.width = '1400px'
+          // DUO MODE: tight fit for two tables (2x540px + 12px gap + 10px padding = 1102px)
+          sidebarPanel.style.width = '1105px'
         } else {
           // 2 tables (no OI) - 1775px
           sidebarPanel.style.width = '1775px'
@@ -2104,33 +2111,89 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     return `${y}-${m}-${d}`
   }
 
-  // true when live OI was loaded from the DB (hides LIVE button)
+  // true when live OI was auto-loaded from saved Flow data (hides LIVE button)
   const [liveOIFromFlowCache, setLiveOIFromFlowCache] = useState(false)
 
-  // When the selected ticker changes, check the DB for a fresh cached live OI map.
-  // If found → restore it instantly and skip the scan.
+  // When the selected ticker changes, check the Flow table (explicitly saved flow data only).
+  // liveOICache is NOT used here — it has false positives from ALL scans including every ticker.
+  // Only tickers that were present in a user-saved scan will auto-load.
   useEffect(() => {
     if (!selectedTicker) return
-    const tradingDate = getFlowTradingDate()
     const ticker = selectedTicker.toUpperCase()
-    fetch(`/api/live-oi?ticker=${ticker}&date=${tradingDate}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('not found')
-        return res.json()
-      })
-      .then((cached: { entries: [string, number][] }) => {
-        if (cached.entries && cached.entries.length > 0) {
-          const restoredMap = new Map<string, number>(cached.entries)
-          setLiveOIData(restoredMap)
+    const tradingDate = getFlowTradingDate()
+
+      ; (async () => {
+        try {
+          const datesResp = await fetch('/api/flows/dates')
+          if (!datesResp.ok) return
+          const dates: { date: string }[] = await datesResp.json()
+          if (dates.length === 0) return
+
+          const latestDay = new Date(dates[0].date).toISOString().split('T')[0]
+          if (latestDay !== tradingDate) return // saved data is stale
+
+          const flowResp = await fetch(`/api/flows/${encodeURIComponent(dates[0].date)}`)
+          if (!flowResp.ok) return
+          const flowData = await flowResp.json()
+          const allSaved: any[] = Array.isArray(flowData.data) ? flowData.data : []
+          const savedTrades = allSaved.filter(
+            (t) => t.underlying_ticker?.toUpperCase() === ticker
+          )
+          if (savedTrades.length === 0) {
+            setLiveOIFromFlowCache(false)
+            return
+          }
+
+          // Build liveOIMap from saved trades — grouped by contract + PST day so each day
+          // is calculated independently. The most recent day's result is stored per contract.
+          const contractDayGroups = new Map<string, any[]>()
+          for (const trade of savedTrades) {
+            const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+            const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${day}`
+            if (!contractDayGroups.has(key)) contractDayGroups.set(key, [])
+            contractDayGroups.get(key)!.push(trade)
+          }
+          // Track the most recent day per contract so we store only that day's liveOI
+          const latestDayPerContract = new Map<string, string>()
+          for (const key of contractDayGroups.keys()) {
+            const contractKey = key.split('_').slice(0, -1).join('_')
+            const day = key.split('_').slice(-1)[0]
+            const existing = latestDayPerContract.get(contractKey)
+            if (!existing || day > existing) latestDayPerContract.set(contractKey, day)
+          }
+          const liveOIMap = new Map<string, number>()
+          for (const [key, contractTrades] of contractDayGroups) {
+            const contractKey = key.split('_').slice(0, -1).join('_')
+            const day = key.split('_').slice(-1)[0]
+            // Only store the most recent day's result for this contract
+            if (latestDayPerContract.get(contractKey) !== day) continue
+            const sorted = [...contractTrades].sort(
+              (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+            )
+            const baseOI = sorted[0].open_interest ?? 0
+            let liveOI = baseOI
+            const seen = new Set<string>()
+            for (const trade of sorted) {
+              const tradeId = `${trade.ticker}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`
+              if (seen.has(tradeId)) continue
+              seen.add(tradeId)
+              const contracts = trade.trade_size ?? 0
+              switch (trade.fill_style) {
+                case 'A': case 'AA': case 'BB': liveOI += contracts; break
+                case 'B': liveOI += contracts > baseOI ? contracts : -contracts; break
+              }
+            }
+            liveOIMap.set(contractKey, Math.max(0, liveOI))
+          }
+
+          setFlowTradesData(savedTrades)
+          setLiveOIData(liveOIMap)
           setLiveMode(true)
           setLiveOIFromFlowCache(true)
-        } else {
+        } catch {
           setLiveOIFromFlowCache(false)
         }
-      })
-      .catch(() => {
-        setLiveOIFromFlowCache(false)
-      })
+      })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTicker])
   // -----------------------------------------------------------------------------
@@ -3566,8 +3629,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                 putTheta: 0,
                 callVega: vega,
                 putVega: 0,
-                callIV: data.implied_volatility || undefined,
-                putIV: undefined,
               }
 
               // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
@@ -5244,7 +5305,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
         /* Trading lens: reduce table height by 5% */
         .analysis-suite-panel .table-scroll-container[style*="maxHeight"],
         .analysis-suite-panel .table-scroll-container {
-          max-height: calc((74.78vh - 270px) * 0.95) !important;
+          max-height: calc((75.52vh - 272.65px) * 0.95) !important;
         }
       `}</style>
       <div
@@ -5257,7 +5318,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
         }}
       >
         <div
-          className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[99vw]'} px-4 mx-auto`}
+          className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[99vw]'} ${duoMode && !isMobilePanel ? 'px-[5px]' : 'px-4'} mx-auto`}
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -5318,7 +5379,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                   >
                     {activeTab === 'DEALER_CLUSTER' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none"></div>}
                     <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
-                      DEALER CLUSTER
+                      {isMobilePanel ? 'CLUSTER SCAN' : 'DEALER CLUSTER'}
                     </span>
                   </button>
 
@@ -5421,7 +5482,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             title={`Live OI loaded from OptionsFlow scan for ${selectedTicker}`}
                           >
                             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 5px #22c55e' }} />
-                            LIVE ?
+                            LIVE
                           </div>
                         )
                       ) : (
@@ -5499,18 +5560,18 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                           colorScheme: 'dark',
                         }}
                       >
-                        <option value="1%">±1%</option>
-                        <option value="2%">±2%</option>
-                        <option value="3%">±3%</option>
-                        <option value="5%">±5%</option>
-                        <option value="8%">±8%</option>
-                        <option value="10%">±10%</option>
-                        <option value="15%">±15%</option>
-                        <option value="20%">±20%</option>
-                        <option value="25%">±25%</option>
-                        <option value="40%">±40%</option>
-                        <option value="50%">±50%</option>
-                        <option value="100%">±100%</option>
+                        <option value="1%" style={{ background: '#000', color: '#fff' }}>±1%</option>
+                        <option value="2%" style={{ background: '#000', color: '#fff' }}>±2%</option>
+                        <option value="3%" style={{ background: '#000', color: '#fff' }}>±3%</option>
+                        <option value="5%" style={{ background: '#000', color: '#fff' }}>±5%</option>
+                        <option value="8%" style={{ background: '#000', color: '#fff' }}>±8%</option>
+                        <option value="10%" style={{ background: '#000', color: '#fff' }}>±10%</option>
+                        <option value="15%" style={{ background: '#000', color: '#fff' }}>±15%</option>
+                        <option value="20%" style={{ background: '#000', color: '#fff' }}>±20%</option>
+                        <option value="25%" style={{ background: '#000', color: '#fff' }}>±25%</option>
+                        <option value="40%" style={{ background: '#000', color: '#fff' }}>±40%</option>
+                        <option value="50%" style={{ background: '#000', color: '#fff' }}>±50%</option>
+                        <option value="100%" style={{ background: '#000', color: '#fff' }}>±100%</option>
                       </select>
 
                       {/* Mode ? custom dropdown mobile */}
@@ -6093,7 +6154,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                 >
                                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 6px #22c55e' }} />
                                   <span className={`${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider text-green-300 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]`}>
-                                    LIVE ?
+                                    LIVE
                                   </span>
                                 </div>
                               ) : (
@@ -6180,19 +6241,20 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                   )
                                 }
                                 className={`bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none ${analysisSuiteMode ? 'px-6 py-4 text-base min-w-[135px]' : 'px-4 py-2.5 text-sm min-w-[90px]'} pr-10 text-white font-bold uppercase appearance-none cursor-pointer transition-all`}
+                                style={{ background: '#000', colorScheme: 'dark', color: '#fff' }}
                               >
-                                <option value="1%">±1%</option>
-                                <option value="2%">±2%</option>
-                                <option value="3%">±3%</option>
-                                <option value="5%">±5%</option>
-                                <option value="8%">±8%</option>
-                                <option value="10%">±10%</option>
-                                <option value="15%">±15%</option>
-                                <option value="20%">±20%</option>
-                                <option value="25%">±25%</option>
-                                <option value="40%">±40%</option>
-                                <option value="50%">±50%</option>
-                                <option value="100%">±100%</option>
+                                <option value="1%" style={{ background: '#000', color: '#fff' }}>±1%</option>
+                                <option value="2%" style={{ background: '#000', color: '#fff' }}>±2%</option>
+                                <option value="3%" style={{ background: '#000', color: '#fff' }}>±3%</option>
+                                <option value="5%" style={{ background: '#000', color: '#fff' }}>±5%</option>
+                                <option value="8%" style={{ background: '#000', color: '#fff' }}>±8%</option>
+                                <option value="10%" style={{ background: '#000', color: '#fff' }}>±10%</option>
+                                <option value="15%" style={{ background: '#000', color: '#fff' }}>±15%</option>
+                                <option value="20%" style={{ background: '#000', color: '#fff' }}>±20%</option>
+                                <option value="25%" style={{ background: '#000', color: '#fff' }}>±25%</option>
+                                <option value="40%" style={{ background: '#000', color: '#fff' }}>±40%</option>
+                                <option value="50%" style={{ background: '#000', color: '#fff' }}>±50%</option>
+                                <option value="100%" style={{ background: '#000', color: '#fff' }}>±100%</option>
                               </select>
                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg
@@ -6733,8 +6795,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                     style={{
                                       maxHeight:
                                         typeof window !== 'undefined' && window.innerWidth < 768
-                                          ? 'calc(90vh - 120px)'
-                                          : 'calc(74.78vh - 270px)',
+                                          ? 'calc(103.5vh - 138px)'
+                                          : 'calc(71.74vh - 259.02px)',
                                       overflowX: 'auto',
                                     }}
                                   >
@@ -6772,7 +6834,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                   ? 'bb-header text-orange-500 font-bold'
                                                   : 'font-bold text-orange-500 uppercase'
                                               }
-                                              style={{ fontSize: isMobile ? '0.45rem' : '1.35rem' }}
+                                              style={{ fontSize: isMobile ? '0.405rem' : '1.35rem' }}
                                             >
                                               Strike
                                             </div>
@@ -6996,7 +7058,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                   <div
                                                     className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : isHighestGEX && isHighestDealer ? 'text-yellow-400' : isLowestGEX && isLowestDealer ? 'text-purple-400' : 'text-white'}`}
                                                     style={{
-                                                      fontSize: isMobile ? '0.8rem' : '1.8rem',
+                                                      fontSize: isMobile ? (row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.6rem' : '0.64rem') : '0.8rem') : '1.8rem',
                                                     }}
                                                   >
                                                     {Math.round(row.strike)}
@@ -7661,7 +7723,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                             // Mobile detection - needed for getTableWidth function
                             const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-
                             let currentTableIndex = 0
                             const getTableWidth = () => {
                               // On mobile, enforce equal widths so tables don't collapse when empty
@@ -7685,7 +7746,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
                             const allThreeActive = showGEX && showDealer && showFlowGEX
                             const mobileStrikeWidth = isMobile
-                              ? 45
+                              ? 50
                               : allThreeActive
                                 ? Math.round(strikeColWidth * 0.56)
                                 : strikeColWidth
@@ -7794,8 +7855,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(81.44vh - 225px)'
-                                          : 'calc(74.78vh - 270px)',
+                                          ? 'calc(100.97vh - 278.94px)'
+                                          : 'calc(71.74vh - 259.02px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                       }}
@@ -7826,6 +7887,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                 width: `${mobileStrikeWidth}px`,
                                                 minWidth: `${mobileStrikeWidth}px`,
                                                 maxWidth: `${mobileStrikeWidth}px`,
+                                                ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                               }}
                                             >
                                               <div
@@ -7834,6 +7896,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                     ? 'bb-header text-xs md:text-sm text-gray-400'
                                                     : 'text-xs md:text-sm font-bold text-white uppercase'
                                                 }
+                                                style={isMobile ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
                                               >
                                                 Strike
                                               </div>
@@ -7898,10 +7961,12 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                       width: `${mobileStrikeWidth}px`,
                                                       minWidth: `${mobileStrikeWidth}px`,
                                                       maxWidth: `${mobileStrikeWidth}px`,
+                                                      ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                                     }}
                                                   >
                                                     <div
                                                       className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                      style={isMobile ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
                                                     >
                                                       {row.strike.toFixed(1)}
                                                     </div>
@@ -7999,8 +8064,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(81.44vh - 225px)'
-                                          : 'calc(74.78vh - 270px)',
+                                          ? 'calc(100.97vh - 278.94px)'
+                                          : 'calc(71.74vh - 259.02px)',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                         overflowX: 'auto',
                                       }}
@@ -8031,6 +8096,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                 width: `${mobileStrikeWidth}px`,
                                                 minWidth: `${mobileStrikeWidth}px`,
                                                 maxWidth: `${mobileStrikeWidth}px`,
+                                                ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                               }}
                                             >
                                               <div
@@ -8039,6 +8105,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                     ? 'bb-header text-xs md:text-sm text-gray-400'
                                                     : 'text-xs md:text-sm font-bold text-white uppercase'
                                                 }
+                                                style={isMobile ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
                                               >
                                                 Strike
                                               </div>
@@ -8103,10 +8170,12 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                       width: `${mobileStrikeWidth}px`,
                                                       minWidth: `${mobileStrikeWidth}px`,
                                                       maxWidth: `${mobileStrikeWidth}px`,
+                                                      ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                                     }}
                                                   >
                                                     <div
                                                       className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                      style={isMobile ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
                                                     >
                                                       {row.strike.toFixed(1)}
                                                     </div>
@@ -8211,8 +8280,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(81.44vh - 225px)'
-                                          : 'calc(74.78vh - 270px)',
+                                          ? 'calc(100.97vh - 278.94px)'
+                                          : 'calc(71.74vh - 259.02px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                       }}
@@ -8243,6 +8312,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                 width: `${mobileStrikeWidth}px`,
                                                 minWidth: `${mobileStrikeWidth}px`,
                                                 maxWidth: `${mobileStrikeWidth}px`,
+                                                ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                               }}
                                             >
                                               <div
@@ -8251,6 +8321,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                     ? 'bb-header text-xs md:text-sm text-gray-400'
                                                     : 'text-xs md:text-sm font-bold text-white uppercase'
                                                 }
+                                                style={isMobile ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
                                               >
                                                 Strike
                                               </div>
@@ -8313,10 +8384,12 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                                       width: `${mobileStrikeWidth}px`,
                                                       minWidth: `${mobileStrikeWidth}px`,
                                                       maxWidth: `${mobileStrikeWidth}px`,
+                                                      ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
                                                     }}
                                                   >
                                                     <div
                                                       className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                                      style={isMobile ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
                                                     >
                                                       {row.strike.toFixed(1)}
                                                     </div>
@@ -8422,8 +8495,8 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             style={{
                               maxHeight:
                                 typeof window !== 'undefined' && window.innerWidth < 768
-                                  ? 'calc(74.78vh - 225px)'
-                                  : 'calc(74.78vh - 270px)',
+                                  ? 'calc(86.0vh - 258.75px)'
+                                  : 'calc(71.74vh - 259.02px)',
                               overflowX: 'auto',
                               zoom: analysisSuiteMode ? 1.5 : undefined,
                             }}
@@ -8456,6 +8529,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                           ? 'bb-header text-xs md:text-sm text-gray-400'
                                           : 'text-xs md:text-sm font-bold text-white uppercase'
                                       }
+                                      style={typeof window !== 'undefined' && window.innerWidth < 768 ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
                                     >
                                       Strike
                                     </div>
@@ -8554,6 +8628,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                         >
                                           <div
                                             className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
+                                            style={typeof window !== 'undefined' && window.innerWidth < 768 ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
                                           >
                                             {row.strike.toFixed(1)}
                                           </div>
@@ -8626,10 +8701,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                       className="md:mt-0"
                       style={{
                         flexShrink: 0,
-                        marginTop:
-                          typeof window !== 'undefined' && window.innerWidth < 768
-                            ? '5px'
-                            : undefined,
+                        marginTop: '5px',
                       }}
                     >
                       <GaugeTrio

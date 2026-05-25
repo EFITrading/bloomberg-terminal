@@ -1131,3 +1131,16 @@
     display: flex !important;
   }
 }
+
+/* DATA / TOOLS / DRAW compact group — placed last to override all media queries */
+.mobile-dtd-group {
+  display: flex !important;
+  gap: 2px !important;
+}
+
+.mobile-dtd-group .btn-3d-carved {
+  margin: 0 !important;
+  padding: 3px 8px !important;
+  min-width: unset !important;
+  font-size: 11px !important;
+}

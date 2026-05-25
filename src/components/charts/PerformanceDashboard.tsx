@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { createPortal } from 'react-dom'
 
@@ -1804,7 +1804,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       <div className="perf-header" style={{ background: '#000000', borderBottom: '1px solid #1c1c1c', position: 'relative', zIndex: 1, overflow: 'visible' }}>
 
         {/* â”€â”€ ROW 1: symbol selector toolbar â”€â”€ */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '50px', gap: '6px', borderBottom: '1px solid #111' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '50px', gap: '6px' }}>
 
           {/* Ticker search */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0', marginRight: '6px' }}>
@@ -1855,6 +1855,27 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               X
             </button>
           )}
+
+          {/* START: swing-date presets */}
+          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
+          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>START:</span>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {dynamicSwingDates.map(sd => (
+              <button key={sd.label}
+                title={sd.description}
+                onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
+                style={{
+                  height: '28px', padding: '0 10px', whiteSpace: 'nowrap', flexShrink: 0,
+                  background: useCustomDates && dateFrom === sd.date ? 'linear-gradient(180deg, #001830 0%, #000d1a 100%)' : 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
+                  color: useCustomDates && dateFrom === sd.date ? '#00d4ff' : '#ffffff',
+                  border: useCustomDates && dateFrom === sd.date ? '1px solid #00d4ff66' : '1px solid #222',
+                  borderRadius: '3px', fontSize: '11px', fontWeight: '700',
+                  fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
+                  transition: 'all 0.1s',
+                }}>{sd.label}</button>
+            ))}
+          </div>
 
           {/* Divider */}
           <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
@@ -2098,86 +2119,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               transition: 'all 0.12s',
             }}>RESET ZOOM</button>
           )}
-        </div>
-
-        {/* â”€â”€ ROW 2: timeframe + date range â”€â”€ */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '42px', gap: '8px' }}>
-          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>TIMEFRAME:</span>
-          <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
-            style={{
-              height: '28px', padding: '0 10px',
-              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
-              color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px',
-              fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
-              cursor: 'pointer', outline: 'none', letterSpacing: '1px',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.7)',
-            }}>
-            {['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
-          </select>
-
-          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px' }} />
-
-          {/* Custom date range */}
-          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>FROM:</span>
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{
-              height: '28px', padding: '0 8px',
-              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
-              color: '#ffffff', border: useCustomDates && dateFrom ? '1px solid #00d4ff55' : '1px solid #2a2a2a',
-              borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace',
-              cursor: 'pointer', outline: 'none',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-              colorScheme: 'dark',
-            }} />
-          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>TO:</span>
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{
-              height: '28px', padding: '0 8px',
-              background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)',
-              color: '#ffffff', border: useCustomDates && dateTo ? '1px solid #00d4ff55' : '1px solid #2a2a2a',
-              borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace',
-              cursor: 'pointer', outline: 'none',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-              colorScheme: 'dark',
-            }} />
-          {useCustomDates && (
-            <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
-              style={{
-                height: '28px', padding: '0 10px',
-                background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)',
-                color: '#ff4444', border: '1px solid #cc2222',
-                borderRadius: '3px', fontSize: '11px', fontWeight: '700',
-                fontFamily: 'monospace', cursor: 'pointer',
-                boxShadow: 'inset 0 1px 0 rgba(255,68,68,0.08)',
-              }}>âœ• CLEAR</button>
-          )}
-
-          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px' }} />
-
-          {/* Dynamic swing-date presets */}
-          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap' }}>START:</span>
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap', overflowX: 'auto' }}>
-            {dynamicSwingDates.length === 0 && (
-              <span style={{ color: '#444', fontSize: '11px', fontFamily: 'monospace', letterSpacing: '0.5px', alignSelf: 'center' }}>— load data first —</span>
-            )}
-            {dynamicSwingDates.map(sd => (
-              <button key={sd.label}
-                title={sd.description}
-                onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
-                style={{
-                  height: '28px', padding: '0 10px', whiteSpace: 'nowrap',
-                  background: useCustomDates && dateFrom === sd.date
-                    ? 'linear-gradient(180deg, #001830 0%, #000d1a 100%)'
-                    : 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
-                  color: useCustomDates && dateFrom === sd.date ? '#00d4ff' : '#ffffff',
-                  border: useCustomDates && dateFrom === sd.date ? '1px solid #00d4ff66' : '1px solid #222',
-                  borderRadius: '3px', fontSize: '11px', fontWeight: '700',
-                  fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
-                  transition: 'all 0.1s',
-                }}>{sd.label}</button>
-            ))}
-          </div>
         </div>
       </div>
 
