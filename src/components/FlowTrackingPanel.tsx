@@ -1058,9 +1058,7 @@ export default function FlowTrackingPanel({
                         currentStockPrices,
                         emptyRS,
                         defaultStdDevs,
-                        comboMap,
-                        (flow as any).frozenComboScore,
-                        (flow as any).frozenRsScore
+                        comboMap
                       )
                       if (result.grade === 'N/A') return false
                       const gradeChar = result.grade.charAt(0)
@@ -1095,9 +1093,9 @@ export default function FlowTrackingPanel({
                     if (flowTrackingFilters.gradeSort !== 'NONE') {
                       const gradeOrder: Record<string, number> = { 'A+': 0, 'A': 1, 'A-': 2, 'B+': 3, 'B': 4, 'B-': 5, 'C+': 6, 'C': 7, 'C-': 8, 'D+': 9, 'D': 10, 'D-': 11, 'F': 12, 'N/A': 13 }
                       const ep = (a as any).originalPrice || a.premium_per_contract
-                      const grA = calculateFlowGrade({ ...a, premium_per_contract: ep }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap, (a as any).frozenComboScore, (a as any).frozenRsScore).grade
+                      const grA = calculateFlowGrade({ ...a, premium_per_contract: ep }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap).grade
                       const ep2 = (b as any).originalPrice || b.premium_per_contract
-                      const grB = calculateFlowGrade({ ...b, premium_per_contract: ep2 }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap, (b as any).frozenComboScore, (b as any).frozenRsScore).grade
+                      const grB = calculateFlowGrade({ ...b, premium_per_contract: ep2 }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap).grade
                       const diff = (gradeOrder[grA] ?? 13) - (gradeOrder[grB] ?? 13)
                       return flowTrackingFilters.gradeSort === 'HIGH' ? diff : -diff
                     }
@@ -1132,9 +1130,7 @@ export default function FlowTrackingPanel({
                       currentStockPrices,
                       emptyRS,
                       defaultStdDevs,
-                      comboMap,
-                      (flow as any).frozenComboScore,
-                      (flow as any).frozenRsScore
+                      comboMap
                     )
 
                     const flowId = generateFlowId(flow)
@@ -1997,8 +1993,7 @@ export default function FlowTrackingPanel({
                                 }
                                 const liveGrade = calculateFlowGrade(
                                   { ...flow, premium_per_contract: ep },
-                                  currentOptionPrices, currentStockPrices, wlRS, wlStdDevs, wlComboMap,
-                                  (flow as any).frozenComboScore, (flow as any).frozenRsScore
+                                  currentOptionPrices, currentStockPrices, wlRS, wlStdDevs, wlComboMap
                                 )
                                 const accentColor = flow.type === 'call' ? '#00ff88' : '#ff3333'
                                 const fsColor = fillStyle === 'A' || fillStyle === 'AA' ? '#00ff88' : fillStyle === 'B' || fillStyle === 'BB' ? '#ff4466' : '#ff8500'

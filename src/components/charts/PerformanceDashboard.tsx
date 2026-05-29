@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { createPortal } from 'react-dom'
 
@@ -320,9 +320,9 @@ function detectSwings(
 
 // Color palette for custom/dynamic tickers
 const DYNAMIC_COLORS = [
-  '#00d4ff','#ff6b35','#4ecdc4','#ffd93d','#ff006e','#8338ec','#06ffa5','#ff9f1c',
-  '#2ec4b6','#e71d36','#a855f7','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899',
-  '#14b8a6','#f97316','#8b5cf6','#22c55e','#facc15','#38bdf8','#fb7185','#a3e635',
+  '#00d4ff', '#ff6b35', '#4ecdc4', '#ffd93d', '#ff006e', '#8338ec', '#06ffa5', '#ff9f1c',
+  '#2ec4b6', '#e71d36', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899',
+  '#14b8a6', '#f97316', '#8b5cf6', '#22c55e', '#facc15', '#38bdf8', '#fb7185', '#a3e635',
 ]
 
 type Timeframe = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD'
@@ -357,6 +357,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const [isWaveMode, setIsWaveMode] = useState(false)
   const [waveData, setWaveData] = useState<SeriesData[]>([])
 
+  // Benchmark mode state
+  const [isBenchmarkMode, setIsBenchmarkMode] = useState(false)
+  const [benchmarkTicker, setBenchmarkTicker] = useState('SPY')
+  const [benchmarkInput, setBenchmarkInput] = useState('SPY')
+
   // UI State
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null)
@@ -372,21 +377,21 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const [dynamicSymbolMeta, setDynamicSymbolMeta] = useState<Record<string, { symbol: string; name: string; color: string }>>({})
   const [customDynColorIdx, setCustomDynColorIdx] = useState(0)
 
-  // Dynamic swing-date presets — computed from live seriesData
+  // Dynamic swing-date presets  computed from live seriesData
   const dynamicSwingDates = useMemo(() => {
     // Use SPY as reference instrument; fall back to first loaded series
     const ref = seriesData.find((s) => s.symbol === 'SPY') || seriesData[0]
     const swings =
       ref && ref.data.length >= 20
         ? detectSwings(
-            ref.data.map((d) => d.value),
-            ref.data.map((d) => d.timestamp),
-            0.04, // 4% minimum reversal
-            10    // or 10 calendar days
-          )
+          ref.data.map((d) => d.value),
+          ref.data.map((d) => d.timestamp),
+          0.04, // 4% minimum reversal
+          10    // or 10 calendar days
+        )
         : []
 
-    const tops    = swings.filter((s) => s.type === 'TOP')
+    const tops = swings.filter((s) => s.type === 'TOP')
     const bottoms = swings.filter((s) => s.type === 'BOTTOM')
 
     const entries: Array<{ label: string; date: string; description: string }> = []
@@ -485,7 +490,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   const fetchData = useCallback(async () => {
     // Create unique key for this fetch to prevent duplicates
-    const fetchKey = `${timeframe}-${useCustomDates ? dateFrom + dateTo : ''}-${[...selectedSymbols].sort().join(',')}`
+    const fetchKey = `${timeframe}-${useCustomDates ? dateFrom + dateTo : ''}-${[...selectedSymbols].sort().join(',')}-bm:${isBenchmarkMode ? benchmarkTicker.toUpperCase().trim() : ''}`
     if (lastFetchKeyRef.current === fetchKey) {
       return
     }
@@ -499,6 +504,15 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         group.tickers.forEach((ticker) => allWaveSymbols.add(ticker))
       })
       symbolsToFetch = Array.from(allWaveSymbols)
+    }
+
+    // Add benchmark ticker if benchmark mode is active
+    if (isBenchmarkMode && benchmarkTicker.trim()) {
+      const bTicker = benchmarkTicker.toUpperCase().trim()
+      if (!symbolsToFetch.includes(bTicker)) {
+        symbolsToFetch = [...symbolsToFetch, bTicker]
+      }
+      console.log('[BENCHMARK-DBG] symbolsToFetch:', symbolsToFetch)
     }
 
     if (symbolsToFetch.length === 0) {
@@ -718,6 +732,34 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         })
         .filter((s): s is SeriesData => s !== null)
 
+      // Apply benchmark rebasing if benchmark mode is active
+      if (isBenchmarkMode && benchmarkTicker.trim()) {
+        const bTicker = benchmarkTicker.toUpperCase().trim()
+        const benchmarkRawData = symbolDataMap[bTicker]
+        console.log('[BENCHMARK-DBG] rebase check: bTicker=', bTicker, '| found=', !!benchmarkRawData)
+        if (benchmarkRawData && benchmarkRawData.length > 0) {
+          const firstBenchPrice = benchmarkRawData[0].close
+          const benchDataMap = new Map(benchmarkRawData.map((p) => [p.timestamp, p.close]))
+          let lastBenchPrice = firstBenchPrice
+          const benchValues = commonTimestamps.map((ts) => {
+            const price = benchDataMap.get(ts)
+            if (price !== undefined) lastBenchPrice = price
+            return ((lastBenchPrice - firstBenchPrice) / firstBenchPrice) * 100
+          })
+          const rebasedSeries = series.map((s) => ({
+            ...s,
+            data: s.data.map((point, idx) => ({
+              timestamp: point.timestamp,
+              value: point.value - (benchValues[idx] ?? 0),
+            })),
+            performance: s.performance - (benchValues[benchValues.length - 1] ?? 0),
+          }))
+          setSeriesData(rebasedSeries)
+          setZoomRange({ start: 0, end: 1 })
+          return
+        }
+      }
+
       setSeriesData(series)
       setZoomRange({ start: 0, end: 1 })
     } catch (error: any) {
@@ -728,7 +770,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     } finally {
       setLoading(false)
     }
-  }, [selectedSymbols, timeframe, isWaveMode, useCustomDates, dateFrom, dateTo, dynamicSymbolMeta])
+  }, [selectedSymbols, timeframe, isWaveMode, useCustomDates, dateFrom, dateTo, dynamicSymbolMeta, isBenchmarkMode, benchmarkTicker])
 
   // Save timeframe to localStorage
   // Load persisted state from localStorage after mount (avoids SSR/CSR hydration mismatch)
@@ -1629,41 +1671,35 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
-
-  // â”€â”€ LAYOUT DEBUG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const _dbgRef = useRef<HTMLDivElement>(null)
+  //  BENCHMARK DEBUG 
   useEffect(() => {
-    const el = _dbgRef.current
-    if (!el) return
-    const log = () => {
-      const r = el.getBoundingClientRect()
-      let chain = ''
-      let p = el.parentElement
-      for (let i = 0; i < 4 && p; i++) {
-        const pr = p.getBoundingClientRect()
-        chain += ` [p${i}]${p.tagName.toLowerCase()}.${(p.className?.toString() || '').split(' ')[0].slice(0, 20)} ${Math.round(pr.width)}\u00d7${Math.round(pr.height)}`
-        p = p.parentElement
+    console.log('[BENCHMARK-DBG] STATE:', isBenchmarkMode, benchmarkTicker)
+  }, [isBenchmarkMode, benchmarkTicker])
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const btn = document.getElementById('perf-benchmark-btn')
+      console.log('[BENCHMARK-DBG] DOM btn=', btn, btn ? getComputedStyle(btn).display : 'N/A')
+      const header = document.querySelector('.perf-header')
+      if (header) {
+        const r = header.getBoundingClientRect()
+        console.log('[BENCHMARK-DBG] header w=', r.width, 'scrollW=', header.scrollWidth, 'overflow=', getComputedStyle(header).overflow)
       }
-      console.log(`[KOYFIN] ${Math.round(r.width)}\u00d7${Math.round(r.height)}px top=${Math.round(r.top)} scrollH=${el.scrollHeight} win=${window.innerWidth}\u00d7${window.innerHeight} |${chain}`)
-    }
-    log()
-    const ro = new ResizeObserver(log)
-    ro.observe(el)
-    return () => ro.disconnect()
+    }, 600)
+    return () => clearTimeout(t)
   }, [])
-  // â”€â”€ END LAYOUT DEBUG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  //  END BENCHMARK DEBUG 
 
   if (!isVisible) return null
 
   // â”€â”€ Shared button/dropdown style helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const btnStyle = (active: boolean, open: boolean): React.CSSProperties => ({
-    height: '34px', padding: '0 16px', display: 'flex', alignItems: 'center', gap: '8px',
+    height: '48px', padding: '0 23px', display: 'flex', alignItems: 'center', gap: '8px',
     background: active || open
       ? 'linear-gradient(180deg, #1c1c1c 0%, #111 100%)'
       : 'linear-gradient(180deg, #141414 0%, #090909 100%)',
     color: '#ffffff',
     border: active || open ? '1px solid #383838' : '1px solid #1e1e1e',
-    borderRadius: '3px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+    borderRadius: '3px', fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
     cursor: 'pointer', textTransform: 'uppercase' as const, userSelect: 'none' as const,
     letterSpacing: '1px', whiteSpace: 'nowrap' as const,
     boxShadow: active || open
@@ -1788,7 +1824,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   return (
     <div
-      ref={_dbgRef}
       style={{
         width: '100%',
         height: '100%',
@@ -1804,7 +1839,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       <div className="perf-header" style={{ background: '#000000', borderBottom: '1px solid #1c1c1c', position: 'relative', zIndex: 1, overflow: 'visible' }}>
 
         {/* â”€â”€ ROW 1: symbol selector toolbar â”€â”€ */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '50px', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '71px', gap: '6px' }}>
 
           {/* Ticker search */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0', marginRight: '6px' }}>
@@ -1815,11 +1850,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               onKeyDown={e => e.key === 'Enter' && handleTickerSearch()}
               placeholder="AAPL,TSLA,NVDA..."
               style={{
-                height: '34px', width: '200px',
+                height: '48px', width: '288px',
                 background: 'linear-gradient(180deg, #0e0e0e 0%, #080808 100%)',
                 color: '#ffffff', border: '1px solid #2a2a2a',
                 borderRight: 'none', borderRadius: '3px 0 0 3px',
-                fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
+                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
                 padding: '0 12px', outline: 'none', letterSpacing: '1px',
                 boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
               }}
@@ -1827,12 +1862,12 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             <button
               onClick={handleTickerSearch}
               style={{
-                height: '34px', padding: '0 14px',
+                height: '48px', padding: '0 21px',
                 background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
                 color: '#ffffff', border: '1px solid #2a2a2a',
-                borderLeft: '1px solid #00d4ff44', borderRadius: '0 3px 3px 0',
-                fontSize: '12px', fontWeight: '700', fontFamily: 'monospace',
-                cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap',
+                borderRadius: '0 3px 3px 0',
+                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
+                cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap', outline: 'none',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.7)',
               }}
             >ADD</button>
@@ -1840,45 +1875,47 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
           {/* Timeframe select */}
           <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
-            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '1px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', flexShrink: 0 }}>
-            {(['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
+            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '1px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', flexShrink: 0 }}>
+            {(['1D', '1W', '1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '20Y', 'YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
           </select>
           {/* Date range */}
           <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: useCustomDates && dateFrom ? '1px solid #00d4ff55' : '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
+            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
           <span style={{ color: '#555', fontSize: '10px', flexShrink: 0 }}>{String.fromCharCode(0x2014)}</span>
           <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: useCustomDates && dateTo ? '1px solid #00d4ff55' : '1px solid #2a2a2a', borderRadius: '3px', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
+            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
           {useCustomDates && (
             <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
-              style={{ height: '32px', padding: '0 8px', background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)', color: '#ff4444', border: '1px solid #cc2222', borderRadius: '3px', fontSize: '11px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', flexShrink: 0 }}>
+              style={{ height: '46px', padding: '0 10px', background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)', color: '#ff4444', border: '1px solid #cc2222', borderRadius: '3px', fontSize: '16px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', flexShrink: 0 }}>
               X
             </button>
           )}
 
           {/* START: swing-date presets */}
-          <div style={{ width: '1px', height: '22px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
-          <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>START:</span>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            {dynamicSwingDates.map(sd => (
-              <button key={sd.label}
-                title={sd.description}
-                onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
-                style={{
-                  height: '28px', padding: '0 10px', whiteSpace: 'nowrap', flexShrink: 0,
-                  background: useCustomDates && dateFrom === sd.date ? 'linear-gradient(180deg, #001830 0%, #000d1a 100%)' : 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
-                  color: useCustomDates && dateFrom === sd.date ? '#00d4ff' : '#ffffff',
-                  border: useCustomDates && dateFrom === sd.date ? '1px solid #00d4ff66' : '1px solid #222',
-                  borderRadius: '3px', fontSize: '11px', fontWeight: '700',
-                  fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
-                  transition: 'all 0.1s',
-                }}>{sd.label}</button>
-            ))}
+          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #ff8800', borderRadius: '4px', padding: '0 8px', flexShrink: 0 }}>
+            <span style={{ color: '#ff8800', fontSize: '12px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>START:</span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {dynamicSwingDates.map(sd => (
+                <button key={sd.label}
+                  title={sd.description}
+                  onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
+                  style={{
+                    height: '40px', padding: '0 14px', whiteSpace: 'nowrap', flexShrink: 0,
+                    background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
+                    color: '#ffffff',
+                    border: '1px solid #222',
+                    borderRadius: '3px', fontSize: '16px', fontWeight: '700',
+                    fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
+                    transition: 'all 0.1s',
+                  }}>{sd.label}</button>
+              ))}
+            </div>
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
+          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
 
           {/* MAG7 */}
           {(() => {
@@ -1898,7 +1935,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
                       setOpenDropdown(key)
                     }
                   }}
-                  style={btnStyle(someSelected, isOpen)}>
+                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
                   MAG 7 <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
                 {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
@@ -1929,7 +1966,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
                       setOpenDropdown(key)
                     }
                   }}
-                  style={btnStyle(someSelected, isOpen)}>
+                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
                   INDICES <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
                 {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
@@ -1942,7 +1979,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             )
           })()}
 
-          {/* INTL */}
+          {/* INTERNATIONAL */}
           {(() => {
             const key = 'international'
             const isOpen = openDropdown === key
@@ -1960,8 +1997,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
                       setOpenDropdown(key)
                     }
                   }}
-                  style={btnStyle(someSelected, isOpen)}>
-                  INTL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
+                  INTERNATIONAL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
                 {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
                   <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
@@ -1974,7 +2011,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           })()}
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px' }} />
 
           {/* SECTORS with holdings */}
           {(() => {
@@ -2079,14 +2116,59 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           })()}
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '28px', background: '#1c1c1c', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px' }} />
 
           {/* WAVES toggle */}
           <button
+            id="perf-waves-btn"
             onClick={e => { e.stopPropagation(); setIsWaveMode(!isWaveMode); setOpenDropdown(null) }}
             style={btnStyle(isWaveMode, false)}>
             WAVES
           </button>
+
+          {/* BENCHMARK toggle */}
+          {console.log('[BENCHMARK-DBG] JSX: isBenchmarkMode=', isBenchmarkMode) as unknown as null}
+          <button
+            id="perf-benchmark-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              const next = !isBenchmarkMode
+              console.log('[BENCHMARK-DBG] CLICKED:', isBenchmarkMode, '->', next)
+              setIsBenchmarkMode(next)
+              lastFetchKeyRef.current = ''
+              setOpenDropdown(null)
+            }}
+            style={btnStyle(isBenchmarkMode, false)}>
+            BENCHMARK
+          </button>
+
+          {isBenchmarkMode && (
+            <input
+              type="text"
+              value={benchmarkInput}
+              onChange={(e) => setBenchmarkInput(e.target.value.toUpperCase())}
+              onBlur={() => {
+                const t = benchmarkInput.trim().toUpperCase()
+                if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const t = benchmarkInput.trim().toUpperCase()
+                  if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' }
+                  e.currentTarget.blur()
+                }
+              }}
+              style={{
+                width: '104px', height: '48px', padding: '0 10px',
+                background: '#001a10', color: '#00ff88',
+                border: '1px solid #00cc55', borderRadius: '3px',
+                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
+                outline: 'none', letterSpacing: '1px', textTransform: 'uppercase',
+              }}
+              placeholder="SPY"
+            />
+          )}
 
           {/* Spacer */}
           <div style={{ flex: 1 }} />
@@ -2094,11 +2176,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           {/* Selected count */}
           {selectedSymbols.length > 0 && !isWaveMode && (
             <div className="perf-selected-count" style={{
-              marginLeft: '8px', height: '34px', padding: '0 16px',
+              marginLeft: '8px', height: '48px', padding: '0 23px',
               display: 'flex', alignItems: 'center',
               background: 'linear-gradient(180deg, #001a10 0%, #00100a 100%)',
               border: '1px solid #00cc55', borderRadius: '3px',
-              fontSize: '12px', fontWeight: '700', color: '#00ff88',
+              fontSize: '17px', fontWeight: '700', color: '#00ff88',
               letterSpacing: '1px', fontFamily: 'monospace', whiteSpace: 'nowrap',
               boxShadow: 'inset 0 1px 0 rgba(0,255,136,0.08)',
             }}>
@@ -2109,10 +2191,10 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           {/* Reset Zoom */}
           {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
             <button onClick={resetZoom} style={{
-              marginLeft: '8px', height: '34px', padding: '0 16px',
+              marginLeft: '8px', height: '48px', padding: '0 23px',
               background: 'linear-gradient(180deg, #1a0000 0%, #100000 100%)',
               color: '#ff4444', border: '1px solid #cc2222',
-              borderRadius: '3px', fontSize: '12px', fontWeight: '700',
+              borderRadius: '3px', fontSize: '17px', fontWeight: '700',
               fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '1px',
               textTransform: 'uppercase',
               boxShadow: 'inset 0 1px 0 rgba(255,68,68,0.08)',

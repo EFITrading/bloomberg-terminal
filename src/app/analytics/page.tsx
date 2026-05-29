@@ -33,7 +33,7 @@ export default function Analytics() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const panelLabels: Record<string, string> = {
-    'rrg': 'RRG', 'performance': 'Koyfin', 'iv-rrg': 'IV RRG',
+    'rrg': 'RRG', 'performance': 'Performance', 'iv-rrg': 'IV RRG',
     'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
     'market-cycle': 'Market Cycle', 'straddle-town': 'Straddle Town',
@@ -585,40 +585,6 @@ export default function Analytics() {
           height: 100% !important;
         }
         .analytics-mobile-header { display: none; }
-        /* ── Koyfin toolbar buttons ─────────────────────────────────────── */
-        .analytics-rrg-panel button {
-          font-size: 13px !important; height: 38px !important; padding: 0 16px !important;
-          letter-spacing: 1px !important; font-family: monospace !important; font-weight: 700 !important;
-        }
-        /* Swing preset buttons + WAVES (non-dropdown) */
-        .analytics-rrg-panel button:not([data-dropdown-button]) {
-          color: #ff8800 !important; border-color: #ff8800 !important;
-        }
-        /* ADD button (directly after ticker input) */
-        .analytics-rrg-panel input[type="text"] + button {
-          color: #00ff88 !important; border-color: #00ff88 !important;
-        }
-        /* Dropdown buttons: MAG7 / INDICES / INTL / SECTORS / INDUSTRIES / SPECIAL */
-        .analytics-rrg-panel [data-dropdown-button] {
-          color: #00d4ff !important; border-color: #00d4ff !important;
-        }
-        /* Ticker input */
-        .analytics-rrg-panel input[type="text"] {
-          font-size: 13px !important; height: 38px !important;
-        }
-        /* Date inputs */
-        .analytics-rrg-panel input[type="date"] {
-          font-size: 13px !important; height: 38px !important; color: #aaaaff !important;
-        }
-        /* Timeframe select */
-        .analytics-rrg-panel select {
-          font-size: 13px !important; height: 38px !important;
-          background: #0c0c0c !important; color: #ffffff !important;
-          border: 1px solid #2a2a2a !important;
-        }
-        .analytics-rrg-panel select option {
-          background: #0c0c0c !important; color: #ffffff !important;
-        }
         @media (max-width: 768px) {
           :root { --analytics-sw: 0px; }
           .analytics-sidebar { display: none !important; }
@@ -716,7 +682,7 @@ export default function Analytics() {
           {mobileMenuOpen && (
             <div className="analytics-mobile-dropdown">
               <TabButton id="rrg" label="RRG" />
-              <TabButton id="performance" label="Koyfin" />
+              <TabButton id="performance" label="Performance" />
               <TabButton id="iv-rrg" label="IV RRG" />
               <TabButton id="rrg-screener" label="RRG Screener" />
               <TabButton id="leadership-scan" label="Leadership" />
@@ -782,7 +748,7 @@ export default function Analytics() {
           </div>
 
           <TabButton id="rrg" label="RRG" />
-          <TabButton id="performance" label="Koyfin" />
+          <TabButton id="performance" label="Performance" />
           <TabButton id="iv-rrg" label="IV RRG" />
           <TabButton id="rrg-screener" label="RRG Screener" />
           <TabButton id="leadership-scan" label="Leadership" />

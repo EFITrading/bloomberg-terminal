@@ -2878,6 +2878,39 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     const stdDevError = stdDevFailed.has(trade.underlying_ticker)
 
+    // ── DEBUG: FLOW TABLE grade ───────────────────────────────────────────────
+    console.debug(
+      `[GRADE DEBUG] FLOW TABLE | ${trade.underlying_ticker} ${trade.type.toUpperCase()} $${trade.strike} exp:${trade.expiry}`,
+      {
+        grade,
+        totalScore: confidenceScore,
+        breakdown: {
+          expiration: `${scores.expiration}/25`,
+          contractPnL: `${scores.contractPrice}/15`,
+          relativeStrength: `${scores.relativeStrength}/10  ← LIVE RS (not frozen)`,
+          combo: `${scores.combo}/10`,
+          priceAction: `${scores.priceAction}/10  ← MAX is 10 here (A+ Tracker caps at 25)`,
+          volumeVsOI: `${scores.volumeOI}/15  ← ONLY scored in flow table (A+ Tracker omits this)`,
+          stockReaction: `${scores.stockReaction}/15`,
+        },
+        inputs: {
+          currentOptionPrice: currentPrice,
+          entryPrice,
+          rawPercentChange: ((currentPrice - entryPrice) / entryPrice) * 100,
+          adjustedPctChange: percentChange,
+          daysToExpiry: trade.days_to_expiry,
+          fillStyle: trade.fill_style,
+          isSoldToOpen,
+          entryStockPrice: trade.spot_price,
+          currentStockPrice: currentPrices[trade.underlying_ticker],
+          stdDev: historicalStdDevs.get(trade.underlying_ticker),
+          tradeVolume: trade.volume ?? null,
+          tradeOI: trade.open_interest ?? null,
+        },
+      }
+    )
+    // ─────────────────────────────────────────────────────────────────────────
+
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
@@ -3931,6 +3964,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
             case 'EXCLUDE_MAG7':
               return !mag7Stocks.includes(trade.underlying_ticker)
+
+            case 'EXCLUDE_ETF': {
+              const etfList = new Set(['SPY', 'QQQ', 'IWM', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'DIA', 'SMH', 'VXX', 'UVXY'])
+              return !etfList.has(trade.underlying_ticker)
+            }
 
             case 'HIGHLIGHTS_ONLY':
               return meetsEfiCriteria(trade)
@@ -5477,6 +5515,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           { label: 'STOCK', value: 'STOCK_ONLY' },
                           { label: 'MAG 7', value: 'MAG7_ONLY' },
                           { label: 'NO MAG7', value: 'EXCLUDE_MAG7' },
+                          { label: 'NO ETF', value: 'EXCLUDE_ETF' },
                         ].map(({ label, value }) => {
                           const active = selectedTickerFilters.includes(value)
                           return (
@@ -6081,13 +6120,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                           {[
-                            { label: 'ITM', value: 'ITM', color: '#f59e0b' },
-                            { label: 'OTM', value: 'OTM', color: '#f59e0b' },
-                            { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#f59e0b' },
-                            { label: 'Block Only', value: 'BLOCK_ONLY', color: '#f59e0b' },
+                            { label: 'ITM', value: 'ITM', color: '#22c55e' },
+                            { label: 'OTM', value: 'OTM', color: '#ffffff' },
+                            { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#22d3ee' },
+                            { label: 'Block Only', value: 'BLOCK_ONLY', color: '#22d3ee' },
                             { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
-                            { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f59e0b' },
-                            { label: 'Mini Only', value: 'MINI_ONLY', color: '#10b981' },
+                            { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f97316' },
+                            { label: 'Mini Only', value: 'MINI_ONLY', color: '#84cc16' },
                           ].map(({ label, value, color }) => {
                             const active = selectedUniqueFilters.includes(value)
                             return (
@@ -6112,27 +6151,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   color: active ? color : '#ffffff',
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: '7px',
+                                  justifyContent: 'center',
                                 }}
                               >
-                                <span style={{
-                                  width: '14px',
-                                  height: '14px',
-                                  borderRadius: '3px',
-                                  border: `1.5px solid ${active ? color : 'rgba(255,255,255,0.3)'}`,
-                                  background: active ? color : 'transparent',
-                                  flexShrink: 0,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  transition: 'all 0.15s ease',
-                                  fontSize: '10px',
-                                  fontWeight: 900,
-                                  color: '#000',
-                                  lineHeight: 1,
-                                }}>
-                                  {active ? '?' : ''}
-                                </span>
                                 {label}
                               </button>
                             )
@@ -6449,6 +6470,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             { label: 'Stock Only', value: 'STOCK_ONLY' },
                             { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
                             { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
+                            { label: 'Exclude ETFs', value: 'EXCLUDE_ETF' },
                           ].map(({ label, value }) => {
                             const active = selectedTickerFilters.includes(value)
                             return (
