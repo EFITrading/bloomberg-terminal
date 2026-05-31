@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
+import { getSeasonaxMainChartMobile, getSeasonaxMainChartMinHeight } from './SeasonaxMainChartMobile'
 
 interface DailySeasonalData {
   dayOfYear: number
@@ -1139,8 +1140,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         ]
 
         // Mobile detection: show only 4 months
-        const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
-        const monthsToShow = isMobile ? [0, 3, 6, 9] : Array.from({ length: 12 }, (_, i) => i) // Jan, Apr, Jul, Oct on mobile
+        const { isMobile, monthsToShow } = getSeasonaxMainChartMobile()
 
         monthStarts.forEach((dayOfYear, index) => {
           if (index < monthNames.length && monthsToShow.includes(index)) {
@@ -1244,7 +1244,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       style={{
         width: '100%',
         height: '100%',
-        minHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? '612px' : '650px',
+        minHeight: getSeasonaxMainChartMinHeight(),
         minWidth: '300px',
         position: 'relative',
         overflow: 'hidden',

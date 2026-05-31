@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import React, { useEffect, useRef, useState } from 'react'
+import { useScreenerMobile } from './useScreenerMobile'
 
 import { TOP_1000_SYMBOLS } from '@/lib/Top1000Symbols'
 
@@ -96,19 +97,7 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
   const [currentPage, setCurrentPage] = useState(1)
 
   // Mobile detection
-  const [isMobile, setIsMobile] = useState(false)
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768)
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
-  // Responsive items per page: 10 for mobile, 20 for desktop
-  const itemsPerPage = isMobile ? 10 : 20
+  const { isMobile, itemsPerPage } = useScreenerMobile()
 
   // OTM Premium Scanner state
   const [otmResults, setOtmResults] = useState<PremiumImbalance[]>([])
@@ -209,7 +198,7 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                     range: Math.abs(
                       ((messageData.data.attractionLevel - messageData.data.currentPrice) /
                         messageData.data.currentPrice) *
-                        100
+                      100
                     ),
                     marketCap: messageData.data.marketCap,
                     gexImpactScore: messageData.data.gexImpactScore,
@@ -485,11 +474,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                 <button
                   onClick={handleScan}
                   disabled={loading}
-                  className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${
-                    loading
+                  className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${loading
                       ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
                       : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-                  }`}
+                    }`}
                 >
                   <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
                   {loading ? 'SCANNING...' : 'SCAN NOW'}
@@ -510,11 +498,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                 setActiveTab('attraction')
                 setCurrentPage(1)
               }}
-              className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'attraction'
+              className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${activeTab === 'attraction'
                   ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.8)] border-2 border-gray-700 transform scale-105'
                   : 'bg-gradient-to-b from-black via-gray-900 to-black text-gray-400 hover:text-white border-2 border-gray-800 hover:border-gray-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.8)]'
-              }`}
+                }`}
             >
               <Target className="w-4 h-4 md:w-6 md:h-6" />
               <span className="hidden sm:inline tracking-wider">ATTRACTION ZONES</span>
@@ -528,11 +515,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                 setActiveTab('otm-premiums')
                 setCurrentPage(1)
               }}
-              className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'otm-premiums'
+              className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${activeTab === 'otm-premiums'
                   ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.8)] border-2 border-gray-700 transform scale-105'
                   : 'bg-gradient-to-b from-black via-gray-900 to-black text-gray-400 hover:text-white border-2 border-gray-800 hover:border-gray-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.8)]'
-              }`}
+                }`}
             >
               <Layers className="w-4 h-4 md:w-6 md:h-6" />
               <span className="hidden sm:inline tracking-wider">OTM PREMIUMS</span>
@@ -574,11 +560,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
               <button
                 onClick={handleScan}
                 disabled={loading}
-                className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${
-                  loading
+                className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${loading
                     ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
                     : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-                }`}
+                  }`}
               >
                 <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? 'SCANNING...' : 'SCAN NOW'}
@@ -668,13 +653,12 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                     onClick={() => setSelectedRow(selectedRow === idx ? null : idx)}
                     onMouseEnter={() => setHoveredRow(idx)}
                     onMouseLeave={() => setHoveredRow(null)}
-                    className={`relative rounded-xl md:rounded-2xl border transition-all duration-500 cursor-pointer animate-fadeIn ${
-                      selectedRow === idx
+                    className={`relative rounded-xl md:rounded-2xl border transition-all duration-500 cursor-pointer animate-fadeIn ${selectedRow === idx
                         ? 'bg-black border-orange-500/50 shadow-xl shadow-orange-500/20'
                         : hoveredRow === idx
                           ? 'bg-black border-orange-400/40 shadow-lg shadow-orange-500/10'
                           : 'bg-black border-gray-700/30 hover:border-gray-600/50'
-                    } ${idx === 0 && loading ? 'border-orange-400/60 shadow-lg shadow-orange-400/20' : ''}`}
+                      } ${idx === 0 && loading ? 'border-orange-400/60 shadow-lg shadow-orange-400/20' : ''}`}
                   >
                     {/* Desktop Layout */}
                     <div className="hidden lg:block relative p-6">
@@ -693,15 +677,14 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                           </div>
                           <div>
                             <div
-                              className={`text-xl font-black ${
-                                item.strength > 75
+                              className={`text-xl font-black ${item.strength > 75
                                   ? 'text-purple-400'
                                   : item.strength >= 63
                                     ? 'text-blue-400'
                                     : item.strength >= 40
                                       ? 'text-yellow-400'
                                       : 'text-white'
-                              }`}
+                                }`}
                             >
                               ${item.attractionLevel.toFixed(2)}
                             </div>
@@ -717,11 +700,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                           <div>
                             {item.largestWall ? (
                               <div
-                                className={`text-xl font-black ${
-                                  item.largestWall.type === 'call'
+                                className={`text-xl font-black ${item.largestWall.type === 'call'
                                     ? 'text-red-500'
                                     : 'text-green-500'
-                                }`}
+                                  }`}
                               >
                                 ${item.largestWall.strike.toFixed(2)}
                               </div>
@@ -798,15 +780,14 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                               TARGET LEVEL
                             </div>
                             <div
-                              className={`text-base font-black ${
-                                item.strength > 75
+                              className={`text-base font-black ${item.strength > 75
                                   ? 'text-purple-400'
                                   : item.strength >= 63
                                     ? 'text-blue-400'
                                     : item.strength >= 40
                                       ? 'text-yellow-400'
                                       : 'text-white'
-                              }`}
+                                }`}
                             >
                               ${item.attractionLevel.toFixed(2)}
                             </div>
@@ -826,11 +807,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                             <div className="text-xs text-orange-400 font-bold mb-1">WALL LEVEL</div>
                             {item.largestWall ? (
                               <div
-                                className={`text-base font-black ${
-                                  item.largestWall.type === 'call'
+                                className={`text-base font-black ${item.largestWall.type === 'call'
                                     ? 'text-red-500'
                                     : 'text-green-500'
-                                }`}
+                                  }`}
                               >
                                 ${item.largestWall.strike.toFixed(2)}
                               </div>
@@ -908,11 +888,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
                         <button
                           key={pageNum}
                           onClick={() => setCurrentPage(pageNum)}
-                          className={`min-w-[32px] md:min-w-[44px] h-8 md:h-12 px-2 md:px-4 rounded-lg font-bold transition-all duration-300 text-xs md:text-base ${
-                            currentPage === pageNum
+                          className={`min-w-[32px] md:min-w-[44px] h-8 md:h-12 px-2 md:px-4 rounded-lg font-bold transition-all duration-300 text-xs md:text-base ${currentPage === pageNum
                               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-black shadow-lg scale-110'
                               : 'bg-gray-800 border border-gray-700 text-white hover:bg-gray-700 hover:border-orange-500/50'
-                          }`}
+                            }`}
                         >
                           {pageNum}
                         </button>

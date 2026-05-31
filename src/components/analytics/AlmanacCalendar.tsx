@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { useAlmanacCalendarMobile } from './useAlmanacCalendarMobile'
 
 interface DailyStats {
   winRate: number
@@ -442,6 +443,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
 }) => {
   const month = propMonth
   const year = propYear
+  const { isMobile } = useAlmanacCalendarMobile()
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([])
   const [loading, setLoading] = useState(true)
   const [dailyStats, setDailyStats] = useState<{ [tradingDay: number]: DailyStats }>({})
@@ -585,7 +587,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
     <div className="almanac-calendar">
       <div className="calendar-grid">
         <div className="calendar-header-row">
-          {(typeof window !== 'undefined' && window.innerWidth <= 768
+          {(isMobile
             ? DAY_NAMES_SHORT
             : DAY_NAMES
           ).map((d, i) => (
@@ -638,7 +640,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
                   <div
                     className={`win-rate ${isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral'}`}
                   >
-                    {typeof window !== 'undefined' && window.innerWidth <= 768
+                    {isMobile
                       ? `Up ${day.stats.upYears} of ${day.stats.totalYears} (${day.stats.winRate}%)`
                       : `${symbol} Up ${day.stats.upYears} of Last ${day.stats.totalYears} (${day.stats.winRate}%)`}
                   </div>

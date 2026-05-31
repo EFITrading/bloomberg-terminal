@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 
 import { calculateFlowGrade } from '@/lib/flowGrading'
+import { useFlowTrackingPanelMobile } from './useFlowTrackingPanelMobile'
 
 const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false })
 
@@ -224,6 +225,7 @@ export default function FlowTrackingPanel({
   const pnlChartRef = useRef<HTMLDivElement>(null)
   const [chartSymbolInput, setChartSymbolInput] = useState('SPY')
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
+  const { isMobile, swipedFlowId, setSwipedFlowId, touchStart, setTouchStart, touchCurrent, setTouchCurrent } = useFlowTrackingPanelMobile()
   const [flowTrackingFilters, setFlowTrackingFilters] = useState({
     gradeFilter: 'ALL' as 'ALL' | 'A' | 'B' | 'C' | 'D' | 'F',
     typeFilter: 'ALL' as 'ALL' | 'NOTABLE' | 'LEAPS',
@@ -232,12 +234,9 @@ export default function FlowTrackingPanel({
     premiumSort: 'NONE' as 'NONE' | 'HIGH' | 'LOW',
     expirySort: 'NONE' as 'NONE' | 'NEAR' | 'FAR',
     showDownSixtyPlus: false,
-    showCharts: typeof window !== 'undefined' && window.innerWidth >= 768,
+    showCharts: !isMobile,
     showWeeklies: false,
   })
-  const [swipedFlowId, setSwipedFlowId] = useState<string | null>(null)
-  const [touchStart, setTouchStart] = useState<number>(0)
-  const [touchCurrent, setTouchCurrent] = useState<number>(0)
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
   const [currentStockPrices, setCurrentStockPrices] = useState<Record<string, number>>({})
   const [ownStdDevs, setOwnStdDevs] = useState<Map<string, number>>(new Map())

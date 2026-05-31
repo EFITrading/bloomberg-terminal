@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { polygonRateLimiter } from '@/lib/polygonRateLimiter'
 
 import ChainCalculator from './ChainCalculator'
+import { useChainPanelMobile } from './useChainPanelMobile'
 
 interface OptionContract {
   ticker: string
@@ -193,7 +194,7 @@ function ChainPanel({
   })
 
   // ── Mobile layout ────────────────────────────────────────────────────────────
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const { isMobile } = useChainPanelMobile()
   const mobileChainBodyRef = React.useRef<HTMLDivElement>(null)
 
   // Auto-scroll mobile chain so STRIKE column is centered in the viewport on load

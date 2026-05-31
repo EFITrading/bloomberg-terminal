@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -8,30 +8,22 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useMarketRegime } from '@/contexts/MarketRegimeContext'
 
 import FearGreedGauge from './FearGreedGauge'
+import NavigationMobileMenu from './NavigationMobileMenu'
 import TickerScroller from './TickerScroller'
+import { useNavigationMobile } from './useNavigationMobile'
 
 export default function Navigation() {
   const { regimes, regimeAnalysis } = useMarketRegime()
   const [currentTime, setCurrentTime] = useState('')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isClient, setIsClient] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
-  const [isSmallMobile, setIsSmallMobile] = useState(false)
+  const { isMobile, isSmallMobile } = useNavigationMobile()
   const pathname = usePathname()
   const router = useRouter()
 
   // Fix hydration - only run on client
   useEffect(() => {
     setIsClient(true)
-    setIsMobile(window.innerWidth <= 768)
-    setIsSmallMobile(window.innerWidth <= 400)
-    const handleResize = () => {
-      setIsMobile(window.innerWidth <= 768)
-      setIsSmallMobile(window.innerWidth <= 400)
-    }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
 
@@ -68,12 +60,12 @@ export default function Navigation() {
   }, [pathname, isClient])
 
   const navLinks = [
-    { name: 'Market Overview', path: '/market-overview' },
-    { name: 'Analysis Suite', path: '/analysis-suite' },
-    { name: 'Data Driven', path: '/data-driven' },
-    { name: 'Analytics', path: '/analytics' },
-    { name: 'AI Suite', path: '/ai-suite' },
-    { name: 'OptionsFlow', path: '/options-flow' },
+    { name: 'Market Overview', path: '/market-overview', color: '#38bdf8' },
+    { name: 'Analysis Suite', path: '/analysis-suite', color: '#a855f7' },
+    { name: 'Data Driven', path: '/data-driven', color: '#22c55e' },
+    { name: 'Analytics', path: '/analytics', color: '#FF8500' },
+    { name: 'AI Suite', path: '/ai-suite', color: '#ec4899' },
+    { name: 'OptionsFlow', path: '/options-flow', color: '#06b6d4' },
   ]
 
   return (
@@ -81,9 +73,9 @@ export default function Navigation() {
       <nav
         className="nav"
         style={{
-          background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
+          background: 'linear-gradient(180deg, #2e2e2e 0%, #1c1c1c 30%, #0e0e0e 60%, #050505 100%)',
           borderBottom: '1px solid rgba(255, 133, 0, 0.3)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 133, 0, 0.1)',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
           position: 'sticky',
           top: 0,
           width: '100%',
@@ -91,6 +83,33 @@ export default function Navigation() {
           zIndex: 1000,
         }}
       >
+        {/* Gloss sheen overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '55%',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 70%, transparent 100%)',
+            borderRadius: '0 0 60% 60% / 0 0 30px 30px',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+        {/* Top highlight line */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '1px',
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 30%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0.35) 70%, transparent 100%)',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        />
         {/* Animated background accent */}
         <div
           style={{
@@ -175,9 +194,9 @@ export default function Navigation() {
                 {!isSmallMobile && (
                   <div
                     style={{
-                      fontSize: '7px',
-                      fontWeight: '700',
-                      letterSpacing: '3px',
+                      fontSize: isSmallMobile ? '12px' : isMobile ? '15px' : '20px',
+                      fontWeight: '800',
+                      letterSpacing: isSmallMobile ? '0.5px' : '1.5px',
                       color: '#999',
                       textAlign: 'center',
                       marginTop: '2px',
@@ -195,59 +214,85 @@ export default function Navigation() {
             className="nav-center"
             style={{
               display: 'flex',
-              gap: '6px',
-              alignItems: 'center',
-              background: '#000000',
-              padding: '8px',
-              borderRadius: '12px',
-              border: '1px solid rgba(255, 165, 0, 0.3)',
+              alignItems: 'stretch',
+              gap: '0',
+              borderBottom: '1px solid rgba(255, 133, 0, 0.12)',
             }}
           >
-            {navLinks.map((link) => {
+            {navLinks.map((link, i) => {
               const isActive = pathname === link.path
               return (
-                <Link
-                  key={link.path}
-                  href={link.path}
-                  style={{
-                    padding: '14px 28px',
-                    fontSize: '14px',
-                    fontWeight: '700',
-                    letterSpacing: '0.8px',
-                    textTransform: 'uppercase',
-                    color: '#FFFFFF',
-                    background: isActive ? '#000000' : 'transparent',
-                    borderRadius: '8px',
-                    textDecoration: 'none',
-                    display: 'inline-block',
-                    border: isActive ? '2px solid #FFA500' : '1px solid rgba(255, 165, 0, 0.3)',
-                    cursor: 'pointer',
-                    opacity: 1,
-                    filter: 'none',
-                    backdropFilter: 'none',
-                    WebkitTextFillColor: isActive ? '#FFA500' : '#FFFFFF',
-                    transition: 'none',
-                    transform: 'none',
-                    boxShadow: isActive ? '0 4px 12px rgba(255, 165, 0, 0.4)' : 'none',
-                    textShadow: 'none',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.borderColor = '#FFA500'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.borderColor = 'rgba(255, 165, 0, 0.3)'
-                    }
-                  }}
-                >
-                  <span
-                    style={{ color: isActive ? '#FFA500' : '#FFFFFF', opacity: 1, filter: 'none' }}
+                <React.Fragment key={link.path}>
+                  {i > 0 && (
+                    <span
+                      style={{
+                        width: '1px',
+                        margin: '12px 0',
+                        background: 'rgba(255, 133, 0, 0.15)',
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <Link
+                    href={link.path}
+                    style={{
+                      padding: '0 22px',
+                      height: '48px',
+                      fontSize: '15px',
+                      fontWeight: '700',
+                      letterSpacing: '1.8px',
+                      background: isActive
+                        ? `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
+                        : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)',
+                      borderRadius: '6px 6px 0 0',
+                      textTransform: 'uppercase',
+                      textDecoration: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      position: 'relative',
+                      color: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
+                      WebkitTextFillColor: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
+                      borderBottom: isActive
+                        ? `2px solid ${link.color}`
+                        : '2px solid transparent',
+                      boxShadow: isActive ? `0 2px 14px ${link.color}70` : 'none',
+                      textShadow: isActive
+                        ? `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
+                        : '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)',
+                      transform: 'scale(1) translateY(0px)',
+                      transition: 'color 0.18s ease, border-color 0.18s ease, text-shadow 0.18s ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = '#FFFFFF'
+                        e.currentTarget.style.WebkitTextFillColor = '#FFFFFF'
+                        e.currentTarget.style.borderBottomColor = `${link.color}80`
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.1) 100%)'
+                      }
+                      e.currentTarget.style.transform = 'scale(1.1) translateY(-2px)'
+                      e.currentTarget.style.boxShadow = `0 6px 22px ${link.color}55`
+                      e.currentTarget.style.textShadow = `0 2px 4px ${link.color}CC, 0 0 24px ${link.color}99, 0 4px 10px rgba(0,0,0,0.9)`
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = 'rgba(255,255,255,0.75)'
+                        e.currentTarget.style.WebkitTextFillColor = 'rgba(255,255,255,0.75)'
+                        e.currentTarget.style.borderBottomColor = 'transparent'
+                        e.currentTarget.style.boxShadow = 'none'
+                        e.currentTarget.style.textShadow = '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)'
+                      } else {
+                        e.currentTarget.style.boxShadow = `0 2px 14px ${link.color}70`
+                        e.currentTarget.style.textShadow = `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
+                        e.currentTarget.style.background = `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
+                      }
+                      e.currentTarget.style.transform = 'scale(1) translateY(0px)'
+                    }}
                   >
                     {link.name}
-                  </span>
-                </Link>
+                  </Link>
+                </React.Fragment>
               )
             })}
           </div>
@@ -260,59 +305,15 @@ export default function Navigation() {
               gap: '16px',
             }}
           >
-            {/* Mobile Menu Button */}
-            {(() => {
-              const activePageName = navLinks.find(l => l.path === pathname)?.name ?? null
-              return (
-                <button
-                  className="mobile-menu-btn"
-                  onClick={() => {
-                    setIsMobileMenuOpen(!isMobileMenuOpen)
-                  }}
-                  aria-label="Toggle mobile menu"
-                  style={{
-                    display: 'flex',
-                    zIndex: 10001,
-                    position: 'relative',
-                    flexDirection: 'row',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    gap: activePageName ? '10px' : '0',
-                    width: activePageName ? 'auto' : (isSmallMobile ? '38px' : '44px'),
-                    height: isSmallMobile ? '36px' : '44px',
-                    padding: activePageName ? (isSmallMobile ? '0 10px' : '0 14px') : '0',
-                    background: 'rgba(0, 0, 0, 0.85)',
-                    border: '2px solid rgba(255, 133, 0, 0.5)',
-                    borderRadius: '8px',
-                    boxShadow: 'none',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {/* Hamburger lines */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
-                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
-                    <span className={`hamburger-line ${isMobileMenuOpen ? 'open' : ''}`} style={{ width: '20px', height: '2px', background: '#FFFFFF', borderRadius: '2px', display: 'block', boxShadow: 'none' }} />
-                  </div>
-                  {/* Active page label */}
-                  {activePageName && (
-                    <span
-                      style={{
-                        fontSize: isSmallMobile ? '9px' : '11px',
-                        fontWeight: 700,
-                        letterSpacing: isSmallMobile ? '0.03em' : '0.06em',
-                        textTransform: 'uppercase',
-                        color: '#FF8500',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {activePageName}
-                    </span>
-                  )}
-                </button>
-              )
-            })()}
+            {/* Mobile hamburger + overlay — extracted to NavigationMobileMenu.tsx */}
+            <NavigationMobileMenu
+              navLinks={navLinks}
+              pathname={pathname}
+              isAuthenticated={isAuthenticated}
+              isClient={isClient}
+              router={router}
+              isSmallMobile={isSmallMobile}
+            />
 
             {/* Desktop Status and Auth */}
             <div
@@ -658,144 +659,7 @@ export default function Navigation() {
         </div>
       </nav>
 
-      {/* Mobile Menu Overlay */}
-      <div
-        className={`mobile-menu-overlay ${isMobileMenuOpen ? 'open' : ''}`}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: isMobileMenuOpen ? 'rgba(0, 0, 0, 0.95)' : 'transparent',
-          zIndex: isMobileMenuOpen ? 99999 : -1,
-          opacity: isMobileMenuOpen ? 1 : 0,
-          visibility: isMobileMenuOpen ? 'visible' : 'hidden',
-          display: isMobileMenuOpen ? 'flex' : 'none',
-          flexDirection: 'column',
-          transition: 'all 0.3s ease',
-        }}
-      >
-        <div
-          className="mobile-menu-content"
-          style={{
-            padding: '20px',
-            height: '100%',
-            background: 'rgba(0, 0, 0, 0.98)',
-            color: 'white',
-            position: 'relative',
-          }}
-        >
-          <div
-            className="mobile-menu-header"
-            style={{
-              marginBottom: '30px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <div className="mobile-logo">
-              <span className="logo-evolving" style={{ color: '#FF6600' }}>
-                EFI
-              </span>
-              <span className="logo-finance" style={{ color: '#FFFFFF', marginLeft: '5px' }}>
-                TERMINAL
-              </span>
-            </div>
-            <button
-              className="mobile-close-btn"
-              onClick={() => setIsMobileMenuOpen(false)}
-              aria-label="Close mobile menu"
-              style={{
-                background: 'none',
-                border: '2px solid rgba(255, 255, 255, 0.2)',
-                color: '#FFFFFF',
-                fontSize: '24px',
-                width: '40px',
-                height: '40px',
-                borderRadius: '50%',
-                cursor: 'pointer',
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div
-            className="mobile-menu-links"
-            style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
-          >
-            {navLinks.map((link) => (
-              <a
-                key={link.path}
-                href={link.path}
-                className={`mobile-nav-link ${pathname === link.path ? 'active' : ''}`}
-                onClick={() => {
-                  setIsMobileMenuOpen(false)
-                }}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '15px 20px',
-                  background:
-                    pathname === link.path
-                      ? 'rgba(255, 255, 255, 0.1)'
-                      : 'rgba(255, 255, 255, 0.05)',
-                  border: `2px solid ${pathname === link.path ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-                  borderRadius: '8px',
-                  color: '#FFFFFF',
-                  textDecoration: 'none',
-                  fontSize: '16px',
-                  fontWeight: '500',
-                }}
-              >
-                <span className="mobile-link-text">{link.name}</span>
-                <span className="mobile-link-arrow" style={{ color: '#FF6600' }}>
-                  →
-                </span>
-              </a>
-            ))}
-          </div>
-
-          <div className="mobile-menu-footer">
-            {isClient && (
-              <>
-                {isAuthenticated ? (
-                  <button
-                    className="mobile-btn-login"
-                    onClick={async () => {
-                      try {
-                        await fetch('/api/auth', { method: 'DELETE' })
-                        document.cookie =
-                          'efi-auth=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
-                        setIsMobileMenuOpen(false)
-                        router.push('/login')
-                      } catch (error) {
-                        console.error('Logout error:', error)
-                        window.location.href = '/login'
-                      }
-                    }}
-                  >
-                    Logout
-                  </button>
-                ) : (
-                  <button
-                    className="mobile-btn-login"
-                    onClick={() => {
-                      setIsMobileMenuOpen(false)
-                      router.push('/login')
-                    }}
-                  >
-                    Login
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* Mobile overlay — extracted to NavigationMobileMenu.tsx */}
       <TickerScroller />
     </>
   )

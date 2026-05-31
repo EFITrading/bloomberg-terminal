@@ -14,6 +14,9 @@ import { useDealerZonesStore } from '@/store/dealerZonesStore'
 
 import '../app/options-flow/mobile.css'
 import FlowTrackingPanel from './FlowTrackingPanel'
+import OptionsFlowMobileFilterPanel from './OptionsFlowMobileFilterPanel'
+import OptionsFlowMobileMenu from './OptionsFlowMobileMenu'
+import { useOptionsFlowTableMobile } from './useOptionsFlowTableMobile'
 
 // Polygon API key for bid/ask analysis
 
@@ -785,8 +788,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false)
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false)
-
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({})
 
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({})
@@ -816,7 +817,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   >({})
 
   const [isMounted, setIsMounted] = useState(false)
-  const [isMobileView, setIsMobileView] = useState(false)
+  const { isMobileView } = useOptionsFlowTableMobile()
 
   // State for historical price data - storing last 3 days of high/low ranges
 
@@ -1427,7 +1428,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     showDownSixtyPlus: false,
 
-    showCharts: typeof window !== 'undefined' && window.innerWidth < 768 ? false : true,
+    showCharts: !isMobileView,
 
     showWeeklies: false,
   })
@@ -1440,13 +1441,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [touchCurrent, setTouchCurrent] = useState<number>(0)
 
-  // Mobile view detection
-  useEffect(() => {
-    const checkMobile = () => setIsMobileView(window.innerWidth < 768)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
+  // Mobile view detection handled by useOptionsFlowTableMobile hook
 
   const [blacklistEnabled, setBlacklistEnabled] = useState<boolean>(false)
 
@@ -3482,13 +3477,29 @@ Stock Reaction: ${scores.stockReaction}/15`
       setSaveErrorMsg('')
 
       const _now = new Date()
-      const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
       console.log('[SaveFlow] RAW data prop count (before filters):', data?.length)
       console.log('[SaveFlow] FILTERED display count (filteredAndSortedData):', filteredAndSortedData?.length)
       console.log('[SaveFlow] Saving filteredAndSortedData · count:', filteredAndSortedData?.length)
 
+      // Derive the trading date from the actual trade timestamps (PST), not the wall clock save time.
+      // This ensures a historical scan saved on May 28 that contains May 26 trades is stored as May 26,
+      // not May 28. Falls back to wall clock date if no trades have timestamps.
+      let tradeDate: string
+      const tradesWithTs = (filteredAndSortedData ?? []).filter((t: any) => t.trade_timestamp)
+      if (tradesWithTs.length > 0) {
+        const latestTs = tradesWithTs.reduce((max: number, t: any) => {
+          const ts = new Date(t.trade_timestamp).getTime()
+          return ts > max ? ts : max
+        }, 0)
+        const d = new Date(new Date(latestTs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        tradeDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      } else {
+        tradeDate = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+      }
+      console.log('[SaveFlow] Trade date (from timestamps):', tradeDate)
+
       // Compress payload client-side to avoid 413 Payload Too Large
-      const dataString = JSON.stringify({ date: today, data: filteredAndSortedData })
+      const dataString = JSON.stringify({ date: tradeDate, data: filteredAndSortedData })
       const encoded = new TextEncoder().encode(dataString)
       console.log('[SaveFlow] Payload size (uncompressed):', (encoded.length / 1024 / 1024).toFixed(2), 'MB')
       const cs = new CompressionStream('gzip')
@@ -4927,20 +4938,16 @@ Stock Reaction: ${scores.stockReaction}/15`
           <div
             className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-[985px] max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
-              top: typeof window !== 'undefined' && window.innerWidth < 768 ? '130px' : '224px',
-              background:
-                typeof window !== 'undefined' && window.innerWidth < 768 ? '#000000' : '#000',
-              border:
-                typeof window !== 'undefined' && window.innerWidth < 768
-                  ? '1px solid rgba(255,255,255,0.1)'
-                  : '1px solid #4b5563',
-              borderRadius:
-                typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '8px',
-              padding: typeof window !== 'undefined' && window.innerWidth < 768 ? '16px' : '16px',
-              boxShadow:
-                typeof window !== 'undefined' && window.innerWidth < 768
-                  ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
-                  : '0 4px 16px rgba(0,0,0,0.5)',
+              top: isMobileView ? '130px' : '224px',
+              background: isMobileView ? '#000000' : '#000',
+              border: isMobileView
+                ? '1px solid rgba(255,255,255,0.1)'
+                : '1px solid #4b5563',
+              borderRadius: isMobileView ? '16px' : '8px',
+              padding: isMobileView ? '16px' : '16px',
+              boxShadow: isMobileView
+                ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
+                : '0 4px 16px rgba(0,0,0,0.5)',
             }}
           >
             <div className="filter-dialog-content">
@@ -4996,875 +5003,32 @@ Stock Reaction: ${scores.stockReaction}/15`
               {/* Mobile: Premium Redesigned Layout */}
 
               {isMobileView && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {/* -- OPTIONS + TYPE -- */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    {/* OPTIONS */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #10b981, #ef4444)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                          }}
-                        >
-                          Options
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {[
-                          {
-                            label: 'CALLS',
-                            value: 'call',
-                            color: '#10b981',
-                            glow: 'rgba(16,185,129,0.25)',
-                          },
-                          {
-                            label: 'PUTS',
-                            value: 'put',
-                            color: '#ef4444',
-                            glow: 'rgba(239,68,68,0.25)',
-                          },
-                        ].map(({ label, value, color, glow }) => {
-                          const active = selectedOptionTypes.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedOptionTypes((prev) =>
-                                  active ? prev.filter((t) => t !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '7px',
-                                padding: '9px 8px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
-                                background: active
-                                  ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active
-                                  ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
-                                  : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '7px',
-                                  height: '7px',
-                                  borderRadius: '50%',
-                                  background: active ? color : '#374151',
-                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
-                                  transition: 'all 0.15s ease',
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '16px',
-                                  fontWeight: 800,
-                                  letterSpacing: '1.5px',
-                                  color: active ? color : '#ffffff',
-                                }}
-                              >
-                                {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                        <div
-                          style={{
-                            marginTop: '8px',
-                            paddingTop: '8px',
-                            borderTop: '1px solid rgba(255,255,255,0.07)',
-                          }}
-                        >
-                          {[
-                            {
-                              label: 'BUY',
-                              value: 'buy',
-                              color: '#22d3ee',
-                              glow: 'rgba(34,211,238,0.25)',
-                            },
-                            {
-                              label: 'SELL',
-                              value: 'sell',
-                              color: '#f97316',
-                              glow: 'rgba(249,115,22,0.25)',
-                            },
-                          ].map(({ label, value, color, glow }) => {
-                            const active = selectedOrderSides.includes(value)
-                            return (
-                              <button
-                                key={value}
-                                onClick={() =>
-                                  setSelectedOrderSides((prev) =>
-                                    active ? prev.filter((s) => s !== value) : [...prev, value]
-                                  )
-                                }
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  gap: '7px',
-                                  padding: '8px 8px',
-                                  marginBottom: '6px',
-                                  borderRadius: '8px',
-                                  border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
-                                  background: active
-                                    ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
-                                    : 'rgba(255,255,255,0.02)',
-                                  boxShadow: active ? `0 0 12px ${glow}` : 'none',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  width: '100%',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: '7px',
-                                    height: '7px',
-                                    borderRadius: '50%',
-                                    background: active ? color : '#374151',
-                                    boxShadow: active ? `0 0 6px ${color}` : 'none',
-                                    transition: 'all 0.15s ease',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <span
-                                  style={{
-                                    fontSize: '14px',
-                                    fontWeight: 800,
-                                    letterSpacing: '1.5px',
-                                    color: active ? color : '#ffffff',
-                                  }}
-                                >
-                                  {label}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* TYPE */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #6366f1, #f59e0b)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                          }}
-                        >
-                          Type
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {[
-                          {
-                            label: 'BLOCK',
-                            value: 'block',
-                            color: '#6366f1',
-                            glow: 'rgba(99,102,241,0.25)',
-                          },
-                          {
-                            label: 'SWEEP',
-                            value: 'sweep',
-                            color: '#f59e0b',
-                            glow: 'rgba(245,158,11,0.25)',
-                          },
-                        ].map(({ label, value, color, glow }) => {
-                          const active = selectedUniqueFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedUniqueFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '7px',
-                                padding: '9px 8px',
-                                borderRadius: '8px',
-                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
-                                background: active
-                                  ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active
-                                  ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
-                                  : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '7px',
-                                  height: '7px',
-                                  borderRadius: '50%',
-                                  background: active ? color : '#374151',
-                                  boxShadow: active ? `0 0 6px ${color}` : 'none',
-                                  transition: 'all 0.15s ease',
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '16px',
-                                  fontWeight: 800,
-                                  letterSpacing: '1.5px',
-                                  color: active ? color : '#ffffff',
-                                }}
-                              >
-                                {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* -- PREMIUM -- */}
-                  <div
-                    style={{
-                      background: '#000',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '12px',
-                      padding: '10px',
-                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      alignSelf: 'flex-start',
-                      width: '100%',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginBottom: '8px',
-                        paddingBottom: '6px',
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '3px',
-                          height: '14px',
-                          borderRadius: '2px',
-                          background: 'linear-gradient(180deg, #10b981, #059669)',
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: '13px',
-                          fontWeight: 800,
-                          letterSpacing: '2px',
-                          textTransform: 'uppercase',
-                          color: '#ffffff',
-                        }}
-                      >
-                        Premium
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '5px',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      {[
-                        { label: '= $50K', value: '50000' },
-                        { label: '= $99K', value: '99000' },
-                        { label: '= $200K', value: '200000' },
-                        { label: '= $1M', value: '1000000' },
-                      ].map(({ label, value }) => {
-                        const active = selectedPremiumFilters.includes(value)
-                        return (
-                          <button
-                            key={value}
-                            onClick={() =>
-                              setSelectedPremiumFilters((prev) =>
-                                active ? prev.filter((f) => f !== value) : [...prev, value]
-                              )
-                            }
-                            style={{
-                              padding: '6px 4px',
-                              borderRadius: '8px',
-                              border: `1px solid ${active ? '#10b981' : 'rgba(255,255,255,0.06)'}`,
-                              background: active
-                                ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.08) 100%)'
-                                : 'rgba(255,255,255,0.02)',
-                              boxShadow: active
-                                ? '0 0 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.06)'
-                                : 'none',
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease',
-                              fontSize: '16px',
-                              fontWeight: 800,
-                              letterSpacing: '0.5px',
-                              color: active ? '#10b981' : '#ffffff',
-                            }}
-                          >
-                            {label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '5px',
-                        paddingTop: '6px',
-                        borderTop: '1px solid rgba(255,255,255,0.05)',
-                      }}
-                    >
-                      <div style={{ position: 'relative' }}>
-                        <span
-                          style={{
-                            position: 'absolute',
-                            left: '10px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: '14px',
-                            color: '#94a3b8',
-                            pointerEvents: 'none',
-                            fontWeight: 700,
-                          }}
-                        >
-                          MIN
-                        </span>
-                        <input
-                          type="number"
-                          value={customMinPremium}
-                          onChange={(e) => setCustomMinPremium(e.target.value)}
-                          placeholder="$0"
-                          style={{
-                            width: '100%',
-                            paddingLeft: '38px',
-                            paddingRight: '8px',
-                            paddingTop: '6px',
-                            paddingBottom: '6px',
-                            background: '#000',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            borderRadius: '8px',
-                            color: '#ffffff',
-                            fontSize: '16px',
-                            fontWeight: 700,
-                            outline: 'none',
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      </div>
-                      <div style={{ position: 'relative' }}>
-                        <span
-                          style={{
-                            position: 'absolute',
-                            left: '10px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: '14px',
-                            color: '#94a3b8',
-                            pointerEvents: 'none',
-                            fontWeight: 700,
-                          }}
-                        >
-                          MAX
-                        </span>
-                        <input
-                          type="number"
-                          value={customMaxPremium}
-                          onChange={(e) => setCustomMaxPremium(e.target.value)}
-                          placeholder="$8"
-                          style={{
-                            width: '100%',
-                            paddingLeft: '40px',
-                            paddingRight: '8px',
-                            paddingTop: '6px',
-                            paddingBottom: '6px',
-                            background: '#000',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            borderRadius: '8px',
-                            color: '#ffffff',
-                            fontSize: '16px',
-                            fontWeight: 700,
-                            outline: 'none',
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* -- TICKER + SPECIAL -- */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    {/* TICKER */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                          }}
-                        >
-                          Ticker
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[
-                          { label: 'ETF', value: 'ETF_ONLY' },
-                          { label: 'STOCK', value: 'STOCK_ONLY' },
-                          { label: 'MAG 7', value: 'MAG7_ONLY' },
-                          { label: 'NO MAG7', value: 'EXCLUDE_MAG7' },
-                          { label: 'NO ETF', value: 'EXCLUDE_ETF' },
-                        ].map(({ label, value }) => {
-                          const active = selectedTickerFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedTickerFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '7px',
-                                padding: '7px 8px',
-                                borderRadius: '7px',
-                                border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.05)'}`,
-                                background: active
-                                  ? 'rgba(59,130,246,0.12)'
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '6px',
-                                  height: '6px',
-                                  borderRadius: '50%',
-                                  background: active ? '#3b82f6' : '#374151',
-                                  boxShadow: active ? '0 0 5px #3b82f6' : 'none',
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '13px',
-                                  fontWeight: 800,
-                                  letterSpacing: '1px',
-                                  color: active ? '#93c5fd' : '#ffffff',
-                                }}
-                              >
-                                {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    {/* SPECIAL */}
-                    <div
-                      style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '10px',
-                          paddingBottom: '8px',
-                          borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #06b6d4, #0891b2)',
-                          }}
-                        />
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                          }}
-                        >
-                          Special
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[
-                          { label: 'ITM', value: 'ITM' },
-                          { label: 'OTM', value: 'OTM' },
-                          { label: 'WEEKLY', value: 'WEEKLY_ONLY' },
-                          { label: 'MINI', value: 'MINI_ONLY' },
-                        ].map(({ label, value }) => {
-                          const active = selectedUniqueFilters.includes(value)
-                          return (
-                            <button
-                              key={value}
-                              onClick={() =>
-                                setSelectedUniqueFilters((prev) =>
-                                  active ? prev.filter((f) => f !== value) : [...prev, value]
-                                )
-                              }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '7px',
-                                padding: '7px 8px',
-                                borderRadius: '7px',
-                                border: `1px solid ${active ? '#06b6d4' : 'rgba(255,255,255,0.05)'}`,
-                                background: active
-                                  ? 'rgba(6,182,212,0.12)'
-                                  : 'rgba(255,255,255,0.02)',
-                                boxShadow: active ? '0 0 10px rgba(6,182,212,0.2)' : 'none',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s ease',
-                                width: '100%',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '6px',
-                                  height: '6px',
-                                  borderRadius: '50%',
-                                  background: active ? '#06b6d4' : '#374151',
-                                  boxShadow: active ? '0 0 5px #06b6d4' : 'none',
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '13px',
-                                  fontWeight: 800,
-                                  letterSpacing: '1px',
-                                  color: active ? '#67e8f9' : '#ffffff',
-                                }}
-                              >
-                                {label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* -- BLACKLIST -- */}
-                  <div
-                    style={{
-                      background: '#000',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '12px',
-                      padding: '12px',
-                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginBottom: '10px',
-                        paddingBottom: '8px',
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '3px',
-                          height: '14px',
-                          borderRadius: '2px',
-                          background: 'linear-gradient(180deg, #ef4444, #b91c1c)',
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: '13px',
-                          fontWeight: 800,
-                          letterSpacing: '2px',
-                          textTransform: 'uppercase',
-                          color: '#ffffff',
-                          flex: 1,
-                        }}
-                      >
-                        Blacklist
-                      </span>
-                      <button
-                        onClick={() => setBlacklistEnabled((v) => !v)}
-                        style={{
-                          padding: '3px 10px',
-                          borderRadius: '6px',
-                          border: blacklistEnabled ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
-                          background: blacklistEnabled ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
-                          color: blacklistEnabled ? '#fca5a5' : 'rgba(255,255,255,0.4)',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          letterSpacing: '1px',
-                        }}
-                      >
-                        {blacklistEnabled ? 'ON' : 'OFF'}
-                      </button>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                      {blacklistedTickers.slice(0, 10).map((ticker, index) => (
-                        <input
-                          key={index}
-                          type="text"
-                          value={ticker}
-                          onChange={(e) => {
-                            const t = [...blacklistedTickers]
-                            t[index] = e.target.value.toUpperCase()
-                            setBlacklistedTickers(t)
-                          }}
-                          placeholder={`#${index + 1}`}
-                          maxLength={6}
-                          style={{
-                            padding: '9px 6px',
-                            textAlign: 'center',
-                            background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(239,68,68,0.2)',
-                            borderRadius: '8px',
-                            color: '#fca5a5',
-                            fontSize: '16px',
-                            fontWeight: 800,
-                            letterSpacing: '1px',
-                            outline: 'none',
-                            width: '100%',
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* -- EXPIRATION -- */}
-                  <div
-                    style={{
-                      background: '#000',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '12px',
-                      padding: '12px',
-                      boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginBottom: '10px',
-                        paddingBottom: '8px',
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '3px',
-                          height: '14px',
-                          borderRadius: '2px',
-                          background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: '13px',
-                          fontWeight: 800,
-                          letterSpacing: '2px',
-                          textTransform: 'uppercase',
-                          color: '#ffffff',
-                        }}
-                      >
-                        Expiration
-                      </span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '12px',
-                            fontWeight: 800,
-                            letterSpacing: '1.5px',
-                            color: '#94a3b8',
-                            marginBottom: '5px',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          Start
-                        </span>
-                        <input
-                          type="date"
-                          value={expirationStartDate}
-                          onChange={(e) => setExpirationStartDate(e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '9px 8px',
-                            background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(168,85,247,0.3)',
-                            borderRadius: '8px',
-                            color: '#e9d5ff',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            outline: 'none',
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '12px',
-                            fontWeight: 800,
-                            letterSpacing: '1.5px',
-                            color: '#94a3b8',
-                            marginBottom: '5px',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          End
-                        </span>
-                        <input
-                          type="date"
-                          value={expirationEndDate}
-                          onChange={(e) => setExpirationEndDate(e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '9px 8px',
-                            background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(168,85,247,0.3)',
-                            borderRadius: '8px',
-                            color: '#e9d5ff',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            outline: 'none',
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <OptionsFlowMobileFilterPanel
+                  selectedOptionTypes={selectedOptionTypes}
+                  setSelectedOptionTypes={setSelectedOptionTypes}
+                  selectedOrderSides={selectedOrderSides}
+                  setSelectedOrderSides={setSelectedOrderSides}
+                  selectedUniqueFilters={selectedUniqueFilters}
+                  setSelectedUniqueFilters={setSelectedUniqueFilters}
+                  selectedPremiumFilters={selectedPremiumFilters}
+                  setSelectedPremiumFilters={setSelectedPremiumFilters}
+                  customMinPremium={customMinPremium}
+                  setCustomMinPremium={setCustomMinPremium}
+                  customMaxPremium={customMaxPremium}
+                  setCustomMaxPremium={setCustomMaxPremium}
+                  selectedTickerFilters={selectedTickerFilters}
+                  setSelectedTickerFilters={setSelectedTickerFilters}
+                  blacklistEnabled={blacklistEnabled}
+                  setBlacklistEnabled={setBlacklistEnabled}
+                  blacklistedTickers={blacklistedTickers}
+                  setBlacklistedTickers={setBlacklistedTickers}
+                  expirationStartDate={expirationStartDate}
+                  setExpirationStartDate={setExpirationStartDate}
+                  expirationEndDate={expirationEndDate}
+                  setExpirationEndDate={setExpirationEndDate}
+                />
               )}
+
 
               {/* Desktop: Redesigned Layout */}
 
@@ -7296,203 +6460,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <span>TRACK</span>
                 </button>
 
-                {/* Mobile Dropdown Menu - Replace trash icon */}
+                {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
 
-                <div className="relative">
-                  <button
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    disabled={loading}
-                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
-                      ? 'cursor-not-allowed opacity-40'
-                      : 'hover:scale-[1.02] active:scale-[0.98]'
-                      }`}
-                    style={{
-                      height: '40px',
-
-                      width: '40px',
-
-                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                      border: '2px solid #6b7280',
-
-                      borderRadius: '4px',
-
-                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                    }}
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                    </svg>
-                  </button>
-
-                  {/* Dropdown Menu */}
-
-                  {mobileMenuOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-[9998]"
-                        onClick={() => setMobileMenuOpen(false)}
-                      />
-
-                      <div
-                        className="fixed z-[99999]"
-                        style={{
-                          top: '190px',
-                          right: '8px',
-                          width: '134px',
-                          background: '#000',
-                          border: '2px solid #f97316',
-                          borderRadius: '6px',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
-                        }}
-                      >
-                        {/* SAVE */}
-                        <button
-                          onClick={() => {
-                            handleSaveFlow()
-                            setMobileMenuOpen(false)
-                          }}
-                          disabled={savingFlow || !data || data.length === 0}
-                          className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                          style={{
-                            background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)',
-                            color: '#fff',
-                            fontWeight: 900,
-                            fontSize: '16px',
-                            padding: '13px 10px',
-                            borderBottom: '1px solid #1e3a8a',
-                            letterSpacing: '1px',
-                            transition: 'filter 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
-                          onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.9)')}
-                          onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                        >
-                          <svg
-                            style={{
-                              width: '20px',
-                              height: '20px',
-                              transition: 'transform 0.2s ease',
-                            }}
-                            className="group-hover:-translate-y-0.5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            strokeWidth={2.2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"
-                            />
-                            <polyline
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              points="17 21 17 13 7 13 7 21"
-                            />
-                            <polyline
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              points="7 3 7 8 15 8"
-                            />
-                          </svg>
-                          <span>SAVE</span>
-                        </button>
-
-                        {/* HISTORY */}
-                        <button
-                          onClick={() => {
-                            loadFlowHistory()
-                            setMobileMenuOpen(false)
-                          }}
-                          disabled={loadingHistory}
-                          className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                          style={{
-                            background: 'linear-gradient(135deg, #f0f0f0 0%, #e5e7eb 100%)',
-                            color: '#111',
-                            fontWeight: 900,
-                            fontSize: '16px',
-                            padding: '13px 10px',
-                            borderBottom: '1px solid #9ca3af',
-                            letterSpacing: '1px',
-                            transition: 'filter 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(0.93)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
-                          onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.85)')}
-                          onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(0.93)')}
-                        >
-                          <svg
-                            style={{
-                              width: '20px',
-                              height: '20px',
-                              transition: 'transform 0.2s ease',
-                            }}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            strokeWidth={2.2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                          <span>HISTORY</span>
-                        </button>
-
-                        {/* CLEAR */}
-                        {onClearData && (
-                          <button
-                            onClick={() => {
-                              onClearData()
-                              setMobileMenuOpen(false)
-                            }}
-                            disabled={loading}
-                            className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                            style={{
-                              background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
-                              color: '#fff',
-                              fontWeight: 900,
-                              fontSize: '16px',
-                              padding: '13px 10px',
-                              borderRadius: '0 0 6px 6px',
-                              letterSpacing: '1px',
-                              transition: 'filter 0.15s ease',
-                            }}
-                            onMouseEnter={(e) =>
-                              (e.currentTarget.style.filter = 'brightness(1.15)')
-                            }
-                            onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
-                            onMouseDown={(e) => (e.currentTarget.style.filter = 'brightness(0.9)')}
-                            onMouseUp={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                          >
-                            <svg
-                              style={{
-                                width: '20px',
-                                height: '20px',
-                                transition: 'transform 0.2s ease',
-                              }}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2.2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                            <span>CLEAR</span>
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
+                <OptionsFlowMobileMenu
+                  variant="fixed"
+                  loading={loading}
+                  savingFlow={savingFlow}
+                  loadingHistory={loadingHistory}
+                  data={data}
+                  onSave={handleSaveFlow}
+                  onHistory={loadFlowHistory}
+                  onClear={onClearData}
+                />
 
                 {/* Save Button */}
 
@@ -8300,132 +7279,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </button>
                   )}
 
-                  {/* Mobile Dropdown Menu Button */}
+                  {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
 
-                  <div className="md:hidden relative">
-                    <button
-                      onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                      disabled={loading}
-                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
-                        }`}
-                      style={{
-                        height: '48px',
-
-                        background:
-                          'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                        border: '2px solid #6b7280',
-
-                        borderRadius: '4px',
-
-                        fontSize: '14px',
-
-                        letterSpacing: '1.5px',
-
-                        fontWeight: '900',
-
-                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                      }}
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                      </svg>
-                    </button>
-
-                    {/* Dropdown Menu */}
-
-                    {mobileMenuOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setMobileMenuOpen(false)}
-                        />
-
-                        <div className="absolute right-0 mt-2 w-48 bg-black border border-orange-500 rounded shadow-lg z-50">
-                          <button
-                            onClick={() => {
-                              handleSaveFlow()
-
-                              setMobileMenuOpen(false)
-                            }}
-                            disabled={savingFlow || !data || data.length === 0}
-                            className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <svg
-                              className="w-5 h-5 text-blue-400"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                              />
-                            </svg>
-
-                            <span className="font-bold">Save</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              loadFlowHistory()
-                              setMobileMenuOpen(false)
-                            }}
-                            disabled={loadingHistory}
-                            className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <svg
-                              className="w-5 h-5 text-purple-400"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-
-                            <span className="font-bold">History</span>
-                          </button>
-
-                          {onClearData && (
-                            <button
-                              onClick={() => {
-                                onClearData()
-
-                                setMobileMenuOpen(false)
-                              }}
-                              disabled={loading}
-                              className="w-full text-left px-4 py-3 text-red-400 hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed border-t border-gray-700"
-                            >
-                              <svg
-                                className="w-5 h-5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                                strokeWidth={2}
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                              </svg>
-
-                              <span className="font-bold">Clear</span>
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <OptionsFlowMobileMenu
+                    variant="dropdown"
+                    loading={loading}
+                    savingFlow={savingFlow}
+                    loadingHistory={loadingHistory}
+                    data={data}
+                    onSave={handleSaveFlow}
+                    onHistory={loadFlowHistory}
+                    onClear={onClearData}
+                  />
 
                   {/* Save Button - Desktop Only */}
 

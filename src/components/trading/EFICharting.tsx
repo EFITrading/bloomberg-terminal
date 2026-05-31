@@ -64,6 +64,7 @@ import {
   MarketRegimeData,
   TimeframeAnalysis,
 } from '../../lib/industryAnalysisService'
+import { useEFIChartingMobile } from './useEFIChartingMobile'
 import {
   getDaysUntilExpiration,
   getExpirationDates,
@@ -75,6 +76,7 @@ import { getRiskFreeRate, getCachedRiskFreeRate } from '../../lib/riskFreeRate'
 import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
 import FlowTrackingPanel from '../FlowTrackingPanel'
+import EFIChartingMobileHamburger from './EFIChartingMobileHamburger'
 import HVScreener from '../HVScreener'
 import LeadershipScan from '../LeadershipScan'
 import { OptionsFlowTable } from '../OptionsFlowTable'
@@ -454,6 +456,8 @@ interface ChartConfig {
   crosshair: boolean
   timezone: string
   showGrid: boolean
+  backgroundColor: string
+  gridLineColor: string
   axisStyle: {
     xAxis: {
       textSize: number
@@ -3794,7 +3798,7 @@ export function TradePopupChart({
         ctx.fillText(chDateStr, ch.x, H - PAD_B + 9)
       }
     }
-  }, [candles, fetching, timeframe, symbol])
+  }, [candles, fetching, timeframe, symbol, config]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas DPR setup + ResizeObserver
   React.useEffect(() => {
@@ -5315,6 +5319,8 @@ export default function TradingViewChart({
     crosshair: true,
     timezone: 'UTC',
     showGrid: false, // Start with grid disabled
+    backgroundColor: '#000000',
+    gridLineColor: '#1a1a1a',
     axisStyle: {
       xAxis: {
         textSize: 20,
@@ -5345,20 +5351,22 @@ export default function TradingViewChart({
 
   // Settings panel state
   const [showSettings, setShowSettings] = useState(false)
+  const configSnapshotRef = useRef<ChartConfig | null>(null)
+  const [selectedTheme, setSelectedTheme] = useState<string>('default')
+
+  // isMounted guard for portal (avoids document access during SSR)
 
   // isMobile — true after mount if viewport < 768px. Avoids typeof window in JSX render path.
-  const [isMobile, setIsMobile] = useState(false)
-  const [isMounted, setIsMounted] = useState(false)
-  const [isMobileGroup1Open, setIsMobileGroup1Open] = useState(false)
-  const [isMobileGroup2Open, setIsMobileGroup2Open] = useState(false)
-  const [isMobileGroup3Open, setIsMobileGroup3Open] = useState(false)
-  useEffect(() => {
-    setIsMounted(true)
-    setIsMobile(window.innerWidth < 768)
-    const handler = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
-  }, [])
+  const {
+    isMobile,
+    isMounted,
+    isMobileGroup1Open,
+    setIsMobileGroup1Open,
+    isMobileGroup2Open,
+    setIsMobileGroup2Open,
+    isMobileGroup3Open,
+    setIsMobileGroup3Open,
+  } = useEFIChartingMobile()
 
   // Chat store for Guide AI panel
   const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore()
@@ -5371,9 +5379,6 @@ export default function TradingViewChart({
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLDivElement>(null)
-  const [isHamburgerOpen, setIsHamburgerOpen] = useState(false)
-  const [hmDropPos, setHmDropPos] = useState({ top: 48, left: 8 })
-  const [hmPressed, setHmPressed] = useState(false)
   const [invalidTicker, setInvalidTicker] = useState(false)
 
   // Benchmark mode state
@@ -5402,7 +5407,7 @@ export default function TradingViewChart({
   const [flowTabBaseAUM, setFlowTabBaseAUM] = useState<Record<string, number>>({})
   const [flowTabLoading, setFlowTabLoading] = useState(false)
   const flowTabFetchedRef = useRef(false)
-  const [flowTabRange, setFlowTabRange] = useState<'1M' | '4M' | '1Y' | '3Y' | '5Y'>(() => (typeof window !== 'undefined' && window.innerWidth < 768) ? '4M' : '1Y')
+  const [flowTabRange, setFlowTabRange] = useState<'1M' | '4M' | '1Y' | '3Y' | '5Y'>(isMobile ? '4M' : '1Y')
   const [flowTickerRanges, setFlowTickerRanges] = useState<Record<string, '1M' | '4M' | '1Y' | '3Y' | '5Y'>>({})
   const [trackingTimeframe, setTrackingTimeframe] = useState<
     '1D' | '5D' | '1M' | '3M' | '6M' | '1Y'
@@ -6698,6 +6703,8 @@ export default function TradingViewChart({
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
+  const [sidebarPanelTop, setSidebarPanelTop] = useState(180)
+  const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
   const watchlistSavedScrollRef = useRef<number>(0)
@@ -11685,6 +11692,41 @@ export default function TradingViewChart({
     return () => el.removeEventListener('wheel', block)
   }, [])
 
+  // Compute sidebar panel top dynamically from the EFI top bar's actual bottom edge
+  useEffect(() => {
+    const compute = () => {
+      if (topBarRef.current) {
+        const rect = topBarRef.current.getBoundingClientRect()
+        const newTop = Math.round(rect.bottom)
+        setSidebarPanelTop(newTop)
+      }
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    return () => window.removeEventListener('resize', compute)
+  }, [])
+
+  // Manage sidebar panel width per panel type.
+  // LiquidPanel mutates sidebarPanel.style.width via DOM; that inline style persists across
+  // panel switches. This effect ensures WATCH always gets a consistent fixed width regardless
+  // of open order, and resets the inline style for all other non-liquid panels.
+  useEffect(() => {
+    const panel = sidebarPanelRef.current
+    if (!panel || isMobile || hideDesktopSidebar) return
+    if (activeSidebarPanel === 'watch') {
+      panel.style.width = '1200px'
+      panel.style.maxWidth = '1200px'
+      return () => {
+        panel.style.width = ''
+        panel.style.maxWidth = ''
+      }
+    } else if (activeSidebarPanel !== 'liquid') {
+      // Clear any stale inline width left by LiquidPanel so CSS calc takes over
+      panel.style.width = ''
+      panel.style.maxWidth = ''
+    }
+  }, [activeSidebarPanel, isMobile, hideDesktopSidebar])
+
   // OLD regime loading removed - now using parallel prefetch on panel open
 
   // Switch to cached highlights instantly when changing tabs
@@ -13214,8 +13256,8 @@ export default function TradingViewChart({
 
   // TradingView-style color scheme (dynamic based on theme)
   const colors = {
-    background: config.theme === 'dark' ? '#000000' : '#ffffff',
-    grid: config.theme === 'dark' ? '#000000' : '#e1e4e8', // Pure black grid (invisible on black background)
+    background: config.backgroundColor,
+    grid: config.gridLineColor,
     text: config.theme === 'dark' ? '#ffffff' : '#000000',
     textSecondary: config.theme === 'dark' ? '#999999' : '#6a737d',
     bullish: config.colors.bullish.body,
@@ -14054,7 +14096,7 @@ export default function TradingViewChart({
         // Align crosshair date label with the actual time axis label position
         // Time axis labels are drawn at: desktop → height-70, mobile → height-45
         // Background top = labelCenter - 14, so: desktop → height-84, mobile → height-59
-        const isMobileDevice = window.innerWidth < 768
+        const isMobileDevice = isMobile
         const xLabelCenterY = isMobileDevice ? height - 45 : height - 70
         const priceChartBottom = xLabelCenterY - 14
 
@@ -14085,7 +14127,6 @@ export default function TradingViewChart({
 
         // Enhanced OHLC Info Panel (top-left corner) - Desktop only
         // Hide on mobile devices (screen width < 768px)
-        const isMobile = window.innerWidth < 768
         if (crosshairInfo.ohlc && !isMobile) {
           const ohlc = crosshairInfo.ohlc
           const panelX = 20
@@ -14679,8 +14720,8 @@ export default function TradingViewChart({
       ; (ctx as any).mozImageSmoothingEnabled = false
       ; (ctx as any).msImageSmoothingEnabled = false
 
-    // Clear canvas with pure black background (force override)
-    ctx.fillStyle = '#000000'
+    // Clear canvas background using user-configured color
+    ctx.fillStyle = config.backgroundColor
     ctx.fillRect(0, 0, width, height)
 
     // Calculate chart areas - reserve space for volume and time axis
@@ -14702,9 +14743,7 @@ export default function TradingViewChart({
       timeAxisHeight
     const priceChartHeight = height - totalBottomSpace
 
-    if (config.showGrid) {
-      drawGrid(ctx, width, priceChartHeight)
-    }
+    // drawGrid is called after visibleData + candleSpacing are computed below
 
     // Calculate visible data range using scrollOffset and visibleCandleCount
     const startIndex = Math.max(0, Math.floor(scrollOffset))
@@ -14802,6 +14841,11 @@ export default function TradingViewChart({
     // Draw chart in price chart area - use consistent spacing regardless of future area
     const candleWidth = Math.max(2, (chartWidth / visibleCandleCount) * 0.8)
     const candleSpacing = chartWidth / visibleCandleCount
+
+    // Draw grid aligned with axis ticks (now that visibleData + candleSpacing are known)
+    if (config.showGrid) {
+      drawGrid(ctx, width, priceChartHeight, chartWidth, visibleCandleCount, candleSpacing, visibleData, scrollOffset)
+    }
 
     // Save context and apply clipping to prevent overflow into volume/x-axis areas
     ctx.save()
@@ -15759,6 +15803,20 @@ export default function TradingViewChart({
     peData,
     peLoading,
     pePanelHeight,
+    config.backgroundColor,
+    config.gridLineColor,
+    config.colors.bullish.body,
+    config.colors.bullish.wick,
+    config.colors.bullish.border,
+    config.colors.bearish.body,
+    config.colors.bearish.wick,
+    config.colors.bearish.border,
+    config.colors.volume.bullish,
+    config.colors.volume.bearish,
+    config.axisStyle.xAxis.textColor,
+    config.axisStyle.xAxis.textSize,
+    config.axisStyle.yAxis.textColor,
+    config.axisStyle.yAxis.textSize,
   ]) // Draw volume bars above the x-axis (TradingView style)
 
   // P/E RATIO bottom panel — trailing TTM P/E (cyan)
@@ -16136,7 +16194,7 @@ export default function TradingViewChart({
     if (!visibleData.length) return
 
     // Detect mobile device
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+    // isMobile is from useEFIChartingMobile hook in component scope
 
     // Calculate volume profile area
     const volumeStartY = isMobile ? priceChartHeight - 30 : priceChartHeight - 50
@@ -16816,28 +16874,49 @@ export default function TradingViewChart({
     }
   }
 
-  // Draw grid lines for price chart area only
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, priceHeight: number) => {
+  // Draw grid lines aligned with actual axis tick positions
+  const drawGrid = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    priceHeight: number,
+    chartWidth: number,
+    visibleCandleCount: number,
+    candleSpacing: number,
+    visibleData: ChartDataPoint[],
+    scrollOffset: number
+  ) => {
     ctx.strokeStyle = colors.grid
     ctx.lineWidth = 1
+    ctx.globalAlpha = 0.7
 
-    // Horizontal grid lines (price levels) - only in price chart area
-    for (let i = 0; i <= 10; i++) {
-      const y = (priceHeight / 10) * i
+    // Horizontal lines — same Y positions as drawPriceScale (topPadding=20, bottomPadding=100)
+    const topPadding = 20
+    const bottomPadding = 100
+    const usableHeight = priceHeight - topPadding - bottomPadding
+    const steps = 10
+    for (let i = 0; i <= steps; i++) {
+      const y = topPadding + (usableHeight / steps) * i
       ctx.beginPath()
-      ctx.moveTo(50, y)
-      ctx.lineTo(width - 20, y)
+      ctx.moveTo(CHART_LEFT_MARGIN, y)
+      ctx.lineTo(width - 90, y)
       ctx.stroke()
     }
 
-    // Vertical grid lines (time)
-    const gridSpacing = Math.max(50, (width - 70) / 20)
-    for (let x = 50; x < width - 20; x += gridSpacing) {
-      ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, priceHeight)
-      ctx.stroke()
-    }
+    // Vertical lines — same X positions as time-axis labels
+    const labelStep = Math.max(1, Math.floor(visibleCandleCount / 12))
+    const startAbsIndex = Math.floor(scrollOffset)
+    visibleData.forEach((_, visIndex) => {
+      const absIndex = startAbsIndex + visIndex
+      if (absIndex % labelStep === 0) {
+        const x = CHART_LEFT_MARGIN + visIndex * candleSpacing + candleSpacing / 2
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, priceHeight)
+        ctx.stroke()
+      }
+    })
+
+    ctx.globalAlpha = 1.0
   }
 
   // Technical Indicator Calculations
@@ -17825,6 +17904,30 @@ export default function TradingViewChart({
     rrgMode,
     isExpansionLiquidationActive,
     drawings.length,
+  ])
+
+  // Re-render when visual config settings change (colors, background, axis styles)
+  // These are NOT in the main renderChart effect so they need their own watcher
+  useEffect(() => {
+    if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0 && chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    config.backgroundColor,
+    config.gridLineColor,
+    config.colors.bullish.body,
+    config.colors.bullish.wick,
+    config.colors.bullish.border,
+    config.colors.bearish.body,
+    config.colors.bearish.wick,
+    config.colors.bearish.border,
+    config.colors.volume.bullish,
+    config.colors.volume.bearish,
+    config.axisStyle.xAxis.textColor,
+    config.axisStyle.xAxis.textSize,
+    config.axisStyle.yAxis.textColor,
+    config.axisStyle.yAxis.textSize,
   ])
 
   // Re-render when Expected Range data arrives
@@ -24156,8 +24259,8 @@ export default function TradingViewChart({
                     WebkitTextFillColor: 'transparent',
                     textShadow: '0 2px 10px rgba(255, 152, 0, 0.3)',
                     filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))',
-                    fontSize: window.innerWidth < 768 ? '2.4375rem' : undefined,
-                    marginBottom: window.innerWidth < 768 ? '0px' : undefined,
+                    fontSize: isMobile ? '2.4375rem' : undefined,
+                    marginBottom: isMobile ? '0px' : undefined,
                   }}
                 >
                   Market Regimes
@@ -26066,276 +26169,13 @@ export default function TradingViewChart({
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
                 {/* ── HAMBURGER MENU (mobile or when desktop sidebar is hidden) ── */}
-                {(isMobile || hideDesktopSidebar) && (() => {
-                  const hmAccent: Record<string, string> = {
-                    orange: '#F97316', blue: '#3B82F6', emerald: '#10B981', amber: '#F59E0B',
-                    red: '#EF4444', cyan: '#06B6D4', purple: '#A855F7', pink: '#EC4899',
-                    lime: '#84CC16', teal: '#14B8A6', rose: '#F43F5E', platinum: '#C4CBD6',
-                  }
-                  const hmItems: Array<{ id: string; label: string; accent: string; icon: React.ReactNode }> = [
-                    {
-                      id: 'liquid', label: 'LIQUID', accent: 'orange', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="4" rx="1" strokeWidth="1.8" />
-                          <rect x="3" y="10" width="14" height="4" rx="1" strokeWidth="1.8" />
-                          <rect x="3" y="16" width="10" height="4" rx="1" strokeWidth="1.8" />
-                          <path d="M19 17l3-3-3-3" strokeWidth="1.8" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'watch', label: 'WATCH', accent: 'blue', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 12c0 0 3.5-6 9-6s9 6 9 6-3.5 6-9 6-9-6-9-6z" strokeWidth="1.8" />
-                          <circle cx="12" cy="12" r="2.5" strokeWidth="1.8" />
-                          <path d="M8 12l1.5-2.5 2 2.5 2-4 2 3" strokeWidth="1.4" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'markets', label: 'MARKETS', accent: 'emerald', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round">
-                          <line x1="5" y1="20" x2="5" y2="10" strokeWidth="3.5" /><line x1="5" y1="8" x2="5" y2="6" strokeWidth="1.5" /><line x1="5" y1="22" x2="5" y2="20" strokeWidth="1.5" />
-                          <line x1="12" y1="20" x2="12" y2="7" strokeWidth="3.5" /><line x1="12" y1="5" x2="12" y2="3" strokeWidth="1.5" /><line x1="12" y1="22" x2="12" y2="20" strokeWidth="1.5" />
-                          <line x1="19" y1="20" x2="19" y2="13" strokeWidth="3.5" /><line x1="19" y1="11" x2="19" y2="9" strokeWidth="1.5" /><line x1="19" y1="22" x2="19" y2="20" strokeWidth="1.5" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'news', label: 'NEWS', accent: 'amber', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth="1.8" />
-                          <path d="M8 9h8M8 13h8M8 17h5" strokeWidth="1.7" />
-                          <path d="M8 6h2v2H8z" strokeWidth="0" fill="currentColor" opacity="0.4" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'alerts', label: 'ALERTS', accent: 'red', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 3a7 7 0 017 7c0 3.5-1 5-2 7H7c-1-2-2-3.5-2-7a7 7 0 017-7z" strokeWidth="1.8" />
-                          <path d="M10.5 20.5a1.5 1.5 0 003 0" strokeWidth="1.8" />
-                          <line x1="12" y1="3" x2="12" y2="1.5" strokeWidth="1.8" />
-                          <circle cx="17.5" cy="5" r="2.5" fill="#EF4444" stroke="none" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'chain', label: 'CHAIN', accent: 'cyan', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="2" y="2" width="9" height="9" rx="1.5" strokeWidth="1.7" />
-                          <rect x="13" y="2" width="9" height="9" rx="1.5" strokeWidth="1.7" />
-                          <rect x="2" y="13" width="9" height="9" rx="1.5" strokeWidth="1.7" />
-                          <rect x="13" y="13" width="9" height="9" rx="1.5" strokeWidth="1.7" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'plan', label: 'PLAN', accent: 'purple', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.6" />
-                          <path d="M3 9h18M3 15h18M9 3v18M15 3v18" strokeWidth="1" opacity="0.45" />
-                          <path d="M14 7l2.5 2.5L10 16l-3 .5.5-3L14 7z" strokeWidth="1.7" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'seasonality', label: 'SEASONAL', accent: 'pink', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="5" width="18" height="16" rx="2" strokeWidth="1.7" />
-                          <path d="M3 10h18" strokeWidth="1.5" />
-                          <path d="M8 3v4M16 3v4" strokeWidth="2" />
-                          <path d="M4 17q2-3 4 0t4 0 4 0" strokeWidth="1.7" fill="none" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'flow', label: 'FLOW', accent: 'lime', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 7c4 0 4 4 8 4s4-4 8-4" strokeWidth="1.8" />
-                          <path d="M4 12h16" strokeWidth="1.5" strokeDasharray="2 2" />
-                          <path d="M4 17c4 0 4-4 8-4s4 4 8 4" strokeWidth="1.8" />
-                          <path d="M18 5l3 2-3 2M18 15l3 2-3 2" strokeWidth="1.8" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'screeners', label: 'SCREENERS', accent: 'teal', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 4h18l-6.5 8V19l-5-2.5V12L3 4z" strokeWidth="1.8" strokeLinejoin="round" />
-                          <path d="M7 10h5M8 13h3" strokeWidth="1.4" opacity="0.55" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'rrg', label: 'RRG', accent: 'rose', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="9" strokeWidth="1.7" />
-                          <path d="M12 3v18M3 12h18" strokeWidth="1" opacity="0.4" />
-                          <path d="M15 7a6 6 0 10-8 8" strokeWidth="2" />
-                          <path d="M16.5 5.5l-1.5 2 2 1" strokeWidth="1.8" />
-                        </svg>
-                      )
-                    },
-                    {
-                      id: 'insight', label: 'INSIGHT', accent: 'platinum', icon: (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M9.5 21h5M12 3a6 6 0 016 6c0 2.5-1.4 4.4-3 6H9c-1.6-1.6-3-3.5-3-6a6 6 0 016-6z" strokeWidth="1.8" />
-                          <path d="M9.5 18h5" strokeWidth="1.7" />
-                          <path d="M10.5 14.5l1.5-3.5 1.5 3.5M10.5 14.5h3" strokeWidth="1.4" />
-                        </svg>
-                      )
-                    },
-                  ]
-                  return (
-                    <div style={{ position: 'relative', flexShrink: 0, marginRight: '10px' }}>
-                      {isHamburgerOpen && createPortal(
-                        <div
-                          style={{ position: 'fixed', inset: 0, zIndex: 99998 }}
-                          onClick={() => setIsHamburgerOpen(false)}
-                        />,
-                        document.body
-                      )}
-                      <button
-                        onClick={(e) => {
-                          const nextOpen = !isHamburgerOpen
-                          if (nextOpen) {
-                            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
-                            setHmDropPos({ top: rect.bottom + 8, left: rect.left })
-                          }
-                          setIsHamburgerOpen(nextOpen)
-                        }}
-                        onMouseDown={() => setHmPressed(true)}
-                        onMouseUp={() => setHmPressed(false)}
-                        onMouseLeave={() => setHmPressed(false)}
-                        onTouchStart={() => setHmPressed(true)}
-                        onTouchEnd={() => setHmPressed(false)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          position: 'relative', overflow: 'hidden',
-                          width: isMobile ? '34px' : '40px',
-                          height: isMobile ? '36px' : '42px',
-                          padding: 0, flexShrink: 0,
-                          background: isHamburgerOpen
-                            ? 'linear-gradient(175deg, #111111 0%, #050505 40%, #000000 100%)'
-                            : 'linear-gradient(175deg, #181818 0%, #080808 45%, #000000 100%)',
-                          borderTop: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.85)' : 'rgba(255,140,30,0.45)'}`,
-                          borderRight: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.6)' : 'rgba(255,140,30,0.25)'}`,
-                          borderBottom: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.45)' : 'rgba(255,140,30,0.15)'}`,
-                          borderLeft: `1px solid ${isHamburgerOpen ? 'rgba(255,140,30,0.6)' : 'rgba(255,140,30,0.25)'}`,
-                          borderRadius: '8px',
-                          boxShadow: hmPressed
-                            ? `0 1px 4px rgba(0,0,0,0.9), 0 0 0 1px rgba(0,0,0,0.6), inset 0 2px 6px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04)${isHamburgerOpen ? ', 0 0 10px rgba(255,102,0,0.2)' : ''}`
-                            : isHamburgerOpen
-                              ? '0 0 20px rgba(255,102,0,0.3), 0 4px 16px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.7)'
-                              : '0 6px 20px rgba(0,0,0,0.95), 0 2px 6px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -2px 0 rgba(0,0,0,0.8)',
-                          cursor: 'pointer',
-                          transform: hmPressed ? 'translateY(1px) scale(0.97)' : 'translateY(0) scale(1)',
-                          transition: 'all 0.18s cubic-bezier(0.34,1.56,0.64,1)',
-                        }}
-                        aria-label="Toggle navigation menu"
-                      >
-                        {/* Gloss overlay */}
-                        <div style={{
-                          position: 'absolute', top: 0, left: 0, right: 0,
-                          height: '52%', borderRadius: '8px 8px 40% 40%',
-                          background: 'linear-gradient(180deg, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.03) 70%, transparent 100%)',
-                          pointerEvents: 'none', zIndex: 1,
-                        }} />
-                        {/* Edge glow when open */}
-                        {isHamburgerOpen && (
-                          <div style={{
-                            position: 'absolute', inset: 0, borderRadius: '8px',
-                            boxShadow: 'inset 0 0 12px rgba(255,102,0,0.12)',
-                            pointerEvents: 'none', zIndex: 2,
-                          }} />
-                        )}
-                        <svg width={isMobile ? 14 : 15} height={isMobile ? 12 : 13} viewBox="0 0 15 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 3 }}>
-                          <g style={{ opacity: isHamburgerOpen ? 0 : 1, transition: 'opacity 0.2s ease', pointerEvents: 'none' }}>
-                            <line x1="0" y1="1" x2="15" y2="1" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
-                            <line x1="0" y1="6" x2="15" y2="6" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
-                            <line x1="0" y1="11" x2="15" y2="11" stroke="rgba(255,255,255,0.92)" strokeWidth="1.9" strokeLinecap="round" />
-                          </g>
-                          <g style={{ opacity: isHamburgerOpen ? 1 : 0, transition: 'opacity 0.2s ease', pointerEvents: 'none' }}>
-                            <line x1="1.5" y1="1.5" x2="13.5" y2="10.5" stroke="#FF6600" strokeWidth="2" strokeLinecap="round" />
-                            <line x1="13.5" y1="1.5" x2="1.5" y2="10.5" stroke="#FF6600" strokeWidth="2" strokeLinecap="round" />
-                          </g>
-                        </svg>
-                      </button>
-                      {isHamburgerOpen && createPortal(
-                        <div style={{
-                          position: 'fixed', top: `${hmDropPos.top}px`, left: `${hmDropPos.left}px`, zIndex: 99999,
-                          background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
-                          borderTop: '1px solid rgba(255,255,255,0.25)',
-                          borderRight: '1px solid rgba(255,255,255,0.1)',
-                          borderBottom: '1px solid rgba(255,255,255,0.1)',
-                          borderLeft: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '10px',
-                          boxShadow: '0 24px 60px rgba(0,0,0,0.95),0 8px 24px rgba(0,0,0,0.8),inset 0 1px 0 rgba(255,255,255,0.06)',
-                          backdropFilter: 'blur(24px)', overflow: 'hidden', width: 'max-content', minWidth: '160px',
-                          animation: 'hmDrop 0.18s cubic-bezier(0.22,1,0.36,1)',
-                        }}>
-                          <style>{`@keyframes hmDrop{from{opacity:0;transform:translateY(-8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
-                          {hmItems.map((item, idx) => {
-                            const clr = hmAccent[item.accent]
-                            const active = activeSidebarPanel === item.id
-                            return (
-                              <button
-                                key={item.id}
-                                onClick={() => { handleSidebarClick(item.id); setIsHamburgerOpen(false) }}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: '12px',
-                                  width: '100%', padding: '10px 14px',
-                                  background: active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent',
-                                  borderLeft: `3px solid ${active ? clr : 'transparent'}`,
-                                  borderRight: 'none', borderTop: 'none',
-                                  borderBottom: idx < hmItems.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                                  cursor: 'pointer', transition: 'all 0.15s ease',
-                                  position: 'relative', overflow: 'hidden',
-                                }}
-                                onMouseEnter={e => {
-                                  e.currentTarget.style.background = `linear-gradient(90deg,${clr}14 0%,rgba(255,255,255,0.02) 100%)`
-                                  e.currentTarget.style.borderLeft = `3px solid ${clr}80`
-                                }}
-                                onMouseLeave={e => {
-                                  e.currentTarget.style.background = active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent'
-                                  e.currentTarget.style.borderLeft = `3px solid ${active ? clr : 'transparent'}`
-                                }}
-                              >
-                                <div style={{
-                                  width: '34px', height: '34px', borderRadius: '8px', flexShrink: 0,
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  background: `linear-gradient(145deg,${clr}30 0%,${clr}10 50%,rgba(0,0,0,0.5) 100%)`,
-                                  borderTop: `1px solid ${clr}80`, borderRight: `1px solid ${clr}50`, borderBottom: `1px solid ${clr}50`, borderLeft: `1px solid ${clr}50`,
-                                  boxShadow: `0 4px 12px ${clr}25,inset 0 1px 0 ${clr}30,inset 0 -1px 0 rgba(0,0,0,0.5)`,
-                                  color: clr, position: 'relative', overflow: 'hidden',
-                                }}>
-                                  <div style={{ position: 'absolute', inset: 0, borderRadius: '8px', background: 'linear-gradient(160deg,rgba(255,255,255,0.18) 0%,transparent 55%)', pointerEvents: 'none' }} />
-                                  <div style={{ width: '18px', height: '18px', position: 'relative', zIndex: 1, filter: `drop-shadow(0 0 4px ${clr}80)` }}>
-                                    {item.icon}
-                                  </div>
-                                </div>
-                                <span style={{
-                                  fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em',
-                                  color: active ? clr : 'rgba(255,255,255,0.85)',
-                                  textTransform: 'uppercase',
-                                  textShadow: active ? `0 0 10px ${clr}60` : '0 1px 3px rgba(0,0,0,0.8)',
-                                  fontFamily: 'system-ui,-apple-system,sans-serif',
-                                }}>
-                                  {item.label}
-                                </span>
-                                {active && (
-                                  <div style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: clr, boxShadow: `0 0 6px ${clr}`, flexShrink: 0 }} />
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>,
-                        document.body
-                      )}
-                    </div>
-                  )
-                })()}
+                {(isMobile || hideDesktopSidebar) && (
+                  <EFIChartingMobileHamburger
+                    isMobile={isMobile}
+                    activeSidebarPanel={activeSidebarPanel}
+                    onSidebarClick={handleSidebarClick}
+                  />
+                )}
                 <div className="flex items-center space-x-3">
                   <div
                     className="relative flex items-center"
@@ -29800,7 +29640,13 @@ export default function TradingViewChart({
 
                 {/* SETTINGS Button - Matches toolbar button style */}
                 <button
-                  onClick={() => setShowSettings(!showSettings)}
+                  onClick={() => {
+                    if (!showSettings) {
+                      // Save snapshot when opening so user can undo
+                      configSnapshotRef.current = JSON.parse(JSON.stringify(config))
+                    }
+                    setShowSettings(!showSettings)
+                  }}
                   className={`btn-3d-carved relative group ${showSettings ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
@@ -29828,365 +29674,270 @@ export default function TradingViewChart({
             </div>
           </div>
 
-          {/* Settings Panel */}
-          {showSettings && (
+          {/* Settings Panel — portalled to document.body so it lives in the root stacking
+               context and paints above the sticky nav (z:10000). Previously the panel was a
+               child of market-overview-container (position:fixed, z-index:auto = 0 in root),
+               which meant its z:99999 was LOCAL to that context and lost to the nav's z:10000. */}
+          {showSettings && isMounted && createPortal(
             <div
-              className="absolute top-22 right-4 bg-black border-2 border-gray-800 rounded-xl p-6 w-80 shadow-2xl"
+              className="rounded-2xl w-[525px] overflow-hidden"
               style={{
-                zIndex: 99999,
-                boxShadow: '0 25px 50px rgba(0, 0, 0, 0.9), 0 0 100px rgba(41, 98, 255, 0.15)',
+                position: 'fixed',
+                top: '96px',
+                right: '16px',
+                zIndex: 200000,
+                background: 'linear-gradient(180deg, #111111 0%, #000000 40%, #0a0a0a 100%)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                boxShadow: '0 0 0 1px #000, 0 40px 80px rgba(0,0,0,1), inset 0 2px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(255,255,255,0.04), inset 1px 0 0 rgba(255,255,255,0.05), inset -1px 0 0 rgba(255,255,255,0.05)',
               }}
             >
-              <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-800">
-                <h3 className="text-white font-bold text-lg">Chart Settings</h3>
+              {/* Scrollable body */}
+              <div className="overflow-y-auto px-4 pb-2 space-y-3" style={{ maxHeight: 'calc(100vh - 110px)', paddingTop: '16px' }}>
+
+                {/* ── Title row ── */}
+                <div className="flex items-center mb-1 px-1" style={{ position: 'relative' }}>
+                  <span style={{ flex: 1, textAlign: 'center', color: '#ffffff', fontSize: '22px', fontWeight: 900, letterSpacing: '0.1em' }}>CHART SETTINGS</span>
+                  <button
+                    onClick={() => setShowSettings(false)}
+                    style={{ position: 'absolute', right: 0, top: '-6px', background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.6)', borderRadius: '10px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.35)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.15)' }}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                </div>
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', marginBottom: '4px' }} />
+
+                {/* ── Y-Axis Settings ── */}
+                <div className="rounded-xl p-4 space-y-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="4" /><polyline points="6 10 12 4 18 10" /></svg>
+                    <span style={{ color: '#4d9fff', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Y-Axis — Price</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Text Size</span>
+                    <div className="flex items-center gap-3">
+                      <input type="range" min="8" max="20" value={config.axisStyle.yAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textSize: parseInt(e.target.value) } } }))} className="w-28 h-1.5 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
+                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', width: '40px', textAlign: 'right' }}>{config.axisStyle.yAxis.textSize}px</span>
+                      <input type="color" value={config.axisStyle.yAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value } } }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── X-Axis Settings ── */}
+                <div className="rounded-xl p-4 space-y-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="12" x2="20" y2="12" /><polyline points="14 6 20 12 14 18" /></svg>
+                    <span style={{ color: '#4d9fff', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>X-Axis — Time</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Text Size</span>
+                    <div className="flex items-center gap-3">
+                      <input type="range" min="8" max="20" value={config.axisStyle.xAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textSize: parseInt(e.target.value) } } }))} className="w-28 h-1.5 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
+                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', width: '40px', textAlign: 'right' }}>{config.axisStyle.xAxis.textSize}px</span>
+                      <input type="color" value={config.axisStyle.xAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value } } }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Background Color ── */}
+                <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="12" cy="12" r="3" /></svg>
+                      <span style={{ color: '#a78bfa', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Background</span>
+                    </div>
+                    <input type="color" value={config.backgroundColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, backgroundColor: e.target.value }))} className="w-12 h-12 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(167,139,250,0.4)', padding: '2px', background: 'transparent' }} />
+                  </div>
+                </div>
+
+                {/* ── Grid Lines ── */}
+                <div className="rounded-xl p-4 space-y-3" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="8" x2="21" y2="8" /><line x1="3" y1="16" x2="21" y2="16" /><line x1="8" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="16" y2="21" /></svg>
+                    <span style={{ color: '#fbbf24', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Grid Lines</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Show Grid</span>
+                    <button onClick={() => setConfig((prev) => ({ ...prev, showGrid: !prev.showGrid }))} className="relative flex-shrink-0 rounded-full transition-all" style={{ width: '48px', height: '26px', background: config.showGrid ? '#4d9fff' : 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                      <span className="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow-md" style={{ left: config.showGrid ? '24px' : '2px', transitionProperty: 'left', transitionDuration: '150ms' }} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Line Color</span>
+                    <input type="color" value={config.gridLineColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, gridLineColor: e.target.value }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(251,191,36,0.4)', padding: '1px', background: 'transparent' }} />
+                  </div>
+                </div>
+
+                {/* ── Candle Body ── */}
+                <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><rect x="8" y="6" width="8" height="12" rx="1" /><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Body</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Candle Borders ── */}
+                <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Borders</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Candle Wicks ── */}
+                <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="2" x2="12" y2="22" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Wicks</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Volume Bars ── */}
+                <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume Bars</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.volume.bullish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bullish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.volume.bearish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bearish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Preset Themes ── */}
+                <div className="rounded-xl p-4 space-y-3" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center gap-2">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Preset Themes</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+
+                    {/* Default */}
+                    <button
+                      onClick={() => { setSelectedTheme('default'); setConfig((prev) => ({ ...prev, backgroundColor: '#000000', gridLineColor: '#1a1a1a', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#ffffff' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#ffffff' } }, colors: { bullish: { body: '#00ff00', wick: '#00ff00', border: '#00ff00' }, bearish: { body: '#ff0000', wick: '#ff0000', border: '#ff0000' }, volume: { bullish: '#00bfff', bearish: '#ff0000' } } })) }}
+                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
+                      style={{ background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)', border: selectedTheme === 'default' ? '2px solid rgba(200,200,200,0.85)' : '1px solid rgba(255,255,255,0.18)', boxShadow: selectedTheme === 'default' ? '0 0 14px rgba(200,200,200,0.25), inset 0 1px 0 rgba(255,255,255,0.08)' : '0 2px 8px rgba(0,0,0,0.6)' }}
+                    >
+                      <div className="flex gap-1">
+                        <div style={{ width: '8px', height: '20px', background: '#00ff00', borderRadius: '2px' }} />
+                        <div style={{ width: '8px', height: '14px', background: '#ff0000', borderRadius: '2px', marginTop: '6px' }} />
+                        <div style={{ width: '8px', height: '24px', background: '#00ff00', borderRadius: '2px' }} />
+                      </div>
+                      <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Default</span>
+                    </button>
+
+                    {/* Trade Desk — Bloomberg terminal dark */}
+                    <button
+                      onClick={() => { setSelectedTheme('trade-desk'); setConfig((prev) => ({ ...prev, backgroundColor: '#0a0d14', gridLineColor: '#1a2234', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#e8e0d0' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#e8e0d0' } }, colors: { bullish: { body: '#00b386', wick: '#00b386', border: '#00b386' }, bearish: { body: '#ff6835', wick: '#ff6835', border: '#ff6835' }, volume: { bullish: '#00b386', bearish: '#ff6835' } } })) }}
+                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
+                      style={{ background: 'linear-gradient(180deg, #0d1018 0%, #080b11 100%)', border: selectedTheme === 'trade-desk' ? '2px solid #ff8c00' : '1px solid rgba(0,179,134,0.35)', boxShadow: selectedTheme === 'trade-desk' ? '0 0 16px rgba(255,140,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)' : '0 2px 8px rgba(0,0,0,0.6)' }}
+                    >
+                      <div className="flex gap-1">
+                        <div style={{ width: '8px', height: '20px', background: '#00b386', borderRadius: '2px' }} />
+                        <div style={{ width: '8px', height: '14px', background: '#ff6835', borderRadius: '2px', marginTop: '6px' }} />
+                        <div style={{ width: '8px', height: '24px', background: '#00b386', borderRadius: '2px' }} />
+                      </div>
+                      <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Trade Desk</span>
+                    </button>
+
+                    {/* Blind Me — White, high-contrast */}
+                    <button
+                      onClick={() => { setSelectedTheme('blind-me'); setConfig((prev) => ({ ...prev, backgroundColor: '#ffffff', gridLineColor: '#e0e0e0', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#000000' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#000000' } }, colors: { bullish: { body: '#4ed07e', wick: '#4ed07e', border: '#4ed07e' }, bearish: { body: '#f26969', wick: '#f26969', border: '#f26969' }, volume: { bullish: '#4ed07e', bearish: '#f26969' } } })) }}
+                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
+                      style={{ background: 'linear-gradient(180deg, #f5f5f5 0%, #ebebeb 100%)', border: selectedTheme === 'blind-me' ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.2)', boxShadow: selectedTheme === 'blind-me' ? '0 0 16px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)' : '0 2px 8px rgba(0,0,0,0.4)' }}
+                    >
+                      <div className="flex gap-1">
+                        <div style={{ width: '8px', height: '20px', background: '#4ed07e', borderRadius: '2px' }} />
+                        <div style={{ width: '8px', height: '14px', background: '#f26969', borderRadius: '2px', marginTop: '6px' }} />
+                        <div style={{ width: '8px', height: '24px', background: '#4ed07e', borderRadius: '2px' }} />
+                      </div>
+                      <span style={{ color: '#111111', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Blind Me</span>
+                    </button>
+
+                    {/* Balanced — TradingView style */}
+                    <button
+                      onClick={() => { setSelectedTheme('balanced'); setConfig((prev) => ({ ...prev, backgroundColor: '#1e222d', gridLineColor: '#2a2e39', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#b2b5be' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#b2b5be' } }, colors: { bullish: { body: '#26a69a', wick: '#26a69a', border: '#26a69a' }, bearish: { body: '#ef5350', wick: '#ef5350', border: '#ef5350' }, volume: { bullish: '#26a69a', bearish: '#ef5350' } } })) }}
+                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
+                      style={{ background: 'linear-gradient(180deg, #222633 0%, #1a1e29 100%)', border: selectedTheme === 'balanced' ? '2px solid #9ca3af' : '1px solid rgba(38,166,154,0.35)', boxShadow: selectedTheme === 'balanced' ? '0 0 14px rgba(156,163,175,0.3), inset 0 1px 0 rgba(255,255,255,0.06)' : '0 2px 8px rgba(0,0,0,0.6)' }}
+                    >
+                      <div className="flex gap-1">
+                        <div style={{ width: '8px', height: '20px', background: '#26a69a', borderRadius: '2px' }} />
+                        <div style={{ width: '8px', height: '14px', background: '#ef5350', borderRadius: '2px', marginTop: '6px' }} />
+                        <div style={{ width: '8px', height: '24px', background: '#26a69a', borderRadius: '2px' }} />
+                      </div>
+                      <span style={{ color: '#b2b5be', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Balanced</span>
+                    </button>
+
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Apply + Undo footer */}
+              <div className="px-4 py-4 flex gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', background: 'linear-gradient(180deg, #111111 0%, #0a0a0a 100%)' }}>
+                <button
+                  onClick={() => {
+                    if (configSnapshotRef.current) {
+                      setConfig(configSnapshotRef.current)
+                    }
+                  }}
+                  className="flex items-center justify-center gap-2 py-3 rounded-xl transition-all"
+                  style={{ flex: '0 0 auto', width: '56px', background: '#111111', color: 'rgba(255,255,255,0.7)', fontSize: '12px', fontWeight: 700, border: '2px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                  title="Undo — restore to settings when panel was opened"
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = '2px solid rgba(255,255,255,0.5)'; (e.currentTarget as HTMLElement).style.color = '#ffffff' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = '2px solid rgba(255,255,255,0.2)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.7)' }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
+                </button>
                 <button
                   onClick={() => setShowSettings(false)}
-                  className="text-gray-500 hover:text-white text-2xl transition-colors hover:bg-gray-900 rounded-lg w-8 h-8 flex items-center justify-center"
-                ></button>
+                  className="flex-1 py-3 rounded-xl transition-all"
+                  style={{ background: 'transparent', color: '#ff8c00', fontSize: '18px', fontWeight: 800, letterSpacing: '0.06em', border: '2px solid rgba(255,140,0,0.5)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.8)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = '2px solid #ff8c00'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px rgba(255,140,0,0.3), inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = '2px solid rgba(255,140,0,0.5)'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  APPLY SETTINGS
+                </button>
               </div>
-
-              {/* Y-Axis Settings */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">
-                  Y-Axis (Price)
-                </label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Text Size
-                    </span>
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="range"
-                        min="8"
-                        max="20"
-                        value={config.axisStyle.yAxis.textSize}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            axisStyle: {
-                              ...prev.axisStyle,
-                              yAxis: {
-                                ...prev.axisStyle.yAxis,
-                                textSize: parseInt(e.target.value),
-                              },
-                            },
-                          }))
-                        }
-                        className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
-                        style={{
-                          background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`,
-                        }}
-                      />
-                      <span className="text-white text-xs font-semibold w-8">
-                        {config.axisStyle.yAxis.textSize}px
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Text Color
-                    </span>
-                    <input
-                      type="color"
-                      value={config.axisStyle.yAxis.textColor}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          axisStyle: {
-                            ...prev.axisStyle,
-                            yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* X-Axis Settings */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">
-                  X-Axis (Time)
-                </label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Text Size
-                    </span>
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="range"
-                        min="8"
-                        max="20"
-                        value={config.axisStyle.xAxis.textSize}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            axisStyle: {
-                              ...prev.axisStyle,
-                              xAxis: {
-                                ...prev.axisStyle.xAxis,
-                                textSize: parseInt(e.target.value),
-                              },
-                            },
-                          }))
-                        }
-                        className="w-24 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider-thumb"
-                        style={{
-                          background: `linear-gradient(to right, #2962ff 0%, #2962ff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, #1f2937 100%)`,
-                        }}
-                      />
-                      <span className="text-white text-xs font-semibold w-8">
-                        {config.axisStyle.xAxis.textSize}px
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Text Color
-                    </span>
-                    <input
-                      type="color"
-                      value={config.axisStyle.xAxis.textColor}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          axisStyle: {
-                            ...prev.axisStyle,
-                            xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-blue-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Theme Selection */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-3">Theme</label>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => setConfig((prev) => ({ ...prev, theme: 'dark' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                      }`}
-                  >
-                    🌙 Dark
-                  </button>
-                  <button
-                    onClick={() => setConfig((prev) => ({ ...prev, theme: 'light' }))}
-                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
-                      }`}
-                  >
-                    ☀️ Light
-                  </button>
-                </div>
-              </div>
-
-              {/* Body Colors */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">📊 Body</label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bullish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bullish.body}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bullish: { ...prev.colors.bullish, body: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bearish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bearish.body}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bearish: { ...prev.colors.bearish, body: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Border Colors */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">🔲 Borders</label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bullish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bullish.border}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bullish: { ...prev.colors.bullish, border: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bearish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bearish.border}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bearish: { ...prev.colors.bearish, border: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Wick Colors */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">📍 Wick</label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bullish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bullish.wick}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bullish: { ...prev.colors.bullish, wick: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bearish
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.bearish.wick}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            bearish: { ...prev.colors.bearish, wick: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Volume Colors */}
-              <div className="mb-6 pb-6 border-b border-gray-800">
-                <label className="block text-white text-base font-semibold mb-4">
-                  📊 Volume Bars
-                </label>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bullish Volume
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.volume.bullish}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            volume: { ...prev.colors.volume, bullish: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-green-500 transition-colors"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between group">
-                    <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                      Bearish Volume
-                    </span>
-                    <input
-                      type="color"
-                      value={config.colors.volume.bearish}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          colors: {
-                            ...prev.colors,
-                            volume: { ...prev.colors.volume, bearish: e.target.value },
-                          },
-                        }))
-                      }
-                      className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-700 hover:border-red-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Apply Button */}
-              <button
-                onClick={() => setShowSettings(false)}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold shadow-lg shadow-blue-500/50 hover:shadow-blue-500/70 transform hover:scale-105"
-              >
-                Apply Settings
-              </button>
             </div>
-          )}
+            , document.body)}
 
           {/* Chart Container with Sidebar */}
           <div className="flex flex-1 bg-[#0a0a0a]">
@@ -31233,6 +30984,7 @@ export default function TradingViewChart({
           {typeof window !== 'undefined' &&
             createPortal(
               <div
+                ref={sidebarPanelRef}
                 className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out overflow-y-auto`}
                 style={{
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
@@ -31246,8 +30998,8 @@ export default function TradingViewChart({
                     : 'calc(100vw - 80px)',
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
-                  top: (isMobile || hideDesktopSidebar) ? '0px' : (activeSidebarPanel === 'news' ? '130px' : '180px'),
-                  bottom: (isMobile || hideDesktopSidebar) ? '0px' : (activeSidebarPanel === 'news' ? '8px' : '16px'),
+                  top: (isMobile || hideDesktopSidebar) ? '0px' : `${sidebarPanelTop}px`,
+                  bottom: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                 }}
                 data-sidebar-panel={activeSidebarPanel}
               >

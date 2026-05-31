@@ -3,6 +3,7 @@
 import * as d3 from 'd3'
 
 import React, { useEffect, useRef, useState } from 'react'
+import { getDealerGEXChartMobileConfig } from './DealerGEXChartMobile'
 
 interface GEXData {
   strike: number
@@ -701,8 +702,7 @@ export default function DealerGEXChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-    const totalSVGHeight = isMobile ? 484 : svgHeight
+    const { isMobile, totalSVGHeight } = getDealerGEXChartMobileConfig(svgHeight)
     const height = totalSVGHeight - margin.top - margin.bottom
     const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
 

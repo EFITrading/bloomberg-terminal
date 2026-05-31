@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { TOP_1000_SYMBOLS } from '../../lib/Top1000Symbols'
 import { MarketRegimeData } from '../../lib/industryAnalysisService'
+import { useRegimesPanelMobile } from './useRegimesPanelMobile'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
@@ -1589,12 +1590,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     Record<string, Array<{ price: number; etMinutes: number; time: number }>>
   >({})
   const sparkFetchedRef = useRef<string>('')
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  const { isMobile } = useRegimesPanelMobile()
 
   const preset = SCAN_PRESETS.find((p) => p.id === activePreset) ?? SCAN_PRESETS[0]
 
@@ -2450,15 +2446,9 @@ export default function RegimesPanel({
   scanAllScoredRef,
 }: RegimesPanelProps) {
   const [mainTab, setMainTab] = useState<'regimes' | 'scanner'>('regimes')
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const { isMobile } = useRegimesPanelMobile()
   const scrollRef = useRef<HTMLDivElement>(null)
   const savedScroll = useRef<number>(0)
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
 
   const getCurrentTimeframeData = useCallback(() => {
     if (!marketRegimeData) return null

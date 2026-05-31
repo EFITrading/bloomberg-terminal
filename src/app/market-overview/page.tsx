@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import dynamic from 'next/dynamic'
 
+import { useMarketOverviewLayout } from './useMarketOverviewLayout'
 import '../mobile-trading.css'
 
 // Dynamically import EFICharting to avoid SSR issues
@@ -14,8 +15,7 @@ const EFIChart = dynamic(() => import('../../components/trading/EFICharting'), {
 export default function MarketPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('SPY')
   const [selectedTimeframe, setSelectedTimeframe] = useState('1d')
-  const [chartHeight, setChartHeight] = useState(800)
-  const [isMobile, setIsMobile] = useState(false)
+  const { chartHeight, paddingTop, updateLayout } = useMarketOverviewLayout()
 
   useEffect(() => {
     // Disable scrolling on this page
@@ -43,20 +43,11 @@ export default function MarketPage() {
     }
     document.addEventListener('wheel', preventScroll, { passive: false })
 
-    const updateHeight = () => {
-      const mobile = window.innerWidth <= 768
-      setIsMobile(mobile)
-      const navHeight = mobile ? 100 : 120
-      const calculatedHeight = window.innerHeight - navHeight
-      const finalHeight = Math.max(400, calculatedHeight)
-      setChartHeight(finalHeight)
-    }
-
-    updateHeight()
-    window.addEventListener('resize', updateHeight)
+    updateLayout()
+    window.addEventListener('resize', updateLayout)
 
     return () => {
-      window.removeEventListener('resize', updateHeight)
+      window.removeEventListener('resize', updateLayout)
       document.removeEventListener('wheel', preventScroll)
       document.body.style.overflow = ''
       document.documentElement.style.overflow = ''
@@ -74,7 +65,7 @@ export default function MarketPage() {
   return (
     <div
       className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0"
-      style={{ paddingTop: isMobile ? '60px' : '120px', overscrollBehavior: 'none' }}
+      style={{ paddingTop: paddingTop, overscrollBehavior: 'none' }}
     >
       <div className="w-full h-full">
         <EFIChart

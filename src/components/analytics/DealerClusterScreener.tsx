@@ -2,6 +2,10 @@
 
 import { RefreshCw } from 'lucide-react'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import ClusterCardMobileTimeframe from './ClusterCardMobileTimeframe'
+import DealerClusterMobileTowerToggle from './DealerClusterMobileTowerToggle'
+import { useClusterCardMobile } from './useClusterCardMobile'
+import { useDealerClusterScreenerMobile } from './useDealerClusterScreenerMobile'
 
 const GEX_SCAN_QUOTES = [
   { body: "Gamma is the accelerator. Delta is just where you are.", author: '' },
@@ -125,13 +129,7 @@ function ClusterCard({
 
   type TF = '1d' | '1h' | '5m'
   const [timeframe, setTimeframe] = useState<TF>('1h')
-  const [isMobileCard, setIsMobileCard] = useState(false)
-  useEffect(() => {
-    const check = () => setIsMobileCard(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
+  const { isMobileCard } = useClusterCardMobile()
 
   // ── Fetch ──────────────────────────────────────────────────────
   type Bar = { t: number; o: number; h: number; l: number; c: number; v: number }
@@ -460,53 +458,13 @@ function ClusterCard({
 
         {/* Timeframe buttons / dropdown */}
         {isMobileCard ? (
-          isExpanded ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleExpandedCard(cardKey) }}
-              style={{
-                fontSize: 12,
-                fontFamily: 'monospace',
-                fontWeight: 800,
-                letterSpacing: '0.12em',
-                padding: '3px 10px',
-                border: `1px solid ${accentColor}55`,
-                borderRadius: 2,
-                background: 'transparent',
-                color: accentColor,
-                cursor: 'pointer',
-                flexShrink: 0,
-                marginRight: 4,
-              }}
-            >✕ CLOSE</button>
-          ) : (
-            <select
-              value={timeframe}
-              onChange={e => setTimeframe(e.target.value as TF)}
-              style={{
-                fontSize: 12,
-                fontFamily: 'monospace',
-                fontWeight: 800,
-                letterSpacing: '0.1em',
-                padding: '2px 6px',
-                border: '1px solid rgba(255,255,255,0.35)',
-                borderRadius: 2,
-                background: '#0a0a0a',
-                color: '#ffffff',
-                cursor: 'pointer',
-                flexShrink: 0,
-                appearance: 'none',
-                paddingRight: 18,
-                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%23aaa' d='M4 6L0 2h8z'/%3E%3C/svg%3E")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 4px center',
-                backgroundSize: '6px',
-              }}
-            >
-              {(['1d', '1h', '5m'] as const).map(tf => (
-                <option key={tf} value={tf}>{tf.toUpperCase()}</option>
-              ))}
-            </select>
-          )
+          <ClusterCardMobileTimeframe
+            isExpanded={isExpanded}
+            onClose={() => toggleExpandedCard(cardKey)}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            accentColor={accentColor}
+          />
         ) : (
           (['1d', '1h', '5m'] as const).map(tf => (
             <button
@@ -734,15 +692,8 @@ export default function DealerClusterScreener() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [minPremium, setMinPremium] = useState(1_000_000)
   const toggleExpandedCard = (k: string) => setExpandedCards(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
-  const [isMobile, setIsMobile] = useState(false)
-  const [mobileTower, setMobileTower] = useState<'call' | 'put'>('call')
+  const { isMobile, mobileTower, setMobileTower } = useDealerClusterScreenerMobile()
   const loadingQuoteRef = useRef(GEX_SCAN_QUOTES[Math.floor(Math.random() * GEX_SCAN_QUOTES.length)])
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
   // callback ref: observer attaches the moment the grid div mounts (after loading)
   const gridCallbackRef = useRef((node: HTMLDivElement | null) => {
     if (!node) return
@@ -1045,23 +996,12 @@ export default function DealerClusterScreener() {
 
         {/* Mobile: single tower toggle */}
         {isMobile && hasData && (
-          <button
-            onClick={() => setMobileTower(t => t === 'call' ? 'put' : 'call')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-              background: mobileTower === 'call' ? 'rgba(255,34,34,0.15)' : 'rgba(0,210,100,0.1)',
-              border: mobileTower === 'call' ? '1px solid rgba(255,68,68,0.45)' : '1px solid rgba(0,210,100,0.35)',
-              borderRadius: 4, padding: '5px 10px', cursor: 'pointer',
-            }}
-          >
-            <span style={{ fontSize: 10, fontWeight: 800, color: mobileTower === 'call' ? '#ff4444' : '#00d264', letterSpacing: '0.1em' }}>
-              {mobileTower === 'call' ? '▲ CALL' : '▼ PUT'}
-            </span>
-            <span style={{ fontSize: 13, fontWeight: 900, color: mobileTower === 'call' ? '#ff4444' : '#00d264' }}>
-              {mobileTower === 'call' ? positiveItems.length : negativeItems.length}
-            </span>
-            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', marginLeft: 2 }}>TAP</span>
-          </button>
+          <DealerClusterMobileTowerToggle
+            mobileTower={mobileTower}
+            setMobileTower={setMobileTower}
+            positiveCount={positiveItems.length}
+            negativeCount={negativeItems.length}
+          />
         )}
 
         <div style={{ flex: 1 }} />

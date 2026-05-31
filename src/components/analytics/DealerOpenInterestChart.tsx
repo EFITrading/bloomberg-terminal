@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import * as d3 from 'd3'
+import { getDealerOIMobileConfig } from './DealerOpenInterestChartMobile'
 
 import React, { useEffect, useRef, useState } from 'react'
 
@@ -1055,8 +1056,7 @@ export default function DealerOpenInterestChart({
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 }
     const width = chartWidth - margin.left - margin.right
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-    const totalSVGHeight = isMobile ? 484 : svgHeight
+    const { isMobile, totalSVGHeight, labelFontSize, subLabelFontSize } = getDealerOIMobileConfig(svgHeight)
     const height = totalSVGHeight - margin.top - margin.bottom
     const axisColor = analysisSuiteMode ? '#FFFF00' : '#cc3300'
     const range80Color = analysisSuiteMode ? '#00FFFF' : '#3b82f6'
@@ -1168,7 +1168,7 @@ export default function DealerOpenInterestChart({
         xAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', isMobile ? '21px' : '18px')
+          .style('font-size', labelFontSize)
           .style('font-weight', 'bold')
           .attr('transform', 'rotate(-35)')
           .style('text-anchor', 'end')
@@ -1228,10 +1228,8 @@ export default function DealerOpenInterestChart({
         yAxisUpdate
           .selectAll('text')
           .style('fill', axisColor)
-          .style('font-size', isMobile ? '21px' : '18px')
+          .style('font-size', labelFontSize)
           .style('font-weight', 'bold')
-
-        yAxisUpdate.selectAll('path, line').style('stroke', axisColor).style('stroke-width', '2px')
 
         // Update current price line position during zoom
         if (currentPrice > 0) {
@@ -1508,7 +1506,7 @@ export default function DealerOpenInterestChart({
       .call(xAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', isMobile ? '21px' : '18px')
+      .style('font-size', labelFontSize)
       .style('font-weight', 'bold')
       .attr('transform', 'rotate(-35)')
       .style('text-anchor', 'end')
@@ -1565,7 +1563,7 @@ export default function DealerOpenInterestChart({
       .call(yAxis)
       .selectAll('text')
       .style('fill', axisColor)
-      .style('font-size', isMobile ? '21px' : '18px')
+      .style('font-size', labelFontSize)
       .style('font-weight', 'bold')
 
     container
@@ -1581,7 +1579,7 @@ export default function DealerOpenInterestChart({
       .attr('y', -60)
       .attr('text-anchor', 'middle')
       .style('fill', '#ffffff')
-      .style('font-size', isMobile ? '20px' : '16px')
+      .style('font-size', subLabelFontSize)
       .style('font-weight', '500')
       .text(viewMode === 'premium' ? 'Open Interest Premium ($)' : 'Open Interest (Contracts)')
 

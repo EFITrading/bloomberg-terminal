@@ -3,6 +3,7 @@
 import { ArrowUpDown, RefreshCw, Target, TrendingDown, TrendingUp } from 'lucide-react'
 
 import React, { useEffect, useState } from 'react'
+import { useScreenerMobile } from './useScreenerMobile'
 
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
@@ -380,18 +381,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
   const [customTicker, setCustomTicker] = useState('')
   const [lastUpdate, setLastUpdate] = useState('')
 
-  const [isMobile, setIsMobile] = useState(false)
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768)
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
-  const itemsPerPage = isMobile ? 10 : 20
+  const { itemsPerPage } = useScreenerMobile()
 
   const fetchGEXData = async () => {
     setLoading(true)
@@ -460,10 +450,10 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                           : ('Low' as const),
                     range: messageData.data.currentPrice
                       ? Math.abs(
-                          ((messageData.data.attractionLevel - messageData.data.currentPrice) /
-                            messageData.data.currentPrice) *
-                            100
-                        )
+                        ((messageData.data.attractionLevel - messageData.data.currentPrice) /
+                          messageData.data.currentPrice) *
+                        100
+                      )
                       : 0,
                     marketCap: messageData.data.marketCap,
                     gexImpactScore: messageData.data.gexImpactScore,
@@ -969,38 +959,38 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                 style={
                   isSelected
                     ? {
-                        background: 'linear-gradient(180deg, #1e1e2e 0%, #12121a 100%)',
-                        borderTop: '1px solid rgba(180,120,255,0.35)',
-                        borderBottom: '1px solid rgba(0,0,0,0.9)',
-                        borderLeft: '2px solid rgba(180,120,255,0.6)',
-                        borderRight: '1px solid rgba(180,120,255,0.15)',
-                        boxShadow:
-                          '0 4px 24px rgba(140,80,255,0.15), inset 0 1px 0 rgba(255,255,255,0.06)',
-                        borderRadius: 10,
-                      }
+                      background: 'linear-gradient(180deg, #1e1e2e 0%, #12121a 100%)',
+                      borderTop: '1px solid rgba(180,120,255,0.35)',
+                      borderBottom: '1px solid rgba(0,0,0,0.9)',
+                      borderLeft: '2px solid rgba(180,120,255,0.6)',
+                      borderRight: '1px solid rgba(180,120,255,0.15)',
+                      boxShadow:
+                        '0 4px 24px rgba(140,80,255,0.15), inset 0 1px 0 rgba(255,255,255,0.06)',
+                      borderRadius: 10,
+                    }
                     : isHovered
                       ? {
-                          background: 'linear-gradient(180deg, #1a1a22 0%, #0f0f16 100%)',
-                          borderTop: '1px solid rgba(255,255,255,0.10)',
-                          borderBottom: '1px solid rgba(0,0,0,0.8)',
-                          borderLeft: '1px solid rgba(255,255,255,0.05)',
-                          borderRight: '1px solid rgba(255,255,255,0.03)',
-                          boxShadow:
-                            '0 3px 14px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
-                          borderRadius: 10,
-                        }
+                        background: 'linear-gradient(180deg, #1a1a22 0%, #0f0f16 100%)',
+                        borderTop: '1px solid rgba(255,255,255,0.10)',
+                        borderBottom: '1px solid rgba(0,0,0,0.8)',
+                        borderLeft: '1px solid rgba(255,255,255,0.05)',
+                        borderRight: '1px solid rgba(255,255,255,0.03)',
+                        boxShadow:
+                          '0 3px 14px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
+                        borderRadius: 10,
+                      }
                       : {
-                          background: isEven
-                            ? 'linear-gradient(180deg, #141418 0%, #0c0c10 100%)'
-                            : 'linear-gradient(180deg, #111115 0%, #0a0a0e 100%)',
-                          borderTop: '1px solid rgba(255,255,255,0.055)',
-                          borderBottom: '1px solid rgba(0,0,0,0.7)',
-                          borderLeft: '1px solid rgba(255,255,255,0.03)',
-                          borderRight: '1px solid rgba(255,255,255,0.02)',
-                          boxShadow:
-                            '0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
-                          borderRadius: 8,
-                        }
+                        background: isEven
+                          ? 'linear-gradient(180deg, #141418 0%, #0c0c10 100%)'
+                          : 'linear-gradient(180deg, #111115 0%, #0a0a0e 100%)',
+                        borderTop: '1px solid rgba(255,255,255,0.055)',
+                        borderBottom: '1px solid rgba(0,0,0,0.7)',
+                        borderLeft: '1px solid rgba(255,255,255,0.03)',
+                        borderRight: '1px solid rgba(255,255,255,0.02)',
+                        boxShadow:
+                          '0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
+                        borderRadius: 8,
+                      }
                 }
               >
                 {/* Row: Symbol + Data — mirrors header layout exactly */}

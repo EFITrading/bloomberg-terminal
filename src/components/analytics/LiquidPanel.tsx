@@ -18,6 +18,7 @@ import { useDealerZonesStore } from '../../store/dealerZonesStore'
 import DealerAttractionOIDesktop from './DealerAttractionOIDesktop'
 import DealerAttractionOIMobile from './DealerAttractionOIMobile'
 import DealerClusterScreener from './DealerClusterScreener'
+import { useOIGEXTabMobile, useLiquidPanelMobile } from './useLiquidPanelMobile'
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
 import GEXTimelineScrubber from './GEXTimelineScrubber'
@@ -27,18 +28,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> 
   selectedTicker,
   activeTableCount = 0,
 }) => {
-  const [isMobile, setIsMobile] = useState<boolean>(false)
-
-  // Detect mobile on mount and resize
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768)
-    }
-
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
+  const { isMobile } = useOIGEXTabMobile()
 
   // Render mobile or desktop component based on screen size
   if (isMobile) {
@@ -1969,11 +1959,10 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     }
   }>({})
   // Desktop: Duo mode (both showGEX and showDealer true) | Mobile: Normal + Dealer (both true)
+  const { isMobilePanel } = useLiquidPanelMobile()
   const [showGEX, setShowGEX] = useState(true)
   const [showDealer, setShowDealer] = useState(true)
-  const [duoMode, setDuoMode] = useState(
-    typeof window !== 'undefined' && window.innerWidth >= 768 ? true : false
-  )
+  const [duoMode, setDuoMode] = useState(!isMobilePanel)
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX')
   const [showFlowGEX, setShowFlowGEX] = useState(false)
   const [showHistoricalGEX, setShowHistoricalGEX] = useState(true) // Historical GEX Timeline - always on
@@ -2030,13 +2019,6 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     SPY: { data: [], loading: false },
   })
   const [activeTab, setActiveTab] = useState<'ATTRACTION' | 'DEALER_CLUSTER'>('ATTRACTION')
-  const [isMobilePanel, setIsMobilePanel] = useState<boolean>(false)
-  useEffect(() => {
-    const checkMobile = () => setIsMobilePanel(typeof window !== 'undefined' && window.innerWidth < 768)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
 
   const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -6466,7 +6448,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
                     {/* GEX Timeline Scrubber - Show when showHistoricalGEX is true, ticker selected, and not in OI or ODTRIO mode */}
                     {!analysisSuiteMode &&
-                      !(typeof window !== 'undefined' && window.innerWidth < 768) &&
+                      !isMobilePanel &&
                       showHistoricalGEX &&
                       !showODTRIO &&
                       selectedTicker &&
@@ -6656,8 +6638,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                               const tableBorderColor = useBloombergTheme
                                 ? 'border-white/20'
                                 : 'border-gray-700'
-                              const isMobile =
-                                typeof window !== 'undefined' && window.innerWidth < 768
+                              const isMobile = isMobilePanel
                               const mobileStrikeWidth = isMobile ? 38 : 60
                               const mobileExpWidth = isMobile ? 48 : 90
 
@@ -6794,7 +6775,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                     className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`}
                                     style={{
                                       maxHeight:
-                                        typeof window !== 'undefined' && window.innerWidth < 768
+                                        isMobilePanel
                                           ? 'calc(103.5vh - 138px)'
                                           : 'calc(71.74vh - 259.02px)',
                                       overflowX: 'auto',
@@ -7684,8 +7665,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                         <div
                           className="flex overflow-x-auto"
                           style={{
-                            gap:
-                              typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px',
+                            gap: isMobilePanel ? '2px' : '12px',
                           }}
                         >
                           {/* OI/GEX Charts - Show when OI checkbox is active */}
@@ -7722,7 +7702,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             }
 
                             // Mobile detection - needed for getTableWidth function
-                            const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+                            const isMobile = isMobilePanel
                             let currentTableIndex = 0
                             const getTableWidth = () => {
                               // On mobile, enforce equal widths so tables don't collapse when empty
@@ -8494,7 +8474,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                             className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                             style={{
                               maxHeight:
-                                typeof window !== 'undefined' && window.innerWidth < 768
+                                isMobilePanel
                                   ? 'calc(86.0vh - 258.75px)'
                                   : 'calc(71.74vh - 259.02px)',
                               overflowX: 'auto',
@@ -8529,7 +8509,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                           ? 'bb-header text-xs md:text-sm text-gray-400'
                                           : 'text-xs md:text-sm font-bold text-white uppercase'
                                       }
-                                      style={typeof window !== 'undefined' && window.innerWidth < 768 ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
+                                      style={isMobilePanel ? { color: '#FF6600', fontSize: '0.675rem', whiteSpace: 'nowrap' } : undefined}
                                     >
                                       Strike
                                     </div>
@@ -8628,7 +8608,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
                                         >
                                           <div
                                             className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}
-                                            style={typeof window !== 'undefined' && window.innerWidth < 768 ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
+                                            style={isMobilePanel ? { whiteSpace: 'nowrap', fontSize: row.strike > 99 ? (row.strike % 1 === 0.5 ? '0.75rem' : '0.8rem') : undefined } : undefined}
                                           >
                                             {row.strike.toFixed(1)}
                                           </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useChainCalculatorMobile } from './useChainCalculatorMobile'
 
 import {
   calculateBlackScholesPrice as calculateBSPrice,
@@ -687,7 +688,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
     }
   }
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const { isMobile } = useChainCalculatorMobile()
 
   return (
     <div
@@ -1115,8 +1116,8 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                   <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
                                     <td
                                       className={`h-12 border border-gray-600 text-center font-black text-lg ${isATM
-                                          ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
-                                          : 'bg-black text-white'
+                                        ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
+                                        : 'bg-black text-white'
                                         }`}
                                     >
                                       ${strike} {isATM && '★'}

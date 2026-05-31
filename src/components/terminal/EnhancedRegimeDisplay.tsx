@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { RegimeAnalysis } from '@/contexts/MarketRegimeContext'
+import { useEnhancedRegimeDisplayMobile } from './useEnhancedRegimeDisplayMobile'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level cache for composite history — survives React remounts.
@@ -600,12 +601,7 @@ function EnhancedRegimeDisplay({
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [chartHover, setChartHover] = useState<number | null>(null) // kept for TS — unused after memo extraction
 
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  const { isMobile } = useEnhancedRegimeDisplayMobile()
 
   // Persist view choice
   const handleSetCompositeView = (v: 'gauge' | 'chart') => {

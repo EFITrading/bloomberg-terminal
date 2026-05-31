@@ -1119,10 +1119,10 @@ body {
     text-shadow: none !important;
 }
 
-.nav-center a[style*="color: rgb(255, 165, 0)"],
-.nav-center a[style*="color: rgb(255, 165, 0)"] span {
-    color: #FFA500 !important;
-    -webkit-text-fill-color: #FFA500 !important;
+.nav-center a[style*="color: rgb(255, 133, 0)"],
+.nav-center a[style*="color: rgb(255, 133, 0)"] span {
+    color: #FF8500 !important;
+    -webkit-text-fill-color: #FF8500 !important;
 }
 
 .nav-center::before {

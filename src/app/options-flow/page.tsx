@@ -21,11 +21,13 @@ const getFlowTradingDate = (): string => {
   const hour = nowPST.getHours()
   const minute = nowPST.getMinutes()
   const target = new Date(nowPST)
+  // Before market open (6:30 AM PST) → step back one day to previous session
   if (hour < 6 || (hour === 6 && minute < 30)) {
     target.setDate(target.getDate() - 1)
-    while (target.getDay() === 0 || target.getDay() === 6) {
-      target.setDate(target.getDate() - 1)
-    }
+  }
+  // Always skip weekends so Saturday/Sunday always resolve to Friday
+  while (target.getDay() === 0 || target.getDay() === 6) {
+    target.setDate(target.getDate() - 1)
   }
   const y = target.getFullYear()
   const m = String(target.getMonth() + 1).padStart(2, '0')
@@ -554,23 +556,51 @@ const tryLoadHistoricalFromSaved = async (
   }
 }
 
+// Returns true if US equity markets are currently open (6:30 AM – 1:00 PM PST, weekday)
+const isMarketCurrentlyOpen = (): boolean => {
+  const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const dow = nowPST.getDay()
+  const hour = nowPST.getHours()
+  const minute = nowPST.getMinutes()
+  const isWeekday = dow >= 1 && dow <= 5
+  const afterOpen = hour > 6 || (hour === 6 && minute >= 30)
+  const beforeClose = hour < 13 // 1:00 PM PST = 4:00 PM EST
+  return isWeekday && afterOpen && beforeClose
+}
+
 // Load today's saved flow filtered by a set of tickers (pass null to load all) — returns filtered trades or null
 const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<OptionsFlowData[] | null> => {
   try {
+    // Markets are open right now — data from any prior save is incomplete, always scan fresh
+    if (isMarketCurrentlyOpen()) return null
     const datesResp = await fetch('/api/flows/dates')
     if (!datesResp.ok) return null
     const dates: { date: string }[] = await datesResp.json()
     if (dates.length === 0) return null
-    const now = new Date()
-    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    // Use PST-aware trading date: before 6:30 AM PST rolls back to previous trading day
+    // so post-close saved data is reused until next market open
+    const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    console.log('[tryLoadFromSavedFiltered] localToday:', localToday, '| latestSaved:', latestDateDay)
-    if (latestDateDay !== localToday) return null
+    console.log('[tryLoadFromSavedFiltered] flowTradingDate:', flowTradingDate, '| latestSaved:', latestDateDay)
+    if (latestDateDay !== flowTradingDate) return null
     const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
     if (!flowResp.ok) return null
     const flowData = await flowResp.json()
     const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    // Verify the actual trade timestamps match the expected trading date.
+    // Old DB records were saved with wall-clock date — e.g. a 12:07 AM May 28 save contains
+    // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
+    const tradesMatchDate = allTrades.some((t) => {
+      if (!t.trade_timestamp) return false
+      const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return ds === flowTradingDate
+    })
+    if (!tradesMatchDate) {
+      console.log('[tryLoadFromSavedFiltered] trade timestamps do not match flowTradingDate', flowTradingDate, '— scanning fresh')
+      return null
+    }
     const filtered = tickerSet
       ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
       : allTrades
@@ -585,25 +615,40 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
 // Load today's saved flow for a single ticker — returns filtered trades or null
 const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | null> => {
   try {
+    // Markets are open right now — data from any prior save is incomplete, always scan fresh
+    if (isMarketCurrentlyOpen()) return null
     // Get stored dates so we use the actual saved date key (avoids UTC/local mismatch)
     const datesResp = await fetch('/api/flows/dates')
     if (!datesResp.ok) return null
     const dates: { date: string }[] = await datesResp.json()
     if (dates.length === 0) return null
 
-    // Compare latest saved date against today's local date
-    const now = new Date()
-    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    // Use PST-aware trading date: before 6:30 AM PST rolls back to previous trading day
+    // so post-close saved data is reused until next market open
+    const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date // ordered by createdAt desc
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    console.log('[tryLoadFromSaved] localToday:', localToday, '| latestSaved:', latestDateDay)
-    if (latestDateDay !== localToday) return null
+    console.log('[tryLoadFromSaved] flowTradingDate:', flowTradingDate, '| latestSaved:', latestDateDay)
+    if (latestDateDay !== flowTradingDate) return null
 
     // Fetch using the actual stored date key
     const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
     if (!flowResp.ok) return null
     const flowData = await flowResp.json()
     const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    // Verify the actual trade timestamps match the expected trading date.
+    // Old DB records were saved with wall-clock date — e.g. a 12:07 AM May 28 save contains
+    // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
+    const tradesMatchDate = allTrades.some((t) => {
+      if (!t.trade_timestamp) return false
+      const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return ds === flowTradingDate
+    })
+    if (!tradesMatchDate) {
+      console.log('[tryLoadFromSaved] trade timestamps do not match flowTradingDate', flowTradingDate, '— scanning fresh')
+      return null
+    }
     const filtered = allTrades.filter(
       (t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase()
     )

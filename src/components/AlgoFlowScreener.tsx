@@ -892,7 +892,6 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const TRADES_PER_PAGE = 20
 
   // Mobile column management
-  const [showMobileDetails, setShowMobileDetails] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   // Strike price filtering
