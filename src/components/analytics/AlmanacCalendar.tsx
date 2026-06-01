@@ -312,8 +312,6 @@ async function fetchEconomicEvents(year: number, month: number): Promise<Record<
     if (data.success && data.hasRealData) {
       return data.events
     } else {
-      // Fall back to estimates if no real data
-      console.log(`No FRED data for ${year}-${month + 1}, using estimates`)
       return getEstimatedReleaseDates(year, month)
     }
   } catch (error) {

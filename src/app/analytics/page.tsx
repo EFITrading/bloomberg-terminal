@@ -22,10 +22,6 @@ import './analytics-tabs.css'
 import './analytics.mobile.css'
 import { AnalyticsMobileNav } from './AnalyticsMobileNav'
 
-const StraddleTownScreener = dynamic(() => import('@/components/analytics/StraddleTownScreener'), {
-  ssr: false,
-})
-
 const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScanner'), {
   ssr: false,
 })
@@ -37,7 +33,7 @@ export default function Analytics() {
     'rrg': 'RRG', 'performance': 'Performance', 'iv-rrg': 'IV RRG',
     'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
-    'market-cycle': 'Market Cycle', 'straddle-town': 'Straddle Town',
+    'market-cycle': 'Market Cycle',
     'buy-sell-scanner': 'Buy/Sell Scan', 'dealer-cluster': 'Dealer Cluster',
   }
 
@@ -112,12 +108,6 @@ export default function Analytics() {
         return (
           <div key={id} style={panelStyle}>
             <MarketCycleIndicator />
-          </div>
-        )
-      case 'straddle-town':
-        return (
-          <div key={id} className="analytics-straddle-panel" style={{ ...panelStyle, height: 'calc(100vh - 127px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <StraddleTownScreener />
           </div>
         )
       case 'buy-sell-scanner':
@@ -383,35 +373,6 @@ export default function Analytics() {
           />
         </svg>
       ),
-      'straddle-town': (
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M12 3L4 20H20L12 3Z"
-            stroke="#CC44FF"
-            strokeWidth="1.5"
-            fill="none"
-            opacity="0.4"
-          />
-          <path d="M12 3L4 20H20L12 3Z" fill="rgba(180,0,255,0.12)" />
-          <circle cx="12" cy="12" r="3" fill="#CC44FF" opacity="0.85" />
-          <path
-            d="M8 20L12 14L16 20"
-            stroke="#CC44FF"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity="0.6"
-          />
-          <circle cx="6" cy="19" r="1.5" fill="#00FF88" opacity="0.8" />
-          <circle cx="18" cy="19" r="1.5" fill="#FF4060" opacity="0.8" />
-        </svg>
-      ),
       'buy-sell-scanner': (
         <svg
           width="24"
@@ -672,7 +633,6 @@ export default function Analytics() {
           <TabButton id="heatmap" label="Heatmap" />
           <TabButton id="screeners" label="Screeners" />
           <TabButton id="market-cycle" label="Market Cycle" />
-          <TabButton id="straddle-town" label="Straddle Town" />
           <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
           <TabButton id="dealer-cluster" label="Dealer Cluster" />
         </div>

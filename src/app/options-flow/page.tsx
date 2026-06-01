@@ -925,7 +925,7 @@ export default function OptionsFlowPage() {
         }
 
         const BATCH = 10
-        const MAX_SSE = 70 // ceil(700/10) — covers any realistic symbol list
+        const MAX_SSE = 75 // 75 × 10 = 750 — covers the full symbol list including ETFs + MAG7
         let totalSymbols = 0
         let scannedCount = 0
 
@@ -939,11 +939,13 @@ export default function OptionsFlowPage() {
             let summary: any = null
             let market_info: any = null
 
-            const es = new EventSource(
-              `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${offset}&limit=${BATCH}`
-            )
+            // ALL_TICKERS includes ETFs and MAG7 — no separate openCommaSSE needed
+            const sseUrl = `/api/stream-options-flow?ticker=ALL_TICKERS&offset=${offset}&limit=${BATCH}`
+            console.log(`[ALL-CHUNK offset=${offset}] Opening SSE:`, sseUrl)
+            const es = new EventSource(sseUrl)
             const timeout = setTimeout(
               () => {
+                console.warn(`[ALL-CHUNK offset=${offset}] TIMED OUT after 5 min — resolving with ${trades.length} trades`)
                 es.close()
                 resolve({ trades, total, summary, market_info })
               },
@@ -958,6 +960,7 @@ export default function OptionsFlowPage() {
                     const incoming: OptionsFlowData[] = d.trades || []
                     trades.push(...incoming)
                     scannedCount++
+                    console.log(`[ALL-CHUNK offset=${offset}] ticker_complete: ${d.ticker} → ${incoming.length} trades (chunk total: ${trades.length})`)
                     break
                   }
                   case 'complete':
@@ -965,22 +968,30 @@ export default function OptionsFlowPage() {
                     total = d.totalSymbols || 0
                     summary = d.summary || null
                     market_info = d.market_info || null
+                    console.log(`[ALL-CHUNK offset=${offset}] COMPLETE — ${trades.length} trades, totalSymbols=${total}`)
                     es.close()
                     resolve({ trades, total, summary, market_info })
                     break
                   case 'error':
+                    console.error(`[ALL-CHUNK offset=${offset}] ERROR event:`, d.error || d)
+                    clearTimeout(timeout)
+                    es.close()
+                    resolve({ trades, total, summary, market_info })
+                    break
                   case 'close':
+                    console.log(`[ALL-CHUNK offset=${offset}] CLOSE event — ${trades.length} trades`)
                     clearTimeout(timeout)
                     es.close()
                     resolve({ trades, total, summary, market_info })
                     break
                 }
-              } catch {
-                /* ignore parse errors */
+              } catch (parseErr) {
+                console.warn(`[ALL-CHUNK offset=${offset}] parse error:`, parseErr)
               }
             }
 
-            es.onerror = () => {
+            es.onerror = (err) => {
+              console.error(`[ALL-CHUNK offset=${offset}] SSE onerror — resolved with ${trades.length} trades`, err)
               clearTimeout(timeout)
               es.close()
               resolve({ trades, total, summary, market_info })
@@ -990,31 +1001,10 @@ export default function OptionsFlowPage() {
         try {
           setStreamingStatus(`[ALL Scan] Scanning all tickers simultaneously...`)
 
-          // Helper: open one SSE for a comma-separated ticker list, resolves when complete
-          const openCommaSSE = (tickers: string): Promise<{ trades: OptionsFlowData[] }> =>
-            new Promise((resolve) => {
-              const trades: OptionsFlowData[] = []
-              const es = new EventSource(`/api/stream-options-flow?ticker=${tickers}`)
-              const t = setTimeout(() => { es.close(); resolve({ trades }) }, 5 * 60 * 1000)
-              es.onmessage = (event) => {
-                try {
-                  const d = JSON.parse(event.data)
-                  if (d.type === 'ticker_complete') trades.push(...(d.trades || []))
-                  else if (d.type === 'complete' || d.type === 'close' || d.type === 'error') {
-                    clearTimeout(t); es.close(); resolve({ trades })
-                  }
-                } catch { /* ignore */ }
-              }
-              es.onerror = () => { clearTimeout(t); es.close(); resolve({ trades }) }
-            })
-
-          // Fire all 70 ALL_EXCLUDE_ETF_MAG7 SSEs + MAG7 + ETF in parallel
+          // Fire all chunk SSEs in parallel — ETF + MAG7 are now included in the ALL_TICKERS pool
           const offsets = Array.from({ length: MAX_SSE }, (_, i) => i * BATCH)
-          const [results, mag7Result, etfResult] = await Promise.all([
-            Promise.all(offsets.map((off) => openSSE(off))),
-            openCommaSSE('AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG'),
-            openCommaSSE('SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'),
-          ])
+          console.log(`[ALL SCAN] Firing ${offsets.length} chunk SSEs (includes ETF + MAG7)`)
+          const results = await Promise.all(offsets.map((off) => openSSE(off)))
 
           // Collect everything
           const allTrades: OptionsFlowData[] = []
@@ -1024,7 +1014,8 @@ export default function OptionsFlowPage() {
             if (r.summary) setSummary(r.summary)
             if (r.market_info) setMarketInfo(r.market_info)
           }
-          allTrades.push(...mag7Result.trades, ...etfResult.trades)
+          console.log(`[ALL SCAN] All SSEs resolved — TOTAL: ${allTrades.length} trades`)
+          console.log('[ALL SCAN] Tickers found:', [...new Set(allTrades.map((t) => t.underlying_ticker))].sort().join(', '))
 
           setLastUpdate(new Date().toLocaleString())
 
@@ -1034,6 +1025,8 @@ export default function OptionsFlowPage() {
             const enriched = await enrichTradeDataCombined(allTrades)
             setStreamingStatus('Computing live OI...')
             setData(applyLiveOI(enriched))
+          } else {
+            console.warn('[ALL SCAN] 0 total trades — nothing to enrich')
           }
 
           setIsStreamComplete(true)

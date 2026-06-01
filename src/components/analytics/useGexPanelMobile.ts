@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 
 /**
- * Mobile detection hook for LiquidPanel — OIGEXTab sub-component.
- * Extracted from LiquidPanel.tsx.
+ * Mobile detection hook for GexPanel — OIGEXTab sub-component.
+ * Extracted from GexPanel.tsx.
  */
 export function useOIGEXTabMobile() {
     const [isMobile, setIsMobile] = useState<boolean>(false)
@@ -27,10 +27,10 @@ export function useOIGEXTabMobile() {
 }
 
 /**
- * Mobile detection hook for the main LiquidPanel component.
+ * Mobile detection hook for the main GexPanel component.
  * Treats both portrait phone (<768px) and landscape phone (>768px, w<=1024, height<=500) as mobile.
  */
-export function useLiquidPanelMobile() {
+export function useGexPanelMobile() {
     const [isMobilePanel, setIsMobilePanel] = useState<boolean>(() => {
         if (typeof window === 'undefined') return false
         const w = window.innerWidth; const h = window.innerHeight

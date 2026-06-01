@@ -1370,131 +1370,59 @@ function ChainPanel({
         <>
           {/* Header — desktop only on mobile we strip this to save space */}
 
-          {!isMobile && <div
-            className="relative px-4 py-3 overflow-hidden"
-            style={{
-              background: 'linear-gradient(180deg, #111111 0%, #0d0d0d 100%)',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-              boxShadow: '0 2px 16px rgba(0,0,0,0.8)',
-            }}
-          >
-            {/* Top accent line */}
+          {!isMobile && <div className="flex gap-0">
             <div
-              className="absolute top-0 left-0 right-0 h-px pointer-events-none"
+              className="flex-1 font-black uppercase tracking-[0.15em] relative"
               style={{
-                background:
-                  'linear-gradient(90deg, transparent 0%, #f59e0b 30%, #ffffff 55%, #f59e0b 80%, transparent 100%)',
-                opacity: 0.35,
+                padding: '14px 16px',
+                fontSize: '14px',
+                color: '#FF6600',
+                border: '2px solid #FF6600',
+                background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)',
+                boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)',
               }}
-            />
-
+            >
+              <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+              <span className="relative flex items-center gap-3" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
+                OPTIONS CHAIN
+                <span className="px-2 py-0.5 rounded text-xs font-black tracking-widest" style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.5)', color: '#f59e0b' }}>{symbol}</span>
+                <span className="flex items-center gap-1.5 ml-auto">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: '#22c55e' }} />
+                    <span className="relative inline-flex rounded-full h-2 w-2" style={{ backgroundColor: '#22c55e' }} />
+                  </span>
+                  <span className="text-[10px] tracking-[0.35em]" style={{ color: '#22c55e' }}>LIVE</span>
+                </span>
+              </span>
+            </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="absolute top-3 right-3 flex items-center justify-center w-6 h-6 rounded transition-all duration-150 z-50 active:scale-95 hover:opacity-90"
+                className="flex items-center justify-center font-bold transition-all"
                 style={{
-                  background:
-                    'linear-gradient(145deg, rgba(127,29,29,0.85) 0%, rgba(69,10,10,0.95) 100%)',
-                  border: '1px solid rgba(239,68,68,0.25)',
-                  boxShadow: '0 2px 8px rgba(239,68,68,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
+                  width: '44px',
+                  flexShrink: 0,
+                  alignSelf: 'stretch',
+                  fontSize: '16px',
+                  color: '#FF6600',
+                  border: '2px solid rgba(255,102,0,0.5)',
+                  background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#FF6600'
+                  e.currentTarget.style.color = '#000'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'
+                  e.currentTarget.style.color = '#FF6600'
                 }}
                 aria-label="Close panel"
               >
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="rgba(248,113,113,0.9)"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
+                &#x2715;
               </button>
             )}
-
-            <div className="flex items-center gap-3 pr-8">
-              {/* Icon badge — desktop only */}
-              {!isMobile && (
-                <div
-                  className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                  style={{
-                    background: 'linear-gradient(145deg, #1a1a1a 0%, #111 100%)',
-                    border: '1px solid rgba(245,158,11,0.4)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.6)',
-                  }}
-                >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="1.5"
-                  >
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <line x1="3" y1="9" x2="21" y2="9" />
-                    <line x1="9" y1="21" x2="9" y2="9" />
-                  </svg>
-                </div>
-              )}
-
-              <div className="flex flex-col leading-none">
-                {!isMobile && (
-                  <span
-                    className="text-[9px] font-bold tracking-[0.4em] uppercase mb-0.5"
-                    style={{ color: 'rgba(245,158,11,0.7)' }}
-                  >
-                    Derivatives
-                  </span>
-                )}
-
-                {/* Use div not h1 — globals.css sets h1 { font-size: 72px } */}
-                <div className="font-black" style={{ fontSize: isMobile ? '14px' : '20px', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
-                  <span className="text-white">Options </span>
-                  <span style={{ color: '#f59e0b' }}>Chain</span>
-                </div>
-              </div>
-
-              {/* Ticker badge */}
-              <div
-                className="flex items-center gap-1 px-2.5 py-1 rounded ml-1"
-                style={{
-                  background: 'rgba(245,158,11,0.12)',
-                  border: '1px solid rgba(245,158,11,0.5)',
-                }}
-              >
-                <span className="text-sm font-black tracking-widest" style={{ color: '#f59e0b' }}>
-                  {symbol}
-                </span>
-              </div>
-
-              {/* Live indicator */}
-              <div className="flex items-center gap-1.5 ml-auto">
-                <span className="relative flex h-2 w-2">
-                  <span
-                    className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                    style={{ backgroundColor: '#22c55e' }}
-                  />
-
-                  <span
-                    className="relative inline-flex rounded-full h-2 w-2"
-                    style={{ backgroundColor: '#22c55e' }}
-                  />
-                </span>
-
-                <span
-                  className="text-[10px] font-bold tracking-[0.35em] uppercase hidden md:inline"
-                  style={{ color: '#22c55e' }}
-                >
-                  LIVE
-                </span>
-              </div>
-            </div>
           </div>}
 
           {/* Enhanced Header */}

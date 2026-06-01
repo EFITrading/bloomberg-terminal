@@ -643,11 +643,10 @@ function fmtN(n: number): string {
   return `$${n.toFixed(0)}`
 }
 function fmtDate(d: string): string {
-  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
+  const dt = new Date(d + 'T00:00:00Z')
+  const mon = dt.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+  const day = dt.getUTCDate()
+  return `${mon} ${day}`
 }
 function fmtExpiry(d: string): string {
   return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {
@@ -1402,24 +1401,25 @@ function StraddleChart({
     }
     ctx.restore()
 
-    // X-axis labels
-    const xIdxs = [
-      0,
-      Math.floor(vc * 0.25),
-      Math.floor(vc * 0.5),
-      Math.floor(vc * 0.75),
-      vc - 1,
-    ].filter((v, i, a) => a.indexOf(v) === i && v < vc)
+    // X-axis labels — first, middle, last
+    const xIdxs = [0, Math.floor(vc * 0.5), vc - 1]
     ctx.fillStyle = '#ffffff'
     ctx.font = '700 24px "JetBrains Mono",monospace'
-    ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    for (const i of xIdxs) {
+    for (let ii = 0; ii < xIdxs.length; ii++) {
+      const i = xIdxs[ii]
       const lbl = fmtDate(vis[i].date)
-      const lw = ctx.measureText(lbl).width
       const rawX = cxFn(i)
-      const clampedX = Math.max(58 + lw / 2, Math.min(width - PAD.right - lw / 2 - 2, rawX))
-      ctx.fillText(lbl, clampedX, height - PAD.bottom + 6)
+      if (ii === 0) {
+        ctx.textAlign = 'left'
+        ctx.fillText(lbl, PAD.left, height - PAD.bottom + 6)
+      } else if (ii === xIdxs.length - 1) {
+        ctx.textAlign = 'right'
+        ctx.fillText(lbl, width - PAD.right, height - PAD.bottom + 6)
+      } else {
+        ctx.textAlign = 'center'
+        ctx.fillText(lbl, rawX, height - PAD.bottom + 6)
+      }
     }
 
     // Crosshair
@@ -2266,7 +2266,7 @@ function ResultsTable({
 
 // ── Signal Card ───────────────────────────────────────────────────────────────
 // ── Main Component ─────────────────────────────────────────────────────────────
-export default function StraddleTownScreener() {
+export default function StraddleTownScreener({ autoRun = false }: { autoRun?: boolean }) {
   const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
   const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
   const abortRef = useRef<AbortController | null>(null)
@@ -2720,6 +2720,16 @@ export default function StraddleTownScreener() {
       setPhase('error')
     }
   }, [API_KEY, addResult])
+
+  // Auto-run the scan on mount when the sidebar has pre-fetching enabled
+  const autoRunFiredRef = useRef(false)
+  useEffect(() => {
+    if (autoRun && !autoRunFiredRef.current) {
+      autoRunFiredRef.current = true
+      run()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── On-demand POI scan for Mag 8 cards ────────────────────────────────────
   const scanPoiForSymbol = useCallback(async (r: ScanResult) => {

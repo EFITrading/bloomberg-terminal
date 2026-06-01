@@ -261,7 +261,7 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     let tickersToScan: string[]
 
-    if (ticker && (ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7')) {
+    if (ticker && (ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7' || ticker === 'ALL_TICKERS')) {
       tickersToScan = this.getTop1000Symbols()
       console.log(`[SCAN] SCAN: ${tickersToScan.length} symbols across all CPU cores`)
     } else if (ticker && ticker.includes(',')) {
@@ -2547,52 +2547,9 @@ export class OptionsFlowService {
   }
 
   public getTop1000Symbols(): string[] {
-    // ETFs to exclude
-    const ETFS = [
-      'SPY',
-      'QQQ',
-      'IWM',
-      'EFA',
-      'EEM',
-      'VTI',
-      'IEFA',
-      'AGG',
-      'LQD',
-      'HYG',
-      'XLF',
-      'XLE',
-      'XLK',
-      'XLV',
-      'XLI',
-      'XLU',
-      'XLP',
-      'XLY',
-      'XLB',
-      'XLRE',
-      'XLC',
-      'GLD',
-      'SLV',
-      'TLT',
-      'IEF',
-      'SHY',
-      'VTEB',
-      'VXUS',
-      'BND',
-      'BNDX',
-      'DIA',
-      'SMH',
-      'VXX',
-      'UVXY',
-    ]
-
-    // MAG7 to exclude
-    const MAG7 = ['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG']
-
-    // Combine exclusion list
-    const EXCLUDE = new Set([...ETFS, ...MAG7])
-
-    // Filter out ETFs and MAG7 from TOP_1800_SYMBOLS
-    return TOP_1800_SYMBOLS.filter((ticker) => !EXCLUDE.has(ticker))
+    // Return the full symbol list — ETFs and MAG7 are included so the ALL scan
+    // chunk SSEs cover them naturally without a separate code path.
+    return TOP_1800_SYMBOLS
   }
 
   // UTILITY: Chunk array into batches for batch processing

@@ -21,7 +21,7 @@ const DealerGEXChart = dynamic(() => import('@/components/analytics/DealerGEXCha
 const SeasonalityChart = dynamic(() => import('@/components/analytics/SeasonalityChart'), {
   ssr: false,
 })
-const LiquidPanel = dynamic(() => import('@/components/analytics/LiquidPanel'), { ssr: false })
+const GexPanel = dynamic(() => import('@/components/analytics/GexPanel'), { ssr: false })
 const ConsolidationHistoryScreener = dynamic(
   () => import('@/components/analytics/ConsolidationHistoryScreener'),
   { ssr: false }
@@ -154,47 +154,6 @@ export default function AnalysisSuitePage() {
     otmPremiumHistory: useRef<HTMLDivElement>(null),
   }
 
-  // ─── EFI Chart API call debugger ─────────────────────────────────────────
-  useEffect(() => {
-    const orig = window.fetch
-    window.fetch = async (input, init) => {
-      const url =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : (input as Request).url
-      const method = (
-        init?.method ||
-        (input instanceof Request ? input.method : undefined) ||
-        'GET'
-      ).toUpperCase()
-      // Skip internal Next.js / webpack noise
-      const skip =
-        url.includes('/_next/') ||
-        url.includes('/__next') ||
-        url.includes('webpack') ||
-        url.includes('hot-update')
-      if (skip) return orig(input, init)
-      const t0 = performance.now()
-      console.log(`[EFI API] ➜ ${method} ${url}`)
-      try {
-        const res = await orig(input, init)
-        console.log(
-          `[EFI API] ✓ ${method} ${url}  →  ${res.status} (${(performance.now() - t0).toFixed(0)}ms)`
-        )
-        return res
-      } catch (err) {
-        console.error(
-          `[EFI API] ✗ ${method} ${url}  →  ${(err as Error).message} (${(performance.now() - t0).toFixed(0)}ms)`
-        )
-        throw err
-      }
-    }
-    return () => {
-      window.fetch = orig
-    }
-  }, [])
   // ──────────────────────────────────────────────────────────────────────────
 
   const startDrag = (e: React.MouseEvent, id: string) => {
@@ -3164,7 +3123,7 @@ export default function AnalysisSuitePage() {
             }}
           >
             <div style={{ zoom: 0.61 }}>
-              <LiquidPanel
+              <GexPanel
                 analysisSuiteMode={true}
                 externalTicker={currentTicker || undefined}
                 onGaugeMetrics={(data) => {

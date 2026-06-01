@@ -197,7 +197,7 @@ export async function GET(request: NextRequest) {
             : []
 
           // Chunked ALL scan: slice the symbol list to stay within Vercel's 300s limit
-          if (tickersToScan.length === 1 && tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7') {
+          if (tickersToScan.length === 1 && (tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7' || tickersToScan[0] === 'ALL_TICKERS')) {
             const allSymbols = optionsFlowService.getTop1000Symbols()
             totalSymbolsForChunk = allSymbols.length
             tickersToScan = allSymbols.slice(chunkOffset, chunkOffset + chunkLimit)

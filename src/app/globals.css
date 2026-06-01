@@ -2973,6 +2973,30 @@ nav,
     overflow: hidden !important;
 }
 
+/* Blind Me Theme */
+body.theme-blind-me .nav-center {
+    background: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.2) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+body.theme-blind-me .nav-center a,
+body.theme-blind-me .nav-center a span {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+
+body.theme-blind-me .nav-center a[style*="color: rgb(255, 133, 0)"],
+body.theme-blind-me .nav-center a[style*="color: rgb(255, 133, 0)"] span {
+    color: #FF8500 !important;
+    -webkit-text-fill-color: #FF8500 !important;
+}
+
+body.theme-blind-me .ticker-scroller-container {
+    background: #f5f5f5 !important;
+    border-bottom-color: rgba(0, 0, 0, 0.1) !important;
+}
+
 /* Hide ticker scroller on mobile devices, show on desktop only */
 @media (max-width: 1024px) {
     .ticker-scroller-container {

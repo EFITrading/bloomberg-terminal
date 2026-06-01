@@ -689,7 +689,11 @@ export const TOP_1800_SYMBOLS = [
   // ========== SECTOR ETFs ==========
   'SPY',
   'QQQ',
+  'DIA',
   'IWM',
+  'SMH',
+  'VXX',
+  'UVXY',
   'EFA',
   'EEM',
   'VTI',

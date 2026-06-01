@@ -17,7 +17,7 @@ const hmAccent: Record<string, string> = {
 
 const hmItems: Array<{ id: string; label: string; accent: string; icon: React.ReactNode }> = [
     {
-        id: 'liquid', label: 'LIQUID', accent: 'orange', icon: (
+        id: 'gex', label: 'GEX', accent: 'orange', icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="4" width="18" height="4" rx="1" strokeWidth="1.8" />
                 <rect x="3" y="10" width="14" height="4" rx="1" strokeWidth="1.8" />
@@ -99,6 +99,16 @@ const hmItems: Array<{ id: string; label: string; accent: string; icon: React.Re
                 <path d="M4 12h16" strokeWidth="1.5" strokeDasharray="2 2" />
                 <path d="M4 17c4 0 4-4 8-4s4 4 8 4" strokeWidth="1.8" />
                 <path d="M18 5l3 2-3 2M18 15l3 2-3 2" strokeWidth="1.8" />
+            </svg>
+        )
+    },
+    {
+        id: 'straddle', label: 'STRADDLE', accent: 'purple', icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v18" strokeWidth="1.8" />
+                <path d="M7 8l5-5 5 5" strokeWidth="1.8" />
+                <path d="M7 16l5 5 5-5" strokeWidth="1.8" />
+                <path d="M4 12h4M16 12h4" strokeWidth="1.4" opacity="0.6" />
             </svg>
         )
     },

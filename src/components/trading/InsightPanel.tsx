@@ -73,11 +73,11 @@ const nowTs = () => new Date().toISOString()
 const fmtTs = (iso: string) =>
   iso
     ? new Date(iso).toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
     : ''
 
 // ── Design tokens — multi-layer premium palette ──────────────────────────────
@@ -400,9 +400,9 @@ function RichBodyEditor({
     const init = html.includes('<')
       ? html
       : html
-          .split('\n')
-          .map((l) => `<p>${l || '<br>'}</p>`)
-          .join('')
+        .split('\n')
+        .map((l) => `<p>${l || '<br>'}</p>`)
+        .join('')
     editorRef.current.innerHTML = init
     histRef.current = [init]
     histIdxRef.current = 0
@@ -919,7 +919,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
           if (mid > 0) setLiveOptPrice(mid)
         }
       })
-      .catch(() => {})
+      .catch(() => { })
     // Fetch live stock price (previous close snapshot)
     fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
@@ -930,7 +930,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
         const price = data?.ticker?.day?.c || data?.ticker?.prevDay?.c
         if (price && price > 0) setLiveStockPrice(price)
       })
-      .catch(() => {})
+      .catch(() => { })
     // Fetch T1/T2/Magnet/Pivot
     fetchFlowTargets(flow).then((t) => {
       setTargets(t)
@@ -2653,7 +2653,7 @@ function FlowEditRow({
           if (mid > 0) setLiveOptPrice(mid)
         }
       })
-      .catch(() => {})
+      .catch(() => { })
     fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
       { signal: AbortSignal.timeout(5000) }
@@ -2663,7 +2663,7 @@ function FlowEditRow({
         const price = data?.ticker?.day?.c || data?.ticker?.prevDay?.c
         if (price && price > 0) setLiveStockPrice(price)
       })
-      .catch(() => {})
+      .catch(() => { })
     fetchFlowTargets(flow).then((t) => {
       setTargets(t)
       setTargetsLoading(false)
@@ -3575,22 +3575,22 @@ function MetricsBlockEdit({
       items:
         m === 'zones'
           ? [
-              { label: 'BULLISH', value: '', delta: 'bull' },
-              { label: 'CHOP', value: '', delta: 'chop' },
-              { label: 'BEARISH', value: '', delta: 'bear' },
-            ]
+            { label: 'BULLISH', value: '', delta: 'bull' },
+            { label: 'CHOP', value: '', delta: 'chop' },
+            { label: 'BEARISH', value: '', delta: 'bear' },
+          ]
           : m === 'directional'
             ? [
-                { label: 'BULLISH', value: '', delta: '' },
-                { label: 'TARGET', value: '', delta: '' },
-                { label: 'STOP', value: '', delta: '' },
-              ]
+              { label: 'BULLISH', value: '', delta: '' },
+              { label: 'TARGET', value: '', delta: '' },
+              { label: 'STOP', value: '', delta: '' },
+            ]
             : [
-                { label: 'CALL', value: '', delta: '' },
-                { label: 'CALL_T', value: '', delta: '' },
-                { label: 'PUT', value: '', delta: '' },
-                { label: 'PUT_T', value: '', delta: '' },
-              ],
+              { label: 'CALL', value: '', delta: '' },
+              { label: 'CALL_T', value: '', delta: '' },
+              { label: 'PUT', value: '', delta: '' },
+              { label: 'PUT_T', value: '', delta: '' },
+            ],
     })
 
   const modeBtn = (m: string, label: string) => (
@@ -3968,7 +3968,7 @@ function BriefSection({
     const i = arr.findIndex((b) => b.id === id)
     const j = i + dir
     if (j < 0 || j >= arr.length) return
-    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      ;[arr[i], arr[j]] = [arr[j], arr[i]]
     save({ blocks: arr })
   }
 
@@ -4097,8 +4097,8 @@ function BriefSection({
                   {(block.type === 'intro' ||
                     block.type === 'conclusion' ||
                     block.type === 'body') && (
-                    <RichBodyEditor block={block} updateBlock={updateBlock} />
-                  )}
+                      <RichBodyEditor block={block} updateBlock={updateBlock} />
+                    )}
                   {block.type === 'flow' && (
                     <FlowBlockEdit block={block} updateBlock={updateBlock} />
                   )}
@@ -4164,23 +4164,24 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<SavedReport[]>([])
   const [savedToast, setSavedToast] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) setData(JSON.parse(saved))
-    } catch {}
+    } catch { }
     try {
       const hist = localStorage.getItem(HISTORY_KEY)
       if (hist) setHistory(JSON.parse(hist))
-    } catch {}
+    } catch { }
   }, [])
 
   const persist = (next: InsightData) => {
     setData(next)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    } catch {}
+    } catch { }
   }
 
   const saveReport = () => {
@@ -4190,7 +4191,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
       const next = [report, ...prev].slice(0, 50)
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
-      } catch {}
+      } catch { }
       return next
     })
     setSavedToast(true)
@@ -4207,7 +4208,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
     setHistory(next)
     try {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
-    } catch {}
+    } catch { }
   }
 
   return (
@@ -4324,64 +4325,93 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={() => setHistoryOpen((h) => !h)}
-            style={{
-              background: historyOpen ? 'rgba(34,211,238,0.1)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${historyOpen ? 'rgba(34,211,238,0.45)' : 'rgba(255,255,255,0.18)'}`,
-              color: historyOpen ? '#22D3EE' : '#9AAAB8',
-              padding: '8px 16px',
-              fontSize: '15px',
-              fontWeight: '700',
-              letterSpacing: '2px',
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-              borderRadius: '4px',
-            }}
-          >
-            ⏱ HISTORICAL
-          </button>
-          <button
-            onClick={saveReport}
-            style={{
-              background: savedToast ? 'rgba(52,211,153,0.25)' : 'rgba(52,211,153,0.07)',
-              border: `1px solid ${savedToast ? '#34D399' : 'rgba(52,211,153,0.4)'}`,
-              color: '#34D399',
-              padding: '8px 16px',
-              fontSize: '15px',
-              fontWeight: '700',
-              letterSpacing: '2px',
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-              borderRadius: '4px',
-              transition: 'all 0.2s',
-            }}
-          >
-            {savedToast ? '✅ SAVED!' : '✦ SAVE REPORT'}
-          </button>
-          <button
-            onClick={() => setEditMode((e) => !e)}
-            style={{
-              background: editMode
-                ? 'linear-gradient(135deg, #E8B84B 0%, #C49A2E 100%)'
-                : 'rgba(212,168,67,0.07)',
-              border: `1px solid ${editMode ? 'rgba(255,200,80,0.55)' : 'rgba(212,168,67,0.25)'}`,
-              color: editMode ? '#000' : GS.gold,
-              padding: '8px 20px',
-              fontSize: '17px',
-              fontWeight: '900',
-              letterSpacing: '2.5px',
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-              borderRadius: '4px',
-              boxShadow: editMode
-                ? '0 0 18px rgba(212,168,67,0.35), inset 0 1px 0 rgba(255,255,255,0.2)'
-                : 'none',
-              transition: 'all 0.2s',
-            }}
-          >
-            {editMode ? '● EDITING' : 'EDIT MODE'}
-          </button>
+          {/* Single OPTIONS dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setOptionsOpen((o) => !o)}
+              style={{
+                background: optionsOpen ? 'rgba(255,100,0,0.15)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${optionsOpen ? 'rgba(255,100,0,0.6)' : 'rgba(255,255,255,0.18)'}`,
+                color: '#FF6400',
+                padding: '7px',
+                cursor: 'pointer',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s',
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="#FF6400">
+                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+              </svg>
+            </button>
+            {optionsOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  background: '#0f0f0f',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  zIndex: 99999,
+                  minWidth: '180px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                }}
+              >
+                <button
+                  onClick={() => { setHistoryOpen((h) => !h); setOptionsOpen(false) }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                    background: 'transparent',
+                    border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    color: '#FFFFFF',
+                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
+                    textAlign: 'left', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  ⏱ HISTORICAL
+                </button>
+                <button
+                  onClick={() => { saveReport(); setOptionsOpen(false) }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                    background: 'transparent',
+                    border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    color: '#22C55E',
+                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
+                    textAlign: 'left', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.08)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {savedToast ? '✅ SAVED!' : '✦ SAVE REPORT'}
+                </button>
+                <button
+                  onClick={() => { setEditMode((e) => !e); setOptionsOpen(false) }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#06B6D4',
+                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
+                    textAlign: 'left', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.08)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {editMode ? '● EDITING' : '✎ EDIT MODE'}
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={onClose}
             style={{

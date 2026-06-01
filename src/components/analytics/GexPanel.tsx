@@ -18,7 +18,7 @@ import { useDealerZonesStore } from '../../store/dealerZonesStore'
 import DealerAttractionOIDesktop from './DealerAttractionOIDesktop'
 import DealerAttractionOIMobile from './DealerAttractionOIMobile'
 import DealerClusterScreener from './DealerClusterScreener'
-import { useOIGEXTabMobile, useLiquidPanelMobile } from './useLiquidPanelMobile'
+import { useOIGEXTabMobile, useGexPanelMobile } from './useGexPanelMobile'
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
 import GEXTimelineScrubber from './GEXTimelineScrubber'
@@ -1826,7 +1826,7 @@ const calculateVanna = (
   return vanna
 }
 
-interface LiquidPanelProps {
+interface GexPanelProps {
   onClose?: () => void
   analysisSuiteMode?: boolean
   externalTicker?: string
@@ -1836,7 +1836,7 @@ interface LiquidPanelProps {
 const LIVE_QUOTES = TRADING_QUOTES
 const MARKET_QUOTES = TRADING_QUOTES
 
-const LiquidPanel: React.FC<LiquidPanelProps> = ({
+const GexPanel: React.FC<GexPanelProps> = ({
   onClose,
   analysisSuiteMode = false,
   externalTicker,
@@ -1959,7 +1959,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
     }
   }>({})
   // Desktop: Duo mode (both showGEX and showDealer true) | Mobile: Normal + Dealer (both true)
-  const { isMobilePanel } = useLiquidPanelMobile()
+  const { isMobilePanel } = useGexPanelMobile()
   const [showGEX, setShowGEX] = useState(true)
   const [showDealer, setShowDealer] = useState(true)
   const [duoMode, setDuoMode] = useState(!isMobilePanel)
@@ -2037,7 +2037,7 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
 
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
-    const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement
+    const sidebarPanel = document.querySelector('[data-sidebar-panel="gex"]') as HTMLElement
     if (sidebarPanel) {
       // Count total items: OI chart (if enabled) + tables
       const oiCount = showOI ? 1 : 0
@@ -8711,4 +8711,4 @@ const LiquidPanel: React.FC<LiquidPanelProps> = ({
   )
 }
 
-export default LiquidPanel
+export default GexPanel

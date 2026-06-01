@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { createPortal } from 'react-dom'
 import { flushSync } from 'react-dom'
@@ -13,6 +13,7 @@ import {
   TbArrowsVertical,
   TbBell,
   TbBellOff,
+  TbClipboardList,
   TbBellRinging,
   TbBoxMultiple,
   TbBrush,
@@ -85,8 +86,9 @@ import RSScreener from '../RSScreener'
 import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
-import LiquidPanel from '../analytics/LiquidPanel'
+import GexPanel from '../analytics/GexPanel'
 import RRGAnalytics from '../analytics/RRGAnalytics'
+import StraddleTownScreener from '../analytics/StraddleTownScreener'
 import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
 import GuideChatbot from '../chatbot/GuideChatbot'
@@ -3798,7 +3800,7 @@ export function TradePopupChart({
         ctx.fillText(chDateStr, ch.x, H - PAD_B + 9)
       }
     }
-  }, [candles, fetching, timeframe, symbol, config]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, fetching, timeframe, symbol]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas DPR setup + ResizeObserver
   React.useEffect(() => {
@@ -4960,42 +4962,48 @@ const FlowPanel = React.memo(
 
     return (
       <div className="h-full flex flex-col bg-black text-white">
-        {/* Bloomberg-style Header */}
-        <div className="border-b border-yellow-500 bg-black relative" style={{ padding: '4px 12px' }}>
-          {/* Close button - mobile and desktop */}
-          <button
-            onClick={() => setActiveSidebarPanel(null)}
-            className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-            aria-label="Close panel"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
+        {/* Panel Header */}
+        <div className="flex gap-0">
           <div
+            className="flex-1 font-black uppercase tracking-[0.15em] relative"
             style={{
-              padding: '4px 0',
-              textAlign: 'center',
-              fontSize: '20px',
-              fontWeight: '900',
-              fontFamily: 'monospace',
-              letterSpacing: '2px',
-              color: '#ff8844',
-              textTransform: 'uppercase',
+              padding: '14px 16px',
+              fontSize: '14px',
+              color: '#FF6600',
+              border: '2px solid #FF6600',
+              background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)',
+              boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)',
             }}
           >
-            OPTIONS FLOW
+            <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+            <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>OPTIONS FLOW</span>
           </div>
+          <button
+            onClick={() => setActiveSidebarPanel(null)}
+            className="flex items-center justify-center font-bold transition-all"
+            style={{
+              width: '44px',
+              flexShrink: 0,
+              alignSelf: 'stretch',
+              fontSize: '16px',
+              color: '#FF6600',
+              border: '2px solid rgba(255,102,0,0.5)',
+              background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = '#FF6600'
+              e.currentTarget.style.color = '#000'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'
+              e.currentTarget.style.color = '#FF6600'
+            }}
+            aria-label="Close panel"
+          >
+            &#x2715;
+          </button>
         </div>
 
         <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'contain' }}>
@@ -5351,9 +5359,59 @@ export default function TradingViewChart({
 
   // Settings panel state
   const [showSettings, setShowSettings] = useState(false)
+  const [showPATPanel, setShowPATPanel] = useState(false)
+  const [patPanelActiveTab, setPatPanelActiveTab] = useState<'alerts' | 'plan' | 'insight' | 'screeners'>('alerts')
+  const [patPanelWidth, setPatPanelWidth] = useState(390)
+  const patResizingRef = useRef(false)
+  const patResizeStartXRef = useRef(0)
+  const patResizeStartWRef = useRef(390)
+  const handlePatResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    patResizingRef.current = true
+    patResizeStartXRef.current = e.clientX
+    patResizeStartWRef.current = patPanelWidth
+    const onMove = (ev: MouseEvent) => {
+      if (!patResizingRef.current) return
+      const delta = patResizeStartXRef.current - ev.clientX
+      const next = Math.min(800, Math.max(280, patResizeStartWRef.current + delta))
+      setPatPanelWidth(next)
+    }
+    const onUp = () => {
+      patResizingRef.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   const configSnapshotRef = useRef<ChartConfig | null>(null)
   const [selectedTheme, setSelectedTheme] = useState<string>('default')
-
+  useEffect(() => {
+    if (selectedTheme === 'blind-me') {
+      document.body.classList.add('theme-blind-me')
+      setConfig(prev => ({
+        ...prev,
+        backgroundColor: '#ffffff',
+        colors: {
+          bullish: { body: '#00F55A', wick: '#00F55A', border: '#00F55A' },
+          bearish: { body: '#FF0000', wick: '#FF0000', border: '#FF0000' },
+          volume: { bullish: '#00F55A', bearish: '#FF0000' },
+        },
+      }))
+    } else {
+      document.body.classList.remove('theme-blind-me')
+      setConfig(prev => ({
+        ...prev,
+        backgroundColor: '#000000',
+        colors: {
+          bullish: { body: '#00ff00', wick: '#00ff00', border: '#00ff00' },
+          bearish: { body: '#ff0000', wick: '#ff0000', border: '#ff0000' },
+          volume: { bullish: '#00bfff', bearish: '#ff0000' },
+        },
+      }))
+    }
+    return () => { document.body.classList.remove('theme-blind-me') }
+  }, [selectedTheme])
   // isMounted guard for portal (avoids document access during SSR)
 
   // isMobile — true after mount if viewport < 768px. Avoids typeof window in JSX render path.
@@ -6703,7 +6761,16 @@ export default function TradingViewChart({
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
-  const [sidebarPanelTop, setSidebarPanelTop] = useState(180)
+  // sidebarPanelTop is computed live from topBarRef on every render — no stale state
+  const sidebarPanelTopRef = useRef(180)
+  const [, forceTopUpdate] = useState(0)
+  const getSidebarPanelTop = () => {
+    if (topBarRef.current) {
+      sidebarPanelTopRef.current = Math.ceil(topBarRef.current.getBoundingClientRect().bottom)
+    }
+    return sidebarPanelTopRef.current
+  }
+  const sidebarPanelTop = getSidebarPanelTop()
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
@@ -6881,7 +6948,7 @@ export default function TradingViewChart({
 
   // Fetch Options Trades data when plan panel is open or timeframe changes
   useEffect(() => {
-    if (activeSidebarPanel !== 'plan') return
+    if (activeSidebarPanel !== 'plan' && !(showPATPanel && patPanelActiveTab === 'plan')) return
 
     const saved = localStorage.getItem('optionsWatchlist')
     const optionsWatchlist: any[] = saved ? JSON.parse(saved) : []
@@ -6932,7 +6999,7 @@ export default function TradingViewChart({
 
   // Update peak prices when live quotes update (outside of render)
   useEffect(() => {
-    if (activeSidebarPanel !== 'plan') return
+    if (activeSidebarPanel !== 'plan' && !(showPATPanel && patPanelActiveTab === 'plan')) return
 
     const saved = localStorage.getItem('optionsWatchlist')
     const optionsWatchlist: any[] = saved ? JSON.parse(saved) : []
@@ -9366,6 +9433,31 @@ export default function TradingViewChart({
   } | null>(null)
   const peFetchedSymbolRef = useRef<string>('')
 
+  // PEG Ratio state
+  const [showPEGPanel, setShowPEGPanel] = useState(false)
+  const [pegLoading, setPegLoading] = useState(false)
+  const [pegPanelHeight, setPegPanelHeight] = useState(120)
+  const [isDraggingPEGPanel, setIsDraggingPEGPanel] = useState(false)
+  const pegDragStartRef = useRef<{ y: number; height: number } | null>(null)
+  const [pegData, setPegData] = useState<{
+    currentPE: number | null
+    pegBasic: number | null
+    pegComposite: number | null
+    epsGrowth1y: number | null
+    epsGrowth3y: number | null
+    epsGrowth5y: number | null
+    revGrowth3y: number | null
+    fcfGrowth3y: number | null
+    compositeGrowth: number | null
+    history: { date: string; peg: number | null; pe: number; epsGrowth: number | null }[]
+    avg3y: number | null
+    avg5y: number | null
+    error?: string | null
+  } | null>(null)
+  const pegFetchedSymbolRef = useRef<string>('')
+  const [isPEDropdownOpen, setIsPEDropdownOpen] = useState(false)
+  const peDropdownRef = useRef<HTMLDivElement>(null)
+
   // Check if any IV/HV indicator is active - showIVPanel controls the IV panel visibility
   const showIVIndicator = showIVPanel // IV panel is shown when toggled, line visibility controlled inside panel
   const isAnyIVHVActive =
@@ -9589,12 +9681,51 @@ export default function TradingViewChart({
     }
   }, [isDraggingPEPanel, handlePEPanelDragMove, handlePEPanelDragEnd])
 
+  // PEG panel resize handlers
+  const handlePEGPanelDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    pegDragStartRef.current = { y: e.clientY, height: pegPanelHeight }
+    setIsDraggingPEGPanel(true)
+  }, [pegPanelHeight])
+
+  const handlePEGPanelDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDraggingPEGPanel || !pegDragStartRef.current) return
+      const delta = pegDragStartRef.current.y - e.clientY
+      const newHeight = Math.max(80, Math.min(600, pegDragStartRef.current.height + delta))
+      setPegPanelHeight(newHeight)
+    },
+    [isDraggingPEGPanel]
+  )
+
+  const handlePEGPanelDragEnd = useCallback(() => {
+    setIsDraggingPEGPanel(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDraggingPEGPanel) {
+      window.addEventListener('mousemove', handlePEGPanelDragMove)
+      window.addEventListener('mouseup', handlePEGPanelDragEnd)
+      return () => {
+        window.removeEventListener('mousemove', handlePEGPanelDragMove)
+        window.removeEventListener('mouseup', handlePEGPanelDragEnd)
+      }
+    }
+  }, [isDraggingPEGPanel, handlePEGPanelDragMove, handlePEGPanelDragEnd])
+
   // Auto-fetch P/E data when panel is open and symbol changes
   useEffect(() => {
     if (showPEPanel && config.symbol && peFetchedSymbolRef.current !== config.symbol) {
       fetchPEData(config.symbol)
     }
   }, [showPEPanel, config.symbol])
+
+  // Auto-fetch PEG data when panel is open and symbol changes
+  useEffect(() => {
+    if (showPEGPanel && config.symbol && pegFetchedSymbolRef.current !== config.symbol) {
+      fetchPEGData(config.symbol)
+    }
+  }, [showPEGPanel, config.symbol])
 
   // BuySell panel resize handlers
   const handleBuySellDragStart = useCallback((e: React.MouseEvent) => {
@@ -11692,27 +11823,50 @@ export default function TradingViewChart({
     return () => el.removeEventListener('wheel', block)
   }, [])
 
-  // Compute sidebar panel top dynamically from the EFI top bar's actual bottom edge
+  // Recompute panel top whenever panel opens or window resizes
   useEffect(() => {
-    const compute = () => {
+    const update = () => {
       if (topBarRef.current) {
-        const rect = topBarRef.current.getBoundingClientRect()
-        const newTop = Math.round(rect.bottom)
-        setSidebarPanelTop(newTop)
+        const next = Math.ceil(topBarRef.current.getBoundingClientRect().bottom)
+        if (next !== sidebarPanelTopRef.current) {
+          sidebarPanelTopRef.current = next
+          forceTopUpdate(n => n + 1)
+        }
       }
     }
-    compute()
-    window.addEventListener('resize', compute)
-    return () => window.removeEventListener('resize', compute)
+    // Measure after layout settles
+    const raf1 = requestAnimationFrame(() => requestAnimationFrame(update))
+    window.addEventListener('resize', update)
+    return () => {
+      cancelAnimationFrame(raf1)
+      window.removeEventListener('resize', update)
+    }
   }, [])
 
+  // Re-measure each time either panel opens (layout may have shifted)
+  useEffect(() => {
+    if (!showPATPanel && !activeSidebarPanel) return
+    const t = setTimeout(() => {
+      if (topBarRef.current) {
+        const next = Math.ceil(topBarRef.current.getBoundingClientRect().bottom)
+        if (next !== sidebarPanelTopRef.current) {
+          sidebarPanelTopRef.current = next
+          forceTopUpdate(n => n + 1)
+        }
+      }
+    }, 16)
+    return () => clearTimeout(t)
+  }, [showPATPanel, activeSidebarPanel])
+
   // Manage sidebar panel width per panel type.
-  // LiquidPanel mutates sidebarPanel.style.width via DOM; that inline style persists across
+  // GexPanel mutates sidebarPanel.style.width via DOM; that inline style persists across
   // panel switches. This effect ensures WATCH always gets a consistent fixed width regardless
-  // of open order, and resets the inline style for all other non-liquid panels.
+  // of open order, and resets the inline style for all other non-gex panels.
   useEffect(() => {
     const panel = sidebarPanelRef.current
     if (!panel || isMobile || hideDesktopSidebar) return
+    // PAT panel — width is controlled entirely by the JSX style prop; don't touch it
+    if (showPATPanel) return
     if (activeSidebarPanel === 'watch') {
       panel.style.width = '1200px'
       panel.style.maxWidth = '1200px'
@@ -11720,12 +11874,12 @@ export default function TradingViewChart({
         panel.style.width = ''
         panel.style.maxWidth = ''
       }
-    } else if (activeSidebarPanel !== 'liquid') {
-      // Clear any stale inline width left by LiquidPanel so CSS calc takes over
+    } else if (activeSidebarPanel !== 'gex') {
+      // Clear any stale inline width left by GexPanel so CSS calc takes over
       panel.style.width = ''
       panel.style.maxWidth = ''
     }
-  }, [activeSidebarPanel, isMobile, hideDesktopSidebar])
+  }, [activeSidebarPanel, showPATPanel, isMobile, hideDesktopSidebar])
 
   // OLD regime loading removed - now using parallel prefetch on panel open
 
@@ -13195,6 +13349,29 @@ export default function TradingViewChart({
     }
   }, [peLoading])
 
+  const fetchPEGData = useCallback(async (sym: string) => {
+    if (!sym || pegLoading) return
+    pegFetchedSymbolRef.current = sym
+    setPegLoading(true)
+    setPegData(null)
+    try {
+      const upper = sym.toUpperCase()
+      const res = await fetch(`/api/peg-ratio?ticker=${encodeURIComponent(upper)}`)
+      const json = await res.json()
+      if (json.error) {
+        setPegData({ currentPE: null, pegBasic: null, pegComposite: null, epsGrowth1y: null, epsGrowth3y: null, epsGrowth5y: null, revGrowth3y: null, fcfGrowth3y: null, compositeGrowth: null, history: [], avg3y: null, avg5y: null, error: json.error })
+      } else {
+        setPegData({ ...json, error: null })
+      }
+    } catch (err: any) {
+      setPegData({ currentPE: null, pegBasic: null, pegComposite: null, epsGrowth1y: null, epsGrowth3y: null, epsGrowth5y: null, revGrowth3y: null, fcfGrowth3y: null, compositeGrowth: null, history: [], avg3y: null, avg5y: null, error: err?.message ?? 'Failed to load PEG data' })
+    } finally {
+      setPegLoading(false)
+    }
+  }, [pegLoading])
+
+  // (PE dropdown click-outside handled by portal overlay)
+
   // ============================================================================
   // CHART DRAG & PAN — TRADINGVIEW-STYLE (NO TELEPORTS)
   // ============================================================================
@@ -13901,25 +14078,19 @@ export default function TradingViewChart({
 
   // Handle container resize
   useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setDimensions({ width: rect.width, height: rect.height })
+    if (!containerRef.current) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        setDimensions({ width, height })
       }
-    }
-
-    // Immediate update
-    updateDimensions()
-
-    // Delayed update to account for CSS transition (300ms)
-    const timer = setTimeout(updateDimensions, 350)
-
-    window.addEventListener('resize', updateDimensions)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('resize', updateDimensions)
-    }
-  }, [isGuideAIOpen])
+    })
+    ro.observe(containerRef.current)
+    // Immediate measurement
+    const rect = containerRef.current.getBoundingClientRect()
+    setDimensions({ width: rect.width, height: rect.height })
+    return () => ro.disconnect()
+  }, [])
 
   // Initialize chart - SIMPLE
   useEffect(() => {
@@ -14720,7 +14891,8 @@ export default function TradingViewChart({
       ; (ctx as any).mozImageSmoothingEnabled = false
       ; (ctx as any).msImageSmoothingEnabled = false
 
-    // Clear canvas background using user-configured color
+    // Clear canvas background
+    ctx.clearRect(0, 0, width, height)
     ctx.fillStyle = config.backgroundColor
     ctx.fillRect(0, 0, width, height)
 
@@ -14729,6 +14901,7 @@ export default function TradingViewChart({
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
     const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
+    const actualPEGPanelHeight = showPEGPanel ? pegPanelHeight : 0 // PEG panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
     const actualBuySellPanelHeight = showBuySellIndicator ? buySellPanelHeight : 0
     const volumeAreaHeight = 80 // Volume bars area
@@ -14737,6 +14910,7 @@ export default function TradingViewChart({
       actualFlowChartHeight +
       actualIVPanelHeight +
       actualPEPanelHeight +
+      actualPEGPanelHeight +
       actualEventPanelHeight +
       volumeAreaHeight +
       actualBuySellPanelHeight +
@@ -15673,6 +15847,37 @@ export default function TradingViewChart({
       }
     }
 
+    // PEG RATIO panel — sits below P/E panel, above volume
+    if (showPEGPanel) {
+      const pegPanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight + actualPEPanelHeight
+      if (pegData && pegData.history && pegData.history.some(h => h.peg !== null)) {
+        drawPEGPanel(
+          ctx,
+          pegData,
+          visibleData,
+          chartWidth,
+          pegPanelY,
+          visibleCandleCount,
+          pegPanelHeight
+        )
+      } else {
+        // Loading / error placeholder
+        ctx.fillStyle = 'rgba(0,0,0,0.85)'
+        ctx.fillRect(CHART_LEFT_MARGIN, pegPanelY, chartWidth - 120, pegPanelHeight)
+        ctx.strokeStyle = 'rgba(167, 139, 250, 0.35)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(CHART_LEFT_MARGIN, pegPanelY)
+        ctx.lineTo(chartWidth - 80, pegPanelY)
+        ctx.stroke()
+        ctx.font = 'bold 10px JetBrains Mono, monospace'
+        ctx.fillStyle = '#a78bfa'
+        ctx.textAlign = 'center'
+        const pegMsg = pegLoading ? 'Loading PEG data…' : (pegData?.error ?? 'No PEG data (ETFs not supported)')
+        ctx.fillText(pegMsg, (CHART_LEFT_MARGIN + chartWidth - 80) / 2, pegPanelY + pegPanelHeight / 2 + 4)
+      }
+    }
+
     // BUY/SELL Pressure panel — sits below IV panels, above volume (same zone as IV/HV)
     if (showBuySellIndicator) {
       const buySellStartY =
@@ -15720,7 +15925,8 @@ export default function TradingViewChart({
       actualEventPanelHeight +
       actualIVPanelHeight +
       actualBuySellPanelHeight +
-      actualPEPanelHeight,
+      actualPEPanelHeight +
+      actualPEGPanelHeight,
       visibleCandleCount,
       width,
       volumeAreaHeight,
@@ -15803,6 +16009,10 @@ export default function TradingViewChart({
     peData,
     peLoading,
     pePanelHeight,
+    showPEGPanel,
+    pegData,
+    pegLoading,
+    pegPanelHeight,
     config.backgroundColor,
     config.gridLineColor,
     config.colors.bullish.body,
@@ -15993,6 +16203,302 @@ export default function TradingViewChart({
       ctx.fillText(`${avgLow.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 48, Math.min(panelContentBottom, y + 8)))
     }
 
+  }
+
+  // PEG RATIO panel — draws historical PEG line chart below the main chart
+  const drawPEGPanel = (
+    ctx: CanvasRenderingContext2D,
+    peg: NonNullable<typeof pegData>,
+    visibleData: ChartDataPoint[],
+    chartWidth: number,
+    panelStartY: number,
+    visibleCandleCount: number,
+    panelHeight: number
+  ) => {
+    if (!visibleData.length || !peg.history || peg.history.length < 2) return
+
+    const padLeft = CHART_LEFT_MARGIN
+    const rightEdge = chartWidth - 80
+    const titleHeight = 28
+    const panelContentTop = panelStartY + titleHeight + 4
+    const panelContentBottom = panelStartY + panelHeight - 6
+
+    // Background
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
+
+    // Top border — purple
+    ctx.strokeStyle = 'rgba(167, 139, 250, 0.45)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(padLeft, panelStartY)
+    ctx.lineTo(rightEdge, panelStartY)
+    ctx.stroke()
+
+    // Title — mirrors drawPEPanel style
+    ctx.save()
+    ctx.font = 'bold 20px Arial, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillStyle = '#a78bfa'
+    ctx.fillText('PEG Ratio  (P/E ÷ EPS 3Y CAGR)', (padLeft + rightEdge) / 2, panelStartY + titleHeight)
+    ctx.restore()
+
+    // Sort history ascending
+    const sorted = peg.history.slice().sort((a, b) => a.date.localeCompare(b.date))
+
+    // Binary search: find last history entry with date <= target, return its peg (may be null)
+    const findPeg = (target: string): number | null | undefined => {
+      let lo = 0, hi = sorted.length - 1
+      let result: (typeof sorted[0]) | undefined
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (sorted[mid].date <= target) { result = sorted[mid]; lo = mid + 1 }
+        else hi = mid - 1
+      }
+      return result?.peg // number | null | undefined
+    }
+
+    // Build per-candle array — null = negative-growth gap, undefined = no data
+    const candleSpacing = chartWidth / visibleCandleCount
+    interface CandlePt { x: number; v: number | null }
+    const pts: CandlePt[] = []
+
+    for (let i = 0; i < visibleData.length; i++) {
+      const d = visibleData[i].date ?? new Date(visibleData[i].timestamp).toISOString().split('T')[0]
+      const x = CHART_LEFT_MARGIN + i * candleSpacing + candleSpacing / 2
+      const v = findPeg(d)
+      if (v === undefined) continue        // no history at all for this date
+      if (v !== null && v > 30) continue   // cap extreme outliers from display
+      pts.push({ x, v })
+    }
+
+    // Collect only numeric values for scaling
+    const numericVals = pts.map(p => p.v).filter((v): v is number => v !== null)
+
+    if (numericVals.length < 2) {
+      ctx.font = '11px JetBrains Mono, monospace'
+      ctx.fillStyle = 'rgba(167, 139, 250, 0.5)'
+      ctx.textAlign = 'center'
+      ctx.fillText('No PEG data for visible range', (padLeft + rightEdge) / 2, panelStartY + panelHeight / 2 + 4)
+      return
+    }
+
+    // Scale — include avg lines in range
+    const refVals = [...numericVals]
+    if (peg.avg3y != null) refVals.push(peg.avg3y)
+    if (peg.avg5y != null) refVals.push(peg.avg5y)
+
+    // 3Y avg high / avg low (same logic as P/E panel — yearly high/low of PEG, averaged)
+    const cutoff3y = new Date()
+    cutoff3y.setFullYear(cutoff3y.getFullYear() - 3)
+    const cutoff3yStr = cutoff3y.toISOString().split('T')[0]
+    const last3yPts = sorted.filter(h => h.date >= cutoff3yStr && h.peg !== null && h.peg <= 30)
+    let avgHigh: number | null = null
+    let avgLow: number | null = null
+    if (last3yPts.length >= 4) {
+      const byYear: Record<string, number[]> = {}
+      for (const h of last3yPts) {
+        const yr = h.date.slice(0, 4)
+        if (!byYear[yr]) byYear[yr] = []
+        byYear[yr].push(h.peg as number)
+      }
+      const yearlyHighs = Object.values(byYear).map(arr => Math.max(...arr))
+      const yearlyLows = Object.values(byYear).map(arr => Math.min(...arr))
+      avgHigh = yearlyHighs.reduce((a, b) => a + b, 0) / yearlyHighs.length
+      avgLow = yearlyLows.reduce((a, b) => a + b, 0) / yearlyLows.length
+    }
+    if (avgHigh != null) refVals.push(avgHigh)
+    if (avgLow != null) refVals.push(avgLow)
+    const minV = Math.min(...refVals) * 0.93
+    const maxV = Math.max(...refVals) * 1.04
+    const vRange = maxV - minV || 1
+    const toY = (v: number) =>
+      panelContentBottom - ((v - minV) / vRange) * (panelContentBottom - panelContentTop)
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(padLeft, panelContentTop, rightEdge - padLeft, panelContentBottom - panelContentTop)
+    ctx.clip()
+
+    // ── Reference lines (drawn first, behind the data line) ──────────────────
+
+    // PEG = 1 "fair value" line — yellow dashed
+    if (minV <= 1 && maxV >= 1) {
+      const y1 = toY(1)
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([5, 4])
+      ctx.beginPath(); ctx.moveTo(padLeft, y1); ctx.lineTo(rightEdge, y1); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = 'bold 10px JetBrains Mono, monospace'
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.75)'
+      ctx.textAlign = 'left'
+      ctx.fillText('1.0 fair', padLeft + 4, y1 - 3)
+    }
+
+    // PEG = 2 "expensive" line — red dashed
+    if (minV <= 2 && maxV >= 2) {
+      const y2 = toY(2)
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([5, 4])
+      ctx.beginPath(); ctx.moveTo(padLeft, y2); ctx.lineTo(rightEdge, y2); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = 'bold 10px JetBrains Mono, monospace'
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.65)'
+      ctx.textAlign = 'left'
+      ctx.fillText('2.0', padLeft + 4, y2 - 3)
+    }
+
+    // 3Y avg PEG — solid red dashed
+    if (peg.avg3y != null) {
+      const yAvg = toY(peg.avg3y)
+      ctx.strokeStyle = '#ef4444'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.beginPath(); ctx.moveTo(padLeft, yAvg); ctx.lineTo(rightEdge, yAvg); ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // 3Y avg HIGH line — red solid (same as P/E panel)
+    if (avgHigh != null) {
+      const yH = toY(avgHigh)
+      ctx.strokeStyle = '#ef4444'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.beginPath(); ctx.moveTo(padLeft, yH); ctx.lineTo(rightEdge, yH); ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // 3Y avg LOW line — green solid
+    if (avgLow != null) {
+      const yL = toY(avgLow)
+      ctx.strokeStyle = '#22c55e'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.beginPath(); ctx.moveTo(padLeft, yL); ctx.lineTo(rightEdge, yL); ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // ── Gradient fill — segment by segment, skipping null gaps ───────────────
+    const grad = ctx.createLinearGradient(0, panelContentTop, 0, panelContentBottom)
+    grad.addColorStop(0, 'rgba(167, 139, 250, 0.18)')
+    grad.addColorStop(1, 'rgba(167, 139, 250, 0.0)')
+
+    let segStart = -1
+    for (let i = 0; i <= pts.length; i++) {
+      const pt = pts[i]
+      const isValid = pt && pt.v !== null
+      if (isValid && segStart === -1) {
+        segStart = i
+      } else if (!isValid && segStart !== -1) {
+        // draw fill for segment [segStart, i-1]
+        const seg = pts.slice(segStart, i) as { x: number; v: number }[]
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.moveTo(seg[0].x, panelContentBottom)
+        for (const p of seg) ctx.lineTo(p.x, toY(p.v))
+        ctx.lineTo(seg[seg.length - 1].x, panelContentBottom)
+        ctx.closePath()
+        ctx.fill()
+        segStart = -1
+      }
+    }
+
+    // ── PEG line — draw segments, lift pen at null gaps ───────────────────────
+    ctx.strokeStyle = '#a78bfa'
+    ctx.lineWidth = 2.5
+    ctx.lineJoin = 'round'
+    ctx.setLineDash([])
+
+    let inStroke = false
+    ctx.beginPath()
+    for (const pt of pts) {
+      if (pt.v === null) {
+        inStroke = false
+        continue
+      }
+      if (!inStroke) { ctx.moveTo(pt.x, toY(pt.v)); inStroke = true }
+      else { ctx.lineTo(pt.x, toY(pt.v)) }
+    }
+    ctx.stroke()
+
+    // ── Mark null-gap zones with a subtle grey dashed line at mid-panel ───────
+    let gapStart: number | null = null
+    for (let i = 0; i <= pts.length; i++) {
+      const pt = pts[i]
+      if (pt && pt.v === null && gapStart === null) gapStart = pt.x
+      if ((!pt || pt.v !== null) && gapStart !== null) {
+        const gapEnd = pt ? pt.x : pts[pts.length - 1].x
+        const midY = (panelContentTop + panelContentBottom) / 2
+        ctx.strokeStyle = 'rgba(100,116,139,0.3)'
+        ctx.lineWidth = 1
+        ctx.setLineDash([3, 3])
+        ctx.beginPath(); ctx.moveTo(gapStart, midY); ctx.lineTo(gapEnd, midY); ctx.stroke()
+        ctx.setLineDash([])
+        ctx.font = '9px JetBrains Mono, monospace'
+        ctx.fillStyle = 'rgba(100,116,139,0.6)'
+        ctx.textAlign = 'center'
+        ctx.fillText('N/A', (gapStart + gapEnd) / 2, midY - 3)
+        gapStart = null
+      }
+    }
+
+    ctx.restore()
+
+    // ── Right-edge value labels ───────────────────────────────────────────────
+    // Find last numeric point for the current PEG label
+    const lastNumeric = [...pts].reverse().find(p => p.v !== null) as { x: number; v: number } | undefined
+    if (lastNumeric) {
+      const pegColor = lastNumeric.v < 1 ? '#22c55e' : lastNumeric.v < 2 ? '#f59e0b' : '#ef4444'
+      ctx.font = 'bold 24px JetBrains Mono, monospace'
+      ctx.fillStyle = pegColor
+      ctx.textAlign = 'left'
+      ctx.fillText(
+        lastNumeric.v.toFixed(2),
+        rightEdge + 2,
+        Math.max(panelContentTop + 20, Math.min(panelContentBottom - 4, toY(lastNumeric.v) + 8))
+      )
+    }
+
+    // 3Y avg label
+    if (peg.avg3y != null) {
+      const yAvg = toY(peg.avg3y)
+      ctx.font = 'bold 18px JetBrains Mono, monospace'
+      ctx.fillStyle = '#ef4444'
+      ctx.textAlign = 'left'
+      ctx.fillText(
+        `${peg.avg3y.toFixed(2)}`,
+        rightEdge + 2,
+        Math.max(panelContentTop + 44, Math.min(panelContentBottom - 4, yAvg + 8))
+      )
+    }
+
+    // Avg High label — red
+    if (avgHigh != null) {
+      const yH = toY(avgHigh)
+      ctx.font = 'bold 24px JetBrains Mono, monospace'
+      ctx.fillStyle = '#ef4444'
+      ctx.textAlign = 'left'
+      ctx.fillText(
+        `${avgHigh.toFixed(2)}x`,
+        rightEdge + 2,
+        Math.max(panelContentTop + 20, Math.min(panelContentBottom - 28, yH + 8))
+      )
+    }
+
+    // Avg Low label — green
+    if (avgLow != null) {
+      const yL = toY(avgLow)
+      ctx.font = 'bold 24px JetBrains Mono, monospace'
+      ctx.fillStyle = '#22c55e'
+      ctx.textAlign = 'left'
+      ctx.fillText(
+        `${avgLow.toFixed(2)}x`,
+        rightEdge + 2,
+        Math.max(panelContentTop + 48, Math.min(panelContentBottom, yL + 8))
+      )
+    }
   }
 
   // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
@@ -17662,7 +18168,7 @@ export default function TradingViewChart({
       }
 
       // Check if label is too close to chart edges
-      if (labelLeft < 45 || labelRight > width - 10) {
+      if (labelLeft < CHART_LEFT_MARGIN + 50 || labelRight > width - 10) {
         return false
       }
 
@@ -17697,23 +18203,13 @@ export default function TradingViewChart({
       }
     }
 
-    // Calculate how many labels we can fit (old method as fallback)
-    const maxLabels = Math.floor(chartWidth / 80) // One label every 80px
-    const labelStep = labelConfig.spacing
-
     const candleSpacing = chartWidth / visibleCandleCount
 
-    // Calculate if we're showing future area
-    const startIndex = Math.max(0, Math.floor(scrollOffset))
-
     // Draw labels for actual data with overlap prevention
-    // Use absolute dataset index (scrollOffset + visIndex) so labels are anchored to
-    // fixed time positions — TradingView-style stable labels during pan/drag.
-    // When you pan left/right, labels don't all jump; new ones appear at the edge.
     const startAbsIndex = Math.floor(scrollOffset)
     visibleData.forEach((candle, visIndex) => {
       const absIndex = startAbsIndex + visIndex
-      if (absIndex % labelStep === 0) {
+      if (absIndex % labelConfig.spacing === 0) {
         const x = CHART_LEFT_MARGIN + visIndex * candleSpacing + candleSpacing / 2
         const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format)
         addLabel(x, timeLabel, false)
@@ -18005,6 +18501,14 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPEPanel, peData, pePanelHeight, chartLayout])
+
+  // Re-render when PEG panel changes (data, toggle, or resize)
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPEGPanel, pegData, pegPanelHeight, chartLayout])
 
   // Re-render when Dark Pool data arrives or is toggled
   useEffect(() => {
@@ -20108,7 +20612,20 @@ export default function TradingViewChart({
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
-    setActiveSidebarPanel(activeSidebarPanel === id ? null : id)
+    const patTabs = ['alerts', 'plan', 'insight', 'screeners']
+    if (patTabs.includes(id)) {
+      // Toggle PAT panel or switch tab
+      if (showPATPanel && patPanelActiveTab === id) {
+        setShowPATPanel(false)
+      } else {
+        setActiveSidebarPanel(null)
+        setPatPanelActiveTab(id as 'alerts' | 'plan' | 'insight' | 'screeners')
+        setShowPATPanel(true)
+      }
+    } else {
+      setShowPATPanel(false)
+      setActiveSidebarPanel(activeSidebarPanel === id ? null : id)
+    }
   }
 
   // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
@@ -20514,32 +21031,9 @@ export default function TradingViewChart({
       <div className="h-full flex flex-col bg-black text-white">
         {/* Bloomberg-style Header */}
         {!hideNav && (
-          <div className="p-3 border-b border-yellow-500 bg-black relative">
-            {/* Close button - mobile and desktop */}
-            <button
-              onClick={() => setActiveSidebarPanel(null)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-              aria-label="Close panel"
-            >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
+          <div className="flex gap-0 border-b border-yellow-500 bg-black">
             {/* Tab Navigation */}
-            <div
-              className="flex gap-0 relative"
-              style={{ marginRight: '36px' }}
-            >
+            <div className="flex gap-0 flex-1">
               {['Watchlist', 'Tracking', 'Money'].map((tab) => (
                 <button
                   key={tab}
@@ -20565,6 +21059,32 @@ export default function TradingViewChart({
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => setActiveSidebarPanel(null)}
+              className="flex items-center justify-center font-bold transition-all"
+              style={{
+                width: '44px',
+                flexShrink: 0,
+                alignSelf: 'stretch',
+                fontSize: '16px',
+                color: '#FF6600',
+                border: '2px solid rgba(255,102,0,0.5)',
+                background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#FF6600'
+                e.currentTarget.style.color = '#000'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'
+                e.currentTarget.style.color = '#FF6600'
+              }}
+              aria-label="Close panel"
+            >
+              &#x2715;
+            </button>
           </div>
         )}
 
@@ -26088,14 +26608,139 @@ export default function TradingViewChart({
  border-radius: 0 !important;
  clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
  }
+
+ /* ═══════════════════════════════════════════════════
+    BLIND-ME LIGHT THEME
+    Swiss Coffee — warm off-white, soft depth,
+    accent colors preserved on icons/active states.
+    ═══════════════════════════════════════════════════ */
+
+ /* Top bar + nav */
+ [data-theme="blind-me"] .navigation-bar-premium,
+ body.theme-blind-me .navigation-bar-premium {
+ background: linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%) !important;
+ border-color: #c8bfb4 !important;
+ box-shadow: 0 1px 0 #faf8f5 inset, 0 2px 6px rgba(80,60,40,0.08) !important;
+ }
+ body.theme-blind-me .nav {
+ background: linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%) !important;
+ border-bottom-color: #c8bfb4 !important;
+ box-shadow: 0 2px 6px rgba(80,60,40,0.08) !important;
+ }
+ body.theme-blind-me .nav a,
+ body.theme-blind-me .nav span,
+ body.theme-blind-me .nav button {
+ color: #1e1810 !important;
+ }
+
+ /* Sidebar container */
+ [data-theme="blind-me"] .sidebar-container,
+ body.theme-blind-me .sidebar-container {
+ background: linear-gradient(180deg, #f2ede7 0%, #e9e2d8 100%) !important;
+ border-right: 1px solid #c8bfb4 !important;
+ box-shadow: 2px 0 8px rgba(80,60,40,0.07) !important;
+ }
+
+ /* Sidebar buttons */
+ [data-theme="blind-me"] .sidebar-container button,
+ body.theme-blind-me .sidebar-container button {
+ background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 50%, #e4dbd0 100%) !important;
+ border: 1px solid #c4bab0 !important;
+ border-left: 4px solid #b0a898 !important;
+ box-shadow: 0 1px 3px rgba(80,60,40,0.12), inset 0 1px 0 rgba(255,253,250,0.95), inset 0 -1px 0 rgba(60,40,20,0.05) !important;
+ }
+ [data-theme="blind-me"] .sidebar-container button:hover,
+ body.theme-blind-me .sidebar-container button:hover {
+ background: linear-gradient(180deg, #faf8f5 0%, #f2ece4 100%) !important;
+ border-color: #a89880 !important;
+ box-shadow: 0 3px 10px rgba(80,60,40,0.14), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(60,40,20,0.04) !important;
+ }
+
+ /* Sidebar label text */
+ [data-theme="blind-me"] .sidebar-container button .sidebar-label,
+ body.theme-blind-me .sidebar-container button .sidebar-label {
+ color: #1e1810 !important;
+ text-shadow: none !important;
+ }
+ /* Icons keep accent colors — only mobile text label gets darkened */
+ body.theme-blind-me .sidebar-container button > span.md\\:hidden {
+ color: #1e1810 !important;
+ }
+
+ /* Toolbar btn-3d-carved */
+ body.theme-blind-me .btn-3d-carved {
+ background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 50%, #e4dbd0 100%) !important;
+ border: 1px solid #c4bab0 !important;
+ color: #1e1810 !important;
+ box-shadow: 0 1px 3px rgba(80,60,40,0.13), inset 0 1px 0 rgba(255,253,250,0.95), inset 0 -1px 0 rgba(60,40,20,0.06) !important;
+ }
+ body.theme-blind-me .btn-3d-carved.active {
+ background: linear-gradient(180deg, #fff8f0 0%, #fdf0e0 50%, #f5e8d4 100%) !important;
+ border: 1px solid rgba(255,133,0,0.6) !important;
+ border-bottom: 1px solid rgba(200,100,0,0.45) !important;
+ color: #b04800 !important;
+ box-shadow: 0 0 0 1px rgba(255,133,0,0.2), 0 2px 6px rgba(80,60,40,0.1), inset 0 1px 0 rgba(255,253,250,0.9), inset 0 -1px 0 rgba(200,100,0,0.12) !important;
+ }
+ body.theme-blind-me .btn-3d-carved:hover:not(.active) {
+ background: linear-gradient(180deg, #faf8f5 0%, #f2ece4 100%) !important;
+ border: 1px solid #a89880 !important;
+ color: #0e0c08 !important;
+ box-shadow: 0 2px 8px rgba(80,60,40,0.16), inset 0 1px 0 rgba(255,255,255,1) !important;
+ transform: translateY(-1px) !important;
+ }
+ body.theme-blind-me .btn-3d-carved.active:hover {
+ background: linear-gradient(180deg, #fff5e8 0%, #fce8cc 100%) !important;
+ border: 1px solid rgba(255,133,0,0.75) !important;
+ color: #963c00 !important;
+ }
+ body.theme-blind-me .btn-3d-carved:active {
+ background: linear-gradient(180deg, #ddd6cc 0%, #e8e0d4 100%) !important;
+ box-shadow: inset 0 2px 4px rgba(80,60,40,0.12) !important;
+ transform: translateY(0) !important;
+ }
+
+ /* Timeframe + chart-type dropdown containers */
+ body.theme-blind-me .timeframe-dropdown,
+ body.theme-blind-me .chart-type-dropdown {
+ background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 100%) !important;
+ border: 1px solid #c4bab0 !important;
+ box-shadow: 0 1px 4px rgba(80,60,40,0.09), inset 0 1px 0 rgba(255,253,250,0.9) !important;
+ }
+
+ /* Symbol search box */
+ body.theme-blind-me .navigation-bar-premium input[type="text"] {
+ color: #1e1810 !important;
+ }
+ body.theme-blind-me .navigation-bar-premium input[type="text"]::placeholder {
+ color: #8a8078 !important;
+ }
+ body.theme-blind-me .navigation-bar-premium .relative.flex.items-center > div {
+ background: linear-gradient(145deg, #f5f0eb, #e9e2d8) !important;
+ border: 1px solid #c4bab0 !important;
+ border-top-color: #a89880 !important;
+ box-shadow: 0 2px 6px rgba(80,60,40,0.08), inset 0 1px 0 rgba(255,253,250,0.95) !important;
+ }
+
+ /* Price text */
+ body.theme-blind-me .navigation-bar-premium .font-mono {
+ color: #1e1810 !important;
+ }
  `,
         }}
       />
 
-      <div className="w-full h-full flex">
+      <div className="w-full h-full flex relative" data-theme={selectedTheme}>
         <div
-          className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full flex flex-col rounded-lg overflow-y-auto transition-all duration-300`}
-          style={{ backgroundColor: colors.background }}
+          className="h-full flex flex-col rounded-lg overflow-y-auto transition-all duration-300"
+          style={{
+            backgroundColor: colors.background,
+            width: (isMobile || hideDesktopSidebar)
+              ? '100%'
+              : isGuideAIOpen
+                ? '70%'
+                : '100%',
+            transition: 'width 0.3s ease',
+          }}
         >
           {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
           <div
@@ -26105,14 +26750,14 @@ export default function TradingViewChart({
               height: isMobile ? '48px' : '48px',
               paddingTop: 0,
               paddingBottom: 0,
-              background: '#000000',
+              background: selectedTheme === 'blind-me' ? 'linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%)' : '#000000',
               backgroundSize: '400% 400%',
-              borderColor: '#333333',
+              borderColor: selectedTheme === 'blind-me' ? '#cccccc' : '#333333',
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
-              overflowX: (isMobile || lwToolbarPosition === 'left') ? 'auto' : 'hidden',
+              overflowX: (isMobile || lwToolbarPosition === 'left' || showPATPanel) ? 'auto' : 'hidden',
               overflowY: 'hidden',
-              ...(lwToolbarPosition === 'left' ? { scrollbarWidth: 'thin' as const, scrollbarColor: '#333333 transparent' } : {}),
+              ...(lwToolbarPosition === 'left' || showPATPanel ? { scrollbarWidth: 'thin' as const, scrollbarColor: '#333333 transparent' } : {}),
               zIndex: 10000,
               display:
                 isMobile && activeSidebarPanel
@@ -26162,8 +26807,8 @@ export default function TradingViewChart({
                   isMobile && activeSidebarPanel
                     ? 'none'
                     : 'flex',
-                minWidth: (isMobile || lwToolbarPosition === 'left') ? 'max-content' : '100%',
-                width: (isMobile || lwToolbarPosition === 'left') ? 'max-content' : '100%',
+                minWidth: (isMobile || lwToolbarPosition === 'left' || showPATPanel) ? 'max-content' : '100%',
+                width: (isMobile || lwToolbarPosition === 'left' || showPATPanel) ? 'max-content' : '100%',
               }}
             >
               {/* Left side: Symbol Search + Price + Controls */}
@@ -26245,7 +26890,7 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xl font-bold leading-tight"
                     style={{
-                      color: '#ffffff',
+                      color: selectedTheme === 'blind-me' ? '#111111' : '#ffffff',
                       letterSpacing: '0.5px',
                     }}
                   >
@@ -26254,9 +26899,9 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
                     style={{
-                      color: priceChangePercent >= 0 ? '#00ff00' : '#ff0000',
-                      background: '#000000',
-                      border: priceChangePercent >= 0 ? '2px solid #00ff00' : '2px solid #ff0000',
+                      color: priceChangePercent >= 0 ? (selectedTheme === 'blind-me' ? '#006600' : '#00ff00') : (selectedTheme === 'blind-me' ? '#cc0000' : '#ff0000'),
+                      background: selectedTheme === 'blind-me' ? 'transparent' : '#000000',
+                      border: priceChangePercent >= 0 ? (selectedTheme === 'blind-me' ? '2px solid #006600' : '2px solid #00ff00') : (selectedTheme === 'blind-me' ? '2px solid #cc0000' : '2px solid #ff0000'),
                       letterSpacing: '0.3px',
                       fontWeight: 'bold',
                     }}
@@ -26509,11 +27154,12 @@ export default function TradingViewChart({
                   className="flex items-center chart-type-dropdown"
                   style={{
                     display: isMobile ? 'none' : undefined,
-                    background: '#000000',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    background: selectedTheme === 'blind-me' ? 'linear-gradient(180deg, #f7f3ef 0%, #ede6dc 100%)' : '#000000',
+                    border: selectedTheme === 'blind-me' ? '1px solid #c4bab0' : '1px solid rgba(255,255,255,0.15)',
                     borderRadius: '4px',
-                    boxShadow:
-                      '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                    boxShadow: selectedTheme === 'blind-me'
+                      ? '0 2px 8px rgba(80,60,40,0.13), inset 0 1px 0 rgba(255,253,250,0.9)'
+                      : '0 2px 8px rgba(0,0,0,0.95), inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
                 >
                   {/* Desktop Chart Type Buttons - Hidden on mobile */}
@@ -26632,7 +27278,7 @@ export default function TradingViewChart({
                   <>
                     <div className="mobile-dtd-group">
                       <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
-                      <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
+                      <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
                       <button onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: currentDrawingTool !== 'select' ? '#000' : '#fff', background: currentDrawingTool !== 'select' ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DRAW</button>
                     </div>
                     {/* Group 1 Panel - Data */}
@@ -26701,7 +27347,8 @@ export default function TradingViewChart({
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={() => setShowBuySellIndicator(v => !v)} className={`btn-3d-carved ${showBuySellIndicator ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Buy/Sell{showBuySellIndicator ? ' ✓' : ''}</button>
-                            <button onClick={() => { const n = !showPEPanel; setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E Ratio{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showPEPanel; setShowPEGPanel(false); setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
                           </div>
                           {/* ── LIVE FLOWMOVES ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Live FlowMoves</div>
@@ -26789,7 +27436,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: 'white' }}>{isMobile ? 'ER' : 'Range'}</span>
+                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Range'}</span>
                     {isExpectedRangeActive ? (
                       <span
                         onClick={(e) => {
@@ -28006,7 +28653,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: 'white' }}>TECHNALYSIS</span>
+                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
                     {technalysisActive ? (
                       <button
                         onClick={(e) => {
@@ -28674,35 +29321,56 @@ export default function TradingViewChart({
                 />
               )}
 
-              {/* P/E RATIO Indicator Button — toggles canvas bottom panel like IV Rank */}
+              {/* P/E | PEG Dropdown — toggles canvas bottom panel */}
               <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
                 <button
                   ref={peButtonRef}
-                  onClick={() => {
-                    const next = !showPEPanel
-                    setShowPEPanel(next)
-                    if (next && (!peData || peFetchedSymbolRef.current !== config.symbol)) {
-                      fetchPEData(config.symbol)
-                    }
-                  }}
-                  className={`btn-3d-carved relative group flex items-center space-x-2 ${showPEPanel ? 'active' : ''}`}
+                  onClick={() => setIsPEDropdownOpen(!isPEDropdownOpen)}
+                  disabled={peLoading || pegLoading}
+                  className={`btn-3d-carved relative group flex items-center space-x-2 ${showPEPanel || showPEGPanel ? 'active' : ''}`}
                   style={{
-                    padding: isMobile ? '3px 8px' : '10px 14px',
+                    padding: '10px 14px',
                     fontWeight: '700',
                     fontSize: '13px',
                     borderRadius: '4px',
+                    opacity: peLoading || pegLoading ? 0.6 : 1,
                   }}
                 >
-                  <span style={{ color: '#00E5FF' }}>P/E</span>
-                  {!peLoading && peData?.current != null && (
-                    <span style={{ color: '#22c55e', fontSize: '12px', marginLeft: '4px', fontWeight: 800 }}>
-                      {peData.current.toFixed(1)}x
+                  <span>
+                    {(peLoading || pegLoading)
+                      ? `LOADING…`
+                      : showPEGPanel ? 'PEG' : 'P/E'}
+                  </span>
+                  {(showPEPanel || showPEGPanel) ? (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowPEPanel(false)
+                        setShowPEGPanel(false)
+                      }}
+                      className="ml-1"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ff8500',
+                        fontSize: '20px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        padding: '0 4px',
+                        lineHeight: '1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      ×
                     </span>
+                  ) : (
+                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   )}
-                  {peLoading && (
-                    <span style={{ color: '#00E5FF', fontSize: '11px', marginLeft: '4px' }}>...</span>
-                  )}
-                  {showPEPanel && (
+                  {(showPEPanel || showPEGPanel) && (
                     <div
                       className="absolute -top-1 -right-1 w-3 h-3 rounded-full"
                       style={{
@@ -28713,6 +29381,97 @@ export default function TradingViewChart({
                     />
                   )}
                 </button>
+
+                {/* P/E | PEG Dropdown Menu — Portal */}
+                {isPEDropdownOpen &&
+                  createPortal(
+                    <div
+                      style={{
+                        position: 'fixed',
+                        top: peButtonRef.current
+                          ? peButtonRef.current.getBoundingClientRect().bottom + 10
+                          : 0,
+                        left: peButtonRef.current
+                          ? peButtonRef.current.getBoundingClientRect().left
+                          : 0,
+                        zIndex: 100000,
+                        background: '#000000',
+                        border: '2px solid rgba(255, 133, 0, 0.3)',
+                        borderRadius: '8px',
+                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                        padding: '12px',
+                        minWidth: '180px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                          paddingBottom: '6px',
+                          marginBottom: '8px',
+                        }}
+                      >
+                        <span style={{ color: '#ff8c00', fontWeight: '700', fontSize: '12px', letterSpacing: '0.5px' }}>
+                          VALUATION PANELS
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button
+                          onClick={() => {
+                            setShowPEGPanel(false)
+                            const next = !showPEPanel
+                            setShowPEPanel(next)
+                            if (next && (!peData || peFetchedSymbolRef.current !== config.symbol)) {
+                              fetchPEData(config.symbol)
+                            }
+                            setIsPEDropdownOpen(false)
+                          }}
+                          className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`}
+                          style={{
+                            padding: '10px 16px',
+                            fontWeight: '700',
+                            fontSize: '14px',
+                            textAlign: 'left',
+                            borderRadius: '4px',
+                            width: '100%',
+                          }}
+                        >
+                          P/E Ratio
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowPEPanel(false)
+                            const next = !showPEGPanel
+                            setShowPEGPanel(next)
+                            if (next && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) {
+                              fetchPEGData(config.symbol)
+                            }
+                            setIsPEDropdownOpen(false)
+                          }}
+                          className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`}
+                          style={{
+                            padding: '10px 16px',
+                            fontWeight: '700',
+                            fontSize: '14px',
+                            textAlign: 'left',
+                            borderRadius: '4px',
+                            width: '100%',
+                          }}
+                        >
+                          PEG Ratio
+                        </button>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                {isPEDropdownOpen &&
+                  createPortal(
+                    <div
+                      className="fixed inset-0"
+                      style={{ zIndex: 99998 }}
+                      onClick={() => setIsPEDropdownOpen(false)}
+                    />,
+                    document.body
+                  )}
               </div>
 
               {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
@@ -29670,6 +30429,8 @@ export default function TradingViewChart({
                     <circle cx="12" cy="12" r="3"></circle>
                   </svg>
                 </button>
+
+
               </div>
             </div>
           </div>
@@ -29865,7 +30626,7 @@ export default function TradingViewChart({
 
                     {/* Trade Desk — Bloomberg terminal dark */}
                     <button
-                      onClick={() => { setSelectedTheme('trade-desk'); setConfig((prev) => ({ ...prev, backgroundColor: '#0a0d14', gridLineColor: '#1a2234', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#e8e0d0' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#e8e0d0' } }, colors: { bullish: { body: '#00b386', wick: '#00b386', border: '#00b386' }, bearish: { body: '#ff6835', wick: '#ff6835', border: '#ff6835' }, volume: { bullish: '#00b386', bearish: '#ff6835' } } })) }}
+                      onClick={() => { setSelectedTheme('trade-desk'); setConfig((prev) => ({ ...prev, backgroundColor: '#0a0d14', gridLineColor: '#1a2234', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#e8e0d0' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#e8e0d0' } }, colors: { bullish: { body: 'rgba(0,255,191,0.9)', wick: 'rgba(0,179,134,0.9)', border: 'rgba(0,179,134,0.9)' }, bearish: { body: 'rgba(255,64,0,0.9)', wick: 'rgba(255,104,53,0.9)', border: 'rgba(255,104,53,0.9)' }, volume: { bullish: 'rgba(0,179,134,0.9)', bearish: 'rgba(255,104,53,0.9)' } } })) }}
                       className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
                       style={{ background: 'linear-gradient(180deg, #0d1018 0%, #080b11 100%)', border: selectedTheme === 'trade-desk' ? '2px solid #ff8c00' : '1px solid rgba(0,179,134,0.35)', boxShadow: selectedTheme === 'trade-desk' ? '0 0 16px rgba(255,140,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)' : '0 2px 8px rgba(0,0,0,0.6)' }}
                     >
@@ -29940,7 +30701,131 @@ export default function TradingViewChart({
             , document.body)}
 
           {/* Chart Container with Sidebar */}
-          <div className="flex flex-1 bg-[#0a0a0a]">
+          <div className="flex flex-1 bg-[#0a0a0a]" style={{ position: 'relative' }}>
+            {/* PAT right-side nav strip — rendered after chart canvas so it's a flex sibling on the right */}
+            {!isMobile && !hideDesktopSidebar && (
+              <div
+                style={{
+                  width: 40,
+                  flexShrink: 0,
+                  background: '#0a0a0a',
+                  borderLeft: '1px solid #1e1e1e',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingTop: 4,
+                  paddingBottom: 4,
+                  zIndex: 10000,
+                  order: 3,
+                }}
+              >
+                {([
+                  {
+                    id: 'alerts', color: '#EF4444', title: 'Alerts',
+                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-1.29 1.29c-.63.63-.19 1.71.7 1.71h13.17c.89 0 1.34-1.08.71-1.71L18 16z" /><circle cx="18" cy="8" r="4" fill="#EF4444" stroke="#0a0a0a" strokeWidth="1.5" /></svg>
+                  },
+                  {
+                    id: 'plan', color: '#A855F7', title: 'Plan',
+                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" /></svg>
+                  },
+                  {
+                    id: 'insight', color: '#C4CBD6', title: 'Insight',
+                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.87-3.13-7-7-7zm2 14H10v-1h4v1zm0-3H10v-1h4v1zm-1.25-4.25-.75.44V10h-1v-.81l-.75-.44A3.01 3.01 0 0 1 9 6.5 3 3 0 0 1 12 3.5a3 3 0 0 1 3 3 3.01 3.01 0 0 1-2.25 2.25z" /><rect x="9" y="19" width="6" height="1.5" rx=".75" fill="currentColor" /></svg>
+                  },
+                  {
+                    id: 'screeners', color: '#14B8A6', title: 'Screeners',
+                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /><path d="M8 9h3V8H8v1zm0 2h3v-1H8v1zm0 2h3v-1H8v1z" /></svg>
+                  },
+                ] as const).map((tab) => {
+                  const isActive = showPATPanel && patPanelActiveTab === tab.id
+                  return (
+                    <div key={tab.id} style={{ position: 'relative' }}
+                      onMouseEnter={e => {
+                        const tip = (e.currentTarget as HTMLElement).querySelector('.pat-tooltip') as HTMLElement
+                        if (tip) tip.style.opacity = '1'
+                      }}
+                      onMouseLeave={e => {
+                        const tip = (e.currentTarget as HTMLElement).querySelector('.pat-tooltip') as HTMLElement
+                        if (tip) tip.style.opacity = '0'
+                      }}
+                    >
+                      <button
+                        onClick={() => {
+                          if (showPATPanel && patPanelActiveTab === tab.id) {
+                            setShowPATPanel(false)
+                          } else {
+                            setActiveSidebarPanel(null)
+                            setPatPanelActiveTab(tab.id as 'alerts' | 'plan' | 'insight' | 'screeners')
+                            setShowPATPanel(true)
+                          }
+                        }}
+                        style={{
+                          width: '45px',
+                          height: '45px',
+                          borderRadius: '8px',
+                          background: isActive
+                            ? `linear-gradient(135deg, ${tab.color}40 0%, ${tab.color}20 50%, ${tab.color}35 100%)`
+                            : 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.2) 100%)',
+                          border: isActive ? `1px solid ${tab.color}88` : '1px solid rgba(255,255,255,0.08)',
+                          boxShadow: isActive
+                            ? `0 2px 12px ${tab.color}40, inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.3)`
+                            : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.4)',
+                          color: isActive ? tab.color : `${tab.color}99`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s',
+                          padding: 0,
+                        }}
+                        onMouseEnter={e => { if (!isActive) { const el = e.currentTarget as HTMLElement; el.style.color = tab.color; el.style.background = `linear-gradient(135deg, ${tab.color}20 0%, ${tab.color}0a 50%, rgba(0,0,0,0.1) 100%)`; el.style.border = `1px solid ${tab.color}44`; el.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 8px ${tab.color}25` } }}
+                        onMouseLeave={e => { if (!isActive) { const el = e.currentTarget as HTMLElement; el.style.color = `${tab.color}99`; el.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.2) 100%)'; el.style.border = '1px solid rgba(255,255,255,0.08)'; el.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.4)' } }}
+                      >
+                        {tab.icon}
+                      </button>
+                      {/* Tooltip */}
+                      <div className="pat-tooltip" style={{
+                        position: 'absolute',
+                        right: 'calc(100% + 8px)',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'rgba(15,15,15,0.95)',
+                        border: `1px solid ${tab.color}55`,
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        color: tab.color,
+                        fontSize: '16px',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        pointerEvents: 'none',
+                        opacity: 0,
+                        transition: 'opacity 0.12s',
+                        boxShadow: `0 4px 12px rgba(0,0,0,0.6), 0 0 0 1px ${tab.color}22`,
+                        zIndex: 99999,
+                      }}>
+                        {tab.title}
+                      </div>
+                    </div>
+                  )
+                })}
+                <div style={{ flex: 1 }} />
+                {showPATPanel && (
+                  <button
+                    onClick={() => setShowPATPanel(false)}
+                    title="Close"
+                    style={{ width: '28px', height: '28px', borderRadius: '4px', color: '#3a3a3a', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#3a3a3a')}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Sidebar — visible on desktop, hidden on mobile (hamburger used instead) */}
             <div
               className="sidebar-container"
@@ -29949,19 +30834,16 @@ export default function TradingViewChart({
               <div className="relative z-10 flex flex-col items-center h-full gap-4" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '12px', paddingBottom: '12px' }}>
                 {/* Sidebar Buttons */}
                 {[
-                  { id: 'liquid', icon: TbBoxMultiple, label: 'LIQUID', accent: 'orange' },
+                  { id: 'gex', icon: TbBoxMultiple, label: 'GEX', accent: 'orange' },
                   { id: 'watch', icon: TbChartLine, label: 'WATCH', accent: 'blue' },
                   { id: 'markets', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
                   { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
-                  { id: 'alerts', icon: TbBellRinging, label: 'ALERTS', accent: 'red' },
 
                   { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
-                  { id: 'plan', icon: TbChartLine, label: 'PLAN', accent: 'purple' },
                   { id: 'seasonality', icon: TbCalendar, label: 'SEASONALITY', accent: 'pink' },
                   { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
-                  { id: 'screeners', icon: TbFilter, label: 'SCREENERS', accent: 'teal' },
+                  { id: 'straddle', icon: TbArrowsVertical, label: 'STRADDLE', accent: 'violet' },
                   { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' },
-                  { id: 'insight', icon: TbBulb, label: 'INSIGHT', accent: 'platinum' },
                 ].map((item, index) => {
                   const IconComponent = item.icon
 
@@ -29983,9 +30865,13 @@ export default function TradingViewChart({
                     lime: '#84CC16',
                     teal: '#14B8A6',
                     rose: '#F43F5E',
+                    slate: '#94A3B8',
                   }
 
-                  const isActive = activeSidebarPanel === item.id
+                  const patTabs = ['alerts', 'plan', 'insight', 'screeners']
+                  const isActive = patTabs.includes(item.id)
+                    ? (showPATPanel && patPanelActiveTab === item.id)
+                    : activeSidebarPanel === item.id
 
                   return (
                     <div
@@ -30139,7 +31025,7 @@ export default function TradingViewChart({
                         </span>
                         {/* Label with premium typography */}
                         <span
-                          className="relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block"
+                          className="sidebar-label relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block"
                           style={{
                             color: '#FFFFFF',
                             opacity: 1,
@@ -30197,7 +31083,65 @@ export default function TradingViewChart({
             </div>
 
             {/* Main Chart Area */}
-            <div ref={containerRef} className="relative flex-1" style={{ height: height }}>
+            <div ref={containerRef} className="relative flex-1" style={{ height: height, marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0 }}>
+
+              {/* ── Animated Backgrounds ── */}
+              <style>{`
+                @keyframes star-twinkle {
+                  0%,100% { opacity: 1; transform: scale(1); }
+                  50% { opacity: 0.15; transform: scale(0.5); }
+                }
+                @keyframes nebula-drift {
+                  0%,100% { transform: translate(0,0) scale(1); opacity: 0.18; }
+                  50% { transform: translate(2%,1.5%) scale(1.04); opacity: 0.28; }
+                }
+                @keyframes stripe-scroll {
+                  0% { background-position: 0 0; }
+                  100% { background-position: 0 -120px; }
+                }
+                @keyframes flag-star-spin {
+                  0% { transform: rotate(0deg) scale(1); opacity: 0.9; }
+                  50% { transform: rotate(180deg) scale(1.3); opacity: 0.5; }
+                  100% { transform: rotate(360deg) scale(1); opacity: 0.9; }
+                }
+                @keyframes flag-star-drift {
+                  0%,100% { transform: translateY(0px); opacity: 0.85; }
+                  50% { transform: translateY(-6px); opacity: 0.5; }
+                }
+                @keyframes water-wave {
+                  0% { transform: translateX(0) scaleY(1); }
+                  50% { transform: translateX(-3%) scaleY(1.08); }
+                  100% { transform: translateX(0) scaleY(1); }
+                }
+                @keyframes water-ripple {
+                  0% { transform: scale(0.6); opacity: 0.7; }
+                  100% { transform: scale(2.2); opacity: 0; }
+                }
+                @keyframes plant-sway {
+                  0%,100% { transform-origin: bottom center; transform: rotate(-4deg); }
+                  50% { transform-origin: bottom center; transform: rotate(4deg); }
+                }
+                @keyframes plant-sway2 {
+                  0%,100% { transform-origin: bottom center; transform: rotate(3deg); }
+                  50% { transform-origin: bottom center; transform: rotate(-3deg); }
+                }
+                @keyframes fire-flicker {
+                  0%,100% { transform: scaleY(1) scaleX(1); opacity: 1; }
+                  25% { transform: scaleY(1.12) scaleX(0.92); opacity: 0.9; }
+                  50% { transform: scaleY(0.88) scaleX(1.08); opacity: 1; }
+                  75% { transform: scaleY(1.08) scaleX(0.95); opacity: 0.85; }
+                }
+                @keyframes fire-rise {
+                  0% { transform: translateY(0) scaleX(1); opacity: 0.9; }
+                  50% { transform: translateY(-12px) scaleX(0.7); opacity: 0.5; }
+                  100% { transform: translateY(-22px) scaleX(0.4); opacity: 0; }
+                }
+                @keyframes sun-glow {
+                  0%,100% { box-shadow: 0 0 30px 10px rgba(255,200,50,0.35); }
+                  50% { box-shadow: 0 0 55px 20px rgba(255,220,80,0.55); }
+                }
+              `}</style>
+
               {/* Loading Overlay */}
               {loading && (
                 <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
@@ -30575,7 +31519,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${pePanelHeight + 80 + 25}px`,
+                        bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 80 + 25}px`,
                         height: '4px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
@@ -30589,6 +31533,28 @@ export default function TradingViewChart({
                     </div>
                   )}
 
+                  {/* PEG Panel Resize Handle */}
+                  {showPEGPanel && (
+                    <div
+                      onMouseDown={handlePEGPanelDragStart}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: `${pegPanelHeight + 80 + 25}px`,
+                        height: '4px',
+                        cursor: 'ns-resize',
+                        backgroundColor: isDraggingPEGPanel ? '#a78bfa' : 'rgba(167, 139, 250, 0.3)',
+                        transition: isDraggingPEGPanel ? 'none' : 'background-color 0.2s',
+                        zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#a78bfa' }}
+                      onMouseLeave={(e) => { if (!isDraggingPEGPanel) e.currentTarget.style.backgroundColor = 'rgba(167, 139, 250, 0.3)' }}
+                    >
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#a78bfa', borderRadius: '1px' }} />
+                    </div>
+                  )}
+
                   {/* BuySell Panel Resize Handle */}
                   {showBuySellIndicator && (<div
                     onMouseDown={handleBuySellDragStart}
@@ -30596,7 +31562,7 @@ export default function TradingViewChart({
                       position: 'absolute',
                       left: 0,
                       right: 0,
-                      bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + 105}px`,
+                      bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 105}px`,
                       height: '4px',
                       cursor: 'ns-resize',
                       backgroundColor: isDraggingBuySellPanel
@@ -30984,25 +31950,43 @@ export default function TradingViewChart({
           {typeof window !== 'undefined' &&
             createPortal(
               <div
+                className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out flex flex-col`}
                 ref={sidebarPanelRef}
-                className={`fixed bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-out overflow-y-auto`}
                 style={{
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
-                  display: activeSidebarPanel ? 'block' : 'none',
-                  left: (isMobile || hideDesktopSidebar) ? '0px' : '80px',
-                  width: (isMobile || hideDesktopSidebar)
-                    ? '100vw'
-                    : 'calc(100vw - 80px)',
-                  maxWidth: (isMobile || hideDesktopSidebar)
-                    ? '100vw'
-                    : 'calc(100vw - 80px)',
+                  display: (activeSidebarPanel || showPATPanel) ? 'flex' : 'none',
+                  left: (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : ((isMobile || hideDesktopSidebar) ? '0px' : '80px'),
+                  right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : 'auto',
+                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : '360px'),
+                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : '360px'),
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
-                  top: (isMobile || hideDesktopSidebar) ? '0px' : `${sidebarPanelTop}px`,
+                  top: (isMobile || hideDesktopSidebar)
+                    ? '0px'
+                    : `${sidebarPanelTop}px`,
                   bottom: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                 }}
-                data-sidebar-panel={activeSidebarPanel}
+                data-sidebar-panel={activeSidebarPanel || (showPATPanel ? patPanelActiveTab : undefined)}
               >
+                {/* Drag handle — left edge of PAT panel */}
+                {showPATPanel && !isMobile && !hideDesktopSidebar && (
+                  <div
+                    onMouseDown={handlePatResizeMouseDown}
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 6,
+                      cursor: 'ew-resize',
+                      zIndex: 10,
+                      background: 'transparent',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  />
+                )}
                 {/* Responsive font/table scaling for mobile */}
                 {isMobile && (
                   <style>{`
@@ -31020,9 +32004,9 @@ export default function TradingViewChart({
                     [data-sidebar-panel] .gap-3 { gap: clamp(5px, 1.5vw, 12px) !important; }
                   `}</style>
                 )}
-                <div className={`h-full overflow-y-auto`} style={activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}}>
-                  {activeSidebarPanel === 'liquid' && (
-                    <LiquidPanel onClose={() => setActiveSidebarPanel(null)} />
+                <div className={`flex-1 overflow-y-auto`} style={{ ...(activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}) }}>
+                  {activeSidebarPanel === 'gex' && (
+                    <GexPanel onClose={() => setActiveSidebarPanel(null)} />
                   )}
                   {activeSidebarPanel === 'watch' && (
                     <WatchlistPanel
@@ -31060,6 +32044,60 @@ export default function TradingViewChart({
                       />
                     )}
                   </div>
+                  {/* Always mounted so StraddleTownScreener auto-scans in background.
+                      In trading-lens (disableSidebarAutoScan) we use conditional mount
+                      to prevent background API calls when the panel is hidden. */}
+                  <div
+                    style={{
+                      display: activeSidebarPanel === 'straddle' ? 'flex' : 'none',
+                      height: '100%',
+                      flexDirection: 'column',
+                      background: '#000',
+                      color: '#fff',
+                    }}
+                  >
+                    {(!disableSidebarAutoScan || activeSidebarPanel === 'straddle') && (
+                      <React.Fragment>
+                        {/* GEX-style inline X header */}
+                        <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                          <div
+                            className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative"
+                            style={{
+                              padding: '14px 16px',
+                              fontSize: '14px',
+                              color: '#FF6600',
+                              border: '2px solid #FF6600',
+                              background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)',
+                              boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)',
+                            }}
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                            <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>STRADDLE SCAN</span>
+                          </div>
+                          <button
+                            onClick={() => setActiveSidebarPanel(null)}
+                            className="flex items-center justify-center font-bold transition-all"
+                            style={{
+                              width: '44px',
+                              flexShrink: 0,
+                              alignSelf: 'stretch',
+                              fontSize: '16px',
+                              color: '#FF6600',
+                              border: '2px solid rgba(255,102,0,0.5)',
+                              background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                              cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600'; }}
+                          >
+                            &#x2715;
+                          </button>
+                        </div>
+                        <StraddleTownScreener autoRun={!disableSidebarAutoScan} />
+                      </React.Fragment>
+                    )}
+                  </div>
                   {activeSidebarPanel === 'flow' && (
                     <FlowPanel
                       flowData={flowData}
@@ -31090,11 +32128,11 @@ export default function TradingViewChart({
                   >
                     <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} />
                   </div>
-                  {activeSidebarPanel === 'screeners' && (
+                  {showPATPanel && patPanelActiveTab === 'screeners' && (
                     <div className="h-full flex flex-col bg-black text-white relative">
                       {/* Close button */}
                       <button
-                        onClick={() => setActiveSidebarPanel(null)}
+                        onClick={() => setShowPATPanel(false)}
                         className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
                         aria-label="Close panel"
                       >
@@ -31127,7 +32165,7 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
-                  {activeSidebarPanel === 'alerts' && (
+                  {showPATPanel && patPanelActiveTab === 'alerts' && (
                     <div className="h-full flex flex-col bg-black">
                       {/* Header */}
                       <div
@@ -31136,7 +32174,7 @@ export default function TradingViewChart({
                       >
                         {/* Close button */}
                         <button
-                          onClick={() => setActiveSidebarPanel(null)}
+                          onClick={() => setShowPATPanel(false)}
                           className="absolute top-3 right-4 flex items-center justify-center w-7 h-7 rounded-md border border-red-700 text-red-400 hover:text-white transition-all duration-150 z-50 active:scale-95"
                           style={{
                             background:
@@ -31732,7 +32770,7 @@ export default function TradingViewChart({
                       onClose={() => setActiveSidebarPanel(null)}
                     />
                   )}
-                  {activeSidebarPanel === 'plan' && (
+                  {showPATPanel && patPanelActiveTab === 'plan' && (
                     <PlanPanel
                       optionsContent={
                         <WatchlistPanel
@@ -31748,55 +32786,51 @@ export default function TradingViewChart({
                   )}
                   {activeSidebarPanel === 'rrg' && (
                     <div className="h-full flex flex-col bg-black text-white">
-                      {/* Bloomberg-style Header */}
-                      <div className="p-3 border-b border-rose-500 bg-black relative">
-                        {/* Close button */}
+                      {/* Tab row with inline GEX-style X */}
+                      <div className="flex gap-0 w-full">
+                        {['Price', 'IV', 'Screener'].map((tab) => (
+                          <button
+                            key={tab}
+                            onClick={() => setRrgTab(tab)}
+                            className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
+                            style={{
+                              padding: '14px 16px',
+                              fontSize: '14px',
+                              color: rrgTab === tab ? '#FF6600' : '#ffffff',
+                              border: rrgTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                              background: rrgTab === tab
+                                ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                                : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                              boxShadow: rrgTab === tab
+                                ? 'inset 0 1px 0 rgba(255,255,255,0.1)'
+                                : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                            }}
+                          >
+                            {rrgTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                            <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
+                              {tab === 'Screener' ? tab : `${tab} RRG`}
+                            </span>
+                          </button>
+                        ))}
                         <button
                           onClick={() => setActiveSidebarPanel(null)}
-                          className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-                          aria-label="Close panel"
+                          className="flex items-center justify-center font-bold transition-all"
+                          style={{
+                            width: '44px',
+                            flexShrink: 0,
+                            alignSelf: 'stretch',
+                            fontSize: '16px',
+                            color: '#FF6600',
+                            border: '2px solid rgba(255,102,0,0.5)',
+                            background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                            cursor: 'pointer',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600'; }}
                         >
-                          <svg
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                          </svg>
+                          &#x2715;
                         </button>
-                        {/* Tab Navigation */}
-                        <div className="flex gap-0">
-                          {['Price', 'IV', 'Screener'].map((tab) => (
-                            <button
-                              key={tab}
-                              onClick={() => setRrgTab(tab)}
-                              className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
-                              style={{
-                                padding: '14px 16px',
-                                fontSize: '14px',
-                                color: rrgTab === tab ? '#FF6600' : '#ffffff',
-                                border: rrgTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                                background: rrgTab === tab
-                                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                                  : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                                boxShadow: rrgTab === tab
-                                  ? 'inset 0 1px 0 rgba(255,255,255,0.1)'
-                                  : 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                              }}
-                            >
-                              {rrgTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
-                              <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
-                                {tab === 'Screener' ? tab : `${tab} RRG`}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
                       </div>
 
                       {/* RRG Content */}
@@ -31815,51 +32849,50 @@ export default function TradingViewChart({
                   )}
                   {activeSidebarPanel === 'seasonality' && (
                     <div className="h-full flex flex-col bg-black text-white">
-                      {/* Header: desktop = CHART/SCREENER tabs; mobile = none (close is in Row 1) */}
+                      {/* Header: desktop = CHART/SCREENER tabs + inline X; mobile = none (close is in Row 1) */}
                       {!isMobile && (
-                        <div className="p-3 border-b border-pink-500 bg-black relative">
-                          {/* Close button */}
+                        <div className="flex gap-0 w-full">
+                          {['Chart', 'Screener'].map((tab) => (
+                            <button
+                              key={tab}
+                              onClick={() => setCalendarTab(tab)}
+                              className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
+                              style={{
+                                padding: '14px 16px',
+                                fontSize: '14px',
+                                color: calendarTab === tab ? '#FF6600' : '#ffffff',
+                                border: calendarTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                                background: calendarTab === tab
+                                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                                  : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                                boxShadow: calendarTab === tab
+                                  ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                                  : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                              }}
+                            >
+                              {calendarTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                              <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{tab}</span>
+                            </button>
+                          ))}
                           <button
                             onClick={() => setActiveSidebarPanel(null)}
-                            className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-                            aria-label="Close panel"
+                            className="flex items-center justify-center font-bold transition-all"
+                            style={{
+                              width: '44px',
+                              flexShrink: 0,
+                              alignSelf: 'stretch',
+                              fontSize: '16px',
+                              color: '#FF6600',
+                              border: '2px solid rgba(255,102,0,0.5)',
+                              background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                              cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600'; }}
                           >
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <line x1="18" y1="6" x2="6" y2="18"></line>
-                              <line x1="6" y1="6" x2="18" y2="18"></line>
-                            </svg>
+                            &#x2715;
                           </button>
-                          {/* Tab Navigation */}
-                          <div className="flex border-2 border-pink-500/30 rounded-md overflow-hidden shadow-lg">
-                            {['Chart', 'Screener'].map((tab) => (
-                              <button
-                                key={tab}
-                                onClick={() => setCalendarTab(tab)}
-                                style={{
-                                  flex: 1,
-                                  padding: '12px 24px',
-                                  fontSize: '20px',
-                                  fontWeight: '900',
-                                  fontFamily: 'monospace',
-                                  letterSpacing: '1px',
-                                  textTransform: 'uppercase',
-                                  border: 'none',
-                                  borderRight: calendarTab === tab ? 'none' : '1px solid #333',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.3s',
-                                  background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                                  color: calendarTab === tab ? '#ff8844' : '#ffffff',
-                                  boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-                                  opacity: 1,
-                                  filter: 'contrast(1.1) brightness(1.1)',
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)' }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)' }}
-                              >
-                                {tab}
-                              </button>
-                            ))}
-                          </div>
                         </div>
                       )}
 
@@ -34016,13 +35049,14 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
-                  {activeSidebarPanel === 'insight' && (
-                    <InsightPanel onClose={() => setActiveSidebarPanel(null)} />
+                  {showPATPanel && patPanelActiveTab === 'insight' && (
+                    <InsightPanel onClose={() => setShowPATPanel(false)} />
                   )}
                 </div>
               </div>,
               document.body
             )}
+
         </div>
 
         {/* ? NEW: Drawing Properties Panel */}

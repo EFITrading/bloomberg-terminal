@@ -39,7 +39,7 @@ export default function DarkPoolButton({
             }}
           />
         )}
-        <span style={{ color: '#00E5FF', position: 'relative' }}>POI</span>
+        <span style={{ color: '#00E5FF', position: 'relative' }}>Pivot Point</span>
         {isLoading && (
           <span
             style={{

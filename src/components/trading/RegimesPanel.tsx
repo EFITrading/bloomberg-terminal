@@ -2817,98 +2817,62 @@ export default function RegimesPanel({
               </button>
             </div>
           ) : (
-            <>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px 20px 0',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                    <h1
-                      style={{
-                        fontFamily: "'Inter', system-ui, sans-serif",
-                        fontWeight: 900,
-                        letterSpacing: '-0.01em',
-                        lineHeight: '1.75rem',
-                        margin: 0,
-                        color: '#fff',
-                      }}
-                    >
-                      Market <span style={{ color: '#f59e0b' }}>Intelligence</span>
-                    </h1>
-                  </div>
-                </div>
+            <div style={{ display: 'flex', alignItems: 'stretch' }}>
+              {(
+                [
+                  ['regimes', 'REGIMES'],
+                  ['scanner', 'SCANNER'],
+                ] as const
+              ).map(([t, label]) => (
                 <button
-                  onClick={() => setActiveSidebarPanel(null)}
+                  key={t}
+                  onClick={() => setMainTab(t)}
+                  className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
                   style={{
-                    width: '28px',
-                    height: '28px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: '50%',
-                    color: 'rgba(255,255,255,0.85)',
-                    cursor: 'pointer',
+                    padding: '14px 16px',
                     fontSize: '14px',
-                    transition: 'all 0.15s',
-                    flexShrink: 0,
+                    color: mainTab === t ? '#FF6600' : '#ffffff',
+                    border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                    background: mainTab === t
+                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                    boxShadow: mainTab === t
+                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
+                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    cursor: 'pointer',
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-                    e.currentTarget.style.color = '#fff'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-                    e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
-                  }}
-                  aria-label="Close"
                 >
-                  <TbX size={14} />
+                  {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
+                  <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
                 </button>
-              </div>
-              <div
+              ))}
+              <button
+                onClick={() => setActiveSidebarPanel(null)}
+                className="flex items-center justify-center font-bold transition-all"
                 style={{
-                  display: 'flex',
-                  marginTop: '32px',
-                  gap: 0,
+                  width: '44px',
+                  flexShrink: 0,
+                  alignSelf: 'stretch',
+                  fontSize: '16px',
+                  color: '#FF6600',
+                  border: '2px solid rgba(255,102,0,0.5)',
+                  background: 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
                 }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#FF6600'
+                  e.currentTarget.style.color = '#000'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'
+                  e.currentTarget.style.color = '#FF6600'
+                }}
+                aria-label="Close"
               >
-                {(
-                  [
-                    ['regimes', 'REGIMES'],
-                    ['scanner', 'SCANNER'],
-                  ] as const
-                ).map(([t, label]) => (
-                  <button
-                    key={t}
-                    onClick={() => setMainTab(t)}
-                    className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
-                    style={{
-                      padding: '14px 16px',
-                      fontSize: '14px',
-                      color: mainTab === t ? '#FF6600' : '#ffffff',
-                      border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                      background: mainTab === t
-                        ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                        : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                      boxShadow: mainTab === t
-                        ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
-                        : 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
-                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
-                  </button>
-                ))}
-              </div>
-            </>
+                &#x2715;
+              </button>
+            </div>
           )}
         </div>
 

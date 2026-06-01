@@ -33,8 +33,17 @@ export default function TickerScroller() {
   const [tickerData, setTickerData] = useState<TickerData[]>(
     TICKER_SYMBOLS.map((s) => ({ symbol: s, change: 0 }))
   )
+  const [isBlindMe, setIsBlindMe] = useState(false)
   const prevCloseRef = useRef<Record<string, number>>({})
 
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsBlindMe(document.body.classList.contains('theme-blind-me'))
+    })
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+    setIsBlindMe(document.body.classList.contains('theme-blind-me'))
+    return () => observer.disconnect()
+  }, [])
   useEffect(() => {
     // Skip bulk REST fetch on analysis-suite — no multi-stock scans needed there
     if (pathname === '/analysis-suite') return
@@ -98,8 +107,8 @@ export default function TickerScroller() {
         style={{
           width: '100%',
           maxWidth: '100vw',
-          background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
-          borderBottom: '1px solid rgba(255, 165, 0, 0.2)',
+          background: isBlindMe ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)' : 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
+          borderBottom: isBlindMe ? '1px solid #a89888' : '1px solid rgba(255, 165, 0, 0.2)',
           overflow: 'hidden',
           position: 'relative',
           height: '29px',
@@ -134,10 +143,10 @@ export default function TickerScroller() {
                 letterSpacing: '0.5px',
               }}
             >
-              <span style={{ color: '#FFFFFF' }}>{ticker.symbol}</span>
+              <span style={{ color: isBlindMe ? '#1e1810' : '#FFFFFF' }}>{ticker.symbol}</span>
               <span
                 style={{
-                  color: ticker.change >= 0 ? '#00ff00' : '#ff0000',
+                  color: ticker.change >= 0 ? (isBlindMe ? '#006600' : '#00ff00') : (isBlindMe ? '#cc0000' : '#ff0000'),
                   fontWeight: '600',
                 }}
               >

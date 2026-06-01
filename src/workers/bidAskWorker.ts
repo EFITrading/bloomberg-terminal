@@ -34,8 +34,6 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
   if (type === 'ANALYZE_BATCH') {
     try {
-      console.log(` Worker ${batchId}: Processing ${trades.length} trades`)
-
       // Process all trades in this batch in parallel
       const results = await Promise.allSettled(
         trades.map(async (trade) => {
@@ -134,4 +132,4 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 }
 
 // Export empty object to make this a module
-export {}
+export { }
