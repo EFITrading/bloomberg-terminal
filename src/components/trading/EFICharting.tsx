@@ -32094,7 +32094,7 @@ export default function TradingViewChart({
                             &#x2715;
                           </button>
                         </div>
-                        <StraddleTownScreener autoRun={!disableSidebarAutoScan} />
+                        <StraddleTownScreener autoRun={false} />
                       </React.Fragment>
                     )}
                   </div>
