@@ -1,11 +1,11 @@
 'use client'
 
-import LiquidPanel from '@/components/analytics/LiquidPanel'
+import GexPanel from '@/components/analytics/GexPanel'
 
 export default function DealersWorkbenchPage() {
   return (
     <div className="min-h-screen bg-black">
-      <LiquidPanel />
+      <GexPanel />
     </div>
   )
 }
