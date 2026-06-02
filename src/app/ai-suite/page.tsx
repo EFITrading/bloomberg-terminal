@@ -1256,8 +1256,52 @@ async function runScript(code: string, onEntry: (e: LogEntry) => void): Promise<
     },
 
     // Options flow (unusual activity). ticker is optional for market-wide scan.
+    // Checks the saved DB flow first (same staleness logic as the Options Flow page).
+    // Falls back to the live API only when market is open or no saved data exists for today.
     // Returns array of trades with { underlying_ticker, type, strike, expiry, total_premium, trade_type, ... }
     async optionsFlow(ticker?: string, limit = 50) {
+      try {
+        // --- Saved DB flow check (mirrors options-flow/page.tsx logic) ---
+        const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+        const dow = nowPST.getDay(); const hour = nowPST.getHours(); const minute = nowPST.getMinutes();
+        const marketOpen = (dow >= 1 && dow <= 5) && (hour > 6 || (hour === 6 && minute >= 30)) && hour < 13;
+        if (!marketOpen) {
+          // Compute PST trading date (roll back before 6:30 AM, skip weekends)
+          const target = new Date(nowPST);
+          if (hour < 6 || (hour === 6 && minute < 30)) target.setDate(target.getDate() - 1);
+          while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1);
+          const tradingDate = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+
+          const datesResp = await fetch('/api/flows/dates');
+          if (datesResp.ok) {
+            const dates: { date: string }[] = await datesResp.json();
+            if (dates.length > 0) {
+              const latestDay = new Date(dates[0].date).toISOString().split('T')[0];
+              if (latestDay === tradingDate) {
+                const flowResp = await fetch(`/api/flows/${encodeURIComponent(dates[0].date)}`);
+                if (flowResp.ok) {
+                  const flowData = await flowResp.json();
+                  const allTrades: Array<Record<string, unknown>> = Array.isArray(flowData.data) ? flowData.data : [];
+                  // Verify trade timestamps actually belong to this trading date
+                  const tradesMatchDate = allTrades.some((t: any) => {
+                    if (!t.trade_timestamp) return false;
+                    const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === tradingDate;
+                  });
+                  if (tradesMatchDate) {
+                    const filtered = ticker
+                      ? allTrades.filter((t: any) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
+                      : allTrades;
+                    const result = filtered.slice(0, limit);
+                    if (result.length > 0) return result;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch { /* fall through to live API */ }
+      // --- Live API fallback ---
       let url = '/api/live-options-flow?limit=' + limit;
       if (ticker) url += '&ticker=' + encodeURIComponent(ticker);
       const res = await fetch(url);

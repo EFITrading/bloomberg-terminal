@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { createPortal } from 'react-dom'
 import { flushSync } from 'react-dom'
@@ -4792,6 +4792,79 @@ const FlowPanel = React.memo(
           tickerParam = 'ALL_EXCLUDE_ETF_MAG7'
         }
 
+        // --- Check saved DB flow before hitting the stream (same logic as options-flow page) ---
+        try {
+          const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+          const dow = nowPST.getDay(); const hour = nowPST.getHours(); const minute = nowPST.getMinutes()
+          const marketOpen = (dow >= 1 && dow <= 5) && (hour > 6 || (hour === 6 && minute >= 30)) && hour < 13
+          if (!marketOpen) {
+            const target = new Date(nowPST)
+            if (hour < 6 || (hour === 6 && minute < 30)) target.setDate(target.getDate() - 1)
+            while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1)
+            const tradingDate = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`
+
+            setFlowStreamingStatus('Checking saved data...')
+            const datesResp = await fetch('/api/flows/dates')
+            if (datesResp.ok) {
+              const dates: { date: string }[] = await datesResp.json()
+              if (dates.length > 0) {
+                const latestDay = new Date(dates[0].date).toISOString().split('T')[0]
+                if (latestDay === tradingDate) {
+                  const flowResp = await fetch(`/api/flows/${encodeURIComponent(dates[0].date)}`)
+                  if (flowResp.ok) {
+                    const flowData = await flowResp.json()
+                    const allTrades: any[] = Array.isArray(flowData.data) ? flowData.data : []
+                    const tradesMatchDate = allTrades.some((t: any) => {
+                      if (!t.trade_timestamp) return false
+                      const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === tradingDate
+                    })
+                    if (tradesMatchDate) {
+                      const rawTicker = (tickerOverride || flowSelectedTicker || '').toUpperCase()
+                      const MAG7 = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'])
+                      const ETF_SET = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
+                      let filtered: any[]
+                      if (!rawTicker || rawTicker === 'ALL' || rawTicker === 'ALL_EXCLUDE_ETF_MAG7') {
+                        filtered = allTrades
+                      } else if (rawTicker === 'MAG7') {
+                        filtered = allTrades.filter((t: any) => MAG7.has(t.underlying_ticker?.toUpperCase() ?? ''))
+                      } else if (rawTicker === 'ETF') {
+                        filtered = allTrades.filter((t: any) => ETF_SET.has(t.underlying_ticker?.toUpperCase() ?? ''))
+                      } else {
+                        filtered = allTrades.filter((t: any) => t.underlying_ticker?.toUpperCase() === rawTicker)
+                      }
+                      if (filtered.length > 0) {
+                        setFlowData(filtered)
+                        setFlowSummary({
+                          total_trades: filtered.length,
+                          total_premium: filtered.reduce((s: number, t: any) => s + (t.total_premium || 0), 0),
+                          unique_symbols: new Set(filtered.map((t: any) => t.underlying_ticker)).size,
+                          trade_types: {
+                            BLOCK: filtered.filter((t: any) => t.trade_type === 'BLOCK').length,
+                            SWEEP: filtered.filter((t: any) => t.trade_type === 'SWEEP').length,
+                            MINI: filtered.filter((t: any) => t.trade_type === 'MINI').length,
+                            'MULTI-LEG': filtered.filter((t: any) => t.trade_type === 'MULTI-LEG').length,
+                          },
+                          call_put_ratio: {
+                            calls: filtered.filter((t: any) => t.type?.toLowerCase() === 'call').length,
+                            puts: filtered.filter((t: any) => t.type?.toLowerCase() === 'put').length,
+                          },
+                          processing_time_ms: 0,
+                        })
+                        setFlowLoading(false)
+                        setFlowStreamingStatus('')
+                        return
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            setFlowStreamingStatus('')
+          }
+        } catch { /* fall through to live stream */ }
+        // -------------------------------------------------------------------------
+
         const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`)
 
         eventSource.onmessage = (event) => {
@@ -5217,6 +5290,8 @@ export default function TradingViewChart({
     const unsub = polygonStocksWS.subscribe('efi-chart-ws', {
       amSymbols: allAMSyms,
       onAM: (msg) => {
+        // Basket mode: skip per-symbol price updates for the basket label (e.g. TOP10, SPY10)
+        if (isBasketMode && msg.sym === symbol) return
         const sym = msg.sym
         const price = msg.c
 
@@ -5245,7 +5320,8 @@ export default function TradingViewChart({
           return { ...prev, [sym]: { ...entry, price, change } }
         })
       },
-      aSymbol: symbol,
+      // Basket mode: no live candle feed (averaging 100s of stocks in real-time isn't meaningful)
+      aSymbol: isBasketMode ? '' : symbol,
       onA: (msg) => {
         const tf = chartTimeframeRef.current
         const BAR_MS: Record<string, number> = {
@@ -5318,6 +5394,19 @@ export default function TradingViewChart({
   const rrgButtonRef = useRef<HTMLButtonElement>(null) // Chart state
   const flowMovesButtonRef = useRef<HTMLButtonElement>(null)
   const peButtonRef = useRef<HTMLButtonElement>(null)
+  const dropdownHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeAllToolbarDropdowns = () => {
+    setIsTimeframeDropdownOpen(false)
+    setIsExpectedRangeDropdownOpen(false)
+    setIsSeasonalDropdownOpen(false)
+    setIsEventDropdownOpen(false)
+    setIsGexDropdownOpen(false)
+    setIsIVHVDropdownOpen(false)
+    setIsTechnalysisDropdownOpen(false)
+    setIsFlowMovesDropdownOpen(false)
+    setIsRrgDropdownOpen(false)
+    setIsPEDropdownOpen(false)
+  }
   const [config, setConfig] = useState<ChartConfig>({
     symbol,
     timeframe: initialTimeframe,
@@ -5443,6 +5532,11 @@ export default function TradingViewChart({
   const [isBenchmarkMode, setIsBenchmarkMode] = useState(false)
   const [benchmarkSymbol1, setBenchmarkSymbol1] = useState('')
   const [benchmarkSymbol2, setBenchmarkSymbol2] = useState('')
+
+  // Basket mode state (TOP{N} or {ETF}{N})
+  const [isBasketMode, setIsBasketMode] = useState(false)
+  const [basketLabel, setBasketLabel] = useState('')
+  const [basketSymbols, setBasketSymbols] = useState<string[]>([])
 
   // Tracking tab state
   const [trackingData, setTrackingData] = useState<{
@@ -6056,9 +6150,273 @@ export default function TradingViewChart({
     }
   }
 
+  // Shared processing helper: convert raw trades array into FlowMoves chart data and set state
+  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W') => {
+    // US Market Holidays (2025-2026)
+    const US_MARKET_HOLIDAYS = [
+      '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+      '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+      '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+      '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+    ]
+
+    const getTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
+      const days: string[] = []
+      const now = new Date()
+      const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const daysNeeded = tf === '1D' ? 1 : tf === '3D' ? 3 : 5
+      const currentDate = new Date(pstNow)
+      currentDate.setDate(currentDate.getDate() - 1)
+      while (days.length < daysNeeded) {
+        const dayOfWeek = currentDate.getDay()
+        const year = currentDate.getFullYear()
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+        const day = String(currentDate.getDate()).padStart(2, '0')
+        const dateString = `${year}-${month}-${day}`
+        if (dayOfWeek !== 0 && dayOfWeek !== 6 && !US_MARKET_HOLIDAYS.includes(dateString)) {
+          days.push(dateString)
+        }
+        currentDate.setDate(currentDate.getDate() - 1)
+      }
+      return days.reverse()
+    }
+
+    const tradingDays = getTradingDays(timeframe)
+
+    const intervalData = new Map<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
+
+    if (timeframe === '1D') {
+      const marketOpenMinutes = 6 * 60 + 30
+      const marketCloseMinutes = 13 * 60
+      for (let totalMinutes = marketOpenMinutes; totalMinutes < marketCloseMinutes; totalMinutes += 5) {
+        const hour = Math.floor(totalMinutes / 60)
+        const minute = totalMinutes % 60
+        const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+        intervalData.set(timeKey, { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
+      }
+      intervalData.set('16:00', { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
+    } else {
+      const marketOpenMinutes = 6 * 60 + 30
+      const marketCloseMinutes = 13 * 60
+      tradingDays.forEach((date) => {
+        for (let totalMinutes = marketOpenMinutes; totalMinutes <= marketCloseMinutes; totalMinutes += 5) {
+          const hour = Math.floor(totalMinutes / 60)
+          const minute = totalMinutes % 60
+          const timeKey = `${date}_${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+          intervalData.set(timeKey, { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
+        }
+      })
+    }
+
+    allTrades.forEach((trade) => {
+      const tradeDate = new Date(trade.trade_timestamp)
+      const pstTime = new Date(tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const hour = pstTime.getHours()
+      const minute = pstTime.getMinutes()
+      const year = pstTime.getFullYear()
+      const month = String(pstTime.getMonth() + 1).padStart(2, '0')
+      const day = String(pstTime.getDate()).padStart(2, '0')
+      const dateKey = `${year}-${month}-${day}`
+      if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) return
+      let timeKey: string
+      if (timeframe === '1D') {
+        const totalMinutes = hour * 60 + minute
+        const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
+        const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
+        const slotHour = Math.floor((slotMinutes + 570) / 60)
+        const slotMin = (slotMinutes + 570) % 60
+        timeKey = `${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
+      } else {
+        const totalMinutes = hour * 60 + minute
+        const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
+        const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
+        const slotHour = Math.floor((slotMinutes + 570) / 60)
+        const slotMin = (slotMinutes + 570) % 60
+        timeKey = `${dateKey}_${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
+      }
+      const interval = intervalData.get(timeKey)
+      if (interval) {
+        const isBullish = trade.fill_style === 'A' || trade.fill_style === 'AA'
+        if (trade.type === 'call') {
+          if (isBullish) { interval.callsPlus += trade.total_premium } else { interval.callsMinus += trade.total_premium }
+        } else {
+          if (isBullish) { interval.putsPlus += trade.total_premium } else { interval.putsMinus += trade.total_premium }
+        }
+      }
+    })
+
+    const sortedIntervals = Array.from(intervalData.entries()).sort((a, b) => {
+      if (timeframe === '1D') return a[0].localeCompare(b[0])
+      const [dateA, timeA] = a[0].split('_')
+      const [dateB, timeB] = b[0].split('_')
+      return dateA === dateB ? timeA.localeCompare(timeB) : dateA.localeCompare(dateB)
+    })
+
+    const chartData: Array<{
+      time: number; timeLabel: string; callsPlus: number; callsMinus: number
+      putsPlus: number; putsMinus: number; bullishTotal: number; bearishTotal: number; netFlow: number
+    }> = []
+
+    const cumulative = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
+
+    sortedIntervals.forEach(([key, data]) => {
+      cumulative.callsPlus += data.callsPlus
+      cumulative.callsMinus += data.callsMinus
+      cumulative.putsPlus += data.putsPlus
+      cumulative.putsMinus += data.putsMinus
+      let timestamp: number
+      let displayLabel: string
+      if (timeframe === '1D') {
+        const [hourStr, minStr] = key.split(':')
+        const hour = parseInt(hourStr)
+        const now = new Date()
+        const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        const year = pstNow.getFullYear()
+        const month = String(pstNow.getMonth() + 1).padStart(2, '0')
+        const day = String(pstNow.getDate() - 1).padStart(2, '0')
+        // Compute actual LA UTC offset (7 in PDT/summer, 8 in PST/winter) — DST-aware
+        const utcNoon = new Date(`${year}-${month}-${day}T12:00:00Z`)
+        const laHourAtNoon = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }).format(utcNoon))
+        const laOffsetHours = 12 - laHourAtNoon
+        timestamp = Date.UTC(year, (pstNow.getMonth()), parseInt(day), hour + laOffsetHours, parseInt(minStr), 0, 0)
+        const hour12 = hour % 12 === 0 ? 12 : hour % 12
+        const ampm = hour < 12 ? 'AM' : 'PM'
+        displayLabel = `${hour12}:${minStr} ${ampm}`
+      } else {
+        const [date, time] = key.split('_')
+        const [year, month, day] = date.split('-')
+        const [hourStr, minStr] = time.split(':')
+        // Compute actual LA UTC offset for this specific date — DST-aware
+        const utcNoon = new Date(`${year}-${month}-${day}T12:00:00Z`)
+        const laHourAtNoon = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }).format(utcNoon))
+        const laOffsetHours = 12 - laHourAtNoon
+        timestamp = Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hourStr) + laOffsetHours, parseInt(minStr), 0, 0)
+        displayLabel = `${month}/${day} ${time}`
+      }
+      const bullishTotal = cumulative.callsPlus + cumulative.putsPlus
+      const bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus)
+      const netFlow = cumulative.callsPlus - cumulative.callsMinus + (cumulative.putsPlus - cumulative.putsMinus)
+      chartData.push({ time: timestamp, timeLabel: displayLabel, callsPlus: cumulative.callsPlus, callsMinus: cumulative.callsMinus, putsPlus: cumulative.putsPlus, putsMinus: cumulative.putsMinus, bullishTotal, bearishTotal, netFlow })
+    })
+
+    if (timeframe !== '1D' && chartData.length > 0) {
+      const finalChartData: typeof chartData = []
+      for (let dayIndex = 0; dayIndex < tradingDays.length; dayIndex++) {
+        const currentDate = tradingDays[dayIndex]
+        const [year, month, day] = currentDate.split('-')
+        const startOfDay = Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 6 + 8, 30, 0, 0)
+        const endOfDay = Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 13 + 8, 0, 0, 0)
+        const dayData = chartData.filter((point) => point.time >= startOfDay && point.time <= endOfDay)
+        finalChartData.push(...dayData)
+        const closingData = dayData.length > 0 ? dayData[dayData.length - 1] : null
+        if (closingData && dayIndex < tradingDays.length - 1) {
+          const nextDate = tradingDays[dayIndex + 1]
+          const [nextYear, nextMonth, nextDay] = nextDate.split('-')
+          for (let hour = 16; hour < 24; hour++) {
+            const startMin = hour === 16 ? 5 : 0
+            for (let min = startMin; min < 60; min += 5) {
+              const timestamp = Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), hour + 5, min, 0, 0)
+              const hour12 = hour % 12 === 0 ? 12 : hour % 12
+              const ampm = hour < 12 ? 'AM' : 'PM'
+              finalChartData.push({ time: timestamp, timeLabel: `${month}/${day} ${hour12}:${min.toString().padStart(2, '0')} ${ampm}`, callsPlus: closingData.callsPlus, callsMinus: closingData.callsMinus, putsPlus: closingData.putsPlus, putsMinus: closingData.putsMinus, bullishTotal: closingData.bullishTotal, bearishTotal: closingData.bearishTotal, netFlow: closingData.netFlow })
+            }
+          }
+          for (let hour = 0; hour < 10; hour++) {
+            const endMin = hour === 9 ? 25 : 60
+            for (let min = 0; min < endMin; min += 5) {
+              const timestamp = Date.UTC(parseInt(nextYear), parseInt(nextMonth) - 1, parseInt(nextDay), hour + 5, min, 0, 0)
+              const hour12 = hour % 12 === 0 ? 12 : hour % 12
+              const ampm = hour < 12 ? 'AM' : 'PM'
+              finalChartData.push({ time: timestamp, timeLabel: `${nextMonth}/${nextDay} ${hour12}:${min.toString().padStart(2, '0')} ${ampm}`, callsPlus: closingData.callsPlus, callsMinus: closingData.callsMinus, putsPlus: closingData.putsPlus, putsMinus: closingData.putsMinus, bullishTotal: closingData.bullishTotal, bearishTotal: closingData.bearishTotal, netFlow: closingData.netFlow })
+            }
+          }
+        }
+      }
+      finalChartData.sort((a, b) => a.time - b.time)
+      setFlowChartData(finalChartData)
+    } else {
+      setFlowChartData(chartData)
+    }
+    setIsFlowChartActive(true)
+  }
+
   // Live FlowMoves handler - Fetches and displays 4-line flow chart
   const handleLiveFlowMovesClick = async (timeframe: '1D' | '3D' | '1W' = '1D') => {
     try {
+      const US_MARKET_HOLIDAYS_FM = [
+        '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+        '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+        '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+        '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+      ]
+      const getRequiredTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
+        const days: string[] = []
+        const now = new Date()
+        const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        const daysNeeded = tf === '1D' ? 1 : tf === '3D' ? 3 : 5
+        const cur = new Date(pstNow)
+        cur.setDate(cur.getDate() - 1)
+        while (days.length < daysNeeded) {
+          const d = cur.getDay()
+          const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+          if (d !== 0 && d !== 6 && !US_MARKET_HOLIDAYS_FM.includes(dateStr)) days.push(dateStr)
+          cur.setDate(cur.getDate() - 1)
+        }
+        return days.reverse()
+      }
+
+      const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const dow = nowPST.getDay(); const hour = nowPST.getHours(); const minute = nowPST.getMinutes()
+      const marketOpen = (dow >= 1 && dow <= 5) && (hour > 6 || (hour === 6 && minute >= 30)) && hour < 13
+
+      // For 1D when market is open, skip DB and go straight to live stream
+      if (!(timeframe === '1D' && marketOpen)) {
+        try {
+          const requiredDays = getRequiredTradingDays(timeframe)
+
+          const datesResp = await fetch('/api/flows/dates')
+          if (datesResp.ok) {
+            const dates: { date: string }[] = await datesResp.json()
+            const dbDaySet = new Set(dates.map(d => new Date(d.date).toISOString().split('T')[0]))
+
+            const availableDays = requiredDays.filter(d => dbDaySet.has(d))
+            const missingDays = requiredDays.filter(d => !dbDaySet.has(d))
+
+            if (availableDays.length > 0) {
+              // Fetch all available days in parallel
+              const dayFetches = await Promise.all(availableDays.map(async (day) => {
+                const entry = dates.find(d => new Date(d.date).toISOString().split('T')[0] === day)
+                if (!entry) return []
+                const resp = await fetch(`/api/flows/${encodeURIComponent(entry.date)}`)
+                if (!resp.ok) return []
+                const fd = await resp.json()
+                const all: any[] = Array.isArray(fd.data) ? fd.data : []
+                const sym = all.filter((t: any) => t.underlying_ticker?.toUpperCase() === symbol?.toUpperCase())
+                // Verify at least one trade has a timestamp matching this day
+                const match = sym.some((t: any) => {
+                  if (!t.trade_timestamp) return false
+                  const d2 = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                  return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}` === day
+                })
+                return match ? sym : []
+              }))
+
+              const combinedTrades = dayFetches.flat()
+
+              if (combinedTrades.length > 0) {
+                if (missingDays.length > 0) {
+                  // Some days missing — show popup so user can decide to scan or skip
+                  setFlowMovesMissingDays({ days: missingDays, pendingTrades: combinedTrades, pendingTimeframe: timeframe })
+                  return
+                }
+                // All days available — render immediately
+                processFlowMovesTradesIntoChart(combinedTrades, timeframe)
+                return
+              }
+            }
+          }
+        } catch { /* fall through to stream */ }
+      }
       const eventSource = new EventSource(
         `/api/stream-options-flow?ticker=${symbol}&timeframe=${timeframe}`
       )
@@ -6067,392 +6425,10 @@ export default function TradingViewChart({
       eventSource.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data)
-
           if (data.type === 'complete' && data.trades?.length > 0) {
             allTrades = data.trades
             eventSource.close()
-
-            // US Market Holidays (2025-2026)
-            const US_MARKET_HOLIDAYS = [
-              '2025-01-01',
-              '2025-01-20',
-              '2025-02-17',
-              '2025-04-18',
-              '2025-05-26',
-              '2025-07-04',
-              '2025-09-01',
-              '2025-11-27',
-              '2025-12-25',
-              '2026-01-01',
-              '2026-01-19',
-              '2026-02-16',
-              '2026-04-03',
-              '2026-05-25',
-              '2026-07-03',
-              '2026-09-07',
-              '2026-11-26',
-              '2026-12-25',
-            ]
-
-            // Get trading days based on timeframe
-            const getTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
-              const days: string[] = []
-              const now = new Date()
-              const pstNow = new Date(
-                now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-              )
-              const daysNeeded = tf === '1D' ? 1 : tf === '3D' ? 3 : 5
-              const currentDate = new Date(pstNow)
-              currentDate.setDate(currentDate.getDate() - 1)
-
-              while (days.length < daysNeeded) {
-                const dayOfWeek = currentDate.getDay()
-                const year = currentDate.getFullYear()
-                const month = String(currentDate.getMonth() + 1).padStart(2, '0')
-                const day = String(currentDate.getDate()).padStart(2, '0')
-                const dateString = `${year}-${month}-${day}`
-
-                if (
-                  dayOfWeek !== 0 &&
-                  dayOfWeek !== 6 &&
-                  !US_MARKET_HOLIDAYS.includes(dateString)
-                ) {
-                  days.push(dateString)
-                }
-                currentDate.setDate(currentDate.getDate() - 1)
-              }
-              return days.reverse()
-            }
-
-            const tradingDays = getTradingDays(timeframe)
-
-            // Initialize intervals based on timeframe
-            const intervalData = new Map<
-              string,
-              { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }
-            >()
-
-            if (timeframe === '1D') {
-              // Single day: 5-minute intervals
-              const marketOpenMinutes = 6 * 60 + 30 // 6:30 AM PST
-              const marketCloseMinutes = 13 * 60 // 1:00 PM PST
-              for (
-                let totalMinutes = marketOpenMinutes;
-                totalMinutes < marketCloseMinutes;
-                totalMinutes += 5
-              ) {
-                const hour = Math.floor(totalMinutes / 60)
-                const minute = totalMinutes % 60
-                const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
-                intervalData.set(timeKey, {
-                  callsPlus: 0,
-                  callsMinus: 0,
-                  putsPlus: 0,
-                  putsMinus: 0,
-                })
-              }
-              intervalData.set('16:00', { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
-            } else {
-              // Multi-day: 5-minute intervals during market hours for each day
-              const marketOpenMinutes = 6 * 60 + 30 // 6:30 AM PST
-              const marketCloseMinutes = 13 * 60 // 1:00 PM PST
-              tradingDays.forEach((date) => {
-                for (
-                  let totalMinutes = marketOpenMinutes;
-                  totalMinutes <= marketCloseMinutes;
-                  totalMinutes += 5
-                ) {
-                  const hour = Math.floor(totalMinutes / 60)
-                  const minute = totalMinutes % 60
-                  const timeKey = `${date}_${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
-                  intervalData.set(timeKey, {
-                    callsPlus: 0,
-                    callsMinus: 0,
-                    putsPlus: 0,
-                    putsMinus: 0,
-                  })
-                }
-              })
-            }
-
-            // Group trades by intervals
-            allTrades.forEach((trade) => {
-              const tradeDate = new Date(trade.trade_timestamp)
-              const pstTime = new Date(
-                tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-              )
-              const hour = pstTime.getHours()
-              const minute = pstTime.getMinutes()
-              const year = pstTime.getFullYear()
-              const month = String(pstTime.getMonth() + 1).padStart(2, '0')
-              const day = String(pstTime.getDate()).padStart(2, '0')
-              const dateKey = `${year}-${month}-${day}`
-
-              // Only include trades during market hours (6:30 AM - 1:00 PM PST)
-              if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) return
-
-              let timeKey: string
-              if (timeframe === '1D') {
-                // Single day: Round to 5-minute interval
-                const totalMinutes = hour * 60 + minute
-                const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
-                const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
-                const slotHour = Math.floor((slotMinutes + 570) / 60)
-                const slotMin = (slotMinutes + 570) % 60
-                timeKey = `${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
-              } else {
-                // Multi-day: Round to 5-minute interval during market hours
-                const totalMinutes = hour * 60 + minute
-                const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
-                const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
-                const slotHour = Math.floor((slotMinutes + 570) / 60)
-                const slotMin = (slotMinutes + 570) % 60
-                timeKey = `${dateKey}_${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
-              }
-
-              const interval = intervalData.get(timeKey)
-              if (interval) {
-                // Determine bullish/bearish based on fill_style
-                const isBullish = trade.fill_style === 'A' || trade.fill_style === 'AA'
-
-                if (trade.type === 'call') {
-                  if (isBullish) {
-                    interval.callsPlus += trade.total_premium
-                  } else {
-                    interval.callsMinus += trade.total_premium
-                  }
-                } else {
-                  if (isBullish) {
-                    interval.putsPlus += trade.total_premium
-                  } else {
-                    interval.putsMinus += trade.total_premium
-                  }
-                }
-              }
-            })
-
-            // Convert to cumulative chart data
-            const sortedIntervals = Array.from(intervalData.entries()).sort((a, b) => {
-              // Sort chronologically
-              if (timeframe === '1D') {
-                return a[0].localeCompare(b[0])
-              } else {
-                // For multi-day, sort by date then time
-                const [dateA, timeA] = a[0].split('_')
-                const [dateB, timeB] = b[0].split('_')
-                return dateA === dateB ? timeA.localeCompare(timeB) : dateA.localeCompare(dateB)
-              }
-            })
-
-            const chartData: Array<{
-              time: number
-              timeLabel: string
-              callsPlus: number
-              callsMinus: number
-              putsPlus: number
-              putsMinus: number
-              bullishTotal: number
-              bearishTotal: number
-              netFlow: number
-            }> = []
-
-            const cumulative = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
-
-            sortedIntervals.forEach(([key, data]) => {
-              cumulative.callsPlus += data.callsPlus
-              cumulative.callsMinus += data.callsMinus
-              cumulative.putsPlus += data.putsPlus
-              cumulative.putsMinus += data.putsMinus
-
-              // Parse timestamp from key - MUST BE IN PST TIMEZONE
-              let timestamp: number
-              let displayLabel: string
-
-              if (timeframe === '1D') {
-                const [hourStr, minStr] = key.split(':')
-                const hour = parseInt(hourStr)
-                const minute = parseInt(minStr)
-
-                // Get yesterday's date in PST timezone
-                const now = new Date()
-                const pstNow = new Date(
-                  now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-                )
-                const year = pstNow.getFullYear()
-                const month = String(pstNow.getMonth() + 1).padStart(2, '0')
-                const day = String(pstNow.getDate() - 1).padStart(2, '0')
-
-                // Create PST timestamp using ISO string with PST offset
-                const pstDateStr = `${year}-${month}-${day}T${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:00-08:00`
-                timestamp = new Date(pstDateStr).getTime()
-
-                const hour12 = hour % 12 === 0 ? 12 : hour % 12
-                const ampm = hour < 12 ? 'AM' : 'PM'
-                displayLabel = `${hour12}:${minStr} ${ampm}`
-              } else {
-                // Multi-day: Create timestamp for PST time
-                const [date, time] = key.split('_')
-                const [year, month, day] = date.split('-')
-                const [hourStr, minStr] = time.split(':')
-
-                const yearNum = parseInt(year)
-                const monthNum = parseInt(month) - 1
-                const dayNum = parseInt(day)
-                const hourNum = parseInt(hourStr)
-                const minuteNum = parseInt(minStr)
-
-                // PST is UTC-8, so 6:30 AM PST = 14:30 UTC
-                // Create UTC timestamp by adding 8 hours to PST time
-                timestamp = Date.UTC(yearNum, monthNum, dayNum, hourNum + 8, minuteNum, 0, 0)
-
-                displayLabel = `${month}/${day} ${time}`
-              }
-
-              const bullishTotal = cumulative.callsPlus + cumulative.putsPlus
-              const bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus)
-              const netFlow =
-                cumulative.callsPlus -
-                cumulative.callsMinus +
-                (cumulative.putsPlus - cumulative.putsMinus)
-
-              chartData.push({
-                time: timestamp,
-                timeLabel: displayLabel,
-                callsPlus: cumulative.callsPlus,
-                callsMinus: cumulative.callsMinus,
-                putsPlus: cumulative.putsPlus,
-                putsMinus: cumulative.putsMinus,
-                bullishTotal,
-                bearishTotal,
-                netFlow,
-              })
-            })
-
-            if (chartData.length > 0) {
-              chartData.slice(0, 5).forEach((point) => {
-                const date = new Date(point.time)
-              })
-            }
-
-            // ADD FLAT LINE DATA POINTS FOR AFTERHOURS (1:00 PM - Next Day 6:30 AM PST)
-            if (timeframe !== '1D' && chartData.length > 0) {
-              const finalChartData: typeof chartData = []
-
-              // Process each day's data and add afterhours flat lines
-              for (let dayIndex = 0; dayIndex < tradingDays.length; dayIndex++) {
-                const currentDate = tradingDays[dayIndex]
-                const [year, month, day] = currentDate.split('-')
-
-                // Find all market hours data points for this day (6:30 AM - 1:00 PM PST)
-                // Create UTC timestamps: 6:30 AM PST = 14:30 UTC, 1:00 PM PST = 21:00 UTC
-                const startOfDay = Date.UTC(
-                  parseInt(year),
-                  parseInt(month) - 1,
-                  parseInt(day),
-                  6 + 8,
-                  30,
-                  0,
-                  0
-                )
-                const endOfDay = Date.UTC(
-                  parseInt(year),
-                  parseInt(month) - 1,
-                  parseInt(day),
-                  13 + 8,
-                  0,
-                  0,
-                  0
-                )
-
-                const dayData = chartData.filter(
-                  (point) => point.time >= startOfDay && point.time <= endOfDay
-                )
-
-                // Add all market hours data for this day
-                finalChartData.push(...dayData)
-
-                // Get the 1:00 PM PST closing values
-                const closingData = dayData.length > 0 ? dayData[dayData.length - 1] : null
-
-                // If there's a next trading day, add flat line from 1:00 PM to next 6:30 AM PST
-                if (closingData && dayIndex < tradingDays.length - 1) {
-                  const nextDate = tradingDays[dayIndex + 1]
-                  const [nextYear, nextMonth, nextDay] = nextDate.split('-')
-
-                  // Add flat line points from 4:05 PM to 11:55 PM (current day)
-                  for (let hour = 16; hour < 24; hour++) {
-                    const startMin = hour === 16 ? 5 : 0
-                    for (let min = startMin; min < 60; min += 5) {
-                      // Create UTC timestamp (ET + 5 hours)
-                      const timestamp = Date.UTC(
-                        parseInt(year),
-                        parseInt(month) - 1,
-                        parseInt(day),
-                        hour + 5,
-                        min,
-                        0,
-                        0
-                      )
-                      const hour12 = hour % 12 === 0 ? 12 : hour % 12
-                      const ampm = hour < 12 ? 'AM' : 'PM'
-                      finalChartData.push({
-                        time: timestamp,
-                        timeLabel: `${month}/${day} ${hour12}:${min.toString().padStart(2, '0')} ${ampm}`,
-                        callsPlus: closingData.callsPlus,
-                        callsMinus: closingData.callsMinus,
-                        putsPlus: closingData.putsPlus,
-                        putsMinus: closingData.putsMinus,
-                        bullishTotal: closingData.bullishTotal,
-                        bearishTotal: closingData.bearishTotal,
-                        netFlow: closingData.netFlow,
-                      })
-                    }
-                  }
-
-                  // Add flat line points from 12:00 AM to 9:25 AM (next day)
-                  for (let hour = 0; hour < 10; hour++) {
-                    const endMin = hour === 9 ? 25 : 60
-                    for (let min = 0; min < endMin; min += 5) {
-                      // Create UTC timestamp (ET + 5 hours)
-                      const timestamp = Date.UTC(
-                        parseInt(nextYear),
-                        parseInt(nextMonth) - 1,
-                        parseInt(nextDay),
-                        hour + 5,
-                        min,
-                        0,
-                        0
-                      )
-                      const hour12 = hour % 12 === 0 ? 12 : hour % 12
-                      const ampm = hour < 12 ? 'AM' : 'PM'
-                      finalChartData.push({
-                        time: timestamp,
-                        timeLabel: `${nextMonth}/${nextDay} ${hour12}:${min.toString().padStart(2, '0')} ${ampm}`,
-                        callsPlus: closingData.callsPlus,
-                        callsMinus: closingData.callsMinus,
-                        putsPlus: closingData.putsPlus,
-                        putsMinus: closingData.putsMinus,
-                        bullishTotal: closingData.bullishTotal,
-                        bearishTotal: closingData.bearishTotal,
-                        netFlow: closingData.netFlow,
-                      })
-                    }
-                  }
-                }
-              }
-
-              // Sort by timestamp
-              finalChartData.sort((a, b) => a.time - b.time)
-
-              if (finalChartData.length > 0) {
-              }
-              setFlowChartData(finalChartData)
-            } else {
-              if (chartData.length > 0) {
-              }
-              setFlowChartData(chartData)
-            }
-            setIsFlowChartActive(true)
+            processFlowMovesTradesIntoChart(allTrades, timeframe)
           }
         } catch (error) {
           console.error('❌ Error processing FlowMoves data:', error)
@@ -9363,14 +9339,14 @@ export default function TradingViewChart({
   const [isLiveGexActive, setIsLiveGexActive] = useState(false)
   const [isOiGexActive, setIsOiGexActive] = useState(false)
 
-  // GEX data hook - ONLY fetch when mode is 'oi', NOT for 'live' mode
+  // GEX data hook - ONLY fetch when mode is 'oi', NOT for 'live' mode, and never for basket symbols
   const {
     data: gexData,
     loading: isLoadingGex,
     error: gexError,
   } = useGEXData(
-    symbol,
-    isGexActive && gexMode === 'oi' // Only auto-refresh when OI GEX is active
+    isBasketMode ? '' : symbol,
+    !isBasketMode && isGexActive && gexMode === 'oi' // Only auto-refresh when OI GEX is active
   )
 
   // IV & HV Indicator state - TradingView style bottom panel indicators
@@ -9473,6 +9449,8 @@ export default function TradingViewChart({
 
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false)
+  // FlowMoves missing-days modal
+  const [flowMovesMissingDays, setFlowMovesMissingDays] = useState<{ days: string[]; pendingTrades: any[]; pendingTimeframe: '1D' | '3D' | '1W' } | null>(null)
   const [flowChartViewMode, setFlowChartViewMode] = useState<'detailed' | 'simplified' | 'net'>(
     'detailed'
   )
@@ -13732,6 +13710,37 @@ export default function TradingViewChart({
     if (symbol && symbol.length > 0) {
       const upperSymbol = normalizeTicker(symbol.trim().toUpperCase())
 
+      // Check for TOP{N} basket pattern (e.g., TOP10, TOP50, TOP1000)
+      const topNMatch = upperSymbol.match(/^TOP(\d+)$/)
+      if (topNMatch) {
+        const n = Math.min(1000, Math.max(1, parseInt(topNMatch[1])))
+        setIsBasketMode(true)
+        setBasketLabel(`TOP${n}`)
+        setIsBenchmarkMode(false)
+        setBenchmarkSymbol1('')
+        setBenchmarkSymbol2('')
+        setInvalidTicker(false)
+        handleSymbolChange(`TOP${n}`)
+        setSearchQuery(`TOP${n}`)
+        return
+      }
+
+      // Check for {ETF}{N} basket pattern (e.g., SPY10, ARKK5, QQQ20)
+      const etfNMatch = upperSymbol.match(/^([A-Z]{2,6})(\d+)$/)
+      if (etfNMatch) {
+        const etfTicker = etfNMatch[1]
+        const n = Math.min(1000, Math.max(1, parseInt(etfNMatch[2])))
+        setIsBasketMode(true)
+        setBasketLabel(`${etfTicker}${n}`)
+        setIsBenchmarkMode(false)
+        setBenchmarkSymbol1('')
+        setBenchmarkSymbol2('')
+        setInvalidTicker(false)
+        handleSymbolChange(`${etfTicker}${n}`)
+        setSearchQuery(`${etfTicker}${n}`)
+        return
+      }
+
       // Check if this is a benchmark pattern (Ticker/Ticker)
       if (upperSymbol.includes('/')) {
         const symbols = upperSymbol
@@ -13739,6 +13748,9 @@ export default function TradingViewChart({
           .map((s) => s.trim())
           .filter((s) => s.length > 0)
         if (symbols.length === 2) {
+          setIsBasketMode(false)
+          setBasketLabel('')
+          setBasketSymbols([])
           setIsBenchmarkMode(true)
           setBenchmarkSymbol1(symbols[0])
           setBenchmarkSymbol2(symbols[1])
@@ -13749,6 +13761,9 @@ export default function TradingViewChart({
       }
 
       // Normal mode - Quick validation before loading data
+      setIsBasketMode(false)
+      setBasketLabel('')
+      setBasketSymbols([])
       setIsBenchmarkMode(false)
       setBenchmarkSymbol1('')
       setBenchmarkSymbol2('')
@@ -13794,7 +13809,6 @@ export default function TradingViewChart({
 
         // Check if we're in benchmark mode
         if (isBenchmarkMode && benchmarkSymbol1 && benchmarkSymbol2) {
-          // Fetch data for both symbols in parallel
           const now = new Date()
           const endDate = now.toISOString().split('T')[0]
           const timeframeConfig = TRADINGVIEW_TIMEFRAMES.find((tf) => tf.value === timeframe)
@@ -13803,46 +13817,92 @@ export default function TradingViewChart({
             .toISOString()
             .split('T')[0]
 
-          const [response1, response2] = await Promise.all([
-            fetch(
-              `/api/historical-data?symbol=${benchmarkSymbol1}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`
-            ),
-            fetch(
-              `/api/historical-data?symbol=${benchmarkSymbol2}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`
-            ),
-          ])
+          // Helper: resolves a symbol (single ticker OR basket like TOP10 / SPY5) to a
+          // raw OHLCV array keyed by timestamp so benchmark math can operate on either side.
+          const resolveToRawSeries = async (s: string): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> => {
+            const topN = s.match(/^TOP(\d+)$/)
+            const etfN = s.match(/^([A-Z]{2,6})(\d+)$/)
 
-          if (!response1.ok || !response2.ok) {
-            throw new Error('Failed to fetch benchmark data')
+            if (topN || etfN) {
+              // Basket side — resolve holdings then bulk-fetch
+              let bSymbols: string[] = []
+              if (topN) {
+                const n = parseInt(topN[1])
+                const r = await fetch(`/api/market-cap-top?limit=${n}`)
+                if (!r.ok) throw new Error('Failed to fetch market cap rankings')
+                bSymbols = (await r.json()).symbols || []
+              } else if (etfN) {
+                const n = parseInt(etfN[2])
+                const r = await fetch(`/api/etf-holdings?etf=${etfN[1]}&limit=${n}`)
+                if (!r.ok) throw new Error(`Unknown ETF: ${etfN[1]}`)
+                bSymbols = (await r.json()).symbols || []
+              }
+              if (!bSymbols.length) throw new Error(`No symbols for ${s}`)
+
+              // Bulk fetch in chunks
+              const BULK_CHUNK = 150
+              const allBulk: Record<string, any[]> = {}
+              for (let i = 0; i < bSymbols.length; i += BULK_CHUNK) {
+                try {
+                  const resp = await fetch('/api/bulk-historical-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: bSymbols.slice(i, i + BULK_CHUNK), days: daysBack }),
+                  })
+                  if (!resp.ok) continue
+                  const d = await resp.json()
+                  for (const [k, v] of Object.entries(d.data || {})) {
+                    if ((v as any)?.results?.length) allBulk[k] = (v as any).results
+                  }
+                } catch { /* skip */ }
+              }
+
+              // Average prices per timestamp
+              const maps = Object.values(allBulk).map((arr) => {
+                const m = new Map<number, any>(); arr.forEach((p) => m.set(p.t, p)); return m
+              })
+              const allTs = [...new Set(Object.values(allBulk).flatMap((a) => a.map((p) => p.t)))].sort((a, b) => a - b)
+              const avgSeries: { t: number; o: number; h: number; l: number; c: number; v: number }[] = []
+              for (const ts of allTs) {
+                const pts = maps.map((m) => m.get(ts)).filter(Boolean)
+                if (pts.length < 2) continue
+                const avg = (fn: (p: any) => number) => pts.reduce((sum, p) => sum + fn(p), 0) / pts.length
+                avgSeries.push({ t: ts, o: avg((p) => p.o), h: avg((p) => p.h), l: avg((p) => p.l), c: avg((p) => p.c), v: avg((p) => p.v || 0) })
+              }
+              return avgSeries
+            }
+
+            // Single ticker
+            const r = await fetch(`/api/historical-data?symbol=${s}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`)
+            if (!r.ok) throw new Error(`Failed to fetch data for ${s}`)
+            const d = await r.json()
+            if (!d?.results?.length) throw new Error(`No data available for ${s}`)
+            return d.results.map((p: any) => ({ t: p.t, o: p.o, h: p.h, l: p.l, c: p.c, v: p.v || 0 }))
           }
 
-          const [result1, result2] = await Promise.all([response1.json(), response2.json()])
+          // Resolve both sides in parallel
+          const [series1, series2] = await Promise.all([
+            resolveToRawSeries(benchmarkSymbol1),
+            resolveToRawSeries(benchmarkSymbol2),
+          ])
 
-          if (!result1?.results?.length || !result2?.results?.length) {
+          if (!series1.length || !series2.length) {
             throw new Error('No data available for one or both symbols')
           }
 
-          // Calculate relative performance (Symbol1 / Symbol2)
-          const data1 = result1.results
-          const data2 = result2.results
+          // Calculate relative performance (Symbol1 / Symbol2) * 100
+          const symbol2PriceMap = new Map(series2.map((p) => [p.t, p.c]))
 
-          // Create a map of Symbol2 prices by timestamp for easy lookup
-          const symbol2PriceMap = new Map(data2.map((item: any) => [item.t, item.c]))
-
-          // Calculate relative performance for each data point
-          const benchmarkData = data1
-            .map((item1: any) => {
+          const benchmarkData = series1
+            .map((item1) => {
               const price2 = symbol2PriceMap.get(item1.t)
-              if (!price2 || typeof price2 !== 'number') return null
-
-              const relativePrice = (item1.c / price2) * 100 // Normalize to 100
-
+              if (!price2 || price2 <= 0) return null
               return {
                 timestamp: item1.t,
                 open: (item1.o / price2) * 100,
                 high: (item1.h / price2) * 100,
                 low: (item1.l / price2) * 100,
-                close: relativePrice,
+                close: (item1.c / price2) * 100,
                 volume: item1.v || 0,
                 date: new Date(item1.t).toISOString().split('T')[0],
                 time: new Date(item1.t).toLocaleTimeString('en-US', {
@@ -13852,12 +13912,11 @@ export default function TradingViewChart({
                 }),
               }
             })
-            .filter((item: any): item is ChartDataPoint => item !== null)
+            .filter((item): item is ChartDataPoint => item !== null)
 
           setData(benchmarkData)
           setLoading(false)
 
-          // Initialize scroll position
           setTimeout(() => {
             const defaultVisible = 150
             const targetOffset = Math.max(0, benchmarkData.length - defaultVisible)
@@ -13866,6 +13925,146 @@ export default function TradingViewChart({
           }, 50)
 
           return
+        }
+
+        // BASKET MODE: TOP{N} averages top N stocks, {ETF}{N} averages top N ETF holdings
+        const topNBasketMatch = sym.match(/^TOP(\d+)$/)
+        const etfNBasketMatch = sym.match(/^([A-Z]{2,6})(\d+)$/)
+        if (isBasketMode && (topNBasketMatch || etfNBasketMatch)) {
+          try {
+            // Step 1: Resolve which symbols to include
+            let symbols: string[] = []
+            if (topNBasketMatch) {
+              const n = parseInt(topNBasketMatch[1])
+              const resp = await fetch(`/api/market-cap-top?limit=${n}`)
+              if (!resp.ok) throw new Error('Failed to fetch market cap rankings')
+              const responseData = await resp.json()
+              symbols = responseData.symbols || []
+            } else if (etfNBasketMatch) {
+              const etfTicker = etfNBasketMatch[1]
+              const n = parseInt(etfNBasketMatch[2])
+              const resp = await fetch(`/api/etf-holdings?etf=${etfTicker}&limit=${n}`)
+              if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}))
+                throw new Error(errData.error || `Unknown ETF: ${etfTicker}`)
+              }
+              const responseData = await resp.json()
+              symbols = responseData.symbols || []
+            }
+
+            if (!symbols.length) throw new Error('No symbols found for basket')
+            setBasketSymbols(symbols)
+
+            // Step 2: Compute date range
+            const timeframeConfig = TRADINGVIEW_TIMEFRAMES.find((tf) => tf.value === timeframe)
+            const daysBack = timeframeConfig?.lookback || 365
+
+            // Step 3: Fetch all historical data in parallel using the bulk endpoint.
+            // This sends 1-2 POST requests (server handles 50 concurrent Polygon calls internally)
+            // instead of N individual GET requests — dramatically faster for large baskets.
+            const BULK_CHUNK = 150 // max symbols per bulk request to stay under timeout
+            const chunks: string[][] = []
+            for (let i = 0; i < symbols.length; i += BULK_CHUNK) {
+              chunks.push(symbols.slice(i, i + BULK_CHUNK))
+            }
+
+            const chunkData = await Promise.all(
+              chunks.map(async (chunk) => {
+                try {
+                  const resp = await fetch('/api/bulk-historical-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: chunk, days: daysBack }),
+                  })
+                  if (!resp.ok) return {}
+                  const d = await resp.json()
+                  return (d.data as Record<string, { results: any[] }>) || {}
+                } catch {
+                  return {}
+                }
+              })
+            )
+
+            // Merge all chunks into one result map
+            const allResults: Record<string, any[]> = {}
+            for (const chunkResult of chunkData) {
+              for (const [sym, symData] of Object.entries(chunkResult)) {
+                if ((symData as any)?.results?.length) {
+                  allResults[sym] = (symData as any).results
+                }
+              }
+            }
+
+            const symbolArrays = Object.values(allResults)
+            if (!symbolArrays.length) throw new Error('No data available for any basket symbol')
+
+            // Step 4: Build per-symbol maps keyed by timestamp
+            const symbolMaps: Map<number, any>[] = symbolArrays.map((arr) => {
+              const m = new Map<number, any>()
+              arr.forEach((pt) => m.set(pt.t, pt))
+              return m
+            })
+
+            // Step 5: Collect all unique timestamps and sort ascending
+            const allTimestamps = [
+              ...new Set(symbolArrays.flatMap((arr) => arr.map((pt) => pt.t))),
+            ].sort((a, b) => a - b)
+
+            // Step 6: Compute simple average price across all symbols at each timestamp
+            const basketData: ChartDataPoint[] = []
+
+            for (const ts of allTimestamps) {
+              const closes: number[] = []
+              const opens: number[] = []
+              const highs: number[] = []
+              const lows: number[] = []
+              const volumes: number[] = []
+
+              symbolMaps.forEach((map) => {
+                const pt = map.get(ts)
+                if (!pt) return
+                closes.push(pt.c)
+                opens.push(pt.o)
+                highs.push(pt.h)
+                lows.push(pt.l)
+                if (pt.v && pt.v > 0) volumes.push(pt.v)
+              })
+
+              // Only include bars where at least 2 symbols have data
+              if (closes.length < 2) continue
+
+              const avg = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length
+              basketData.push({
+                timestamp: ts,
+                open: avg(opens),
+                high: avg(highs),
+                low: avg(lows),
+                close: avg(closes),
+                volume: volumes.length > 0 ? avg(volumes) : 0,
+                date: new Date(ts).toISOString().split('T')[0],
+                time: new Date(ts).toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                }),
+              })
+            }
+
+            if (!basketData.length) throw new Error('No overlapping data for basket symbols')
+
+            setData(basketData)
+            setLoading(false)
+            setTimeout(() => {
+              const defaultVisible = Math.min(150, basketData.length)
+              setScrollOffset(Math.max(0, basketData.length - defaultVisible))
+              setVisibleCandleCount(150)
+            }, 50)
+            return
+          } catch (basketErr: any) {
+            setError(basketErr.message || 'Basket fetch failed')
+            setLoading(false)
+            return
+          }
         }
 
         // Not in cache - use optimized API fetch with smart batching
@@ -14106,13 +14305,13 @@ export default function TradingViewChart({
 
   // Fetch current price independently when symbol changes — also seeds wsPrevCloseRef with prev-day close
   useEffect(() => {
-    // Don't fetch if ticker is invalid
-    if (!invalidTicker) {
+    // Don't fetch if ticker is invalid or in basket mode (no single-ticker price for TOP10 / SPY10)
+    if (!invalidTicker && !isBasketMode) {
       fetchRealTimePrice(symbol).then(() => {
         // After the REST call seeds currentPrice + prevClose, the WebSocket AM.* takes over
       })
     }
-  }, [symbol, fetchRealTimePrice, invalidTicker])
+  }, [symbol, fetchRealTimePrice, invalidTicker, isBasketMode])
 
   // Price updates now handled by Polygon WebSocket (AM.* minute aggregates) — no polling needed
 
@@ -16840,18 +17039,14 @@ export default function TradingViewChart({
 
     // Determine which lines to draw based on flowChartViewMode
     let linesToDraw: Array<{ key: string; color: string; name: string; isNegative?: boolean }> = []
-    let maxValue = 1
+    let topVal = 1
+    let bottomVal = 0
 
     if (flowChartViewMode === 'detailed') {
-      // Find max value for scaling (across all 4 lines)
-      const allValues = flowData.flatMap((d) => [
-        d.callsPlus,
-        d.callsMinus,
-        d.putsPlus,
-        d.putsMinus,
-      ])
-      maxValue = Math.max(...allValues, 1)
-
+      const allValues = flowData.flatMap((d) => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus])
+      const dataMax = Math.max(...allValues, 0)
+      topVal = dataMax * 1.1 || 1
+      bottomVal = 0
       linesToDraw = [
         { key: 'callsPlus', color: '#00FF00', name: 'Bullish Calls' },
         { key: 'callsMinus', color: '#0066FF', name: 'Bearish Calls' },
@@ -16859,28 +17054,30 @@ export default function TradingViewChart({
         { key: 'putsMinus', color: '#FF0000', name: 'Bearish Puts' },
       ]
     } else if (flowChartViewMode === 'simplified') {
-      // Find max absolute value for scaling (bullishTotal positive, bearishTotal negative)
-      const allValues = flowData.flatMap((d) => [
-        Math.abs(d.bullishTotal),
-        Math.abs(d.bearishTotal),
-      ])
-      maxValue = Math.max(...allValues, 1)
-
+      const dataMax = Math.max(...flowData.map((d) => d.bullishTotal), 0)
+      const dataMin = Math.min(...flowData.map((d) => d.bearishTotal), 0)
+      topVal = dataMax > 0 ? dataMax * 1.1 : 1
+      bottomVal = dataMin < 0 ? dataMin * 1.1 : 0
       linesToDraw = [
         { key: 'bullishTotal', color: '#00FF00', name: 'Bullish Total', isNegative: false },
         { key: 'bearishTotal', color: '#FF0000', name: 'Bearish Total', isNegative: true },
       ]
     } else if (flowChartViewMode === 'net') {
-      // Find max absolute value for scaling (netFlow can be positive or negative)
-      const allValues = flowData.map((d) => Math.abs(d.netFlow))
-      maxValue = Math.max(...allValues, 1)
-
+      const dataMax = Math.max(...flowData.map((d) => d.netFlow), 0)
+      const dataMin = Math.min(...flowData.map((d) => d.netFlow), 0)
+      topVal = dataMax > 0 ? dataMax * 1.1 : 1
+      bottomVal = dataMin < 0 ? dataMin * 1.1 : (dataMax > 0 ? 0 : -1)
       linesToDraw = [{ key: 'netFlow', color: '#ffffff', name: 'Net Flow' }]
     }
 
-    // Draw horizontal zero line for simplified and net modes
-    if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
-      const zeroY = effectiveFlowStartY + effectiveFlowHeight / 2
+    const yRange = topVal - bottomVal || 1
+    // Convert a data value to a canvas Y coordinate
+    const valueToY = (value: number) =>
+      effectiveFlowEndY - ((value - bottomVal) / yRange) * effectiveFlowHeight
+    const zeroY = valueToY(0)
+
+    // Draw horizontal zero line when zero is in range
+    if (bottomVal < 0 || flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
       ctx.lineWidth = 1
       ctx.setLineDash([5, 5])
@@ -16905,9 +17102,7 @@ export default function TradingViewChart({
 
           if (x !== undefined) {
             const value = (point as any)[line.key]
-            const centerY = effectiveFlowStartY + effectiveFlowHeight / 2
-            const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2)
-            const y = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue
+            const y = valueToY(value)
 
             if (!firstPoint && prevX !== null && prevY !== null && prevValue !== null) {
               // Draw segment with color based on current value
@@ -16944,17 +17139,7 @@ export default function TradingViewChart({
           if (x !== undefined) {
             const value = (point as any)[line.key]
 
-            // For simplified mode, normalize around center line
-            let y: number
-            if (flowChartViewMode === 'simplified') {
-              const centerY = effectiveFlowStartY + effectiveFlowHeight / 2
-              const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2)
-              y = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue
-            } else {
-              // Detailed mode: scale from bottom
-              const normalizedValue = (value / maxValue) * effectiveFlowHeight
-              y = effectiveFlowEndY - normalizedValue
-            }
+            const y = valueToY(value)
 
             if (firstPoint) {
               ctx.moveTo(x, y)
@@ -16987,15 +17172,7 @@ export default function TradingViewChart({
         const value = (lastPoint as any)[line.key]
 
         // Calculate y position based on line value
-        let targetY: number
-        if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
-          const centerY = effectiveFlowStartY + effectiveFlowHeight / 2
-          const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2)
-          targetY = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue
-        } else {
-          const normalizedValue = (value / maxValue) * effectiveFlowHeight
-          targetY = effectiveFlowEndY - normalizedValue
-        }
+        const targetY = valueToY(value)
 
         // Adjust y position to avoid overlap with previously drawn labels
         let adjustedY = targetY
@@ -17036,54 +17213,27 @@ export default function TradingViewChart({
     ctx.textAlign = 'right'
     ctx.globalAlpha = 1.0
 
-    if (flowChartViewMode === 'detailed') {
-      // Detailed mode: 0 at bottom, max at top (4 values)
-      ctx.fillStyle = '#FF8800'
-      for (let i = 0; i <= 3; i++) {
-        const valueLevel = (maxValue / 3) * i
-        const y = effectiveFlowEndY - (i * effectiveFlowHeight) / 3
-
-        let valueText = ''
-        if (valueLevel >= 1000000) {
-          valueText = `$${(valueLevel / 1000000).toFixed(1)}M`
-        } else if (valueLevel >= 1000) {
-          valueText = `$${(valueLevel / 1000).toFixed(0)}K`
-        } else {
-          valueText = `$${valueLevel.toFixed(0)}`
-        }
-
-        ctx.fillText(valueText, yAxisXPosition, y + 6)
+    // Dynamic Y-axis labels: 5 evenly spaced ticks between bottomVal and topVal
+    {
+      const formatVal = (v: number) => {
+        const abs = Math.abs(v)
+        const sign = v < 0 ? '-' : ''
+        if (abs >= 1000000) return `${sign}$${(abs / 1000000).toFixed(1)}M`
+        if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(0)}K`
+        return `${sign}$${abs.toFixed(0)}`
       }
-    } else {
-      // Simplified/Net mode: negative at bottom, 0 in center, positive at top
-      const centerY = effectiveFlowStartY + effectiveFlowHeight / 2
-      const steps = 2 // 2 steps above and 2 below zero = 5 total labels
-
-      for (let i = -steps; i <= steps; i++) {
-        const valueLevel = (maxValue / steps) * i
-        const y = centerY - (i * effectiveFlowHeight) / (steps * 2)
-
-        // Color based on value: green for positive, orange for zero, red for negative
-        if (i > 0) {
-          ctx.fillStyle = '#00FF00' // Green for positive
-        } else if (i < 0) {
-          ctx.fillStyle = '#FF0000' // Red for negative
+      const tickCount = 4
+      for (let i = 0; i <= tickCount; i++) {
+        const valueLevel = bottomVal + (yRange / tickCount) * i
+        const y = valueToY(valueLevel)
+        if (valueLevel > 0) {
+          ctx.fillStyle = '#00FF00'
+        } else if (valueLevel < 0) {
+          ctx.fillStyle = '#FF0000'
         } else {
-          ctx.fillStyle = '#FF8800' // Orange for zero
+          ctx.fillStyle = '#FF8800'
         }
-
-        let valueText = ''
-        if (i === 0) {
-          valueText = '$0'
-        } else if (Math.abs(valueLevel) >= 1000000) {
-          valueText = `${i < 0 ? '-' : ''}$${(Math.abs(valueLevel) / 1000000).toFixed(1)}M`
-        } else if (Math.abs(valueLevel) >= 1000) {
-          valueText = `${i < 0 ? '-' : ''}$${(Math.abs(valueLevel) / 1000).toFixed(0)}K`
-        } else {
-          valueText = `${i < 0 ? '-' : ''}$${Math.abs(valueLevel).toFixed(0)}`
-        }
-
-        ctx.fillText(valueText, yAxisXPosition, y + 6)
+        ctx.fillText(formatVal(valueLevel), yAxisXPosition, y + 6)
       }
     }
   }
@@ -26339,6 +26489,68 @@ export default function TradingViewChart({
   // Main component return with all UI elements
   return (
     <>
+      {/* FlowMoves missing-days modal */}
+      {flowMovesMissingDays && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+          <div style={{ background: '#1a1a2e', border: '1px solid #ff8500', borderRadius: 10, padding: '24px 28px', minWidth: 340, maxWidth: 420, color: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,0.8)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#ff8500', marginBottom: 10 }}>⚠️ Missing Flow Data</div>
+            <div style={{ fontSize: 13, color: '#ccc', marginBottom: 14 }}>
+              The following trading day{flowMovesMissingDays.days.length > 1 ? 's are' : ' is'} not saved in the database:
+              <div style={{ margin: '8px 0', fontWeight: 700, color: '#fff' }}>{flowMovesMissingDays.days.join(', ')}</div>
+              Would you like to scan the missing day{flowMovesMissingDays.days.length > 1 ? 's' : ''} now, or show the chart with available data only?
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => {
+                  const { pendingTrades, pendingTimeframe } = flowMovesMissingDays
+                  setFlowMovesMissingDays(null)
+                  processFlowMovesTradesIntoChart(pendingTrades, pendingTimeframe)
+                }}
+                style={{ flex: 1, padding: '8px 0', background: 'linear-gradient(145deg,#2d5a27,#1a3d16)', border: '1px solid #4a9940', borderRadius: 6, color: '#7fff7f', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+              >
+                Show Available Only
+              </button>
+              <button
+                onClick={() => {
+                  const { pendingTrades, pendingTimeframe } = flowMovesMissingDays
+                  setFlowMovesMissingDays(null)
+                  // Stream the missing days then merge
+                  const missingDays = flowMovesMissingDays.days
+                    ; (async () => {
+                      const extraTrades: any[] = []
+                      for (const day of missingDays) {
+                        await new Promise<void>((resolve) => {
+                          const es = new EventSource(`/api/stream-options-flow?ticker=${symbol}&date=${day}`)
+                          es.onmessage = (ev) => {
+                            try {
+                              const d = JSON.parse(ev.data)
+                              if (d.type === 'complete' && d.trades?.length > 0) {
+                                extraTrades.push(...d.trades.filter((t: any) => t.underlying_ticker?.toUpperCase() === symbol?.toUpperCase()))
+                                es.close(); resolve()
+                              }
+                            } catch { /* ignore */ }
+                          }
+                          es.onerror = () => { es.close(); resolve() }
+                          setTimeout(() => { es.close(); resolve() }, 60000)
+                        })
+                      }
+                      processFlowMovesTradesIntoChart([...pendingTrades, ...extraTrades], pendingTimeframe)
+                    })()
+                }}
+                style={{ flex: 1, padding: '8px 0', background: 'linear-gradient(145deg,#ff8500,#cc6600)', border: '1px solid #ff8500', borderRadius: 6, color: '#000', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+              >
+                Scan Missing Days
+              </button>
+              <button
+                onClick={() => setFlowMovesMissingDays(null)}
+                style={{ padding: '8px 12px', background: '#333', border: '1px solid #555', borderRadius: 6, color: '#aaa', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -26601,6 +26813,11 @@ export default function TradingViewChart({
  0% { left: -100%; }
  50% { left: 100%; }
  100% { left: -100%; }
+ }
+
+ @keyframes dropdownFadeIn {
+ from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+ to   { opacity: 1; transform: translateY(0) scale(1); }
  }
  
  /* Sharp Corner Enhancements */
@@ -27021,7 +27238,9 @@ export default function TradingViewChart({
                       ))}
 
                       {/* More Timeframes Dropdown Button */}
-                      <div className="relative inline-block">
+                      <div className="relative inline-block"
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsTimeframeDropdownOpen(true) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTimeframeDropdownOpen(false), 150) }}>
                         <button
                           ref={timeframeButtonRef}
                           onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
@@ -27066,6 +27285,8 @@ export default function TradingViewChart({
                           createPortal(
                             <div
                               data-timeframe-dropdown
+                              onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                              onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTimeframeDropdownOpen(false), 150) }}
                               style={{
                                 position: 'fixed',
                                 top: timeframeButtonRef.current
@@ -27075,6 +27296,7 @@ export default function TradingViewChart({
                                   ? timeframeButtonRef.current.getBoundingClientRect().left
                                   : 0,
                                 zIndex: 100000,
+                                animation: 'dropdownFadeIn 0.15s ease forwards',
                                 background: '#000000',
                                 border: '2px solid rgba(255, 133, 0, 0.3)',
                                 borderRadius: '8px',
@@ -27351,7 +27573,7 @@ export default function TradingViewChart({
                             <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
                           </div>
                           {/* ── LIVE FLOWMOVES ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Live FlowMoves</div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>IntraFlow</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1D{isFlowChartActive && flowMovesTimeframe === '1D' ? ' ✓' : ''}</button>
                             <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '3D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('3D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('3D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '3D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>3D{isFlowChartActive && flowMovesTimeframe === '3D' ? ' ✓' : ''}</button>
@@ -27423,7 +27645,9 @@ export default function TradingViewChart({
                 )}
 
                 {/* Expected Range Button - Standalone */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsExpectedRangeDropdownOpen(true) }}
+                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}>
                   <button
                     ref={expectedRangeButtonRef}
                     onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
@@ -27488,6 +27712,8 @@ export default function TradingViewChart({
                   {isExpectedRangeDropdownOpen &&
                     createPortal(
                       <div
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
                           top: expectedRangeButtonRef.current
@@ -27497,6 +27723,7 @@ export default function TradingViewChart({
                             ? expectedRangeButtonRef.current.getBoundingClientRect().left
                             : 0,
                           zIndex: 100000,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -27747,20 +27974,12 @@ export default function TradingViewChart({
                       document.body
                     )}
 
-                  {/* Click outside to close dropdown */}
-                  {isExpectedRangeDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 99998 }}
-                        onClick={() => setIsExpectedRangeDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
                 </div>
 
                 {/* Seasonal Button */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsSeasonalDropdownOpen(true) }}
+                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}>
                   {maxSeasonalYears < 10 ? (
                     <button
                       className="btn-3d-carved btn-seasonal"
@@ -27833,6 +28052,8 @@ export default function TradingViewChart({
                   {isSeasonalDropdownOpen &&
                     createPortal(
                       <div
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
                         style={{
                           position: 'fixed',
                           top: seasonalButtonRef.current
@@ -27842,6 +28063,7 @@ export default function TradingViewChart({
                             ? seasonalButtonRef.current.getBoundingClientRect().left
                             : 0,
                           zIndex: 100000,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -27979,6 +28201,8 @@ export default function TradingViewChart({
                   {isEventDropdownOpen &&
                     createPortal(
                       <div
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
                         style={{
                           position: 'fixed',
                           top: seasonalButtonRef.current
@@ -27988,6 +28212,7 @@ export default function TradingViewChart({
                             ? seasonalButtonRef.current.getBoundingClientRect().right + 10
                             : 0,
                           zIndex: 100001,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -28155,31 +28380,12 @@ export default function TradingViewChart({
                       document.body
                     )}
 
-                  {/* Click outside to close event dropdown */}
-                  {isEventDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 100000 }}
-                        onClick={() => setIsEventDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
-
-                  {/* Click outside to close dropdown */}
-                  {isSeasonalDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 99998 }}
-                        onClick={() => setIsSeasonalDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
                 </div>
 
                 {/* GEX Button with Dropdown - Next to Expected Range */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsGexDropdownOpen(true) }}
+                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsGexDropdownOpen(false), 150) }}>
                   <button
                     ref={gexButtonRef}
                     onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
@@ -28240,6 +28446,8 @@ export default function TradingViewChart({
                   {isGexDropdownOpen &&
                     createPortal(
                       <div
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsGexDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
                           top: gexButtonRef.current
@@ -28249,6 +28457,7 @@ export default function TradingViewChart({
                             ? gexButtonRef.current.getBoundingClientRect().left
                             : 0,
                           zIndex: 100000,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -28304,20 +28513,12 @@ export default function TradingViewChart({
                       document.body
                     )}
 
-                  {/* Click outside to close dropdown */}
-                  {isGexDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 99998 }}
-                        onClick={() => setIsGexDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
                 </div>
 
                 {/* IV & HV Button with Dropdown */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsIVHVDropdownOpen(true) }}
+                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}>
                   <button
                     ref={ivhvButtonRef}
                     onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
@@ -28385,6 +28586,8 @@ export default function TradingViewChart({
                   {isIVHVDropdownOpen &&
                     createPortal(
                       <div
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
                           top: ivhvButtonRef.current
@@ -28394,6 +28597,7 @@ export default function TradingViewChart({
                             ? ivhvButtonRef.current.getBoundingClientRect().left
                             : 0,
                           zIndex: 100000,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -28627,20 +28831,12 @@ export default function TradingViewChart({
                       document.body
                     )}
 
-                  {/* Click outside to close dropdown */}
-                  {isIVHVDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 99998 }}
-                        onClick={() => setIsIVHVDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
                 </div>
 
                 {/* Technalysis Button */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsTechnalysisDropdownOpen(true) }}
+                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTechnalysisDropdownOpen(false), 150) }}>
                   <button
                     ref={technalysisButtonRef}
                     onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
@@ -28715,6 +28911,8 @@ export default function TradingViewChart({
                     createPortal(
                       <div
                         onClick={(e) => e.stopPropagation()}
+                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTechnalysisDropdownOpen(false), 150) }}
                         className="absolute w-48"
                         style={{
                           top: technalysisButtonRef.current
@@ -28724,6 +28922,7 @@ export default function TradingViewChart({
                             ? technalysisButtonRef.current.getBoundingClientRect().left
                             : 400,
                           zIndex: 100000,
+                          animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
@@ -28859,21 +29058,13 @@ export default function TradingViewChart({
                       document.body
                     )}
 
-                  {/* Click outside to close dropdown */}
-                  {isTechnalysisDropdownOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0"
-                        style={{ zIndex: 99998 }}
-                        onClick={() => setIsTechnalysisDropdownOpen(false)}
-                      />,
-                      document.body
-                    )}
                 </div>
               </div>
 
               {/* Live FlowMoves Button with Dropdown */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsFlowMovesDropdownOpen(true) }}
+                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsFlowMovesDropdownOpen(false), 150) }}>
                 <button
                   ref={flowMovesButtonRef}
                   onClick={() => setIsFlowMovesDropdownOpen(!isFlowMovesDropdownOpen)}
@@ -28885,13 +29076,13 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span>Live FlowMoves {isFlowChartActive ? `(${flowMovesTimeframe})` : ''}</span>
+                  <span>{isFlowChartActive ? `Flows ${flowMovesTimeframe}` : 'Flows'}</span>
                   {isFlowChartActive ? (
                     <>
                       <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
                         ✓
                       </span>
-                      <button
+                      <span
                         onClick={(e) => {
                           e.stopPropagation()
                           setIsFlowChartActive(false)
@@ -28913,7 +29104,7 @@ export default function TradingViewChart({
                         }}
                       >
                         ×
-                      </button>
+                      </span>
                     </>
                   ) : (
                     <svg
@@ -28937,6 +29128,8 @@ export default function TradingViewChart({
                   createPortal(
                     <div
                       className="absolute w-48"
+                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsFlowMovesDropdownOpen(false), 150) }}
                       style={{
                         top: flowMovesButtonRef.current
                           ? flowMovesButtonRef.current.getBoundingClientRect().bottom + 10
@@ -28945,6 +29138,7 @@ export default function TradingViewChart({
                           ? flowMovesButtonRef.current.getBoundingClientRect().left
                           : 0,
                         zIndex: 100000,
+                        animation: 'dropdownFadeIn 0.15s ease forwards',
                         background: '#000000',
                         border: '2px solid rgba(255, 133, 0, 0.3)',
                         borderRadius: '8px',
@@ -29020,7 +29214,9 @@ export default function TradingViewChart({
               </div>
 
               {/* RRG Candle Button with Dropdown */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsRrgDropdownOpen(true) }}
+                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsRrgDropdownOpen(false), 150) }}>
                 <button
                   ref={rrgButtonRef}
                   onClick={() => setIsRrgDropdownOpen(!isRrgDropdownOpen)}
@@ -29089,6 +29285,8 @@ export default function TradingViewChart({
                   createPortal(
                     <div
                       data-rrg-dropdown
+                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsRrgDropdownOpen(false), 150) }}
                       style={{
                         position: 'fixed',
                         top: rrgButtonRef.current
@@ -29098,6 +29296,7 @@ export default function TradingViewChart({
                           ? rrgButtonRef.current.getBoundingClientRect().left
                           : 0,
                         zIndex: 100000,
+                        animation: 'dropdownFadeIn 0.15s ease forwards',
                         background: '#000000',
                         border: '2px solid rgba(255, 133, 0, 0.3)',
                         borderRadius: '8px',
@@ -29322,7 +29521,9 @@ export default function TradingViewChart({
               )}
 
               {/* P/E | PEG Dropdown — toggles canvas bottom panel */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
+                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsPEDropdownOpen(true) }}
+                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsPEDropdownOpen(false), 150) }}>
                 <button
                   ref={peButtonRef}
                   onClick={() => setIsPEDropdownOpen(!isPEDropdownOpen)}
@@ -29386,6 +29587,8 @@ export default function TradingViewChart({
                 {isPEDropdownOpen &&
                   createPortal(
                     <div
+                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsPEDropdownOpen(false), 150) }}
                       style={{
                         position: 'fixed',
                         top: peButtonRef.current
@@ -29395,6 +29598,7 @@ export default function TradingViewChart({
                           ? peButtonRef.current.getBoundingClientRect().left
                           : 0,
                         zIndex: 100000,
+                        animation: 'dropdownFadeIn 0.15s ease forwards',
                         background: '#000000',
                         border: '2px solid rgba(255, 133, 0, 0.3)',
                         borderRadius: '8px',
@@ -29463,19 +29667,10 @@ export default function TradingViewChart({
                     </div>,
                     document.body
                   )}
-                {isPEDropdownOpen &&
-                  createPortal(
-                    <div
-                      className="fixed inset-0"
-                      style={{ zIndex: 99998 }}
-                      onClick={() => setIsPEDropdownOpen(false)}
-                    />,
-                    document.body
-                  )}
               </div>
 
               {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
-              {lwToolbarPosition !== 'left' && !isMobile && (
+              {false && !isMobile && (
                 <div
                   className="ml-4 flex items-center space-x-2"
                   style={{
@@ -30706,9 +30901,9 @@ export default function TradingViewChart({
             {!isMobile && !hideDesktopSidebar && (
               <div
                 style={{
-                  width: 40,
+                  width: 58,
                   flexShrink: 0,
-                  background: '#0a0a0a',
+                  background: 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
                   borderLeft: '1px solid #1e1e1e',
                   display: 'flex',
                   flexDirection: 'column',
@@ -30809,6 +31004,117 @@ export default function TradingViewChart({
                     </div>
                   )
                 })}
+                {/* ─── Drawing Tools Group ─── */}
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, border: '1px solid #FF8500', borderRadius: '10px', padding: '5px 3px' }}>
+                  {([
+                    { tool: 'trendline' as const, title: 'Trendline', dim: '#8B6914', bright: '#F97316', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="20" x2="21" y2="4" /></svg> },
+                    { tool: 'horizontal' as const, title: 'H-Line', dim: '#1E6670', bright: '#22D3EE', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12" /></svg> },
+                    { tool: 'vertical' as const, title: 'V-Line', dim: '#5B21B6', bright: '#A78BFA', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="3" x2="12" y2="21" /></svg> },
+                    { tool: 'parallelChannel' as const, title: 'Channel', dim: '#78450A', bright: '#FCD34D', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="7" x2="21" y2="7" /><line x1="3" y1="17" x2="21" y2="17" /></svg> },
+                    { tool: 'rectangle' as const, title: 'Box', dim: '#1D4ED8', bright: '#60A5FA', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="6" width="16" height="12" /></svg> },
+                    { tool: 'priceRange' as const, title: 'Price Range', dim: '#065F46', bright: '#34D399', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="12" y1="6" x2="12" y2="18" /><line x1="4" y1="18" x2="20" y2="18" /></svg> },
+                    { tool: 'buyZone' as const, title: 'Buy Zone', dim: '#166534', bright: '#4ADE80', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="6" width="16" height="12" /><line x1="12" y1="10" x2="12" y2="14" /><line x1="9" y1="12" x2="15" y2="12" /></svg> },
+                    { tool: 'sellZone' as const, title: 'Sell Zone', dim: '#991B1B', bright: '#F87171', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="6" width="16" height="12" /><line x1="9" y1="12" x2="15" y2="12" /></svg> },
+                    { tool: 'brush' as const, title: 'Brush', dim: '#831843', bright: '#F472B6', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" /><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7" /></svg> },
+                    { tool: 'text' as const, title: 'Text Note', dim: '#78500A', bright: '#FDE68A', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" /></svg> },
+                  ]).map(({ tool, title, dim, bright, icon }) => {
+                    const isActive = currentDrawingTool === tool
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div key={tool} style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => setCurrentDrawingTool(isActive ? 'select' : tool)}
+                          style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: isActive ? bright : dim, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = bright; (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = isActive ? bright : dim; (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        >{icon}</button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}</div>
+                      </div>
+                    )
+                  })}
+                  <div style={{ width: '30px', height: '1px', background: '#FF8500', margin: '3px 0' }} />
+                  {/* Lock */}
+                  {(() => {
+                    const on = isDrawingToolLocked
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#FCD34D' : '#78450A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#FCD34D' : '#78450A'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}</button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #FCD34D', borderRadius: '5px', padding: '3px 9px', color: '#FCD34D', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{on ? 'Lock: ON' : 'Lock: OFF'}</div>
+                      </div>
+                    )
+                  })()}
+                  {/* Undo */}
+                  {(() => {
+                    const dis = currentHistoryIndex <= 0
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex - 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#4B7BEC', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                          onMouseEnter={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#74A7FF'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4B7BEC44' } }}
+                          onMouseLeave={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#4B7BEC'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' } }}
+                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg></button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4B7BEC', borderRadius: '5px', padding: '3px 9px', color: '#74A7FF', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Undo</div>
+                      </div>
+                    )
+                  })()}
+                  {/* Redo */}
+                  {(() => {
+                    const dis = currentHistoryIndex >= currentHistory.length - 1
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex + 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#2A9D8F', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                          onMouseEnter={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#4DD0C4'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #2A9D8F44' } }}
+                          onMouseLeave={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#2A9D8F'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' } }}
+                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14L20 9L15 4" /><path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" /></svg></button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #2A9D8F', borderRadius: '5px', padding: '3px 9px', color: '#4DD0C4', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Redo</div>
+                      </div>
+                    )
+                  })()}
+                  {/* Show/Hide */}
+                  {(() => {
+                    const vis = isBackgroundVisible
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: vis ? '#4ADE80' : '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = vis ? '#4ADE80' : '#166534'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        >{vis ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6" /></svg>}</button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4ADE80', borderRadius: '5px', padding: '3px 9px', color: '#4ADE80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{vis ? 'Drawings: On' : 'Drawings: Off'}</div>
+                      </div>
+                    )
+                  })()}
+                  {/* Clear */}
+                  <div style={{ position: 'relative' }}
+                    onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                    onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                  >
+                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#7F1D1D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#7F1D1D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                    ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+                    <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F87171', borderRadius: '5px', padding: '3px 9px', color: '#F87171', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Clear All</div>
+                  </div>
+                </div>
                 <div style={{ flex: 1 }} />
                 {showPATPanel && (
                   <button
@@ -31855,7 +32161,7 @@ export default function TradingViewChart({
                     </button>
                   )}
 
-                  {/* Close button for Live FlowMoves panel - TradingView style X button */}
+                  {/* Close button for IntraFlow panel - TradingView style X button */}
                   {isFlowChartActive && (
                     <button
                       onClick={() => {
@@ -31876,7 +32182,7 @@ export default function TradingViewChart({
                         fontWeight: 'bold',
                         lineHeight: '1',
                       }}
-                      title="Close Live FlowMoves panel"
+                      title="Close IntraFlow panel"
                     >
                       ×
                     </button>
@@ -35052,6 +35358,7 @@ export default function TradingViewChart({
                   {showPATPanel && patPanelActiveTab === 'insight' && (
                     <InsightPanel onClose={() => setShowPATPanel(false)} />
                   )}
+
                 </div>
               </div>,
               document.body

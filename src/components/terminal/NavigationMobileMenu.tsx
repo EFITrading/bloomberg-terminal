@@ -15,7 +15,6 @@ interface Props {
     isClient: boolean
     router: AppRouterInstance
     isSmallMobile: boolean
-    isLandscapePhone?: boolean
 }
 
 /**
@@ -31,7 +30,6 @@ export default function NavigationMobileMenu({
     isClient,
     router,
     isSmallMobile,
-    isLandscapePhone = false,
 }: Props) {
     const [isOpen, setIsOpen] = useState(false)
 
@@ -93,42 +91,39 @@ export default function NavigationMobileMenu({
                     top: 0,
                     left: 0,
                     width: '100vw',
-                    height: '100dvh',
-                    background: isOpen ? 'rgba(0, 0, 0, 0.97)' : 'transparent',
-                    zIndex: isOpen ? 9999999 : -1,
+                    height: '100vh',
+                    background: isOpen ? 'rgba(0, 0, 0, 0.95)' : 'transparent',
+                    zIndex: isOpen ? 99999 : -1,
                     opacity: isOpen ? 1 : 0,
                     visibility: isOpen ? 'visible' : 'hidden',
                     display: isOpen ? 'flex' : 'none',
                     flexDirection: 'column',
-                    overflowY: 'auto',
-                    transition: 'all 0.25s ease',
+                    transition: 'all 0.3s ease',
                 }}
             >
                 <div
                     className="mobile-menu-content"
                     style={{
-                        padding: isLandscapePhone ? '12px 16px' : '20px',
-                        minHeight: '100%',
+                        padding: '20px',
+                        height: '100%',
                         background: 'rgba(0, 0, 0, 0.98)',
                         color: 'white',
                         position: 'relative',
-                        display: 'flex',
-                        flexDirection: 'column',
                     }}
                 >
                     {/* Header */}
                     <div
                         className="mobile-menu-header"
                         style={{
-                            marginBottom: isLandscapePhone ? '12px' : '30px',
+                            marginBottom: '30px',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                         }}
                     >
                         <div className="mobile-logo">
-                            <span className="logo-evolving" style={{ color: '#FF6600', fontSize: isLandscapePhone ? '14px' : undefined }}>EFI</span>
-                            <span className="logo-finance" style={{ color: '#FFFFFF', marginLeft: '5px', fontSize: isLandscapePhone ? '14px' : undefined }}>TERMINAL</span>
+                            <span className="logo-evolving" style={{ color: '#FF6600' }}>EFI</span>
+                            <span className="logo-finance" style={{ color: '#FFFFFF', marginLeft: '5px' }}>TERMINAL</span>
                         </div>
                         <button
                             className="mobile-close-btn"
@@ -138,27 +133,21 @@ export default function NavigationMobileMenu({
                                 background: 'none',
                                 border: '2px solid rgba(255, 255, 255, 0.2)',
                                 color: '#FFFFFF',
-                                fontSize: isLandscapePhone ? '18px' : '24px',
-                                width: isLandscapePhone ? '32px' : '40px',
-                                height: isLandscapePhone ? '32px' : '40px',
+                                fontSize: '24px',
+                                width: '40px',
+                                height: '40px',
                                 borderRadius: '50%',
                                 cursor: 'pointer',
-                                flexShrink: 0,
                             }}
                         >
                             ×
                         </button>
                     </div>
 
-                    {/* Nav links — 2-column grid on landscape phone */}
+                    {/* Nav links */}
                     <div
                         className="mobile-menu-links"
-                        style={{
-                            display: 'grid',
-                            gridTemplateColumns: isLandscapePhone ? '1fr 1fr' : '1fr',
-                            gap: isLandscapePhone ? '8px' : '15px',
-                            flex: 1,
-                        }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
                     >
                         {navLinks.map((link) => (
                             <a
@@ -170,7 +159,7 @@ export default function NavigationMobileMenu({
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
-                                    padding: isLandscapePhone ? '10px 14px' : '15px 20px',
+                                    padding: '15px 20px',
                                     background:
                                         pathname === link.path
                                             ? 'rgba(255, 255, 255, 0.1)'
@@ -179,7 +168,7 @@ export default function NavigationMobileMenu({
                                     borderRadius: '8px',
                                     color: '#FFFFFF',
                                     textDecoration: 'none',
-                                    fontSize: isLandscapePhone ? '13px' : '16px',
+                                    fontSize: '16px',
                                     fontWeight: '500',
                                 }}
                             >
@@ -190,7 +179,7 @@ export default function NavigationMobileMenu({
                     </div>
 
                     {/* Auth button */}
-                    <div className="mobile-menu-footer" style={{ marginTop: isLandscapePhone ? '12px' : undefined }}>
+                    <div className="mobile-menu-footer">
                         {isClient && (
                             <>
                                 {isAuthenticated ? (

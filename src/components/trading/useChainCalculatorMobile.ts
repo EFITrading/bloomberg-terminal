@@ -7,23 +7,12 @@ import { useState, useEffect } from 'react'
  * Extracted from ChainCalculator.tsx.
  */
 export function useChainCalculatorMobile() {
-    const [isMobile, setIsMobile] = useState(() => {
-        if (typeof window === 'undefined') return false
-        const w = window.innerWidth; const h = window.innerHeight
-        return w < 768 || (w > 768 && w <= 1024 && h <= 500)
-    })
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
 
     useEffect(() => {
-        const onResize = () => {
-            const w = window.innerWidth; const h = window.innerHeight
-            setIsMobile(w < 768 || (w > 768 && w <= 1024 && h <= 500))
-        }
+        const onResize = () => setIsMobile(window.innerWidth < 768)
         window.addEventListener('resize', onResize)
-        window.addEventListener('orientationchange', onResize)
-        return () => {
-            window.removeEventListener('resize', onResize)
-            window.removeEventListener('orientationchange', onResize)
-        }
+        return () => window.removeEventListener('resize', onResize)
     }, [])
 
     return { isMobile }
