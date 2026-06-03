@@ -18566,13 +18566,6 @@ export default function TradingViewChart({
         const tickStartY = axisTop + 2
         const tickEndY = axisTop + 10
 
-        // DEBUG: log once per render
-        if (!(window as any).__timeAxisDbg) {
-          (window as any).__timeAxisDbg = true
-          console.log('[TimeAxis DEBUG] height:', height, '| timeAxisStartY param:', timeAxisStartY, '| axisTop:', axisTop, '| labelY:', labelY, '| ctx.canvas.height (css):', ctx.canvas.style.height)
-          setTimeout(() => { (window as any).__timeAxisDbg = false }, 2000)
-        }
-
         // Draw the label in the time axis strip at the very bottom
         ctx.fillText(text, x, labelY)
 
@@ -18584,12 +18577,6 @@ export default function TradingViewChart({
         ctx.lineTo(x, tickEndY)
         ctx.stroke()
 
-        // DEBUG: log first placed label
-        if (!(window as any).__labelPlacedDbg) {
-          (window as any).__labelPlacedDbg = true
-          console.log('[TimeAxis PLACED] text:', text, '| x:', x, '| labelY:', labelY, '| fillStyle:', ctx.fillStyle, '| clip:', ctx.canvas.style.clip, '| font:', ctx.font)
-          setTimeout(() => { (window as any).__labelPlacedDbg = false }, 2000)
-        }
       }
     }
 
@@ -18612,13 +18599,6 @@ export default function TradingViewChart({
       const x = CHART_LEFT_MARGIN + lastIndex * candleSpacing + candleSpacing / 2
       const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format)
       addLabel(x, timeLabel, false)
-    }
-
-    // DEBUG: total placed
-    if (!(window as any).__totalLabelsDbg) {
-      (window as any).__totalLabelsDbg = true
-      console.log('[TimeAxis TOTAL] labelPositions.length:', labelPositions.length, '| visibleData.length:', visibleData.length, '| chartWidth:', chartWidth, '| CHART_LEFT_MARGIN:', CHART_LEFT_MARGIN)
-      setTimeout(() => { (window as any).__totalLabelsDbg = false }, 2000)
     }
 
     // Draw future X-axis date labels for seasonal/election projections (orange)
@@ -32153,7 +32133,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001]"
                       style={{
                         left: '60px',
-                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 + 8}px`,
+                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
                         transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                       }}
                     >
@@ -32477,7 +32457,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001]"
                       style={{
                         right: '90px',
-                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 + 8}px`,
+                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
                         transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                       }}
                     >
