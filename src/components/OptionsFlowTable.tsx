@@ -785,6 +785,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false)
   const [leapActive, setLeapActive] = useState<boolean>(false)
+  // Tracks the exact array reference loaded from a saved flow — dedup is skipped for this ref
+  const loadedDataRef = useRef<OptionsFlowData[] | null>(null)
 
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false)
 
@@ -3591,9 +3593,13 @@ Stock Reaction: ${scores.stockReaction}/15`
         throw new Error(`HTTP ${response.status} · ${errText}`)
       }
 
-      const flowData = await response.json()
+      const rawText = await response.text()
 
-      onDataUpdate && onDataUpdate(flowData.data)
+      const flowData = JSON.parse(rawText)
+      const trades = flowData.data
+
+      loadedDataRef.current = trades
+      onDataUpdate && onDataUpdate(trades)
       setIsHistoryDialogOpen(false)
     } catch (error) {
       alert(`Failed to load flow: ${error instanceof Error ? error.message : String(error)}`)
@@ -3792,25 +3798,20 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     // Step 1: Fast deduplication using Set (O(n) instead of O(n·))
+    // Skipped when data was loaded from a saved flow — it's already clean
 
-    const seen = new Set<string>()
-
-    const deduplicatedData = sourceData.filter((trade: OptionsFlowData) => {
-      const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.spot_price}-${trade.trade_timestamp}-${trade.exchange_name}`
-
-      if (seen.has(tradeKey)) {
-        return false // Duplicate
-      }
-
-      seen.add(tradeKey)
-
-      return true // First occurrence
-    })
-
-    // Log deduplication results only when needed
-
-    if (sourceData.length !== deduplicatedData.length) {
-      const duplicatesRemoved = sourceData.length - deduplicatedData.length
+    let deduplicatedData: OptionsFlowData[]
+    if (data === loadedDataRef.current) {
+      // Exact same array reference that came from a saved load — skip dedup
+      deduplicatedData = sourceData
+    } else {
+      const seen = new Set<string>()
+      deduplicatedData = sourceData.filter((trade: OptionsFlowData) => {
+        const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.spot_price}-${trade.trade_timestamp}-${trade.exchange_name}`
+        if (seen.has(tradeKey)) return false
+        seen.add(tradeKey)
+        return true
+      })
     }
 
     // Step 2: Bundle small trades (<$500) for same contract within 1 minute

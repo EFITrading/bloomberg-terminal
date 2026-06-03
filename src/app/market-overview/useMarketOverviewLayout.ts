@@ -2,29 +2,22 @@
 import { useState } from 'react'
 
 /**
- * Layout hook for the Market Overview page.
- * paddingTop = nav + ticker (desktop) or just nav (mobile — ticker is hidden on mobile).
- * Ticker is 29px tall, shown only at >1024px.
+ * Mobile-specific layout logic for the Market Overview page.
+ * Extracted from page.tsx so the page file stays desktop-layout-clean.
  */
 export function useMarketOverviewLayout() {
-    const [totalOffset, setTotalOffset] = useState(119)  // 90 nav + 29 ticker
-    const [chartHeight, setChartHeight] = useState(800)
+    const [isMobile, setIsMobile] = useState(false)
+    const [chartHeight, setChartHeight] = useState(600)
 
     function updateLayout() {
-        const w = window.innerWidth
-        const h = window.innerHeight
-        const isPortraitPhone = w <= 768
-        const isLandscapePhone = w > 768 && w <= 1024 && h <= 500
-        const isMobileLayout = isPortraitPhone || isLandscapePhone
-
-        // Ticker is hidden on ≤1024px (CSS: display:none)
-        const navH = isLandscapePhone ? 48 : isPortraitPhone ? 56 : 90
-        const tickerH = isMobileLayout ? 0 : 29
-        const offset = navH + tickerH
-
-        setTotalOffset(offset)
-        setChartHeight(Math.max(300, h - offset))
+        const mobile = window.innerWidth <= 768
+        setIsMobile(mobile)
+        // navHeight accounts for: top nav bar + ticker strip + chart toolbar + some bottom breathing room
+        const navHeight = mobile ? 100 : 180
+        setChartHeight(Math.max(400, window.innerHeight - navHeight))
     }
 
-    return { chartHeight, paddingTop: `${totalOffset}px`, updateLayout }
+    const paddingTop = isMobile ? '60px' : '120px'
+
+    return { chartHeight, paddingTop, updateLayout }
 }

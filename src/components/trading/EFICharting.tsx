@@ -5862,6 +5862,233 @@ export default function TradingViewChart({
     setIsGexActive(true)
   }
 
+  // GEX Live OI Scan Handler - shared processing helper for saved + live scan paths
+  const processLiveGEXTrades = async (allTrades: any[]) => {
+    try {
+      // Step 1: Fetch volume and OI data for all trades using Polygon API
+      const uniqueExpirations = [...new Set(allTrades.map((t: any) => t.expiry))]
+      const allContracts = new Map()
+
+      for (let i = 0; i < uniqueExpirations.length; i++) {
+        const expiry = uniqueExpirations[i] as string
+        const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
+        try {
+          const response = await fetch(
+            `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiryParam}&limit=250&apiKey=qyKP_vdrxtME8uAj0gufQA8sTOdcoaSl`
+          )
+          if (response.ok) {
+            const chainData = await response.json()
+            if (chainData.results) {
+              chainData.results.forEach((contract: any) => {
+                if (contract.details?.ticker) {
+                  allContracts.set(contract.details.ticker, {
+                    volume: contract.day?.volume || 0,
+                    open_interest: contract.open_interest || 0,
+                  })
+                }
+              })
+            }
+          }
+          setGexProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
+        } catch (error) {
+          console.error(`❌ Error fetching ${expiryParam}:`, error)
+        }
+      }
+
+      setGexProgress(60) // 60% - contracts fetched
+
+      // Step 2: Enrich trades with volume/OI
+      const enrichedTrades = allTrades.map((trade: any) => {
+        const contractData = allContracts.get(trade.ticker)
+        return {
+          ...trade,
+          volume: contractData?.volume || 0,
+          open_interest: contractData?.open_interest || 0,
+          underlying_ticker: trade.underlying_ticker || symbol,
+        }
+      })
+      setGexProgress(70) // 70% - trades enriched
+
+      // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
+      // Same approach as AlgoFlowScreener & Options Flow page
+      const normalizeTickerForOptions = (ticker: string) => {
+        const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' }
+        return specialCases[ticker] || ticker
+      }
+
+      const buildOptionTicker = (trade: any): string => {
+        const expiry = trade.expiry.replace(/-/g, '').slice(2)
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+        return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
+      }
+
+      const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
+        const midpoint = (bid + ask) / 2
+        if (fillPrice >= ask + 0.01) return 'AA'
+        if (fillPrice <= bid - 0.01) return 'BB'
+        if (fillPrice === ask) return 'A'
+        if (fillPrice === bid) return 'B'
+        return fillPrice >= midpoint ? 'A' : 'B'
+      }
+
+      // Build deduplicated batch — unique by contract + second bucket (same as AlgoFlow)
+      type QuoteKey = string
+      const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
+      for (const trade of enrichedTrades) {
+        const contract = buildOptionTicker(trade)
+        const tradeMs =
+          typeof trade.trade_timestamp === 'number'
+            ? trade.trade_timestamp
+            : new Date(trade.trade_timestamp).getTime()
+        const timestampNs = tradeMs * 1_000_000
+        const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+        if (!uniqueQuotes.has(key))
+          uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
+      }
+
+      // Single batch POST — server fans out all Polygon historical quote calls simultaneously
+      const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
+      const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
+      try {
+        const res = await fetch('/api/options-quotes-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trades: batchPayload }),
+        })
+        const batchData = await res.json()
+        for (const r of batchData.results as {
+          id: string
+          bid: number | null
+          ask: number | null
+        }[]) {
+          quoteResultMap.set(
+            r.id,
+            r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
+          )
+        }
+      } catch {
+        // All trades fall through to N/A
+      }
+
+      setGexProgress(78) // 78% - historical quotes fetched
+
+      // Map historical quotes back to each trade
+      // For saved trades, fill_style is already set — skip re-computation if present
+      const tradesWithFillStyle: any[] = enrichedTrades.map((trade: any) => {
+        if (trade.fill_style && trade.fill_style !== 'N/A') return trade
+        const contract = buildOptionTicker(trade)
+        const tradeMs =
+          typeof trade.trade_timestamp === 'number'
+            ? trade.trade_timestamp
+            : new Date(trade.trade_timestamp).getTime()
+        const timestampNs = tradeMs * 1_000_000
+        const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
+        const quote = quoteResultMap.get(key) ?? null
+        if (quote) {
+          return {
+            ...trade,
+            fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask),
+          }
+        }
+        return { ...trade, fill_style: 'N/A' }
+      })
+
+      setGexProgress(80) // 80% - fill styles calculated
+
+      // Step 4: Calculate Live OI for each unique contract - EXACT DealerAttraction logic
+      const liveOIMap = new Map<string, number>()
+      const uniqueContracts = new Set<string>()
+
+      tradesWithFillStyle.forEach((trade) => {
+        const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+        uniqueContracts.add(contractKey)
+      })
+
+      uniqueContracts.forEach((contractKey) => {
+        const matchingTrade = tradesWithFillStyle.find(
+          (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+        )
+
+        const originalOI = matchingTrade?.open_interest || 0
+
+        const contractTrades = tradesWithFillStyle.filter(
+          (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+        )
+
+        let liveOI = originalOI
+        const processedTradeIds = new Set<string>()
+
+        const sortedTrades = [...contractTrades].sort(
+          (a, b) =>
+            new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+        )
+
+        sortedTrades.forEach((trade) => {
+          const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`
+          if (processedTradeIds.has(tradeId)) return
+          processedTradeIds.add(tradeId)
+          const contracts = trade.trade_size || 0
+          const fillStyle = trade.fill_style
+          switch (fillStyle) {
+            case 'A':
+            case 'AA':
+            case 'BB':
+              liveOI += contracts
+              break
+            case 'B':
+              if (contracts > originalOI) {
+                liveOI += contracts
+              } else {
+                liveOI -= contracts
+              }
+              break
+          }
+        })
+
+        liveOI = Math.max(0, liveOI)
+        liveOIMap.set(contractKey, liveOI)
+      })
+
+      setGexProgress(90)
+
+      // Step 5: Send to GEX API
+      const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
+        const parts = key.split('_')
+        return {
+          ticker: parts[0],
+          strike: parseFloat(parts[1]),
+          type: parts[2] === 'call' ? 'C' : 'P',
+          expiry: parts.slice(3).join('_'),
+          liveOI: oi,
+        }
+      })
+
+      const response = await fetch('/api/gex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, liveOI: liveOIArray }),
+      })
+
+      const gexResult = await response.json()
+
+      if (gexResult.success) {
+        setLiveGexData(gexResult)
+        setIsGexActive(true)
+        setGexProgress(100)
+        setTimeout(() => renderChart(), 100)
+        setTimeout(() => { setIsGexLoading(false) }, 500)
+      } else {
+        throw new Error(gexResult.error || 'GEX calculation failed')
+      }
+    } catch (error) {
+      console.error('❌ Error in Live GEX scan:', error)
+      setIsGexLoading(false)
+      setIsGexActive(false)
+      setGexProgress(0)
+    }
+  }
+
   // GEX Live OI Scan Handler - same historical bid/ask logic as AlgoFlow & Options Flow page
   const handleLiveGEXClick = async () => {
     if (isGexLoading) return
@@ -5877,6 +6104,106 @@ export default function TradingViewChart({
 
     setIsGexLoading(true)
     setGexProgress(0)
+
+    // ── Try saved flow data first — exact same logic as GexPanel.tsx ─────────
+    try {
+      const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const target = new Date(nowPST)
+      if (nowPST.getHours() < 6 || (nowPST.getHours() === 6 && nowPST.getMinutes() < 30)) {
+        target.setDate(target.getDate() - 1)
+        while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1)
+      }
+      const tradingDate = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`
+
+      const datesResp = await fetch('/api/flows/dates')
+      if (datesResp.ok) {
+        const dates: { date: string }[] = await datesResp.json()
+        if (dates.length > 0) {
+          const latestDay = new Date(dates[0].date).toISOString().split('T')[0]
+          if (latestDay === tradingDate) {
+            const flowResp = await fetch(`/api/flows/${encodeURIComponent(dates[0].date)}`)
+            if (flowResp.ok) {
+              const flowData = await flowResp.json()
+              const allSaved: any[] = Array.isArray(flowData.data) ? flowData.data : []
+              const savedTrades = allSaved.filter(
+                (t) => t.underlying_ticker?.toUpperCase() === symbol?.toUpperCase()
+              )
+              if (savedTrades.length > 0) {
+                // Build liveOIMap from saved trades — exactly as GexPanel does it.
+                // Group by contract + PST day, keep only the most recent day per contract.
+                const contractDayGroups = new Map<string, any[]>()
+                for (const trade of savedTrades) {
+                  const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                  const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${day}`
+                  if (!contractDayGroups.has(key)) contractDayGroups.set(key, [])
+                  contractDayGroups.get(key)!.push(trade)
+                }
+                const latestDayPerContract = new Map<string, string>()
+                for (const key of contractDayGroups.keys()) {
+                  const contractKey = key.split('_').slice(0, -1).join('_')
+                  const day = key.split('_').slice(-1)[0]
+                  const existing = latestDayPerContract.get(contractKey)
+                  if (!existing || day > existing) latestDayPerContract.set(contractKey, day)
+                }
+                const liveOIMap = new Map<string, number>()
+                for (const [key, trades] of contractDayGroups) {
+                  const contractKey = key.split('_').slice(0, -1).join('_')
+                  const day = key.split('_').slice(-1)[0]
+                  if (latestDayPerContract.get(contractKey) !== day) continue
+                  const sorted = [...trades].sort(
+                    (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+                  )
+                  const baseOI = sorted[0].open_interest ?? 0
+                  let liveOI = baseOI
+                  const seen = new Set<string>()
+                  for (const trade of sorted) {
+                    const tradeId = `${trade.ticker}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`
+                    if (seen.has(tradeId)) continue
+                    seen.add(tradeId)
+                    const contracts = trade.trade_size ?? 0
+                    switch (trade.fill_style) {
+                      case 'A': case 'AA': case 'BB': liveOI += contracts; break
+                      case 'B': liveOI += contracts > baseOI ? contracts : -contracts; break
+                    }
+                  }
+                  liveOIMap.set(contractKey, Math.max(0, liveOI))
+                }
+
+                // Send to /api/gex
+                setGexProgress(90)
+                const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
+                  const parts = key.split('_')
+                  return {
+                    ticker: parts[0],
+                    strike: parseFloat(parts[1]),
+                    type: parts[2] === 'call' ? 'C' : 'P',
+                    expiry: parts.slice(3).join('_'),
+                    liveOI: oi,
+                  }
+                })
+                const gexResp = await fetch('/api/gex', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ symbol, liveOI: liveOIArray }),
+                })
+                const gexResult = await gexResp.json()
+                if (gexResult.success) {
+                  setLiveGexData(gexResult)
+                  setIsGexActive(true)
+                  setGexProgress(100)
+                  setTimeout(() => renderChart(), 100)
+                  setTimeout(() => setIsGexLoading(false), 500)
+                  return
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[LiveGEX] Saved flow check failed, falling back to live scan:', err)
+    }
+    // ── End saved flow check ─────────────────────────────────────────────────
 
     const eventSource = new EventSource(`/api/stream-options-flow?ticker=${symbol}`)
     let allTrades: any[] = []
@@ -5904,235 +6231,7 @@ export default function TradingViewChart({
           scanComplete = true
           eventSource.close()
           setGexProgress(20) // 20% - trades received
-
-          // Step 1: Fetch volume and OI data for all trades using Polygon API
-          const uniqueExpirations = [...new Set(allTrades.map((t: any) => t.expiry))]
-          const allContracts = new Map()
-
-          for (let i = 0; i < uniqueExpirations.length; i++) {
-            const expiry = uniqueExpirations[i] as string
-            const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
-            try {
-              const response = await fetch(
-                `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiryParam}&limit=250&apiKey=qyKP_vdrxtME8uAj0gufQA8sTOdcoaSl`
-              )
-              if (response.ok) {
-                const chainData = await response.json()
-                if (chainData.results) {
-                  chainData.results.forEach((contract: any) => {
-                    if (contract.details?.ticker) {
-                      allContracts.set(contract.details.ticker, {
-                        volume: contract.day?.volume || 0,
-                        open_interest: contract.open_interest || 0,
-                      })
-                    }
-                  })
-                }
-              }
-              setGexProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
-            } catch (error) {
-              console.error(`❌ Error fetching ${expiryParam}:`, error)
-            }
-          }
-
-          setGexProgress(60) // 60% - contracts fetched
-
-          // Step 2: Enrich trades with volume/OI
-          const enrichedTrades = allTrades.map((trade: any) => {
-            const contractData = allContracts.get(trade.ticker)
-            return {
-              ...trade,
-              volume: contractData?.volume || 0,
-              open_interest: contractData?.open_interest || 0,
-              underlying_ticker: trade.underlying_ticker || symbol,
-            }
-          })
-          setGexProgress(70) // 70% - trades enriched
-
-          // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
-          // Same approach as AlgoFlowScreener & Options Flow page
-          const normalizeTickerForOptions = (ticker: string) => {
-            const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' }
-            return specialCases[ticker] || ticker
-          }
-
-          const buildOptionTicker = (trade: any): string => {
-            const expiry = trade.expiry.replace(/-/g, '').slice(2)
-            const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-            return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-          }
-
-          const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
-            const midpoint = (bid + ask) / 2
-            if (fillPrice >= ask + 0.01) return 'AA'
-            if (fillPrice <= bid - 0.01) return 'BB'
-            if (fillPrice === ask) return 'A'
-            if (fillPrice === bid) return 'B'
-            return fillPrice >= midpoint ? 'A' : 'B'
-          }
-
-          // Build deduplicated batch — unique by contract + second bucket (same as AlgoFlow)
-          type QuoteKey = string
-          const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
-          for (const trade of enrichedTrades) {
-            const contract = buildOptionTicker(trade)
-            const tradeMs =
-              typeof trade.trade_timestamp === 'number'
-                ? trade.trade_timestamp
-                : new Date(trade.trade_timestamp).getTime()
-            const timestampNs = tradeMs * 1_000_000
-            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
-            if (!uniqueQuotes.has(key))
-              uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
-          }
-
-          // Single batch POST — server fans out all Polygon historical quote calls simultaneously
-          const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
-          const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
-          try {
-            const res = await fetch('/api/options-quotes-batch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ trades: batchPayload }),
-            })
-            const batchData = await res.json()
-            for (const r of batchData.results as {
-              id: string
-              bid: number | null
-              ask: number | null
-            }[]) {
-              quoteResultMap.set(
-                r.id,
-                r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
-              )
-            }
-          } catch {
-            // All trades fall through to N/A
-          }
-
-          setGexProgress(78) // 78% - historical quotes fetched
-
-          // Map historical quotes back to each trade
-          const tradesWithFillStyle: any[] = enrichedTrades.map((trade: any) => {
-            const contract = buildOptionTicker(trade)
-            const tradeMs =
-              typeof trade.trade_timestamp === 'number'
-                ? trade.trade_timestamp
-                : new Date(trade.trade_timestamp).getTime()
-            const timestampNs = tradeMs * 1_000_000
-            const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
-            const quote = quoteResultMap.get(key) ?? null
-            if (quote) {
-              return {
-                ...trade,
-                fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask),
-              }
-            }
-            return { ...trade, fill_style: 'N/A' }
-          })
-
-          setGexProgress(80) // 80% - fill styles calculated
-
-          // Step 4: Calculate Live OI for each unique contract - EXACT DealerAttraction logic
-          const liveOIMap = new Map<string, number>()
-          const uniqueContracts = new Set<string>()
-
-          tradesWithFillStyle.forEach((trade) => {
-            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-            uniqueContracts.add(contractKey)
-          })
-
-          uniqueContracts.forEach((contractKey) => {
-            const matchingTrade = tradesWithFillStyle.find(
-              (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-            )
-
-            const originalOI = matchingTrade?.open_interest || 0
-
-            // Calculate Live OI using the trades
-            const contractTrades = tradesWithFillStyle.filter(
-              (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-            )
-
-            let liveOI = originalOI
-            const processedTradeIds = new Set<string>()
-
-            // Sort trades chronologically
-            const sortedTrades = [...contractTrades].sort(
-              (a, b) =>
-                new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-            )
-
-            sortedTrades.forEach((trade) => {
-              const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`
-
-              if (processedTradeIds.has(tradeId)) return
-              processedTradeIds.add(tradeId)
-
-              const contracts = trade.trade_size || 0
-              const fillStyle = trade.fill_style
-
-              switch (fillStyle) {
-                case 'A':
-                case 'AA':
-                case 'BB':
-                  liveOI += contracts
-                  break
-                case 'B':
-                  if (contracts > originalOI) {
-                    liveOI += contracts
-                  } else {
-                    liveOI -= contracts
-                  }
-                  break
-              }
-            })
-
-            liveOI = Math.max(0, liveOI)
-            liveOIMap.set(contractKey, liveOI)
-          })
-
-          setGexProgress(90)
-
-          // Step 5: Send to GEX API
-          const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
-            const parts = key.split('_')
-            return {
-              ticker: parts[0],
-              strike: parseFloat(parts[1]),
-              type: parts[2] === 'call' ? 'C' : 'P', // Convert "call"/"put" to "C"/"P" for API
-              expiry: parts.slice(3).join('_'),
-              liveOI: oi,
-            }
-          })
-
-          const response = await fetch('/api/gex', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              symbol,
-              liveOI: liveOIArray,
-            }),
-          })
-
-          const gexResult = await response.json()
-
-          if (gexResult.success) {
-            setLiveGexData(gexResult)
-            setIsGexActive(true)
-            setGexProgress(100)
-
-            // Trigger re-render
-            setTimeout(() => renderChart(), 100)
-
-            // Hide loading after brief delay
-            setTimeout(() => {
-              setIsGexLoading(false)
-            }, 500)
-          } else {
-            throw new Error(gexResult.error || 'GEX calculation failed')
-          }
+          await processLiveGEXTrades(allTrades)
         }
       } catch (error) {
         console.error('❌ Error in Live GEX scan:', error)
@@ -6150,8 +6249,25 @@ export default function TradingViewChart({
     }
   }
 
+  // Maps chart timeframe string to bucket size in minutes (null = not supported for flow overlay)
+  const getFlowBucketMinutes = (tf: string): number | null => {
+    switch (tf) {
+      case '1m': return 1
+      case '5m': case '5min': return 5
+      case '15m': return 15
+      case '30m': return 30
+      case '1h': return 60
+      case '4h': return 240
+      case '1d': return 0   // daily: one cumulative bucket per calendar day
+      default: return null // weekly, monthly — not supported
+    }
+  }
+
   // Shared processing helper: convert raw trades array into FlowMoves chart data and set state
-  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W') => {
+  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W', bucketMinutes: number = 5) => {
+    // Store raw trades so we can re-process when chart timeframe changes
+    rawFlowTradesRef.current = allTrades
+    rawFlowMovesTimeframeRef.current = timeframe
     // US Market Holidays (2025-2026)
     const US_MARKET_HOLIDAYS = [
       '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
@@ -6185,10 +6301,19 @@ export default function TradingViewChart({
 
     const intervalData = new Map<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
 
-    if (timeframe === '1D') {
+    if (bucketMinutes === 0) {
+      // Daily chart mode: one bucket per calendar day
+      if (timeframe === '1D') {
+        intervalData.set('session', { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
+      } else {
+        tradingDays.forEach((date) => {
+          intervalData.set(date, { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 })
+        })
+      }
+    } else if (timeframe === '1D') {
       const marketOpenMinutes = 6 * 60 + 30
       const marketCloseMinutes = 13 * 60
-      for (let totalMinutes = marketOpenMinutes; totalMinutes < marketCloseMinutes; totalMinutes += 5) {
+      for (let totalMinutes = marketOpenMinutes; totalMinutes < marketCloseMinutes; totalMinutes += bucketMinutes) {
         const hour = Math.floor(totalMinutes / 60)
         const minute = totalMinutes % 60
         const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
@@ -6199,7 +6324,7 @@ export default function TradingViewChart({
       const marketOpenMinutes = 6 * 60 + 30
       const marketCloseMinutes = 13 * 60
       tradingDays.forEach((date) => {
-        for (let totalMinutes = marketOpenMinutes; totalMinutes <= marketCloseMinutes; totalMinutes += 5) {
+        for (let totalMinutes = marketOpenMinutes; totalMinutes <= marketCloseMinutes; totalMinutes += bucketMinutes) {
           const hour = Math.floor(totalMinutes / 60)
           const minute = totalMinutes % 60
           const timeKey = `${date}_${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
@@ -6219,17 +6344,20 @@ export default function TradingViewChart({
       const dateKey = `${year}-${month}-${day}`
       if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) return
       let timeKey: string
-      if (timeframe === '1D') {
+      if (bucketMinutes === 0) {
+        // Daily chart mode: all trades in a day map to that day's single bucket
+        timeKey = timeframe === '1D' ? 'session' : dateKey
+      } else if (timeframe === '1D') {
         const totalMinutes = hour * 60 + minute
         const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
-        const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
+        const slotMinutes = Math.floor(minutesSinceOpen / bucketMinutes) * bucketMinutes
         const slotHour = Math.floor((slotMinutes + 570) / 60)
         const slotMin = (slotMinutes + 570) % 60
         timeKey = `${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
       } else {
         const totalMinutes = hour * 60 + minute
         const minutesSinceOpen = totalMinutes - (9 * 60 + 30)
-        const slotMinutes = Math.floor(minutesSinceOpen / 5) * 5
+        const slotMinutes = Math.floor(minutesSinceOpen / bucketMinutes) * bucketMinutes
         const slotHour = Math.floor((slotMinutes + 570) / 60)
         const slotMin = (slotMinutes + 570) % 60
         timeKey = `${dateKey}_${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
@@ -6246,7 +6374,7 @@ export default function TradingViewChart({
     })
 
     const sortedIntervals = Array.from(intervalData.entries()).sort((a, b) => {
-      if (timeframe === '1D') return a[0].localeCompare(b[0])
+      if (bucketMinutes === 0 || timeframe === '1D') return a[0].localeCompare(b[0])
       const [dateA, timeA] = a[0].split('_')
       const [dateB, timeB] = b[0].split('_')
       return dateA === dateB ? timeA.localeCompare(timeB) : dateA.localeCompare(dateB)
@@ -6266,7 +6394,17 @@ export default function TradingViewChart({
       cumulative.putsMinus += data.putsMinus
       let timestamp: number
       let displayLabel: string
-      if (timeframe === '1D') {
+      if (bucketMinutes === 0) {
+        // Daily chart mode: key is 'session' (1D) or 'YYYY-MM-DD' (3D/1W)
+        const dateStr = timeframe === '1D' ? tradingDays[0] : key
+        const [dYear, dMonth, dDay] = dateStr.split('-')
+        const utcNoon = new Date(`${dYear}-${dMonth}-${dDay}T12:00:00Z`)
+        const laHourAtNoon = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }).format(utcNoon))
+        const laOffsetHours = 12 - laHourAtNoon
+        // Market open 6:30 AM PST → UTC: add laOffsetHours
+        timestamp = Date.UTC(parseInt(dYear), parseInt(dMonth) - 1, parseInt(dDay), 6 + laOffsetHours, 30, 0, 0)
+        displayLabel = `${dMonth}/${dDay}`
+      } else if (timeframe === '1D') {
         const [hourStr, minStr] = key.split(':')
         const hour = parseInt(hourStr)
         const now = new Date()
@@ -6299,7 +6437,7 @@ export default function TradingViewChart({
       chartData.push({ time: timestamp, timeLabel: displayLabel, callsPlus: cumulative.callsPlus, callsMinus: cumulative.callsMinus, putsPlus: cumulative.putsPlus, putsMinus: cumulative.putsMinus, bullishTotal, bearishTotal, netFlow })
     })
 
-    if (timeframe !== '1D' && chartData.length > 0) {
+    if (timeframe !== '1D' && bucketMinutes > 0 && chartData.length > 0) {
       const finalChartData: typeof chartData = []
       for (let dayIndex = 0; dayIndex < tradingDays.length; dayIndex++) {
         const currentDate = tradingDays[dayIndex]
@@ -6410,7 +6548,7 @@ export default function TradingViewChart({
                   return
                 }
                 // All days available — render immediately
-                processFlowMovesTradesIntoChart(combinedTrades, timeframe)
+                processFlowMovesTradesIntoChart(combinedTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
                 return
               }
             }
@@ -6428,7 +6566,7 @@ export default function TradingViewChart({
           if (data.type === 'complete' && data.trades?.length > 0) {
             allTrades = data.trades
             eventSource.close()
-            processFlowMovesTradesIntoChart(allTrades, timeframe)
+            processFlowMovesTradesIntoChart(allTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
           }
         } catch (error) {
           console.error('❌ Error processing FlowMoves data:', error)
@@ -9449,6 +9587,19 @@ export default function TradingViewChart({
 
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false)
+  const [flowChartMaximized, setFlowChartMaximized] = useState(false)
+  const [showFlowSettings, setShowFlowSettings] = useState(false)
+  const [flowLineColors, setFlowLineColors] = useState({
+    callsPlus: '#00FF00',
+    callsMinus: '#0066FF',
+    putsPlus: '#FF8800',
+    putsMinus: '#FF0000',
+    bullishTotal: '#00FF00',
+    bearishTotal: '#FF0000',
+  })
+  // Stores raw trades so they can be re-bucketed when chart timeframe changes
+  const rawFlowTradesRef = useRef<any[]>([])
+  const rawFlowMovesTimeframeRef = useRef<'1D' | '3D' | '1W'>('1D')
   // FlowMoves missing-days modal
   const [flowMovesMissingDays, setFlowMovesMissingDays] = useState<{ days: string[]; pendingTrades: any[]; pendingTimeframe: '1D' | '3D' | '1W' } | null>(null)
   const [flowChartViewMode, setFlowChartViewMode] = useState<'detailed' | 'simplified' | 'net'>(
@@ -12767,6 +12918,17 @@ export default function TradingViewChart({
     chartTimeframeRef.current = config.timeframe
   }, [config.timeframe])
 
+  // Re-bucket flow data when chart timeframe changes (so 1min shows 1min buckets, 15min shows 15min buckets, etc.)
+  useEffect(() => {
+    const bucketMinutes = getFlowBucketMinutes(config.timeframe)
+    if (isFlowChartActive && rawFlowTradesRef.current.length > 0) {
+      if (bucketMinutes !== null) {
+        processFlowMovesTradesIntoChart(rawFlowTradesRef.current, rawFlowMovesTimeframeRef.current, bucketMinutes)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.timeframe])
+
   // Compute BUY/SELL pressure scores using already-loaded chart candles
   useEffect(() => {
     if (!showBuySellIndicator || data.length === 0) {
@@ -15096,22 +15258,22 @@ export default function TradingViewChart({
     ctx.fillRect(0, 0, width, height)
 
     // Calculate chart areas - reserve space for volume and time axis
-    const timeAxisHeight = 20
+    const timeAxisHeight = 35
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
     const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
     const actualPEGPanelHeight = showPEGPanel ? pegPanelHeight : 0 // PEG panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
     const actualBuySellPanelHeight = showBuySellIndicator ? buySellPanelHeight : 0
-    const volumeAreaHeight = 80 // Volume bars area
+    const volumeAreaHeight = 80 // Volume bars area (overlaid on price chart bottom, not reserved)
     // Adjust price chart height based on active indicators
+    // Volume is overlaid on the price chart bottom (TradingView style) - no dedicated space needed
     const totalBottomSpace =
       actualFlowChartHeight +
       actualIVPanelHeight +
       actualPEPanelHeight +
       actualPEGPanelHeight +
       actualEventPanelHeight +
-      volumeAreaHeight +
       actualBuySellPanelHeight +
       timeAxisHeight
     const priceChartHeight = height - totalBottomSpace
@@ -15880,29 +16042,25 @@ export default function TradingViewChart({
       )
     }
 
-    // Draw flow chart above volume if active (only on 5min timeframe)
+    // Draw flow chart above volume if active (intraday timeframes: 1m, 5m, 15m, 30m, 1h, 4h)
     if (isFlowChartActive && flowChartData.length > 0) {
-      // DEBUG: Log candlestick timestamps
-      if (visibleData.length > 0) {
-        visibleData.slice(0, 5).forEach((candle) => {
-          const date = new Date(candle.timestamp)
-        })
-      }
-
-      if (config.timeframe === '5min' || config.timeframe === '5m') {
+      const flowBucketMinutes = getFlowBucketMinutes(config.timeframe)
+      if (flowBucketMinutes !== null) {
         // Filter flow data to match visible candlestick time range
+        const firstCandleTime = visibleData.length > 0 ? new Date(visibleData[0].timestamp).getTime() : 0
+        const lastCandleTime = visibleData.length > 0 ? new Date(visibleData[visibleData.length - 1].timestamp).getTime() : 0
+        // For daily candles, Polygon timestamps are at midnight ET (04:00 UTC in EDT) but flow points are
+        // assigned to market-open time (13:30 UTC). Extend the upper bound by 24h so same-day flow
+        // points are not filtered out.
+        const filterUpperBound = flowBucketMinutes === 0 ? lastCandleTime + 24 * 60 * 60 * 1000 : lastCandleTime
         const visibleFlowData = flowChartData.filter((point) => {
           if (visibleData.length === 0) return false
-          const firstCandleTime = new Date(visibleData[0].timestamp).getTime()
-          const lastCandleTime = new Date(visibleData[visibleData.length - 1].timestamp).getTime()
-          return point.time >= firstCandleTime && point.time <= lastCandleTime
+          return point.time >= firstCandleTime && point.time <= filterUpperBound
         })
 
-        if (visibleData.length > 0) {
-        }
         if (visibleFlowData.length > 0) {
-          // Y-axis at fixed position on the right
-          const yAxisXPos = chartWidth - 85
+          // Y-axis aligned with price chart right axis column
+          const yAxisXPos = width - 15
 
           drawFlowChart(
             ctx,
@@ -15915,7 +16073,6 @@ export default function TradingViewChart({
             yAxisXPos
           )
         }
-      } else {
       }
     }
 
@@ -16015,7 +16172,7 @@ export default function TradingViewChart({
       }
     }
 
-    // P/E RATIO panel — sits directly above volume bars (below buySell panel)
+    // P/E RATIO panel — sits below buySell panel
     if (showPEPanel) {
       const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight
       if (peData && peData.history.length > 0) {
@@ -16046,7 +16203,7 @@ export default function TradingViewChart({
       }
     }
 
-    // PEG RATIO panel — sits below P/E panel, above volume
+    // PEG RATIO panel — sits below P/E panel
     if (showPEGPanel) {
       const pegPanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight + actualPEPanelHeight
       if (pegData && pegData.history && pegData.history.some(h => h.peg !== null)) {
@@ -16077,7 +16234,7 @@ export default function TradingViewChart({
       }
     }
 
-    // BUY/SELL Pressure panel — sits below IV panels, above volume (same zone as IV/HV)
+    // BUY/SELL Pressure panel — sits below IV panels
     if (showBuySellIndicator) {
       const buySellStartY =
         priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight
@@ -16114,18 +16271,12 @@ export default function TradingViewChart({
       }
     }
 
-    // Draw volume bars above the time axis (TradingView style)
+    // Draw volume bars as overlay on the price chart bottom (TradingView style)
     drawVolumeProfile(
       ctx,
       visibleData,
       chartWidth,
-      priceChartHeight +
-      actualFlowChartHeight +
-      actualEventPanelHeight +
-      actualIVPanelHeight +
-      actualBuySellPanelHeight +
-      actualPEPanelHeight +
-      actualPEGPanelHeight,
+      priceChartHeight,
       visibleCandleCount,
       width,
       volumeAreaHeight,
@@ -16134,6 +16285,7 @@ export default function TradingViewChart({
     )
 
     // Draw time axis at the bottom
+    const timeAxisStartY = height - timeAxisHeight
     drawTimeAxis(
       ctx,
       width,
@@ -16142,7 +16294,8 @@ export default function TradingViewChart({
       chartWidth,
       visibleCandleCount,
       scrollOffset,
-      data
+      data,
+      timeAxisStartY
     )
 
     // Draw stored drawings on overlay canvas (not main chart)
@@ -16165,6 +16318,7 @@ export default function TradingViewChart({
     flowChartData,
     flowChartViewMode,
     flowChartHeight,
+    flowLineColors,
     isAnyIVHVActive,
     ivData,
     ivData.length,
@@ -16901,9 +17055,9 @@ export default function TradingViewChart({
     // Detect mobile device
     // isMobile is from useEFIChartingMobile hook in component scope
 
-    // Calculate volume profile area
+    // Calculate volume profile area — volumeEndY must stay above priceChartHeight (the time axis boundary)
     const volumeStartY = isMobile ? priceChartHeight - 30 : priceChartHeight - 50
-    const volumeEndY = isMobile ? priceChartHeight + volumeAreaHeight - 55 : priceChartHeight + volumeAreaHeight - 75
+    const volumeEndY = isMobile ? priceChartHeight - 10 : priceChartHeight - 10
 
     // Draw subtle volume background area (reduced height)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)'
@@ -17016,9 +17170,17 @@ export default function TradingViewChart({
     const flowStartY = priceChartHeight
     const flowEndY = priceChartHeight + flowChartHeight
 
-    // Draw background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+    // Draw solid black background (full panel)
+    ctx.fillStyle = '#000000'
     ctx.fillRect(CHART_LEFT_MARGIN, flowStartY, chartWidth - 120, flowChartHeight)
+
+    // TradingView-style separator line at the top of the panel
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(CHART_LEFT_MARGIN, flowStartY)
+    ctx.lineTo(chartWidth - 80, flowStartY)
+    ctx.stroke()
 
     // Add padding for Y-axis labels inside the box
     const yAxisPadding = 25
@@ -17037,6 +17199,29 @@ export default function TradingViewChart({
       candlePositions.set(candleTime, x)
     })
 
+    // Sorted candle times for nearest-neighbour lookup (handles timestamp offsets across timeframes)
+    const sortedCandleTimes = [...candlePositions.keys()].sort((a, b) => a - b)
+    // Tolerance = one full candle interval (derived from actual candle gaps, fallback 5 min)
+    const candleIntervalMs = sortedCandleTimes.length >= 2
+      ? sortedCandleTimes[sortedCandleTimes.length - 1] - sortedCandleTimes[sortedCandleTimes.length - 2]
+      : 5 * 60 * 1000
+
+    // Nearest-candle lookup: finds the closest candle within one interval tolerance
+    const getNearestX = (t: number): number | undefined => {
+      if (sortedCandleTimes.length === 0) return undefined
+      let lo = 0, hi = sortedCandleTimes.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (sortedCandleTimes[mid] < t) lo = mid + 1
+        else hi = mid
+      }
+      const bestIdx = (lo > 0 && Math.abs(sortedCandleTimes[lo - 1] - t) < Math.abs(sortedCandleTimes[lo] - t))
+        ? lo - 1 : lo
+      return Math.abs(sortedCandleTimes[bestIdx] - t) <= candleIntervalMs
+        ? candlePositions.get(sortedCandleTimes[bestIdx])
+        : undefined
+    }
+
     // Determine which lines to draw based on flowChartViewMode
     let linesToDraw: Array<{ key: string; color: string; name: string; isNegative?: boolean }> = []
     let topVal = 1
@@ -17048,10 +17233,10 @@ export default function TradingViewChart({
       topVal = dataMax * 1.1 || 1
       bottomVal = 0
       linesToDraw = [
-        { key: 'callsPlus', color: '#00FF00', name: 'Bullish Calls' },
-        { key: 'callsMinus', color: '#0066FF', name: 'Bearish Calls' },
-        { key: 'putsPlus', color: '#FF8800', name: 'Bullish Puts' },
-        { key: 'putsMinus', color: '#FF0000', name: 'Bearish Puts' },
+        { key: 'callsPlus', color: flowLineColors.callsPlus, name: 'Bullish Calls' },
+        { key: 'callsMinus', color: flowLineColors.callsMinus, name: 'Bearish Calls' },
+        { key: 'putsPlus', color: flowLineColors.putsPlus, name: 'Bullish Puts' },
+        { key: 'putsMinus', color: flowLineColors.putsMinus, name: 'Bearish Puts' },
       ]
     } else if (flowChartViewMode === 'simplified') {
       const dataMax = Math.max(...flowData.map((d) => d.bullishTotal), 0)
@@ -17059,8 +17244,8 @@ export default function TradingViewChart({
       topVal = dataMax > 0 ? dataMax * 1.1 : 1
       bottomVal = dataMin < 0 ? dataMin * 1.1 : 0
       linesToDraw = [
-        { key: 'bullishTotal', color: '#00FF00', name: 'Bullish Total', isNegative: false },
-        { key: 'bearishTotal', color: '#FF0000', name: 'Bearish Total', isNegative: true },
+        { key: 'bullishTotal', color: flowLineColors.bullishTotal, name: 'Bullish Total', isNegative: false },
+        { key: 'bearishTotal', color: flowLineColors.bearishTotal, name: 'Bearish Total', isNegative: true },
       ]
     } else if (flowChartViewMode === 'net') {
       const dataMax = Math.max(...flowData.map((d) => d.netFlow), 0)
@@ -17088,6 +17273,44 @@ export default function TradingViewChart({
       ctx.setLineDash([])
     }
 
+    // ── Daily chart mode: one vertical bar per day (zero → final value) ──────
+    if (candleIntervalMs >= 12 * 60 * 60 * 1000) {
+      // candleIntervalMs ≥ 12h means we're on a daily (or slower) chart
+      const barHalfWidth = Math.max(candleSpacing * 0.25, 3)
+      flowData.forEach((point) => {
+        const x = getNearestX(point.time)
+        if (x === undefined) return
+        const isPositive = point.netFlow >= 0
+        const value = point.netFlow
+        const yTop = valueToY(value)
+        const yBase = zeroY
+
+        // Fill bar
+        ctx.fillStyle = isPositive ? 'rgba(0,255,0,0.25)' : 'rgba(255,0,0,0.25)'
+        ctx.fillRect(x - barHalfWidth, Math.min(yTop, yBase), barHalfWidth * 2, Math.abs(yTop - yBase))
+
+        // Stroke outline
+        ctx.strokeStyle = isPositive ? '#00FF00' : '#FF0000'
+        ctx.lineWidth = 2
+        ctx.strokeRect(x - barHalfWidth, Math.min(yTop, yBase), barHalfWidth * 2, Math.abs(yTop - yBase))
+
+        // Value label above/below bar
+        const formatVal = (v: number) => {
+          const abs = Math.abs(v); const sign = v < 0 ? '-' : '+'
+          if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+          if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`
+          return `${sign}$${abs.toFixed(0)}`
+        }
+        ctx.font = 'bold 11px Arial'
+        ctx.textAlign = 'center'
+        ctx.fillStyle = isPositive ? '#00FF00' : '#FF0000'
+        const labelY = isPositive ? yTop - 5 : yTop + 13
+        ctx.fillText(formatVal(value), x, labelY)
+      })
+      ctx.globalAlpha = 1.0
+      return  // skip line-drawing below for daily mode
+    }
+
     // Draw lines
     linesToDraw.forEach((line) => {
       if (flowChartViewMode === 'net') {
@@ -17098,7 +17321,7 @@ export default function TradingViewChart({
         let prevValue: number | null = null
 
         flowData.forEach((point, index) => {
-          const x = candlePositions.get(point.time)
+          const x = getNearestX(point.time)
 
           if (x !== undefined) {
             const value = (point as any)[line.key]
@@ -17134,7 +17357,7 @@ export default function TradingViewChart({
 
         let firstPoint = true
         flowData.forEach((point) => {
-          const x = candlePositions.get(point.time)
+          const x = getNearestX(point.time)
 
           if (x !== undefined) {
             const value = (point as any)[line.key]
@@ -17159,7 +17382,7 @@ export default function TradingViewChart({
 
     // Draw line labels at the end of each line
     const lastPoint = flowData[flowData.length - 1]
-    const lastCandleX = candlePositions.get(lastPoint.time)
+    const lastCandleX = getNearestX(lastPoint.time)
 
     if (lastCandleX !== undefined) {
       ctx.font = 'bold 16px Arial'
@@ -18135,7 +18358,8 @@ export default function TradingViewChart({
     chartWidth: number,
     visibleCandleCount: number,
     scrollOffset: number,
-    allData: ChartDataPoint[]
+    allData: ChartDataPoint[],
+    timeAxisStartY?: number
   ) => {
     // Allow drawing axis even in future space (when visibleData is empty)
     if (visibleData.length === 0 && allData.length === 0) return
@@ -18336,11 +18560,20 @@ export default function TradingViewChart({
         // Set appropriate color
         ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor
 
-        const labelY = isMobile ? height - 45 : height - 70
-        const tickStartY = isMobile ? height - 75 : height - 95
-        const tickEndY = isMobile ? height - 52 : height - 77
+        // Time axis always draws in the last timeAxisHeight pixels of the canvas
+        const axisTop = timeAxisStartY ?? (height - 25)
+        const labelY = axisTop + 16
+        const tickStartY = axisTop + 2
+        const tickEndY = axisTop + 10
 
-        // Draw the label below volume bars
+        // DEBUG: log once per render
+        if (!(window as any).__timeAxisDbg) {
+          (window as any).__timeAxisDbg = true
+          console.log('[TimeAxis DEBUG] height:', height, '| timeAxisStartY param:', timeAxisStartY, '| axisTop:', axisTop, '| labelY:', labelY, '| ctx.canvas.height (css):', ctx.canvas.style.height)
+          setTimeout(() => { (window as any).__timeAxisDbg = false }, 2000)
+        }
+
+        // Draw the label in the time axis strip at the very bottom
         ctx.fillText(text, x, labelY)
 
         // Draw tick mark
@@ -18350,6 +18583,13 @@ export default function TradingViewChart({
         ctx.moveTo(x, tickStartY)
         ctx.lineTo(x, tickEndY)
         ctx.stroke()
+
+        // DEBUG: log first placed label
+        if (!(window as any).__labelPlacedDbg) {
+          (window as any).__labelPlacedDbg = true
+          console.log('[TimeAxis PLACED] text:', text, '| x:', x, '| labelY:', labelY, '| fillStyle:', ctx.fillStyle, '| clip:', ctx.canvas.style.clip, '| font:', ctx.font)
+          setTimeout(() => { (window as any).__labelPlacedDbg = false }, 2000)
+        }
       }
     }
 
@@ -18372,6 +18612,13 @@ export default function TradingViewChart({
       const x = CHART_LEFT_MARGIN + lastIndex * candleSpacing + candleSpacing / 2
       const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format)
       addLabel(x, timeLabel, false)
+    }
+
+    // DEBUG: total placed
+    if (!(window as any).__totalLabelsDbg) {
+      (window as any).__totalLabelsDbg = true
+      console.log('[TimeAxis TOTAL] labelPositions.length:', labelPositions.length, '| visibleData.length:', visibleData.length, '| chartWidth:', chartWidth, '| CHART_LEFT_MARGIN:', CHART_LEFT_MARGIN)
+      setTimeout(() => { (window as any).__totalLabelsDbg = false }, 2000)
     }
 
     // Draw future X-axis date labels for seasonal/election projections (orange)
@@ -26504,7 +26751,7 @@ export default function TradingViewChart({
                 onClick={() => {
                   const { pendingTrades, pendingTimeframe } = flowMovesMissingDays
                   setFlowMovesMissingDays(null)
-                  processFlowMovesTradesIntoChart(pendingTrades, pendingTimeframe)
+                  processFlowMovesTradesIntoChart(pendingTrades, pendingTimeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
                 }}
                 style={{ flex: 1, padding: '8px 0', background: 'linear-gradient(145deg,#2d5a27,#1a3d16)', border: '1px solid #4a9940', borderRadius: 6, color: '#7fff7f', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
               >
@@ -26514,8 +26761,7 @@ export default function TradingViewChart({
                 onClick={() => {
                   const { pendingTrades, pendingTimeframe } = flowMovesMissingDays
                   setFlowMovesMissingDays(null)
-                  // Stream the missing days then merge
-                  const missingDays = flowMovesMissingDays.days
+                  const missingDays = (flowMovesMissingDays as NonNullable<typeof flowMovesMissingDays>).days
                     ; (async () => {
                       const extraTrades: any[] = []
                       for (const day of missingDays) {
@@ -26534,7 +26780,7 @@ export default function TradingViewChart({
                           setTimeout(() => { es.close(); resolve() }, 60000)
                         })
                       }
-                      processFlowMovesTradesIntoChart([...pendingTrades, ...extraTrades], pendingTimeframe)
+                      processFlowMovesTradesIntoChart([...pendingTrades, ...extraTrades], pendingTimeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
                     })()
                 }}
                 style={{ flex: 1, padding: '8px 0', background: 'linear-gradient(145deg,#ff8500,#cc6600)', border: '1px solid #ff8500', borderRadius: 6, color: '#000', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
@@ -27660,7 +27906,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Range'}</span>
+                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
                     {isExpectedRangeActive ? (
                       <span
                         onClick={(e) => {
@@ -28008,7 +28254,7 @@ export default function TradingViewChart({
                         transition: 'all 0.2s ease',
                       }}
                     >
-                      <span>{isMobile ? 'SEAS' : 'SEASONAL'}</span>
+                      <span>{isMobile ? 'SEAS' : 'Seasonality'}</span>
                       {isSeasonalActive ? (
                         <span
                           onClick={(e) => {
@@ -28399,7 +28645,7 @@ export default function TradingViewChart({
                       opacity: isGexLoading ? 0.6 : 1,
                     }}
                   >
-                    <span>{isGexLoading ? (isMobile ? 'SCAN' : `SCANNING ${gexProgress}%`) : 'GEX'}</span>
+                    <span>{isGexLoading ? (isMobile ? 'SCAN' : `SCANNING ${gexProgress}%`) : 'Gamma Exposure'}</span>
                     {isGexActive ? (
                       <span
                         onClick={(e) => {
@@ -28532,7 +28778,7 @@ export default function TradingViewChart({
                       opacity: isIVLoading ? 0.6 : 1,
                     }}
                   >
-                    <span>{isIVLoading ? (isMobile ? 'LOAD' : `LOADING ${ivProgress}%`) : (isMobile ? 'IV' : 'IV & HV')}</span>
+                    <span>{isIVLoading ? (isMobile ? 'LOAD' : `LOADING ${ivProgress}%`) : (isMobile ? 'IV' : 'Implied Volatility')}</span>
                     {isAnyIVHVActive ? (
                       <span
                         onClick={(e) => {
@@ -29076,7 +29322,7 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span>{isFlowChartActive ? `Flows ${flowMovesTimeframe}` : 'Flows'}</span>
+                  <span>{isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
                   {isFlowChartActive ? (
                     <>
                       <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
@@ -29540,7 +29786,7 @@ export default function TradingViewChart({
                   <span>
                     {(peLoading || pegLoading)
                       ? `LOADING…`
-                      : showPEGPanel ? 'PEG' : 'P/E'}
+                      : showPEGPanel ? 'PEG' : 'P/E +G Ratio'}
                   </span>
                   {(showPEPanel || showPEGPanel) ? (
                     <span
@@ -31745,7 +31991,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
+                        bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
                         height: '3px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingFlowChart
@@ -31786,7 +32032,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
                         height: '4px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
@@ -31904,50 +32150,114 @@ export default function TradingViewChart({
                   {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
                   {isFlowChartActive && (
                     <div
-                      className="absolute flex flex-col z-[1001]"
+                      className="absolute z-[1001]"
                       style={{
                         left: '60px',
-                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25 + 8}px`,
+                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 + 8}px`,
                         transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
-                        gap: '8px',
                       }}
                     >
-                      <button
-                        onClick={() => setFlowChartViewMode('net')}
-                        className="text-2xl font-semibold px-4 py-2 rounded transition-all"
+                      {/* Glossy pill container */}
+                      <div
                         style={{
-                          backgroundColor: '#000000',
-                          color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
-                          border: '1px solid rgba(255, 255, 255, 0.3)',
+                          display: 'flex',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '5px',
+                          borderRadius: '14px',
+                          background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
+                          backdropFilter: 'blur(16px)',
                         }}
-                        title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
                       >
-                        Net Flow
-                      </button>
-                      <button
-                        onClick={() => setFlowChartViewMode('simplified')}
-                        className="text-2xl font-semibold px-4 py-2 rounded transition-all"
-                        style={{
-                          backgroundColor: '#000000',
-                          color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
-                          border: '1px solid rgba(255, 255, 255, 0.3)',
-                        }}
-                        title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
-                      >
-                        Simplified
-                      </button>
-                      <button
-                        onClick={() => setFlowChartViewMode('detailed')}
-                        className="text-2xl font-semibold px-4 py-2 rounded transition-all"
-                        style={{
-                          backgroundColor: '#000000',
-                          color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
-                          border: '1px solid rgba(255, 255, 255, 0.3)',
-                        }}
-                        title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
-                      >
-                        Detailed
-                      </button>
+                        {/* Net Flow */}
+                        <button
+                          onClick={() => setFlowChartViewMode('net')}
+                          title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 16px',
+                            borderRadius: '9px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            letterSpacing: '0.4px',
+                            transition: 'all 0.15s ease',
+                            background: 'transparent',
+                            color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                            <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                          </svg>
+                          Net Flow
+                        </button>
+
+                        {/* Divider */}
+                        <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
+
+                        {/* Bull/Bear (was Simplified) */}
+                        <button
+                          onClick={() => setFlowChartViewMode('simplified')}
+                          title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 16px',
+                            borderRadius: '9px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            letterSpacing: '0.4px',
+                            transition: 'all 0.15s ease',
+                            background: 'transparent',
+                            color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                            <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          Bull/Bear
+                        </button>
+
+                        {/* Divider */}
+                        <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
+
+                        {/* BUY/SELL+ (was Detailed) */}
+                        <button
+                          onClick={() => setFlowChartViewMode('detailed')}
+                          title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 16px',
+                            borderRadius: '9px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            letterSpacing: '0.4px',
+                            transition: 'all 0.15s ease',
+                            background: 'transparent',
+                            color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                            <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                            <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                            <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : 'rgba(255,255,255,0.6)'} />
+                          </svg>
+                          BUY/SELL+
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -31957,7 +32267,7 @@ export default function TradingViewChart({
                       className="absolute flex gap-2 z-[1001]"
                       style={{
                         left: '50px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25 - 35}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + 5 - 35}px`,
                         transition: 'bottom 0.1s ease-out',
                       }}
                     >
@@ -32025,7 +32335,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25 - 18}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + 5 - 18}px`,
                         width: '18px',
                         height: '18px',
                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -32048,7 +32358,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0)) + 80 + 25 - 18}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0)) + 25 + 5 - 18}px`,
                         width: '18px',
                         height: '18px',
                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -32071,7 +32381,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0) - (showIVRankIndicator ? 1 : 0)) + 80 + 25 - 18}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0) - (showIVRankIndicator ? 1 : 0)) + 25 + 5 - 18}px`,
                         width: '18px',
                         height: '18px',
                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -32094,7 +32404,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight + 80 + 25 - 18}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight + 25 + 5 - 18}px`,
                         width: '18px',
                         height: '18px',
                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -32118,7 +32428,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 80 + (showBuySellIndicator ? buySellPanelHeight : 0) + 25 - 10}px`,
+                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5 - 10}px`,
                         width: '28px',
                         height: '28px',
                         backgroundColor: 'rgba(239,68,68,0.2)',
@@ -32144,7 +32454,7 @@ export default function TradingViewChart({
                       className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
                       style={{
                         right: '85px',
-                        bottom: `${buySellPanelHeight + 87}px`,
+                        bottom: `${buySellPanelHeight + 25}px`,
                         width: '18px',
                         height: '18px',
                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -32161,31 +32471,131 @@ export default function TradingViewChart({
                     </button>
                   )}
 
-                  {/* Close button for IntraFlow panel - TradingView style X button */}
+                  {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
                   {isFlowChartActive && (
-                    <button
-                      onClick={() => {
-                        setIsFlowChartActive(false)
-                        setFlowChartData([])
-                      }}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+                    <div
+                      className="absolute z-[1001]"
                       style={{
-                        right: '85px',
-                        bottom: `${flowChartHeight + 80 + 25 - 18}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
+                        right: '90px',
+                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 + 8}px`,
+                        transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                       }}
-                      title="Close IntraFlow panel"
                     >
-                      ×
-                    </button>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: '2px',
+                          padding: '4px',
+                          borderRadius: '14px',
+                          background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
+                          backdropFilter: 'blur(16px)',
+                        }}
+                      >
+                        {/* Settings button */}
+                        <button
+                          onClick={() => setShowFlowSettings(v => !v)}
+                          title="Line color settings"
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                            cursor: 'pointer', background: showFlowSettings ? 'rgba(255,136,0,0.15)' : 'transparent',
+                            color: showFlowSettings ? '#FF8800' : '#ffffff', transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+                            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
+                        {/* Maximize / restore button */}
+                        <button
+                          onClick={() => {
+                            const canvasH = containerRef.current?.clientHeight ?? 600
+                            const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0)
+                            const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
+                            if (flowChartMaximized) {
+                              setFlowChartHeight(150)
+                              setFlowChartMaximized(false)
+                            } else {
+                              setFlowChartHeight(maxH)
+                              setFlowChartMaximized(true)
+                            }
+                          }}
+                          title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                            cursor: 'pointer', background: 'transparent',
+                            color: '#ffffff', transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {flowChartMaximized ? (
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M3 6h4V2M11 8H7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </button>
+                        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
+                        {/* Close X */}
+                        <button
+                          onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false) }}
+                          title="Close IntraFlow panel"
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                            cursor: 'pointer', background: 'transparent',
+                            color: 'rgba(255,80,80,0.8)', transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </div>
+                      {/* Settings popup */}
+                      {showFlowSettings && (
+                        <div
+                          style={{
+                            position: 'absolute', bottom: '48px', right: 0,
+                            background: 'linear-gradient(180deg, rgba(18,18,18,0.99) 0%, rgba(6,6,6,1) 100%)',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px', padding: '14px 16px',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                            minWidth: '200px', backdropFilter: 'blur(20px)',
+                            zIndex: 1002,
+                          }}
+                        >
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>Line Colors</div>
+                          {([
+                            { label: 'Bullish Calls', key: 'callsPlus' },
+                            { label: 'Bearish Calls', key: 'callsMinus' },
+                            { label: 'Bullish Puts', key: 'putsPlus' },
+                            { label: 'Bearish Puts', key: 'putsMinus' },
+                            { label: 'Bull Total', key: 'bullishTotal' },
+                            { label: 'Bear Total', key: 'bearishTotal' },
+                          ] as { label: string; key: keyof typeof flowLineColors }[]).map(({ label, key }) => (
+                            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>{label}</span>
+                              <input
+                                type="color"
+                                value={flowLineColors[key]}
+                                onChange={(e) => setFlowLineColors(prev => ({ ...prev, [key]: e.target.value }))}
+                                style={{ width: '32px', height: '18px', borderRadius: '3px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </>
               )}
