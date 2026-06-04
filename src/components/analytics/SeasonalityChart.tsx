@@ -2222,8 +2222,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         marginTop: '0px',
                       }}
                     >
-                      {/* EXPAND button — normal mode */}
-                      <button
+                      {/* EXPAND button — normal mode, desktop only */}
+                      {!isMobileView && <button
                         onClick={() => setIsFullscreen((f) => !f)}
                         title="Fullscreen"
                         style={{
@@ -2256,7 +2256,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                           <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
                         </svg>
                         EXPAND
-                      </button>
+                      </button>}
 
                       {/* Canvas chart */}
                       <div style={{ height: '100%', width: '100%', position: 'relative' }}>

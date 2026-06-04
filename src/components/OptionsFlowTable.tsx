@@ -397,6 +397,12 @@ const fetchVolumeAndOpenInterest = async (
   return allResults
 }
 
+// Format a price to 4 significant figures, no trailing zeros (mobile compact)
+function fmt4sig(val: number): string {
+  if (!val || val <= 0) return '--'
+  return parseFloat(val.toPrecision(4)).toString()
+}
+
 // Memoized price display component to prevent flickering
 
 const PriceDisplay = React.memo(function PriceDisplay({
@@ -2877,39 +2883,6 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     const stdDevError = stdDevFailed.has(trade.underlying_ticker)
 
-    // ── DEBUG: FLOW TABLE grade ───────────────────────────────────────────────
-    console.debug(
-      `[GRADE DEBUG] FLOW TABLE | ${trade.underlying_ticker} ${trade.type.toUpperCase()} $${trade.strike} exp:${trade.expiry}`,
-      {
-        grade,
-        totalScore: confidenceScore,
-        breakdown: {
-          expiration: `${scores.expiration}/25`,
-          contractPnL: `${scores.contractPrice}/15`,
-          relativeStrength: `${scores.relativeStrength}/10  ← LIVE RS (not frozen)`,
-          combo: `${scores.combo}/10`,
-          priceAction: `${scores.priceAction}/10  ← MAX is 10 here (A+ Tracker caps at 25)`,
-          volumeVsOI: `${scores.volumeOI}/15  ← ONLY scored in flow table (A+ Tracker omits this)`,
-          stockReaction: `${scores.stockReaction}/15`,
-        },
-        inputs: {
-          currentOptionPrice: currentPrice,
-          entryPrice,
-          rawPercentChange: ((currentPrice - entryPrice) / entryPrice) * 100,
-          adjustedPctChange: percentChange,
-          daysToExpiry: trade.days_to_expiry,
-          fillStyle: trade.fill_style,
-          isSoldToOpen,
-          entryStockPrice: trade.spot_price,
-          currentStockPrice: currentPrices[trade.underlying_ticker],
-          stdDev: historicalStdDevs.get(trade.underlying_ticker),
-          tradeVolume: trade.volume ?? null,
-          tradeOI: trade.open_interest ?? null,
-        },
-      }
-    )
-    // ─────────────────────────────────────────────────────────────────────────
-
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
@@ -3488,6 +3461,18 @@ Stock Reaction: ${scores.stockReaction}/15`
       console.log('[SaveFlow] FILTERED display count (filteredAndSortedData):', filteredAndSortedData?.length)
       console.log('[SaveFlow] Saving RAW data (unfiltered) · count:', rawTrades.length)
 
+      // TICKER AUDIT — show exactly which tickers are present and which key ETFs are missing
+      const saveTickerSet = new Set((rawTrades as any[]).map((t: any) => t.underlying_ticker?.toUpperCase()).filter(Boolean))
+      const watchTickers = ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'XLK', 'XLF', 'GLD', 'TLT', 'XLE', 'XLV', 'XLI', 'XLB', 'XLC', 'XLP', 'XLU', 'XLY', 'XLRE']
+      console.log('[SaveFlow] === TICKER AUDIT ===')
+      console.log('[SaveFlow] Total unique tickers in rawTrades:', saveTickerSet.size)
+      for (const tk of watchTickers) {
+        const count = (rawTrades as any[]).filter((t: any) => t.underlying_ticker?.toUpperCase() === tk).length
+        console.log(`[SaveFlow]   ${tk}: ${count > 0 ? `✅ ${count} trades` : '❌ NOT PRESENT — will be missing from DB'}`)
+      }
+      const allSaveTickers = [...saveTickerSet].sort()
+      console.log('[SaveFlow] All tickers being saved:', allSaveTickers)
+
       // Derive the trading date from the actual trade timestamps (PST), not the wall clock save time.
       // This ensures a historical scan saved on May 28 that contains May 26 trades is stored as May 26,
       // not May 28. Falls back to wall clock date if no trades have timestamps.
@@ -3963,18 +3948,27 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     if (selectedTickerFilters.length > 0) {
       const mag7Stocks = ['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'TSLA', 'META']
+      const etfSet = new Set(['SPY', 'QQQ', 'IWM', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG',
+        'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC',
+        'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX',
+        'DIA', 'SMH', 'VXX', 'UVXY', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV',
+        'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ',
+        'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN',
+        'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU',
+        'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL',
+        'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC',
+        'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT',
+        'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU',
+        'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
       filtered = filtered.filter((trade) => {
         return selectedTickerFilters.every((filter) => {
           switch (filter) {
             case 'ETF_ONLY':
-              return (
-                trade.underlying_ticker.length === 3 &&
-                !mag7Stocks.includes(trade.underlying_ticker)
-              )
+              return etfSet.has(trade.underlying_ticker)
 
             case 'STOCK_ONLY':
-              return trade.underlying_ticker.length >= 3
+              return !etfSet.has(trade.underlying_ticker)
 
             case 'MAG7_ONLY':
               return mag7Stocks.includes(trade.underlying_ticker)
@@ -3982,10 +3976,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             case 'EXCLUDE_MAG7':
               return !mag7Stocks.includes(trade.underlying_ticker)
 
-            case 'EXCLUDE_ETF': {
-              const etfList = new Set(['SPY', 'QQQ', 'IWM', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'DIA', 'SMH', 'VXX', 'UVXY'])
-              return !etfList.has(trade.underlying_ticker)
-            }
+            case 'EXCLUDE_ETF':
+              return !etfSet.has(trade.underlying_ticker)
 
             case 'HIGHLIGHTS_ONLY':
               return meetsEfiCriteria(trade)
@@ -5931,25 +5923,29 @@ Stock Reaction: ${scores.stockReaction}/15`
                   FLOW HISTORY
                 </span>
               </div>
-              {/* ESC pinned to right */}
+              {/* Close ×  pinned to right */}
               <button
                 onClick={() => setIsHistoryDialogOpen(false)}
                 style={{
                   position: 'absolute',
-                  right: '16px',
+                  right: '14px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   background: 'transparent',
-                  border: '1px solid #333',
+                  border: 'none',
                   color: '#888',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  padding: '2px 8px',
+                  fontSize: '26px',
+                  fontWeight: 300,
+                  lineHeight: 1,
+                  padding: '0 4px',
                   cursor: 'pointer',
-                  letterSpacing: '1px',
+                  transition: 'color 0.15s ease',
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#fff')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#888')}
+                aria-label="Close"
               >
-                ESC
+                &times;
               </button>
             </div>
 
@@ -5995,6 +5991,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     return (
                       <div
                         key={flow.date}
+                        className="flow-hist-card"
                         style={{
                           background: 'linear-gradient(135deg, #111111 0%, #0a0a0a 50%, #131313 100%)',
                           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.8)',
@@ -6009,6 +6006,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         {/* Left: date + meta */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div
+                            className="flow-hist-date-label"
                             style={{
                               color: '#ffffff',
                               fontSize: '19px',
@@ -6019,8 +6017,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                           >
                             {dateLabel}
                           </div>
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <div className="flow-hist-meta-row" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                             <span
+                              className="flow-hist-trades"
                               style={{
                                 color: '#ff6600',
                                 fontSize: '15px',
@@ -6033,6 +6032,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 : '· TRADES'}
                             </span>
                             <span
+                              className="flow-hist-saved"
                               style={{
                                 color: '#00e5ff',
                                 fontSize: '15px',
@@ -6046,10 +6046,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </div>
 
                         {/* Right: actions */}
-                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <div className="flow-hist-actions" style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                           <button
                             onClick={() => handleDownloadFlowExcel(flow.date, dateLabel)}
                             title="Download as Excel"
+                            className="flow-hist-btn"
                             style={{
                               background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
                               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
@@ -6070,6 +6071,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           <button
                             onClick={() => handleLoadFlow(flow.date)}
                             disabled={loadingFlowDate === flow.date}
+                            className="flow-hist-btn"
                             style={{
                               background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
                               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
@@ -6115,6 +6117,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           </button>
                           <button
                             onClick={() => handleDeleteFlow(flow.date)}
+                            className="flow-hist-btn"
                             style={{
                               background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%, #0d0d0d 100%)',
                               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.9)',
@@ -6555,12 +6558,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                     }}
                   >
                     {savingFlow
-                      ? 'SAVING...'
+                      ? 'Saving...'
                       : saveStatus === 'success'
-                        ? 'SAVED ?'
+                        ? 'Saved'
                         : saveStatus === 'error'
-                          ? 'ERROR ?'
-                          : 'SAVE'}
+                          ? 'Error'
+                          : 'Save'}
                   </span>
                 </button>
                 {saveStatus === 'error' && saveErrorMsg && (
@@ -6673,7 +6676,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </svg>
                   )}
 
-                  <span>{loadingHistory ? 'LOADING...' : 'HISTORY'}</span>
+                  <span>{loadingHistory ? 'Loading...' : 'Historical'}</span>
                 </button>
               </div>
             </div>
@@ -6889,18 +6892,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       >
                         ALL TICKERS
                       </option>
-                      <option
-                        value="MAG7"
-                        style={{ background: '#000000', color: '#a855f7', fontWeight: '900' }}
-                      >
-                        MAG7
-                      </option>
-                      <option
-                        value="ETF"
-                        style={{ background: '#000000', color: '#ff8500', fontWeight: '900' }}
-                      >
-                        ETF
-                      </option>
+                      {/* MAG7 and ETF presets removed from dropdown UI (logic remains) */}
                     </select>
                   ) : (
                     <>
@@ -6930,57 +6922,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         All Tickers
                       </button>
 
-                      <button
-                        onClick={() => {
-                          setInputTicker('MAG7')
-                          onTickerChange('MAG7')
-                          onRefresh?.('MAG7')
-                        }}
-                        className="toolbar-pill font-bold uppercase transition-all duration-150"
-                        style={{
-                          height: '31px',
-                          padding: '0 13px',
-                          background: inputTicker === 'MAG7' ? 'linear-gradient(180deg, rgba(168,85,247,0.26) 0%, rgba(168,85,247,0.07) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                          border: inputTicker === 'MAG7' ? '1px solid #c084fc' : '1px solid #a855f7',
-                          borderRadius: '20px',
-                          fontSize: '12px',
-                          letterSpacing: '1.2px',
-                          fontWeight: '700',
-                          boxShadow: inputTicker === 'MAG7' ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 12px rgba(168,85,247,0.28)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                          outline: 'none',
-                          color: inputTicker === 'MAG7' ? '#d8aaff' : '#c084fc',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        MAG7 ONLY
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setInputTicker('ETF')
-                          onTickerChange('ETF')
-                          onRefresh?.('ETF')
-                        }}
-                        className="toolbar-pill font-bold uppercase transition-all duration-150"
-                        style={{
-                          height: '31px',
-                          padding: '0 13px',
-                          background: inputTicker === 'ETF' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                          border: inputTicker === 'ETF' ? '1px solid #ff8500' : '1px solid #cc6a00',
-                          borderRadius: '20px',
-                          fontSize: '12px',
-                          letterSpacing: '1.2px',
-                          fontWeight: '700',
-                          boxShadow: inputTicker === 'ETF' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                          outline: 'none',
-                          color: inputTicker === 'ETF' ? '#ffaa55' : '#ff8500',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        ETF ONLY
-                      </button>
+                      {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}
                     </>
                   )}
                 </div>
@@ -7129,17 +7071,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   <span>HIGHLIGHTS</span>
 
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      letterSpacing: '0.1em',
-                      color: efiHighlightsActive ? '#f5d978' : '#888',
-                      fontWeight: '900',
-                      transition: 'color 0.15s ease',
-                    }}
-                  >
-                    {efiHighlightsActive ? 'ON' : 'OFF'}
-                  </span>
+                  {/* Status badge removed: showing ON/OFF text was disabled */}
                 </button>
 
                 {/* Grading Progress — now shown in fullscreen overlay, hidden from header */}
@@ -7202,91 +7134,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </button>
                   )}
 
-                  {!isSidebarPanel && (
-                    <button
-                      onClick={() => onRefresh?.()}
-                      disabled={loading}
-                      title={loading ? (streamingStatus || 'Scanning...') : 'Refresh'}
-                      className={`toolbar-btn-refresh hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loading ? 'cursor-not-allowed opacity-40' : ''}`}
-                      style={{
-                        width: '42px',
-                        height: '42px',
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
-                        border: '1px solid #0ea5e9',
-                        borderRadius: '7px',
-                        cursor: loading ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.15s ease',
-                        color: '#0ea5e9',
-                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!loading) {
-                          e.currentTarget.style.borderColor = 'rgba(14,165,233,1)'
-                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(14,165,233,0.35)'
-                          e.currentTarget.style.background = 'linear-gradient(180deg, rgba(14,165,233,0.28) 0%, rgba(14,165,233,0.08) 55%, rgba(0,0,0,0.15) 100%)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#0ea5e9'
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
-                      }}
-                    >
-                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                        {loading ? (
-                          <svg className="animate-spin" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                        ) : (
-                          <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                        )}
-                      </span>
-                    </button>
-                  )}
-
-                  {/* Clear Data Button - Desktop Only */}
-
-                  {onClearData && (
-                    <button
-                      onClick={onClearData}
-                      disabled={loading}
-                      title="Clear Data"
-                      className={`toolbar-btn-clear hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loading ? 'cursor-not-allowed opacity-40' : ''}`}
-                      style={{
-                        width: '42px',
-                        height: '42px',
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
-                        border: '1px solid #ef4444',
-                        borderRadius: '7px',
-                        cursor: loading ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.15s ease',
-                        color: '#ef4444',
-                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!loading) {
-                          e.currentTarget.style.borderColor = 'rgba(239,68,68,1)'
-                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(239,68,68,0.35)'
-                          e.currentTarget.style.background = 'linear-gradient(180deg, rgba(239,68,68,0.28) 0%, rgba(239,68,68,0.08) 55%, rgba(0,0,0,0.15) 100%)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#ef4444'
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
-                      }}
-                    >
-                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </span>
-                    </button>
-                  )}
-
                   {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
 
                   <OptionsFlowMobileMenu
@@ -7306,10 +7153,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
                     title={savingFlow ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : 'Save Flow'}
-                    className={`toolbar-btn-save${saveStatus === 'success' ? ' tb-save-success' : ''} hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${savingFlow || !data || data.length === 0 ? 'cursor-not-allowed opacity-40' : ''}`}
+                    className={`toolbar-btn-save${saveStatus === 'success' ? ' tb-save-success' : ''} hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${savingFlow || !data || data.length === 0 ? 'cursor-not-allowed opacity-40' : ''}`}
                     style={{
-                      width: '42px',
                       height: '42px',
+                      padding: '0 12px',
                       background: saveStatus === 'success' ? 'linear-gradient(180deg, rgba(34,197,94,0.22) 0%, rgba(34,197,94,0.06) 55%, rgba(0,0,0,0.2) 100%)' : saveStatus === 'error' ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
                       border: saveStatus === 'success' ? '1px solid #22c55e' : saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #3b82f6',
                       borderRadius: '7px',
@@ -7353,6 +7200,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </svg>
                       )}
                     </span>
+                    <span style={{ fontWeight: 900, color: saveStatus === 'success' ? '#22c55e' : saveStatus === 'error' ? '#ef4444' : undefined }}>{savingFlow ? 'Saving' : saveStatus === 'success' ? 'Saved' : saveStatus === 'error' ? 'Error' : 'Save'}</span>
                   </button>
                   {saveStatus === 'error' && saveErrorMsg && (
                     <span
@@ -7368,6 +7216,90 @@ Stock Reaction: ${scores.stockReaction}/15`
                   )}
 
                   {/* History Button - Desktop Only */}
+
+                  <button
+                    onClick={loadFlowHistory}
+                    disabled={loadingHistory}
+                    title={loadingHistory ? 'Loading...' : 'Flow History'}
+                    className={`toolbar-btn-history hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${loadingHistory ? 'cursor-not-allowed opacity-40' : ''}`}
+                    style={{
+                      height: '42px',
+                      padding: '0 12px',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
+                      border: '1px solid #8b5cf6',
+                      borderRadius: '7px',
+                      cursor: loadingHistory ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      color: '#8b5cf6',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loadingHistory) {
+                        e.currentTarget.style.borderColor = 'rgba(139,92,246,1)'
+                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(139,92,246,0.35)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(139,92,246,0.28) 0%, rgba(139,92,246,0.08) 55%, rgba(0,0,0,0.15) 100%)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#8b5cf6'
+                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
+                      e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
+                    }}
+                  >
+                    <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                      {loadingHistory ? (
+                        <svg className="animate-spin" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
+                    </span>
+                    <span style={{ fontWeight: 900, color: '#8b5cf6' }}>{loadingHistory ? 'Loading' : 'Historical'}</span>
+                  </button>
+
+                  {/* Clear Data Button - Desktop Only */}
+
+                  {onClearData && (
+                    <button
+                      onClick={onClearData}
+                      disabled={loading}
+                      title="Clear Data"
+                      className={`toolbar-btn-clear hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loading ? 'cursor-not-allowed opacity-40' : ''}`}
+                      style={{
+                        width: '42px',
+                        height: '42px',
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
+                        border: '1px solid #ef4444',
+                        borderRadius: '7px',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                        color: '#ef4444',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!loading) {
+                          e.currentTarget.style.borderColor = 'rgba(239,68,68,1)'
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(239,68,68,0.35)'
+                          e.currentTarget.style.background = 'linear-gradient(180deg, rgba(239,68,68,0.28) 0%, rgba(239,68,68,0.08) 55%, rgba(0,0,0,0.15) 100%)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#ef4444'
+                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
+                      }}
+                    >
+                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </span>
+                    </button>
+                  )}
 
                   {/* Download as Image Button - Desktop Only */}
 
@@ -7401,49 +7333,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={loadFlowHistory}
-                    disabled={loadingHistory}
-                    title={loadingHistory ? 'Loading...' : 'Flow History'}
-                    className={`toolbar-btn-history hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loadingHistory ? 'cursor-not-allowed opacity-40' : ''}`}
-                    style={{
-                      width: '42px',
-                      height: '42px',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
-                      border: '1px solid #8b5cf6',
-                      borderRadius: '7px',
-                      cursor: loadingHistory ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s ease',
-                      color: '#8b5cf6',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!loadingHistory) {
-                        e.currentTarget.style.borderColor = 'rgba(139,92,246,1)'
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(139,92,246,0.35)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(139,92,246,0.28) 0%, rgba(139,92,246,0.08) 55%, rgba(0,0,0,0.15) 100%)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#8b5cf6'
-                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
-                      e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
-                    }}
-                  >
-                    <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                      {loadingHistory ? (
-                        <svg className="animate-spin" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                      ) : (
-                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      )}
                     </span>
                   </button>
 
@@ -7565,6 +7454,53 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     <span>FILTER</span>
                   </button>
+
+                  {/* Refresh Button */}
+
+                  {!isSidebarPanel && (
+                    <button
+                      onClick={() => onRefresh?.()}
+                      disabled={loading}
+                      title={loading ? (streamingStatus || 'Scanning...') : 'Refresh'}
+                      className={`toolbar-btn-refresh hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loading ? 'cursor-not-allowed opacity-40' : ''}`}
+                      style={{
+                        width: '42px',
+                        height: '42px',
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
+                        border: '1px solid #0ea5e9',
+                        borderRadius: '7px',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                        color: '#0ea5e9',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!loading) {
+                          e.currentTarget.style.borderColor = 'rgba(14,165,233,1)'
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(14,165,233,0.35)'
+                          e.currentTarget.style.background = 'linear-gradient(180deg, rgba(14,165,233,0.28) 0%, rgba(14,165,233,0.08) 55%, rgba(0,0,0,0.15) 100%)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#0ea5e9'
+                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
+                      }}
+                    >
+                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                        {loading ? (
+                          <svg className="animate-spin" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        ) : (
+                          <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        )}
+                      </span>
+                    </button>
+                  )}
 
                   {/* Vertical Divider */}
 
@@ -7870,17 +7806,17 @@ Stock Reaction: ${scores.stockReaction}/15`
               </div>
 
               {/* Content */}
-              <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '44px' }}>
+              <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(20px, 5vw, 44px)' }}>
                 {/* Title */}
                 <div style={{ textAlign: 'center' }}>
                   <div style={{
-                    fontSize: '72px', fontWeight: 900, color: '#ffffff', letterSpacing: '8px', lineHeight: 1,
+                    fontSize: 'clamp(36px, 14vw, 72px)', fontWeight: 900, color: '#ffffff', letterSpacing: 'clamp(2px, 2vw, 8px)', lineHeight: 1,
                     animation: 'scanTitlePulse 2.8s ease-in-out infinite',
                     textShadow: '0 0 60px rgba(255,255,255,0.12), 0 1px 0 #ccc, 0 2px 0 #999, 0 6px 20px rgba(0,0,0,0.8)',
                     WebkitTextStroke: '0.5px rgba(255,255,255,0.15)',
                   }}>{selectedTicker ? selectedTicker.toUpperCase() : 'OPTIONS'}</div>
                   <div style={{
-                    fontSize: '26px', fontWeight: 800, color: 'rgba(255,255,255,0.55)', letterSpacing: '14px', marginTop: '8px',
+                    fontSize: 'clamp(13px, 5vw, 26px)', fontWeight: 800, color: 'rgba(255,255,255,0.55)', letterSpacing: 'clamp(3px, 3vw, 14px)', marginTop: '8px',
                     textShadow: '0 0 20px rgba(255,255,255,0.08)',
                   }}>FLOW SCAN</div>
                 </div>
@@ -7914,8 +7850,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Quote card */}
                 <div style={{
-                  maxWidth: '680px', textAlign: 'center',
-                  padding: '30px 40px',
+                  maxWidth: 'min(680px, 90vw)', textAlign: 'center',
+                  padding: 'clamp(14px, 4vw, 30px) clamp(14px, 5vw, 40px)',
                   borderRadius: '14px',
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 55%, rgba(0,0,0,0.3) 100%)',
@@ -7923,10 +7859,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                   position: 'relative', overflow: 'hidden',
                 }}>
                   <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)' }} />
-                  <div style={{ fontSize: '19px', fontStyle: 'italic', color: '#f1f5f9', lineHeight: 1.7, fontWeight: 400 }}>
+                  <div style={{ fontSize: 'clamp(13px, 3.5vw, 19px)', fontStyle: 'italic', color: '#f1f5f9', lineHeight: 1.7, fontWeight: 400 }}>
                     &ldquo;{EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].text}&rdquo;
                   </div>
-                  <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginTop: '16px', letterSpacing: '0.5px' }}>
+                  <div style={{ fontSize: 'clamp(11px, 3vw, 15px)', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginTop: '16px', letterSpacing: '0.5px' }}>
                     — {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
                   </div>
                 </div>
@@ -7998,18 +7934,18 @@ Stock Reaction: ${scores.stockReaction}/15`
               </div>
 
               {/* Content layer */}
-              <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '52px' }}>
+              <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(20px, 5vw, 52px)' }}>
 
                 {/* 3D Glossy Title */}
                 <div style={{ textAlign: 'center' }}>
                   <div style={{
-                    fontSize: '84px', fontWeight: 900, color: '#ffb347', letterSpacing: '6px', lineHeight: 1,
+                    fontSize: 'clamp(40px, 15vw, 84px)', fontWeight: 900, color: '#ffb347', letterSpacing: 'clamp(2px, 1.5vw, 6px)', lineHeight: 1,
                     animation: 'efiTitlePulse 2.5s ease-in-out infinite',
                     textShadow: '0 1px 0 #e08000, 0 2px 0 #cc7000, 0 3px 0 #b86000, 0 4px 0 #a45000, 0 5px 0 #904000, 0 6px 12px rgba(0,0,0,0.7), 0 10px 30px rgba(255,149,0,0.25)',
                     WebkitTextStroke: '0.5px rgba(255,200,80,0.3)',
                   }}>FLOW</div>
                   <div style={{
-                    fontSize: '31px', fontWeight: 800, color: '#ffffff', letterSpacing: '11px', marginTop: '10px',
+                    fontSize: 'clamp(14px, 5.5vw, 31px)', fontWeight: 800, color: '#ffffff', letterSpacing: 'clamp(3px, 2.5vw, 11px)', marginTop: '10px',
                     textShadow: '0 1px 0 #888, 0 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(255,255,255,0.08)',
                   }}>HIGHLIGHTS</div>
                 </div>
@@ -8037,7 +7973,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Step label */}
                 <div style={{
-                  fontSize: '22px', fontWeight: 700, color: '#ff9500', letterSpacing: '2px', textTransform: 'uppercase',
+                  fontSize: 'clamp(13px, 4.5vw, 22px)', fontWeight: 700, color: '#ff9500', letterSpacing: 'clamp(1px, 0.5vw, 2px)', textTransform: 'uppercase',
                   textShadow: '0 0 20px rgba(255,149,0,0.5)',
                 }}>
                   {modeLoadingStep?.step ?? 'Grading Flows...'}
@@ -8045,10 +7981,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Progress bar */}
                 {gradingProgress && (
-                  <div style={{ width: '552px' }}>
+                  <div style={{ width: 'min(552px, 90vw)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <span style={{ fontSize: '19px', color: '#ffffff', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Analyzing trades</span>
-                      <span style={{ fontSize: '22px', fontWeight: 900, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                      <span style={{ fontSize: 'clamp(13px, 4vw, 19px)', color: '#ffffff', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Analyzing trades</span>
+                      <span style={{ fontSize: 'clamp(14px, 4.5vw, 22px)', fontWeight: 900, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
                         {Math.round((gradingProgress.current / gradingProgress.total) * 100)}%
                       </span>
                     </div>
@@ -8075,7 +8011,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         <div style={{ position: 'absolute', top: 0, bottom: 0, width: '40px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)', animation: 'efiShine 2s linear infinite' }} />
                       </div>
                     </div>
-                    <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '18px', fontWeight: 700, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                    <div style={{ textAlign: 'center', marginTop: '12px', fontSize: 'clamp(12px, 4vw, 18px)', fontWeight: 700, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
                       {gradingProgress.current.toLocaleString()} / {gradingProgress.total.toLocaleString()} trades
                     </div>
                   </div>
@@ -8083,8 +8019,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Rotating quote — glossy glass card */}
                 <div style={{
-                  maxWidth: '810px', textAlign: 'center',
-                  padding: '38px 46px',
+                  maxWidth: 'min(810px, 90vw)', textAlign: 'center',
+                  padding: 'clamp(14px, 4vw, 38px) clamp(14px, 5vw, 46px)',
                   borderRadius: '16px',
                   border: '1px solid rgba(255,149,0,0.22)',
                   background: 'linear-gradient(160deg, rgba(255,149,0,0.10) 0%, rgba(255,80,0,0.04) 55%, rgba(0,0,0,0.35) 100%)',
@@ -8093,10 +8029,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                 }}>
                   {/* Glass top-edge highlight */}
                   <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)' }} />
-                  <div style={{ fontSize: '24px', fontStyle: 'italic', color: '#f3f4f6', lineHeight: 1.65, fontWeight: 400, textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}>
+                  <div style={{ fontSize: 'clamp(13px, 4vw, 24px)', fontStyle: 'italic', color: '#f3f4f6', lineHeight: 1.65, fontWeight: 400, textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}>
                     &ldquo;{EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].text}&rdquo;
                   </div>
-                  <div style={{ fontSize: '19px', color: '#ff9500', fontWeight: 700, marginTop: '22px', letterSpacing: '0.5px', textShadow: '0 0 12px rgba(255,149,0,0.4)' }}>
+                  <div style={{ fontSize: 'clamp(12px, 3.2vw, 19px)', color: '#ff9500', fontWeight: 700, marginTop: '22px', letterSpacing: '0.5px', textShadow: '0 0 12px rgba(255,149,0,0.4)' }}>
                     — {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
                   </div>
                 </div>
@@ -8123,7 +8059,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block animate-pulse" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FF6600" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /><circle cx="12" cy="12" r="2" fill="#FF6600" opacity="0.4" /></svg>
                         <span className="hidden md:inline">TIME</span>
-                        <span className="md:hidden" style={{ fontSize: 10, letterSpacing: '1px' }}>SYM</span>
+                        <span className="md:hidden">SYMBOL</span>
                       </div>
                     </th>
 
@@ -8151,7 +8087,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4l4 4" stroke="#22c55e" /><path d="M17 8v12m0 0l4-4m-4 4l-4-4" stroke="#ef4444" /></svg>
                         <span className="hidden md:inline">{notableFilterActive ? 'C/P' : 'CALL / PUT'}</span>
-                        <span className="md:hidden" style={{ fontSize: 10 }}>C/P</span>
+                        <span className="md:hidden">C/P</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'type' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -8216,7 +8152,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3" /><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3" /></svg>
                         <span className="hidden md:inline">EXPIRATION</span>
-                        <span className="md:hidden" style={{ fontSize: 10 }}>EXP</span>
+                        <span className="md:hidden">EXPIRY</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'expiry' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -8233,7 +8169,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
                         <span className="hidden md:inline">SPOT → CURR</span>
-                        <span className="md:hidden" style={{ fontSize: 10 }}>SPOT</span>
+                        <span className="md:hidden">SPOT</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'spot_price' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -8648,7 +8584,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 className={`${getTradeTypeColor(trade.classification || trade.trade_type).className} px-3 py-1 text-xs`}
                                 style={getTradeTypeColor(trade.classification || trade.trade_type).style}
                               >
-                                {trade.classification || trade.trade_type}
+                                {(trade.classification || trade.trade_type) === 'MULTI-LEG'
+                                  ? 'ML'
+                                  : trade.classification || trade.trade_type}
                               </span>
                             </div>
 
@@ -8669,9 +8607,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div className="text-xs">
                                 <span className="font-bold" style={{ color: 'white' }}>
                                   $
-                                  {typeof trade.spot_price === 'number'
-                                    ? trade.spot_price.toFixed(2)
-                                    : parseFloat(trade.spot_price).toFixed(2)}
+                                  {(notableFilterActive || efiHighlightsActive || leapActive) && isMobileView
+                                    ? fmt4sig(typeof trade.spot_price === 'number' ? trade.spot_price : parseFloat(trade.spot_price))
+                                    : (typeof trade.spot_price === 'number'
+                                      ? trade.spot_price.toFixed(2)
+                                      : parseFloat(trade.spot_price).toFixed(2))}
                                 </span>
                               </div>
 
@@ -8680,11 +8620,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   className={`font-bold ${((currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0) > trade.spot_price ? 'text-green-400' : 'text-red-400'}`}
                                 >
                                   $
-                                  {(
-                                    (currentPrices[trade.underlying_ticker] ||
-                                      trade.current_price) ??
-                                    0
-                                  ).toFixed(2)}
+                                  {(() => {
+                                    const cp = (currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0
+                                    return (notableFilterActive || efiHighlightsActive || leapActive) && isMobileView
+                                      ? fmt4sig(cp)
+                                      : cp.toFixed(2)
+                                  })()}
                                 </span>
                               </div>
                             </div>
@@ -11025,7 +10966,9 @@ Stock Reaction: ${scores.stockReaction}/15`
             bottom: 0,
             zIndex: 9990,
             background: '#000000',
-            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
           <FlowTrackingPanel

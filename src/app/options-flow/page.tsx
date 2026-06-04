@@ -690,6 +690,21 @@ export default function OptionsFlowPage() {
   const [historicalDays, setHistoricalDays] = useState<string>('1D')
   const [showAlgoFlow, setShowAlgoFlow] = useState<boolean>(false)
 
+  // Lock body scroll when AlgoFlow is active so the page cannot scroll behind it
+  useEffect(() => {
+    if (showAlgoFlow) {
+      document.body.style.overflow = 'hidden'
+      document.documentElement.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+      document.documentElement.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+      document.documentElement.style.overflow = ''
+    }
+  }, [showAlgoFlow])
+
   // Live options flow fetch
   const fetchOptionsFlowStreaming = async (tickerOverride?: string) => {
     setLoading(true)
@@ -1003,7 +1018,6 @@ export default function OptionsFlowPage() {
 
           // Fire all chunk SSEs in parallel — ETF + MAG7 are now included in the ALL_TICKERS pool
           const offsets = Array.from({ length: MAX_SSE }, (_, i) => i * BATCH)
-          console.log(`[ALL SCAN] Firing ${offsets.length} chunk SSEs (includes ETF + MAG7)`)
           const results = await Promise.all(offsets.map((off) => openSSE(off)))
 
           // Collect everything
@@ -1014,9 +1028,6 @@ export default function OptionsFlowPage() {
             if (r.summary) setSummary(r.summary)
             if (r.market_info) setMarketInfo(r.market_info)
           }
-          console.log(`[ALL SCAN] All SSEs resolved — TOTAL: ${allTrades.length} trades`)
-          console.log('[ALL SCAN] Tickers found:', [...new Set(allTrades.map((t) => t.underlying_ticker))].sort().join(', '))
-
           setLastUpdate(new Date().toLocaleString())
 
           // Enrich everything at once, then apply live OI
@@ -1217,7 +1228,8 @@ export default function OptionsFlowPage() {
         tickerParam =
           'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'
       } else if (selectedTicker === 'ALL') {
-        tickerParam = 'ALL_EXCLUDE_ETF_MAG7'
+        // Use the unified ALL_TICKERS param (includes ETFs + MAG7) to match streaming behavior
+        tickerParam = 'ALL_TICKERS'
       }
       // Otherwise use the ticker as-is for individual ticker searches
 

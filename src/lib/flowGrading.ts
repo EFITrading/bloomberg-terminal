@@ -208,36 +208,6 @@ export function calculateFlowGrade(
 
   const breakdown = `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: ${scores.contractPrice}/15\nRelative Strength: ${scores.relativeStrength}/10\nCombo Trade: ${scores.combo}/10\nPrice Action: ${scores.priceAction}/10\nVolume vs OI: ${scores.volumeOI}/15\nStock Reaction: ${scores.stockReaction}/15`
 
-  // ── DEBUG: A+ TRACKER grade (now matches FLOW TABLE logic) ───────────────
-  console.debug(
-    `[GRADE DEBUG] A+ TRACKER | ${trade.underlying_ticker} ${trade.type.toUpperCase()} $${trade.strike} exp:${trade.expiry}`,
-    {
-      grade,
-      totalScore: confidenceScore,
-      breakdown: {
-        expiration: `${scores.expiration}/25`,
-        contractPnL: `${scores.contractPrice}/15`,
-        relativeStrength: `${scores.relativeStrength}/10  (live RS)`,
-        combo: `${scores.combo}/10  (live comboMap)`,
-        priceAction: `${scores.priceAction}/10`,
-        volumeVsOI: `${scores.volumeOI}/15`,
-        stockReaction: `${scores.stockReaction}/15`,
-      },
-      inputs: {
-        currentOptionPrice: currentPrice,
-        entryPrice,
-        adjustedPctChange: percentChange,
-        daysToExpiry: trade.days_to_expiry,
-        fillStyle: trade.fill_style,
-        isSoldToOpen,
-        entryStockPrice: trade.spot_price,
-        currentStockPrice: currentStockPrices[trade.underlying_ticker],
-        stdDev: historicalStdDevs.get(trade.underlying_ticker),
-        tradeVolume,
-        tradeOI,
-      },
-    }
-  )
   // ─────────────────────────────────────────────────────────────────────────
 
   return { grade, score: confidenceScore, color, breakdown }

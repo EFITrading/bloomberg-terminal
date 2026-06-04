@@ -302,24 +302,8 @@ export class OptionsFlowService {
         dateRange
       )
 
-      console.log(`[OK] SCAN COMPLETE: Found ${allTrades.length} total trades`)
-
-      // Workers now include Vol/OI data directly - no enrichment needed!
-      console.log(`[OK] Vol/OI data included by workers - skipping enrichment step`)
-
-      // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
-      console.log(
-        `[CLASSIFY] CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`
-      )
       const classifiedTrades = this.classifyAllTrades(allTrades)
-      console.log(`[OK] CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`)
-
-      // Apply institutional filters (premium, ITM, market hours, etc.)
-      console.log(
-        `[FILTER] FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`
-      )
       const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker)
-      console.log(`[OK] FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`)
 
       // Send filtered trades to frontend
       if (onProgress && filteredTrades.length > 0) {
@@ -1247,12 +1231,7 @@ export class OptionsFlowService {
     const tradeSize = trade.trade_size
     const totalPremium = trade.total_premium
 
-    // Debug logging for all trades to see what's being filtered
-    if (totalPremium > 500) {
-      console.log(
-        `[TRADE] TRADE ANALYSIS: ${trade.ticker} - $${tradePrice.toFixed(2)} x ${tradeSize} = $${totalPremium.toFixed(0)} premium`
-      )
-    }
+
 
     // ENHANCED TIER SYSTEM - More permissive for mini trades
     const institutionalTiers = [
@@ -1284,22 +1263,8 @@ export class OptionsFlowService {
       const passesPrice = tradePrice >= tier.minPrice
       const passesSize = tradeSize >= tier.minSize
       const passesTotal = tier.minTotal ? totalPremium >= tier.minTotal : true
-
-      if (passesPrice && passesSize && passesTotal) {
-        console.log(
-          `[OK] ${trade.ticker}: Passes ${tier.name} - $${tradePrice.toFixed(2)} x ${tradeSize} = $${totalPremium.toFixed(0)}`
-        )
-        return true
-      }
-      return false
+      return passesPrice && passesSize && passesTotal
     })
-
-    // Debug logging for failed trades to understand filtering
-    if (totalPremium > 500 && !passes) {
-      console.log(
-        `[FILTER] FILTERED OUT: ${trade.ticker} - $${tradePrice.toFixed(2)} x ${tradeSize} = $${totalPremium.toFixed(0)} - doesn't meet any tier`
-      )
-    }
 
     return passes
   }
@@ -2547,9 +2512,8 @@ export class OptionsFlowService {
   }
 
   public getTop1000Symbols(): string[] {
-    // Return the full symbol list — ETFs and MAG7 are included so the ALL scan
-    // chunk SSEs cover them naturally without a separate code path.
-    return TOP_1800_SYMBOLS
+    // Deduplicate to ensure each ticker is only scanned once per chunk cycle
+    return [...new Set(TOP_1800_SYMBOLS)]
   }
 
   // UTILITY: Chunk array into batches for batch processing

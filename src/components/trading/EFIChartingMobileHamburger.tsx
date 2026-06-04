@@ -155,7 +155,7 @@ export default function EFIChartingMobileHamburger({ isMobile, activeSidebarPane
         <div style={{ position: 'relative', flexShrink: 0, marginRight: '10px' }}>
             {isHamburgerOpen && createPortal(
                 <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 99998 }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 1999998 }}
                     onClick={() => setIsHamburgerOpen(false)}
                 />,
                 document.body
@@ -229,7 +229,7 @@ export default function EFIChartingMobileHamburger({ isMobile, activeSidebarPane
 
             {isHamburgerOpen && createPortal(
                 <div style={{
-                    position: 'fixed', top: `${hmDropPos.top}px`, left: `${hmDropPos.left}px`, zIndex: 99999,
+                    position: 'fixed', top: `${hmDropPos.top}px`, left: `${hmDropPos.left}px`, zIndex: 1999999,
                     background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 100%)',
                     borderTop: '1px solid rgba(255,255,255,0.25)',
                     borderRight: '1px solid rgba(255,255,255,0.1)',

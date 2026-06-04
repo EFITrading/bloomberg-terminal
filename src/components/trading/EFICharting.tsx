@@ -33648,35 +33648,23 @@ export default function TradingViewChart({
 
                             @media (max-width: 767px) {
                               .seasonality-custom-panel .almanac-daily-chart {
-                                min-height: 220px !important;
-                                max-height: 280px !important;
+                                flex: 1 !important;
+                                min-height: 0 !important;
+                                max-height: none !important;
+                                height: 100% !important;
                                 margin-top: 0px !important;
+                                display: flex !important;
+                                flex-direction: column !important;
                               }
                               .seasonality-custom-panel .chart-container {
-                                min-height: 200px !important;
-                                max-height: 260px !important;
-                                height: 220px !important;
+                                flex: 1 !important;
+                                min-height: 0 !important;
+                                max-height: none !important;
+                                height: 100% !important;
                               }
                               .seasonality-custom-panel .chart-container canvas {
-                                max-height: 220px !important;
-                                height: 220px !important;
-                              }
-                            }
-
-                            @media (max-width: 767px) {
-                              .seasonality-custom-panel .almanac-daily-chart {
-                                min-height: 220px !important;
-                                max-height: 280px !important;
-                                margin-top: 0px !important;
-                              }
-                              .seasonality-custom-panel .chart-container {
-                                min-height: 200px !important;
-                                max-height: 260px !important;
-                                height: 220px !important;
-                              }
-                              .seasonality-custom-panel .chart-container canvas {
-                                max-height: 220px !important;
-                                height: 220px !important;
+                                max-height: none !important;
+                                height: 100% !important;
                               }
                             }
                             
@@ -35499,7 +35487,7 @@ export default function TradingViewChart({
                                 autoStart={true}
                                 hideControls={false}
                                 hideMonthlyReturns={isMobile}
-                                chartHeight={isMobile ? 612 : 650}
+                                chartHeight={isMobile ? 810 : 650}
                                 onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
                                 externalElectionMode={seasonalElectionMode}
                                 externalYears={seasonalYears}

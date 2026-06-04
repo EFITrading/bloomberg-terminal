@@ -92,7 +92,7 @@ export default function Navigation() {
           position: 'sticky',
           top: 0,
           width: '100%',
-          overflow: 'hidden',
+          overflow: 'visible',
           zIndex: 1000,
         }}
       >

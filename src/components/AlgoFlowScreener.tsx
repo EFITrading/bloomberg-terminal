@@ -21,6 +21,7 @@ import {
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import OptionsFlowScene from './loading/OptionsFlowScene'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -864,6 +865,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const accumulatedTradesRef = useRef<OptionsFlowData[]>([])
   const [streamStatus, setStreamStatus] = useState('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
+  const [overlayActive, setOverlayActive] = useState(false)
   const [timeInterval, setTimeInterval] = useState<'1min' | '5min' | '15min' | '30min' | '1hour'>('1hour')
   const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed')
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
@@ -899,6 +901,15 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
   // Expiry date filtering
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(null)
+
+  // Expiry range filter: 'all' | '45d' | 'weekly' | '0dte'
+  const [expiryFilter, setExpiryFilter] = useState<'all' | '45d' | 'weekly' | '0dte'>('all')
+
+  // Ticker exclusion filters
+  const [excludeMag7, setExcludeMag7] = useState(false)
+  const [excludeEtf, setExcludeEtf] = useState(false)
+
+  const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
   // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
   const calculateAlgoFlowAnalysis = async (
@@ -1563,6 +1574,86 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 })
 
+  // Derived analysis that respects expiryFilter — re-aggregates from filtered trades without re-running async analysis
+  const displayAnalysis = useMemo(() => {
+    if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf)) return analysis
+
+    const now = new Date()
+    const todayPT = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const dow = todayPT.getDay()
+    const hourPT = todayPT.getHours()
+    const tradingDate = todayPT.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+
+    const getExpStr = (t: any): string => {
+      const e = t.expiry || ''
+      return e.includes('T') ? e.split('T')[0] : e
+    }
+
+    let filtered: any[] = analysis.trades
+    if (excludeMag7) filtered = filtered.filter((t: any) => !MAG7_TICKERS.includes(t.underlying_ticker))
+    if (excludeEtf) filtered = filtered.filter((t: any) => !ETF_SET.has(t.underlying_ticker))
+    if (expiryFilter === '45d') {
+      const cutoff = new Date(todayPT)
+      cutoff.setDate(cutoff.getDate() + 45)
+      const cutoffStr = cutoff.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      filtered = filtered.filter((t: any) => { const e = getExpStr(t); return e >= tradingDate && e <= cutoffStr })
+    } else if (expiryFilter === 'weekly') {
+      const daysToFriday = dow <= 5 ? 5 - dow : 6
+      const thisFriday = new Date(todayPT); thisFriday.setDate(todayPT.getDate() + daysToFriday)
+      const weekStart = new Date(thisFriday); weekStart.setDate(thisFriday.getDate() - 4)
+      const weekStartStr = weekStart.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      const weekEndStr = thisFriday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      filtered = filtered.filter((t: any) => { const e = getExpStr(t); return e >= weekStartStr && e <= weekEndStr })
+    } else if (expiryFilter === '0dte') {
+      let odteDate = new Date(todayPT)
+      if (hourPT >= 16 || dow === 0 || dow === 6) {
+        do { odteDate.setDate(odteDate.getDate() + 1) } while ([0, 6].includes(odteDate.getDay()))
+      }
+      const odteDateStr = odteDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      filtered = filtered.filter((t: any) => getExpStr(t) === odteDateStr)
+    }
+
+    // Re-aggregate premiums from filtered trades
+    let bullCall = 0, bearCall = 0, bullPut = 0, bearPut = 0, totalCall = 0, totalPut = 0
+    let bullishCount = 0, bearishCount = 0, neutralCount = 0
+    for (const t of filtered) {
+      const premium = t.total_premium || 0
+      const isBull = t.fill_style === 'A' || t.fill_style === 'AA'
+      const isBear = t.fill_style === 'B' || t.fill_style === 'BB'
+      if (t.type === 'call') {
+        totalCall += premium
+        if (isBull) bullCall += premium; else if (isBear) bearCall += premium
+      } else {
+        totalPut += premium
+        if (isBull) bullPut += premium; else if (isBear) bearPut += premium
+      }
+      if (t.executionType === 'BULLISH') bullishCount++
+      else if (t.executionType === 'BEARISH') bearishCount++
+      else neutralCount++
+    }
+    const total = bullishCount + bearishCount + neutralCount || 1
+    const flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
+      bullishCount / total > 0.55 ? 'BULLISH' : bearishCount / total > 0.55 ? 'BEARISH' : 'NEUTRAL'
+    const algoFlowScore = Math.round(((bullishCount - bearishCount) / total) * 100)
+
+    return {
+      ...analysis,
+      trades: filtered,
+      bullCallPremium: bullCall,
+      bearCallPremium: bearCall,
+      bullPutPremium: bullPut,
+      bearPutPremium: bearPut,
+      totalCallPremium: totalCall,
+      totalPutPremium: totalPut,
+      flowTrend,
+      algoFlowScore,
+    }
+  }, [analysis, expiryFilter])
+
+  // ALL-scan drill-down: cache the full ALL results so we can return to them
+  const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
+  const [drilledTicker, setDrilledTicker] = useState<string | null>(null)
+
   // Effect to handle async analysis calculation
   // Function to perform analysis - will be called manually after volume/OI enrichment
   const performAnalysis = async (tradesData: any[], displayLabel?: string) => {
@@ -1602,14 +1693,20 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
         }
 
         setAnalysis(result)
+        // Cache ALL scan results so the user can drill down and return
+        if (result && result.ticker === 'ALL') {
+          allScanCacheRef.current = { flowData: tradesData, analysis: result }
+        }
       } catch (error) {
         console.error('Error in analysis:', error)
         setAnalysis(null)
       } finally {
         setIsAnalyzing(false)
+        setOverlayActive(false)
       }
     } else {
       setAnalysis(null)
+      setOverlayActive(false)
     }
   }
 
@@ -1688,10 +1785,72 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   // Memoize chart data so button clicks don't recompute on unrelated re-renders
   const chartMemo = useMemo(() => {
     if (!analysis?.chartData) return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+
+    // When a filter is active, rebuild the time-series from the filtered trades
+    // instead of using the pre-built chartData from the full analysis pass
+    let activeChartData = analysis.chartData
+    const anyTickerFilter = excludeMag7 || excludeEtf
+    if ((expiryFilter !== 'all' || anyTickerFilter) && displayAnalysis?.trades && displayAnalysis.trades.length > 0) {
+      let filteredTrades = displayAnalysis.trades
+      if (excludeMag7) filteredTrades = filteredTrades.filter((t: any) => !MAG7_TICKERS.includes(t.underlying_ticker))
+      if (excludeEtf) filteredTrades = filteredTrades.filter((t: any) => !ETF_SET.has(t.underlying_ticker))
+
+      // Rebuild intervalData using the same slot keys that are in the existing chartData
+      const intervalData: Record<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }> = {}
+      // Seed every existing slot with zeros so the time axis stays identical
+      for (const point of analysis.chartData) {
+        // Re-derive the slot key from the stored timeLabel — single-day uses "H:MM AM/PM", multi-day uses "M/D/YYYY H:MM AM/PM"
+        // Easier: just use the time value as the key (ms timestamp)
+        intervalData[point.time] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
+      }
+      // Build a fast lookup: ms-timestamp → slot (nearest slot)
+      const slotTimes = Object.keys(intervalData).map(Number).sort((a, b) => a - b)
+
+      for (const trade of filteredTrades) {
+        const tradeDate = new Date(trade.trade_timestamp)
+        const ptTime = new Date(tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        const hour = ptTime.getHours()
+        const minute = ptTime.getMinutes()
+        if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) continue
+        const tradeMs = ptTime.getTime()
+        // Find the nearest slot that is <= tradeMs
+        let slotMs = slotTimes[0]
+        for (const st of slotTimes) {
+          if (st <= tradeMs) slotMs = st
+          else break
+        }
+        if (!(slotMs in intervalData)) continue
+        const isBullish = trade.fill_style === 'A' || trade.fill_style === 'AA'
+        const isBear = trade.fill_style === 'B' || trade.fill_style === 'BB'
+        if (trade.type === 'call') {
+          if (isBullish) intervalData[slotMs].callsPlus += trade.total_premium
+          else if (isBear) intervalData[slotMs].callsMinus += trade.total_premium
+          else intervalData[slotMs].callsMinus += trade.total_premium
+        } else {
+          if (isBullish) intervalData[slotMs].putsPlus += trade.total_premium
+          else if (isBear) intervalData[slotMs].putsMinus += trade.total_premium
+          else intervalData[slotMs].putsMinus += trade.total_premium
+        }
+      }
+
+      // Rebuild cumulative series preserving stockLow/stockHigh/price from original
+      const origByTime = new Map(analysis.chartData.map((p: any) => [p.time, p]))
+      let cumCp = 0, cumCm = 0, cumPp = 0, cumPm = 0
+      activeChartData = slotTimes.map((slotMs) => {
+        const d = intervalData[slotMs]
+        cumCp += d.callsPlus; cumCm += d.callsMinus; cumPp += d.putsPlus; cumPm += d.putsMinus
+        const orig = origByTime.get(slotMs) ?? {}
+        const netFlow = cumCp - cumCm + (cumPp - cumPm)
+        const bullishTotal = cumCp + cumPp
+        const bearishTotal = -(cumCm + cumPm)
+        return { ...orig, callsPlus: cumCp, callsMinus: cumCm, putsPlus: cumPp, putsMinus: cumPm, netFlow, bullishTotal, bearishTotal }
+      })
+    }
+
     const scanDays = getScanDays(scanTimeframe)
     const baseData = chartDisplayDays >= scanDays
-      ? analysis.chartData
-      : analysis.chartData.filter((d: any) => d.time >= Date.now() - chartDisplayDays * 1.5 * 24 * 60 * 60 * 1000)
+      ? activeChartData
+      : activeChartData.filter((d: any) => d.time >= Date.now() - chartDisplayDays * 1.5 * 24 * 60 * 60 * 1000)
     const len = baseData.length
     const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
     const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
@@ -1702,7 +1861,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
     const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
     return { visibleData, xInterval, priceMin, priceMax }
-  }, [analysis?.chartData, chartDisplayDays, scanTimeframe, brushIndices])
+  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, chartDisplayDays, scanTimeframe, brushIndices])
 
   // Attach wheel listener as non-passive so preventDefault() works for chart zoom
   useEffect(() => {
@@ -1748,20 +1907,62 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     const upper = tickerToSearch.trim().toUpperCase()
     let actualTickers: string
     let displayLabel: string | undefined
+
+    const topNMatch = upper.match(/^TOP(\d+)$/)
+    const etfNMatch = upper.match(/^([A-Z]{2,6})(\d+)$/)
+
     if (upper === 'MAG7') {
       actualTickers = MAG7_TICKERS.join(',')
       displayLabel = 'MAG7'
     } else if (upper === 'ALL') {
       actualTickers = [...MAG7_TICKERS, ...ETF_TICKERS].join(',')
       displayLabel = 'ALL'
+    } else if (topNMatch) {
+      const n = Math.min(1000, Math.max(1, parseInt(topNMatch[1])))
+      try {
+        const resp = await fetch(`/api/market-cap-top?limit=${n}`)
+        if (!resp.ok) throw new Error('Failed to fetch market cap rankings')
+        const data = await resp.json()
+        const symbols: string[] = data.symbols || []
+        if (!symbols.length) { setError(`No symbols found for TOP${n}`); setLoading(false); return }
+        actualTickers = symbols.join(',')
+        displayLabel = `TOP${n}`
+      } catch (e: any) {
+        setError(e.message || `Failed to resolve TOP${n}`)
+        setLoading(false)
+        return
+      }
+    } else if (etfNMatch) {
+      const etfTicker = etfNMatch[1]
+      const n = Math.min(1000, Math.max(1, parseInt(etfNMatch[2])))
+      try {
+        const resp = await fetch(`/api/etf-holdings?etf=${etfTicker}&limit=${n}`)
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}))
+          throw new Error(errData.error || `Unknown ETF: ${etfTicker}`)
+        }
+        const data = await resp.json()
+        const symbols: string[] = data.symbols || []
+        if (!symbols.length) { setError(`No holdings found for ${etfTicker}${n}`); setLoading(false); return }
+        actualTickers = symbols.join(',')
+        displayLabel = `${etfTicker}${n}`
+      } catch (e: any) {
+        setError(e.message || `Failed to resolve ${etfTicker}${n}`)
+        setLoading(false)
+        return
+      }
     } else {
       actualTickers = upper
       displayLabel = undefined
     }
 
+    setOverlayActive(true)
     setLoading(true)
     setError('')
     setIsStreamComplete(false)
+    setDrilledTicker(null)
+    // Clear ALL cache when starting a fresh scan (new scan may be a different ticker)
+    if (upper !== 'ALL') allScanCacheRef.current = null
     multiScanLabelRef.current = displayLabel
 
     // Check saved data first (skip when scanning specific missing dates)
@@ -1838,6 +2039,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 setLoading(false)
                 setStreamStatus('')
                 setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
+                setOverlayActive(false)
                 return
               }
               // saved.length === 0 means ticker not in saved data → fall through to live scan
@@ -1927,6 +2129,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
               } else {
                 setError(`No options flow data found for ${actualTickers}`)
                 setLoading(false)
+                setOverlayActive(false)
               }
               eventSource.close()
               break
@@ -1935,6 +2138,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             case 'error':
               setError(data.error || 'Stream error occurred')
               setLoading(false)
+              setOverlayActive(false)
               eventSource.close()
               break
           }
@@ -1949,6 +2153,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           console.warn('⚠️ EventSource connection issue')
           setError('Stream connection unavailable')
           setLoading(false)
+          setOverlayActive(false)
         }
         eventSource.close()
       }
@@ -1958,6 +2163,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     } catch (error) {
       setError('Failed to start flow analysis')
       setLoading(false)
+      setOverlayActive(false)
     }
   }
 
@@ -1967,6 +2173,16 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       fetchTickerFlow(ticker)
     }
   }
+
+  // Show full-screen ALL-scan loading scene (match OptionsFlow visuals)
+  const [isAllScan, setIsAllScan] = useState(false)
+
+  // Clear isAllScan only when overlayActive is fully done (not just loading)
+  useEffect(() => {
+    if (!overlayActive && isAllScan) {
+      setIsAllScan(false)
+    }
+  }, [overlayActive, isAllScan])
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -2333,6 +2549,99 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Expiry filter buttons */}
+          {([
+            { f: '45d', label: '45D FILTER', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)', title: 'Show contracts expiring within 45 days' },
+            { f: 'weekly', label: 'WEEKLIES', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)', title: 'Show this-week expiries only' },
+            { f: '0dte', label: '0DTE', color: '#c084fc', borderColor: '#c084fc', glowColor: 'rgba(192,132,252,0.25)', title: 'Show 0DTE (today/next trading day) only' },
+          ] as const).map(({ f, label, color, borderColor, glowColor, title }) => {
+            const active = expiryFilter === f
+            return (
+              <button
+                key={f}
+                onClick={() => setExpiryFilter(active ? 'all' : f)}
+                className="toolbar-pill font-bold uppercase transition-all duration-150"
+                title={title}
+                style={{
+                  height: '31px',
+                  padding: '0 13px',
+                  background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                  border: active ? `1px solid ${borderColor}` : '1px solid #666',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  letterSpacing: '1.2px',
+                  fontWeight: '700',
+                  boxShadow: active ? `inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px ${glowColor}` : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+                  outline: 'none',
+                  color: color,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+          {/* Ticker exclusion buttons */}
+          {([
+            { key: 'mag7', label: 'EXCLUDE MAG7', active: excludeMag7, toggle: () => { setExcludeMag7(v => !v); setExcludeEtf(false) }, color: '#fb923c', borderColor: '#fb923c', glowColor: 'rgba(251,146,60,0.25)', title: 'Exclude MAG7 tickers (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)' },
+            { key: 'etf', label: 'EXCLUDE ETFs', active: excludeEtf, toggle: () => { setExcludeEtf(v => !v); setExcludeMag7(false) }, color: '#34d399', borderColor: '#34d399', glowColor: 'rgba(52,211,153,0.25)', title: 'Exclude all ETF tickers' },
+            { key: 'stocks', label: 'STOCKS ONLY', active: excludeMag7 && excludeEtf, toggle: () => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }, color: '#60a5fa', borderColor: '#60a5fa', glowColor: 'rgba(96,165,250,0.25)', title: 'Show stocks only — exclude ETFs and MAG7' },
+          ] as const).map(({ key, label, active, toggle, color, borderColor, glowColor, title }) => (
+            <button
+              key={key}
+              onClick={toggle}
+              className="toolbar-pill font-bold uppercase transition-all duration-150"
+              title={title}
+              style={{
+                height: '31px',
+                padding: '0 13px',
+                background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                border: active ? `1px solid ${borderColor}` : '1px solid #666',
+                borderRadius: '20px',
+                fontSize: '12px',
+                letterSpacing: '1.2px',
+                fontWeight: '700',
+                boxShadow: active ? `inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px ${glowColor}` : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+                outline: 'none',
+                color: active ? '#ff8500' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              // Start scanning ALL tickers immediately without modifying the input field
+              setSearchTicker('ALL')
+              setIsAllScan(true)
+              fetchTickerFlow('ALL')
+            }}
+            className="toolbar-pill font-bold uppercase transition-all duration-150"
+            disabled={loading}
+            title="All Tickers"
+            style={{
+              height: '31px',
+              padding: '0 13px',
+              background: ticker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+              border: ticker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
+              borderRadius: '20px',
+              fontSize: '12px',
+              letterSpacing: '1.2px',
+              fontWeight: '700',
+              boxShadow: ticker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+              outline: 'none',
+              color: ticker === 'ALL' ? '#ffaa55' : '#d4d4d4',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            All Tickers
+          </button>
           <input
             type="text"
             value={ticker}
@@ -2342,6 +2651,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             style={{ width: 110, padding: '5px 10px', background: '#111', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 700, letterSpacing: '0.12em', outline: 'none' }}
             disabled={loading}
           />
+
+          <OptionsFlowScene visible={isAllScan && overlayActive} selectedTicker="ALL" streamingStatus={streamStatus} />
+
           <select
             value={scanTimeframe}
             onChange={(e) => setScanTimeframe(e.target.value)}
@@ -2384,6 +2696,17 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
         {/* LOADING STATE - removed; analyzing indicator is now inside the ANALYZE button */}
 
+        {/* Drill-down re-analysis overlay */}
+        {isAnalyzing && drilledTicker && analysis && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+              <div className="animate-spin" style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(255,133,0,0.25)', borderTopColor: '#ff8500' }} />
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.15em' }}>ANALYZING {drilledTicker}</div>
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>{flowData.length} TRADES</div>
+            </div>
+          </div>
+        )}
+
         {analysis && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
 
@@ -2412,11 +2735,11 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   {/* Subtle radial glow behind gauge */}
                   <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 200, height: 125, borderRadius: '50%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,133,0,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
                   <FlowQuadrantGauge
-                    bullCall={analysis.bullCallPremium ?? 0}
-                    bearCall={analysis.bearCallPremium ?? 0}
-                    bullPut={analysis.bullPutPremium ?? 0}
-                    bearPut={analysis.bearPutPremium ?? 0}
-                    score={analysis.algoFlowScore}
+                    bullCall={displayAnalysis?.bullCallPremium ?? 0}
+                    bearCall={displayAnalysis?.bearCallPremium ?? 0}
+                    bullPut={displayAnalysis?.bullPutPremium ?? 0}
+                    bearPut={displayAnalysis?.bearPutPremium ?? 0}
+                    score={displayAnalysis?.algoFlowScore ?? 0}
                     label="ALGOFLOW SCORE"
                   />
                 </div>
@@ -2510,8 +2833,8 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
                 {/* Stacked metrics */}
                 {[
-                  { label: 'CALLS PREM', value: formatCurrency(analysis.totalCallPremium), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
-                  { label: 'PUTS PREM', value: formatCurrency(analysis.totalPutPremium), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
+                  { label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
+                  { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                   { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
                   { label: 'P/C RATIO', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
                 ].map(({ label, value, color, glow, bg }) => (
@@ -2536,9 +2859,21 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', position: 'relative', minHeight: 36 }}>
                   {/* LEFT: ticker + FLOW + timeframe buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    {drilledTicker && (
+                      <button
+                        onClick={() => {
+                          if (!allScanCacheRef.current) return
+                          setDrilledTicker(null)
+                          setSearchTicker('ALL')
+                          setFlowData(allScanCacheRef.current.flowData)
+                          setAnalysis(allScanCacheRef.current.analysis)
+                        }}
+                        style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
+                      >← ALL</button>
+                    )}
                     <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                     {analysis.currentPrice > 0 && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: analysis.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : analysis.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: analysis.flowTrend === 'BULLISH' ? '#10b981' : analysis.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${analysis.flowTrend === 'BULLISH' ? '#10b981' : analysis.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{analysis.flowTrend}</span>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', letterSpacing: '0.15em', marginRight: 4 }}>FLOW</span>
                     {CHART_VIEW_OPTIONS.filter(o => o.days <= getScanDays(scanTimeframe)).map(({ label, days }) => (
                       <button key={label} onClick={() => { setChartDisplayDays(days); setBrushIndices(null) }} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,165,0,0.6)', background: chartDisplayDays === days ? '#ff8500' : 'transparent', color: chartDisplayDays === days ? '#000' : '#ff8500', cursor: 'pointer' }}>{label}</button>
@@ -2750,9 +3085,63 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     </thead>
                     <tbody>
                       {(() => {
-                        let tradesToDisplay = analysis?.trades || flowData
+                        let tradesToDisplay = displayAnalysis?.trades || flowData
                         if (selectedStrike !== null) tradesToDisplay = tradesToDisplay.filter(t => t.strike === selectedStrike)
                         if (selectedExpiry !== null) tradesToDisplay = tradesToDisplay.filter(t => t.expiry === selectedExpiry)
+                        if (excludeMag7) tradesToDisplay = tradesToDisplay.filter(t => !MAG7_TICKERS.includes(t.underlying_ticker))
+                        if (excludeEtf) tradesToDisplay = tradesToDisplay.filter(t => !ETF_SET.has(t.underlying_ticker))
+                        // Expiry range filters
+                        if (expiryFilter !== 'all') {
+                          const now = new Date()
+                          // LA trading day (PT)
+                          const todayPT = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                          const dow = todayPT.getDay() // 0=Sun,1=Mon,...,5=Fri,6=Sat
+                          // Current trading day date string in PT
+                          const tradingDate = todayPT.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // YYYY-MM-DD
+                          if (expiryFilter === '45d') {
+                            const cutoff = new Date(todayPT)
+                            cutoff.setDate(cutoff.getDate() + 45)
+                            const cutoffStr = cutoff.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                            tradesToDisplay = tradesToDisplay.filter(t => {
+                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                              return expStr >= tradingDate && expStr <= cutoffStr
+                            })
+                          } else if (expiryFilter === 'weekly') {
+                            // Week = Mon–Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
+                            const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun→5, 1=Mon→4, ..., 5=Fri→0, 6=Sat→6(next Fri)
+                            const thisFriday = new Date(todayPT)
+                            thisFriday.setDate(todayPT.getDate() + daysToFriday)
+                            // Week start = Monday of same week
+                            const weekStart = new Date(thisFriday)
+                            weekStart.setDate(thisFriday.getDate() - 4) // Mon
+                            const weekStartStr = weekStart.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                            const weekEndStr = thisFriday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                            tradesToDisplay = tradesToDisplay.filter(t => {
+                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                              return expStr >= weekStartStr && expStr <= weekEndStr
+                            })
+                          } else if (expiryFilter === '0dte') {
+                            // For MWF stocks (MAG7 + ETFs): Mon/Wed/Fri expiries are valid 0DTE
+                            // For others: Friday-only
+                            // Rule: show contracts expiring on today's date. If today is after 4pm PT
+                            // (or Sat/Sun), advance to next trading day.
+                            let odteDate = new Date(todayPT)
+                            const hourPT = todayPT.getHours()
+                            // After market close (>=16) or weekend, roll to next trading day
+                            if (hourPT >= 16 || dow === 0 || dow === 6) {
+                              do {
+                                odteDate.setDate(odteDate.getDate() + 1)
+                                const d = odteDate.getDay()
+                                if (d !== 0 && d !== 6) break
+                              } while (true)
+                            }
+                            const odteDateStr = odteDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                            tradesToDisplay = tradesToDisplay.filter(t => {
+                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                              return expStr === odteDateStr
+                            })
+                          }
+                        }
                         const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
                           let aVal = a[sortColumn]; let bVal = b[sortColumn]
                           if (sortColumn === 'trade_timestamp') { aVal = new Date(aVal).getTime(); bVal = new Date(bVal).getTime() }
@@ -2784,7 +3173,21 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                                   ? new Date(trade.trade_timestamp).toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
                                   : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' })}
                               </td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 23, color: '#fff', fontWeight: 900 }}>{trade.underlying_ticker}</td>
+                              <td
+                                style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 23, color: allScanCacheRef.current ? '#ffcc44' : '#fff', fontWeight: 900, cursor: allScanCacheRef.current ? 'pointer' : 'default', userSelect: 'none' }}
+                                title={allScanCacheRef.current ? `Double-click to drill into ${trade.underlying_ticker}` : undefined}
+                                onDoubleClick={() => {
+                                  if (!allScanCacheRef.current) return
+                                  const t = trade.underlying_ticker
+                                  setDrilledTicker(t)
+                                  setSearchTicker(t)
+                                  const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
+                                  setFlowData(filtered)
+                                  setIsAnalyzing(true)
+                                  // Yield to React so isAnalyzing=true paints before heavy CPU work
+                                  setTimeout(() => performAnalysis(filtered, t).catch(() => { }), 0)
+                                }}
+                              >{trade.underlying_ticker}</td>
                               <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</td>
                               <td style={{ padding: '5px 10px' }}>
                                 <button onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 700, color: selectedStrike === trade.strike ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>${trade.strike}</button>
@@ -2898,7 +3301,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   <TradingViewChart
                     symbol={searchTicker || 'SPY'}
                     initialTimeframe="1d"
-                    height={780}
+                    height={700}
                     lwToolbarPosition="left"
                     disableSidebarAutoScan={true}
                     hideDesktopSidebar={true}

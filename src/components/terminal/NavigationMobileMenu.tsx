@@ -93,7 +93,7 @@ export default function NavigationMobileMenu({
                     width: '100vw',
                     height: '100vh',
                     background: isOpen ? 'rgba(0, 0, 0, 0.95)' : 'transparent',
-                    zIndex: isOpen ? 99999 : -1,
+                    zIndex: isOpen ? 2000000 : -1,
                     opacity: isOpen ? 1 : 0,
                     visibility: isOpen ? 'visible' : 'hidden',
                     display: isOpen ? 'flex' : 'none',

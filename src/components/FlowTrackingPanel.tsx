@@ -881,15 +881,9 @@ export default function FlowTrackingPanel({
   const fpUnreadCount = fpAlerts.filter((a) => !a.read).length
 
   return (
-    <div className="relative bg-black w-full" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="relative bg-black w-full" style={{ ...(isMobile ? { flex: 1, minHeight: 0 } : {}), height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ── Tab Bar ── */}
       <div style={{ display: 'flex', alignItems: 'stretch', background: 'linear-gradient(180deg,#0d0d0d 0%,#080808 100%)', flexShrink: 0, position: 'relative', padding: '6px 6px 0', gap: '4px', borderBottom: '1px solid rgba(255,133,0,0.15)' }}>
-        {onClose && activeTab !== 'TRACKING' && (
-          <button
-            onClick={onClose}
-            style={{ position: 'absolute', top: '6px', right: '10px', background: 'transparent', border: 'none', color: '#6b7280', fontSize: '18px', cursor: 'pointer', lineHeight: 1, padding: '2px 6px', zIndex: 10 }}
-          >✕</button>
-        )}
         {(['TRACKING', 'PORTFOLIO'] as const).map((tab) => {
           const isActive = activeTab === tab
           const tabLabel = tab === 'TRACKING' ? 'A+ Tracker' : 'Flow Portfolio'
@@ -921,6 +915,36 @@ export default function FlowTrackingPanel({
             </button>
           )
         })}
+        {/* Close button — sits after tabs, styled as a tab */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              flexShrink: 0,
+              width: '36px',
+              height: '32px',
+              margin: '4px 2px 0',
+              padding: 0,
+              background: '#ff8500',
+              border: '2px solid #ff8500',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#000',
+              fontSize: '22px',
+              fontWeight: 700,
+              lineHeight: 1,
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#ff6a00'; e.currentTarget.style.borderColor = '#ff6a00' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#ff8500'; e.currentTarget.style.borderColor = '#ff8500' }}
+            aria-label="Close"
+          >
+            &times;
+          </button>
+        )}
       </div>
 
       {/* ── TRACKING TAB ── */}
@@ -931,9 +955,6 @@ export default function FlowTrackingPanel({
             className="ftp-header z-10 border-b border-gray-800"
             style={{ flexShrink: 0, padding: '8px 12px', position: 'relative', background: 'linear-gradient(180deg,#111 0%,#0a0a0a 100%)' }}
           >
-            {onClose && activeTab === 'TRACKING' && (
-              <button onClick={onClose} style={{ position: 'absolute', top: '8px', right: '10px', background: 'transparent', border: 'none', color: '#ffffff', fontSize: '18px', lineHeight: 1, cursor: 'pointer', padding: '2px 6px', zIndex: 10 }}>✕</button>
-            )}
             {/* Filters — single row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap', overflowX: 'auto' }}>
               {/* Type pills */}
@@ -945,7 +966,7 @@ export default function FlowTrackingPanel({
               })}
               <div style={{ width: '1px', height: '22px', background: '#2a2a2a', flexShrink: 0 }} />
               {/* Grade pills */}
-              {(['ALL', 'A', 'B', 'C', 'D', 'F'] as const).map((g) => {
+              {(isMobile ? (['ALL', 'A', 'B', 'C'] as const) : (['ALL', 'A', 'B', 'C', 'D', 'F'] as const)).map((g) => {
                 const active = flowTrackingFilters.gradeFilter === g
                 const gc = g === 'ALL' ? '#ff8500' : g === 'A' ? '#00ff88' : g === 'B' ? '#22d3ee' : g === 'C' ? '#fbbf24' : g === 'D' ? '#fb923c' : '#ef4444'
                 return (
@@ -968,7 +989,7 @@ export default function FlowTrackingPanel({
           {/* Tracking scrollable content */}
           <div
             className="overflow-y-auto overflow-x-hidden p-3"
-            style={{ flex: '1 1 45%', minHeight: 0, maxHeight: '45%' }}
+            style={isMobile ? { flex: '0 0 auto', minHeight: 0, maxHeight: '45%' } : { flex: '1 1 45%', minHeight: 0, maxHeight: '45%' }}
           >
             {trackedFlows.length === 0 ? (
               <div className="text-center py-12 text-orange-400">
@@ -1242,117 +1263,154 @@ export default function FlowTrackingPanel({
 
 
                           <div className="p-1">
-                            <table className="w-full text-center" style={{ tableLayout: 'fixed' }}>
-                              <tbody>
-                                <tr>
-                                  {/* Col 1: Ticker / Time */}
-                                  <td className="p-1" style={{ width: '9%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-1.5 py-0.5 border border-gray-500/70 text-xl">
-                                        {flow.underlying_ticker}
-                                      </span>
-                                      <span className="text-lg text-white font-bold">
-                                        {formatTime(flow.trade_timestamp)}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* Col 2: Strike / CALL-PUT */}
-                                  <td className="p-1" style={{ width: '9%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span className="text-white font-semibold text-xl">
-                                        ${flow.strike}
-                                      </span>
-                                      <span className={`font-bold text-lg ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`}>
-                                        {flow.type.toUpperCase()}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* Col 3: Contracts@Price+Fill / Premium */}
-                                  <td className="p-1" style={{ width: '19%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <div className="flex items-center gap-0.5 flex-wrap justify-center">
-                                        <span className="text-cyan-400 font-bold text-xl">{flow.trade_size.toLocaleString()}</span>
-                                        <span className="text-yellow-400 text-xl">@${entryPrice.toFixed(2)}</span>
-                                        {fillStyle && (
-                                          <span className={`text-xl font-bold ${fillStyle === 'A' || fillStyle === 'AA' ? 'text-green-400' : fillStyle === 'B' || fillStyle === 'BB' ? 'text-red-400' : 'text-orange-400'}`}>
-                                            {fillStyle}
-                                          </span>
-                                        )}
+                            {isMobile ? (
+                              /* ── MOBILE: 6-col row + Magnet/Pivot/T1/T2 second row ── */
+                              <table className="w-full text-center" style={{ tableLayout: 'fixed' }}>
+                                <tbody>
+                                  <tr>
+                                    <td className="p-1" style={{ width: '14%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#ff8500', background: 'linear-gradient(180deg,#1f1f1f,#000)', border: '1px solid rgba(107,114,128,0.7)', padding: '1px 5px' }}>{flow.underlying_ticker}</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap' }}>{formatTime(flow.trade_timestamp)}</span>
                                       </div>
-                                      <span className="font-bold text-lg text-green-400">{formatCurrency(flow.total_premium)}</span>
-                                    </div>
-                                  </td>
-                                  {/* Col 4: Expiry / BLOCK-SWEEP */}
-                                  <td className="p-1" style={{ width: '11%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span className="text-white text-lg">{formatDate(flow.expiry)}</span>
-                                      {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
-                                        <span className="font-bold text-lg" style={{ color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0,150,255,1)' }}>
-                                          {flow.trade_type}
+                                    </td>
+                                    <td className="p-1" style={{ width: '12%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>${flow.strike}</span>
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: flow.type === 'call' ? '#22c55e' : '#ef4444' }}>{flow.type.toUpperCase()}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '24%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <div className="flex items-center gap-0.5 flex-wrap justify-center">
+                                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#22d3ee' }}>{flow.trade_size.toLocaleString()}</span>
+                                          <span style={{ fontSize: '13px', color: '#facc15' }}>@${entryPrice.toFixed(2)}</span>
+                                          {fillStyle && <span style={{ fontSize: '13px', fontWeight: 700, color: fillStyle === 'A' || fillStyle === 'AA' ? '#4ade80' : fillStyle === 'B' || fillStyle === 'BB' ? '#f87171' : '#fb923c' }}>{fillStyle}</span>}
+                                        </div>
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#4ade80' }}>{formatCurrency(flow.total_premium)}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '14%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ fontSize: '13px', color: '#ffffff' }}>{formatDate(flow.expiry)}</span>
+                                        {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && <span style={{ fontSize: '13px', fontWeight: 700, color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0,150,255,1)' }}>{flow.trade_type}</span>}
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '20%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff' }}>${rzFlowStock.toFixed(2)}</span>
+                                        <span style={{ fontSize: '13px', fontWeight: 800, color: rzStockNow ? (rzStockNow >= rzFlowStock ? '#00ff88' : '#ff4466') : '#ffffff' }}>{rzStockNow ? `$${rzStockNow.toFixed(2)}` : '—'}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '16%' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        {currentPrice && currentPrice > 0 ? <span style={{ fontSize: '13px', fontWeight: 700, color: priceHigher ? '#00ff00' : '#ff0000' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span> : <span style={{ fontSize: '13px', color: '#6b7280' }}>-</span>}
+                                        {liveGrade.grade !== 'N/A' && <span style={{ fontSize: '15px', fontWeight: 900, color: liveGrade.color, textShadow: `0 0 8px ${liveGrade.color}88` }}>{liveGrade.grade}</span>}
+                                        {ownStdDevFailed.has(flow.underlying_ticker) && <span title="StdDev fetch failed" style={{ color: '#ef4444', fontSize: '11px', fontWeight: 'bold', cursor: 'help' }}>⚠</span>}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td colSpan={6} style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '4px 8px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '6px' }}>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#FFD700' }}>Magnet</span>
+                                          <span style={{ fontSize: '13px', fontWeight: 800, color: '#FFD700' }}>{rzZones?.golden ? `$${rzZones.golden.toFixed(2)}` : '—'}</span>
                                         </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  {/* Col 5: Magnet / Pivot */}
-                                  <td className="p-1" style={{ width: '17%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFD700', letterSpacing: '0.3px' }}>Magnet</span>
-                                        <span style={{ fontSize: '20px', fontWeight: 800, color: '#FFD700' }}>{rzZones?.golden ? `$${rzZones.golden.toFixed(2)}` : '—'}</span>
-                                      </span>
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#a855f7', letterSpacing: '0.3px' }}>Pivot</span>
-                                        <span style={{ fontSize: '20px', fontWeight: 800, color: '#a855f7' }}>{rzZones?.purple ? `$${rzZones.purple.toFixed(2)}` : '—'}</span>
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* Col 6: Target #1 / Target #2 */}
-                                  <td className="p-1" style={{ width: '14%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span style={{ fontSize: '14px', fontWeight: 700, color: rzTargetColor, letterSpacing: '0.3px' }}>T1</span>
-                                        <span style={{ fontSize: '20px', fontWeight: 800, color: rzTargetColor }}>{rzT1 ? `$${rzT1.toFixed(2)}` : '—'}</span>
-                                      </span>
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span style={{ fontSize: '14px', fontWeight: 700, color: rzTargetColor, letterSpacing: '0.3px' }}>T2</span>
-                                        <span style={{ fontSize: '20px', fontWeight: 800, color: rzTargetColor }}>{rzT2 ? `$${rzT2.toFixed(2)}` : '—'}</span>
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* Col 7: Flow Stock / Current Stock (prices only) */}
-                                  <td className="p-1" style={{ width: '12%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      <span style={{ fontSize: '20px', fontWeight: 700, color: '#ffffff' }}>
-                                        ${rzFlowStock.toFixed(2)}
-                                      </span>
-                                      <span style={{ fontSize: '20px', fontWeight: 800, color: rzStockNow ? (rzStockNow >= rzFlowStock ? '#00ff88' : '#ff4466') : '#ffffff' }}>
-                                        {rzStockNow ? `$${rzStockNow.toFixed(2)}` : '—'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* Col 8: % Change / Grade */}
-                                  <td className="p-1" style={{ width: '9%' }}>
-                                    <div className="flex flex-col items-center space-y-0.5">
-                                      {currentPrice && currentPrice > 0 ? (
-                                        <span className="font-bold text-lg" style={{ color: priceHigher ? '#00ff00' : '#ff0000' }}>
-                                          {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+                                        <span style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#a855f7' }}>Pivot</span>
+                                          <span style={{ fontSize: '13px', fontWeight: 800, color: '#a855f7' }}>{rzZones?.purple ? `$${rzZones.purple.toFixed(2)}` : '—'}</span>
                                         </span>
-                                      ) : (
-                                        <span className="text-lg text-gray-500">-</span>
-                                      )}
-                                      {liveGrade.grade !== 'N/A' && (
-                                        <span className="font-black text-xl" style={{ color: liveGrade.color, textShadow: `0 0 8px ${liveGrade.color}88` }}>
-                                          {liveGrade.grade}
+                                        <span style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <span style={{ fontSize: '12px', fontWeight: 700, color: rzTargetColor }}>T1</span>
+                                          <span style={{ fontSize: '13px', fontWeight: 800, color: rzTargetColor }}>{rzT1 ? `$${rzT1.toFixed(2)}` : '—'}</span>
                                         </span>
-                                      )}
-                                      {ownStdDevFailed.has(flow.underlying_ticker) && (
-                                        <span title="StdDev fetch failed — Price Action unscored" style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', cursor: 'help' }}>⚠</span>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                                        <span style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <span style={{ fontSize: '12px', fontWeight: 700, color: rzTargetColor }}>T2</span>
+                                          <span style={{ fontSize: '13px', fontWeight: 800, color: rzTargetColor }}>{rzT2 ? `$${rzT2.toFixed(2)}` : '—'}</span>
+                                        </span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            ) : (
+                              /* ── DESKTOP: original 8-col single row ── */
+                              <table className="w-full text-center" style={{ tableLayout: 'fixed' }}>
+                                <tbody>
+                                  <tr>
+                                    <td className="p-1" style={{ width: '9%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-1.5 py-0.5 border border-gray-500/70 text-xl">{flow.underlying_ticker}</span>
+                                        <span className="text-lg text-white font-bold">{formatTime(flow.trade_timestamp)}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '9%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span className="text-white font-semibold text-xl">${flow.strike}</span>
+                                        <span className={`font-bold text-lg ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`}>{flow.type.toUpperCase()}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '19%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <div className="flex items-center gap-0.5 flex-wrap justify-center">
+                                          <span className="text-cyan-400 font-bold text-xl">{flow.trade_size.toLocaleString()}</span>
+                                          <span className="text-yellow-400 text-xl">@${entryPrice.toFixed(2)}</span>
+                                          {fillStyle && <span className={`text-xl font-bold ${fillStyle === 'A' || fillStyle === 'AA' ? 'text-green-400' : fillStyle === 'B' || fillStyle === 'BB' ? 'text-red-400' : 'text-orange-400'}`}>{fillStyle}</span>}
+                                        </div>
+                                        <span className="font-bold text-lg text-green-400">{formatCurrency(flow.total_premium)}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '11%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span className="text-white text-lg">{formatDate(flow.expiry)}</span>
+                                        {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && <span className="font-bold text-lg" style={{ color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0,150,255,1)' }}>{flow.trade_type}</span>}
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '17%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFD700', letterSpacing: '0.3px' }}>Magnet</span>
+                                          <span style={{ fontSize: '20px', fontWeight: 800, color: '#FFD700' }}>{rzZones?.golden ? `$${rzZones.golden.toFixed(2)}` : '—'}</span>
+                                        </span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ fontSize: '14px', fontWeight: 700, color: '#a855f7', letterSpacing: '0.3px' }}>Pivot</span>
+                                          <span style={{ fontSize: '20px', fontWeight: 800, color: '#a855f7' }}>{rzZones?.purple ? `$${rzZones.purple.toFixed(2)}` : '—'}</span>
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '14%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ fontSize: '14px', fontWeight: 700, color: rzTargetColor, letterSpacing: '0.3px' }}>T1</span>
+                                          <span style={{ fontSize: '20px', fontWeight: 800, color: rzTargetColor }}>{rzT1 ? `$${rzT1.toFixed(2)}` : '—'}</span>
+                                        </span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ fontSize: '14px', fontWeight: 700, color: rzTargetColor, letterSpacing: '0.3px' }}>T2</span>
+                                          <span style={{ fontSize: '20px', fontWeight: 800, color: rzTargetColor }}>{rzT2 ? `$${rzT2.toFixed(2)}` : '—'}</span>
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '12%', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        <span style={{ fontSize: '20px', fontWeight: 700, color: '#ffffff' }}>${rzFlowStock.toFixed(2)}</span>
+                                        <span style={{ fontSize: '20px', fontWeight: 800, color: rzStockNow ? (rzStockNow >= rzFlowStock ? '#00ff88' : '#ff4466') : '#ffffff' }}>{rzStockNow ? `$${rzStockNow.toFixed(2)}` : '—'}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-1" style={{ width: '9%' }}>
+                                      <div className="flex flex-col items-center space-y-0.5">
+                                        {currentPrice && currentPrice > 0 ? <span className="font-bold text-lg" style={{ color: priceHigher ? '#00ff00' : '#ff0000' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span> : <span className="text-lg text-gray-500">-</span>}
+                                        {liveGrade.grade !== 'N/A' && <span className="font-black text-xl" style={{ color: liveGrade.color, textShadow: `0 0 8px ${liveGrade.color}88` }}>{liveGrade.grade}</span>}
+                                        {ownStdDevFailed.has(flow.underlying_ticker) && <span title="StdDev fetch failed — Price Action unscored" style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', cursor: 'help' }}>⚠</span>}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            )}
                           </div>
 
                           {/* Stock Chart */}
@@ -1592,7 +1650,7 @@ export default function FlowTrackingPanel({
             )}
           </div>
           {/* EFI Chart */}
-          <div ref={chartContainerRef} style={{ flex: '1 1 55%', minHeight: 0, position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
+          <div ref={chartContainerRef} style={{ flex: isMobile ? '1 1 0' : '1 1 55%', minHeight: 0, ...(isMobile ? { marginTop: 'auto' } : {}), position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
             {/* Chart fills full 55% */}
             <div style={{ width: '100%', height: '100%' }}>
               <style>{`
@@ -1605,7 +1663,7 @@ export default function FlowTrackingPanel({
               <EFIChart
                 symbol={chartSymbol}
                 initialTimeframe="1d"
-                height={Math.max(200, chartContainerHeight - 110)}
+                height={Math.max(200, chartContainerHeight - (isMobile ? 60 : 165))}
                 lwToolbarPosition="left"
                 disableSidebarAutoScan={true}
                 hideDesktopSidebar={true}

@@ -39,7 +39,7 @@
 
   .options-flow-table thead th {
     padding: 8px 4px !important;
-    font-size: 11px !important;
+    font-size: 13px !important;
     white-space: nowrap;
     background: #000 !important;
   }
@@ -197,9 +197,9 @@
     font-size: 10px !important;
   }
 
-  /* Adjust table height for mobile */
+  /* Adjust table height for mobile – use most of the screen */
   .table-scroll-container {
-    height: calc(100vh - 140px) !important;
+    height: calc(100vh - 90px) !important;
   }
 
   /* Hide dividers on very small screens */
@@ -207,6 +207,50 @@
     .control-bar-divider {
       display: none !important;
     }
+  }
+}
+
+/* ── Flow History popup: mobile card layout fix ── */
+@media (max-width: 768px) {
+
+  /* Tighten card padding so left/right content has more room */
+  .flow-hist-card {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+
+  /* Smaller date label – keep on one line */
+  .flow-hist-date-label {
+    font-size: 13px !important;
+    letter-spacing: 0 !important;
+    margin-bottom: 3px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Meta row: trades + saved side-by-side, no wrap */
+  .flow-hist-meta-row {
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .flow-hist-trades,
+  .flow-hist-saved {
+    font-size: 10px !important;
+    letter-spacing: 0.2px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Compact action buttons */
+  .flow-hist-actions {
+    gap: 4px !important;
+  }
+
+  .flow-hist-btn {
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+    letter-spacing: 0.5px !important;
   }
 }
 
