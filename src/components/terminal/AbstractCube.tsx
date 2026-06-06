@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { polygonRateLimiter } from '@/lib/polygonRateLimiter'
+import { polygonStocksWS } from '@/lib/polygonStocksWS'
 
 import './AbstractCube.css'
 
@@ -20,21 +21,14 @@ interface NewsItem {
   headline: string
 }
 
-interface RSScreenerData {
-  symbol: string
-  percentile: number
-  price: number
-  change: number
-  status: string
-}
-
 export default function AbstractCube() {
   const [time, setTime] = useState(new Date())
   const [marketData, setMarketData] = useState<MarketStock[]>([])
   const [news, setNews] = useState<NewsItem[]>([])
   const [heatmapData, setHeatmapData] = useState<[string, number][]>([])
-  const [rsScreenerData, setRsScreenerData] = useState<RSScreenerData[]>([])
   const [loading, setLoading] = useState(true)
+  const prevCloseRef = useRef<Record<string, number>>({})
+  const marketDataRef = useRef<MarketStock[]>([])
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000)
@@ -44,83 +38,79 @@ export default function AbstractCube() {
   useEffect(() => {
     fetchMarketData()
     fetchNews()
-    fetchRSScreenerData()
 
-    // Refresh market data every 30 seconds
+    // Refresh every 60 seconds as fallback
     const interval = setInterval(() => {
       fetchMarketData()
-      fetchRSScreenerData()
-    }, 30000)
+      fetchNews()
+    }, 60000)
 
     return () => clearInterval(interval)
   }, [])
 
+  const MARKET_TICKERS = [
+    'SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL', 'AMZN',
+    'META', 'NFLX', 'AMD', 'INTC', 'CRM', 'ORCL', 'UBER', 'DIS', 'BA', 'JPM',
+  ]
+
+  const applySnapshot = (stocks: MarketStock[]) => {
+    if (stocks.length === 0) return
+    marketDataRef.current = stocks
+    const topMovers = [...stocks]
+      .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
+      .slice(0, 10)
+    setMarketData(topMovers)
+    const heatmap = stocks.map((s) => [s.symbol, s.changePercent] as [string, number])
+    setHeatmapData(heatmap.slice(0, 16))
+  }
+
   const fetchMarketData = async () => {
     try {
-      const tickers = [
-        'SPY',
-        'QQQ',
-        'AAPL',
-        'TSLA',
-        'NVDA',
-        'MSFT',
-        'GOOGL',
-        'AMZN',
-        'META',
-        'NFLX',
-        'AMD',
-        'INTC',
-        'CRM',
-        'ORCL',
-        'UBER',
-        'DIS',
-        'BA',
-        'JPM',
-      ]
+      // Use snapshot endpoint — returns real-time intraday change vs prev close
+      const tickerList = MARKET_TICKERS.join(',')
+      const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickerList}&apiKey=${POLYGON_API_KEY}`
+      const data = await polygonRateLimiter.fetch(url)
 
-      const fetchWithRetry = async (ticker: string, retries = 2) => {
-        try {
-          const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`
-          const data = await polygonRateLimiter.fetch(prevDayUrl)
-
-          if (data.results && data.results.length > 0) {
-            const result = data.results[0]
-            const close = result.c || 0
-            const open = result.o || close
-            const change = close - open
-            const changePercent = open !== 0 ? (change / open) * 100 : 0
-
+      if (data.tickers && data.tickers.length > 0) {
+        const stocks: MarketStock[] = data.tickers
+          .filter((t: any) => t.day?.c)
+          .map((t: any) => {
+            const price = t.day.c
+            const prevClose = t.prevDay?.c || price
+            prevCloseRef.current[t.ticker] = prevClose
+            const changePercent = t.todaysChangePerc ?? ((price - prevClose) / prevClose) * 100
             return {
-              symbol: ticker,
-              price: close,
-              change: change,
-              changePercent: changePercent,
+              symbol: t.ticker,
+              price,
+              change: price - prevClose,
+              changePercent,
             }
-          }
-          return null
-        } catch (error) {
-          console.warn(`Failed to fetch ${ticker}:`, error)
-          return null
+          })
+
+        applySnapshot(stocks)
+
+        // Subscribe to WebSocket for real-time AM updates
+        if (polygonStocksWS) {
+          polygonStocksWS.subscribe('abstract-cube', {
+            amSymbols: MARKET_TICKERS,
+            onAM: (msg) => {
+              const prevClose = prevCloseRef.current[msg.sym]
+              if (!prevClose) return
+              const changePercent = ((msg.c - prevClose) / prevClose) * 100
+              setMarketData((prev) => {
+                const updated = prev.map((s) =>
+                  s.symbol === msg.sym
+                    ? { ...s, price: msg.c, change: msg.c - prevClose, changePercent }
+                    : s
+                )
+                return updated
+              })
+              setHeatmapData((prev) =>
+                prev.map(([sym, val]) => (sym === msg.sym ? [sym, changePercent] : [sym, val]))
+              )
+            },
+          })
         }
-      }
-
-      const promises = tickers.map((ticker) => fetchWithRetry(ticker))
-      const results = await Promise.all(promises)
-      const validResults = results.filter((r): r is MarketStock => r !== null)
-
-      if (validResults.length > 0) {
-        // Sort by absolute change percent for top movers
-        const topMovers = validResults
-          .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
-          .slice(0, 6)
-
-        setMarketData(topMovers)
-
-        // Use all valid results for heatmap
-        const heatmap = validResults.map(
-          (stock) => [stock.symbol, stock.changePercent] as [string, number]
-        )
-        setHeatmapData(heatmap.slice(0, 12))
       }
 
       setLoading(false)
@@ -132,112 +122,46 @@ export default function AbstractCube() {
 
   const fetchNews = async () => {
     try {
-      const newsUrl = `https://api.polygon.io/v2/reference/news?limit=4&apiKey=${POLYGON_API_KEY}`
-      const response = await fetch(newsUrl)
-      const data = await response.json()
+      const params = new URLSearchParams({ limit: '50', _t: Date.now().toString() })
+      const res = await fetch(`/api/news?${params}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      })
+      const data = await res.json()
+      if (!data.success) return
 
-      if (data.results && data.results.length > 0) {
-        const newsItems = data.results.map((item: any) => {
-          const publishedTime = new Date(item.published_utc)
+      // Same urgency filter as TickerScroller / NewsPanelV2 breaking news
+      const breaking = (data.articles as any[]).filter(
+        (a) => a.urgency >= 0.65 || a.category === 'breaking'
+      )
+
+      const newsItems = (breaking.length > 0 ? breaking : data.articles)
+        .slice(0, 5)
+        .map((item: any) => {
+          const publishedTime = new Date(item.published_utc || item.publishedAt || Date.now())
           const now = new Date()
-          const diffMs = now.getTime() - publishedTime.getTime()
-          const diffMins = Math.floor(diffMs / 60000)
+          const diffMins = Math.floor((now.getTime() - publishedTime.getTime()) / 60000)
           const diffHours = Math.floor(diffMins / 60)
-
-          let timeAgo = ''
-          if (diffMins < 60) {
-            timeAgo = `${diffMins}m ago`
-          } else if (diffHours < 24) {
-            timeAgo = `${diffHours}h ago`
-          } else {
-            const diffDays = Math.floor(diffHours / 24)
-            timeAgo = `${diffDays}d ago`
-          }
-
-          return {
-            time: timeAgo,
-            headline: item.title,
-          }
+          const timeAgo =
+            diffMins < 60
+              ? `${diffMins}m ago`
+              : diffHours < 24
+                ? `${diffHours}h ago`
+                : `${Math.floor(diffHours / 24)}d ago`
+          return { time: timeAgo, headline: item.title || item.headline }
         })
 
-        setNews(newsItems)
-      }
-    } catch (error) {
-      console.error('Error fetching news:', error)
-    }
-  }
-
-  const fetchRSScreenerData = async () => {
-    try {
-      const tickers = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'MSFT']
-
-      // Get 52-week range for each ticker
-      const oneYearAgo = new Date()
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-      const startDate = oneYearAgo.toISOString().split('T')[0]
-      const endDate = new Date().toISOString().split('T')[0]
-
-      const fetchRSWithRetry = async (ticker: string, retries = 2) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            const histUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
-            const data = await polygonRateLimiter.fetch(histUrl)
-
-            if (data.results && data.results.length > 0) {
-              const prices = data.results.map((r: any) => r.c)
-              const high52w = Math.max(...prices)
-              const low52w = Math.min(...prices)
-              const currentPrice = prices[prices.length - 1]
-
-              // Calculate percentile within 52-week range
-              const percentile = ((currentPrice - low52w) / (high52w - low52w)) * 100
-
-              // Calculate change
-              const prevPrice = prices[prices.length - 2] || currentPrice
-              const change = ((currentPrice - prevPrice) / prevPrice) * 100
-
-              let status = 'Neutral'
-              if (percentile >= 95) status = '52W High'
-              else if (percentile >= 75) status = 'Strong'
-              else if (percentile <= 25) status = 'Weak'
-
-              return {
-                symbol: ticker,
-                percentile: Math.round(percentile),
-                price: currentPrice,
-                change: change,
-                status: status,
-              }
-            }
-            return null
-          } catch (error) {
-            if (i === retries - 1) {
-              console.warn(`Failed to fetch RS data for ${ticker} after ${retries} attempts`)
-              return null
-            }
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-          }
-        }
-        return null
-      }
-
-      const rsPromises = tickers.map((ticker) => fetchRSWithRetry(ticker))
-      const results = await Promise.all(rsPromises)
-      const validResults = results.filter((r): r is RSScreenerData => r !== null)
-
-      if (validResults.length > 0) {
-        setRsScreenerData(validResults.sort((a, b) => b.percentile - a.percentile))
-      }
-    } catch (error) {
-      console.error('Error fetching RS screener data:', error)
+      setNews(newsItems)
+    } catch {
+      /* silent */
     }
   }
 
   const getHeatColor = (value: number) => {
-    if (value > 2) return 'rgba(34, 197, 94, 0.8)'
-    if (value > 0) return 'rgba(34, 197, 94, 0.4)'
-    if (value > -2) return 'rgba(239, 68, 68, 0.4)'
-    return 'rgba(239, 68, 68, 0.8)'
+    if (value > 2) return 'linear-gradient(145deg, #16a34a 0%, #15803d 60%, #14532d 100%)'
+    if (value > 0) return 'linear-gradient(145deg, #22c55e 0%, #16a34a 60%, #166534 100%)'
+    if (value > -2) return 'linear-gradient(145deg, #dc2626 0%, #b91c1c 60%, #7f1d1d 100%)'
+    return 'linear-gradient(145deg, #b91c1c 0%, #991b1b 60%, #450a0a 100%)'
   }
 
   if (loading) {
@@ -273,34 +197,6 @@ export default function AbstractCube() {
       </div>
 
       <div className="dashboard-grid">
-        {/* Top Movers */}
-        <div className="widget widget-movers">
-          <div className="widget-header">
-            <svg
-              className="widget-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-            >
-              <path d="M8 0l8 8-2.5 2.5L10 7v9H6V7L2.5 10.5 0 8z" />
-            </svg>
-            <span className="widget-title">Top Movers</span>
-          </div>
-          <div className="movers-list">
-            {marketData.map((stock, idx) => (
-              <div key={idx} className="mover-item">
-                <div className="mover-symbol">{stock.symbol}</div>
-                <div className="mover-price">${stock.price.toFixed(2)}</div>
-                <div className={`mover-change ${stock.change > 0 ? 'positive' : 'negative'}`}>
-                  {stock.change > 0 ? '+' : ''}
-                  {stock.changePercent.toFixed(2)}%
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Market Heatmap */}
         <div className="widget widget-heatmap">
           <div className="widget-header">
@@ -320,7 +216,7 @@ export default function AbstractCube() {
               <div
                 key={idx}
                 className="heatmap-cell"
-                style={{ backgroundColor: getHeatColor(value as number) }}
+                style={{ background: getHeatColor(value as number) }}
               >
                 <div className="heatmap-symbol">{symbol}</div>
                 <div className="heatmap-value">
@@ -332,8 +228,8 @@ export default function AbstractCube() {
           </div>
         </div>
 
-        {/* News Feed */}
-        <div className="widget widget-news">
+        {/* Breaking News - full width */}
+        <div className="widget widget-news widget-news-full">
           <div className="widget-header">
             <svg
               className="widget-icon"
@@ -356,52 +252,6 @@ export default function AbstractCube() {
           </div>
         </div>
 
-        {/* RS Screener - 52 Week Highs */}
-        <div className="widget widget-rs-screener">
-          <div className="widget-header">
-            <svg
-              className="widget-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-            >
-              <path d="M0 15h2V8H0zM4 15h2V3H4zM8 15h2V0H8zM12 15h2V5h-2z" />
-            </svg>
-            <span className="widget-title">52 Week Analysis</span>
-          </div>
-          <div className="rs-screener-list">
-            {rsScreenerData.map((stock, idx) => (
-              <div key={idx} className="rs-screener-item">
-                <div className="rs-symbol">{stock.symbol}</div>
-                <div className="rs-percentile">
-                  <div className="rs-bar-bg">
-                    <div
-                      className="rs-bar-fill"
-                      style={{
-                        width: `${stock.percentile}%`,
-                        background:
-                          stock.percentile >= 90
-                            ? '#22c55e'
-                            : stock.percentile >= 75
-                              ? '#3b82f6'
-                              : stock.percentile <= 25
-                                ? '#ef4444'
-                                : '#6b7280',
-                      }}
-                    ></div>
-                  </div>
-                  <span className="rs-percentile-text">{stock.percentile.toFixed(0)}%</span>
-                </div>
-                <div
-                  className={`rs-status ${stock.status === '52W High' ? 'high' : stock.status === 'Strong' ? 'strong' : stock.status === 'Weak' ? 'weak' : 'neutral'}`}
-                >
-                  {stock.status}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   )

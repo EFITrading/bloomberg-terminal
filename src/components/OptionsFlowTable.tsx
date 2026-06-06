@@ -30,372 +30,7 @@ const normalizeTickerForOptions = (ticker: string): string => {
   return ticker.replace(/\./g, '')
 }
 
-// BID/ASK EXECUTION ANALYSIS - OPTIMIZED FOR HIGH VOLUME
 
-// COMBINED ENRICHMENT - Fetch Vol/OI AND Fill Style in ONE API call per trade
-
-const enrichTradeDataCombined = async (
-  trades: any[],
-
-  updateCallback: (results: any[]) => void
-): Promise<any[]> => {
-  if (trades.length === 0) return trades
-
-  const BATCH_SIZE = 50 // Process 50 trades per batch
-
-  const BATCH_DELAY = 200 // 200ms delay between batches (5 req/sec limit)
-
-  const REQUEST_DELAY = 20 // 20ms stagger between requests
-
-  const batches = []
-
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    batches.push(trades.slice(i, i + BATCH_SIZE))
-  }
-
-  const allResults = []
-
-  let successCount = 0
-
-  let failCount = 0
-
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex]
-
-    const batchResults = await Promise.all(
-      batch.map(async (trade, tradeIndex) => {
-        await new Promise((resolve) => setTimeout(resolve, tradeIndex * REQUEST_DELAY))
-
-        try {
-          const expiry = trade.expiry.replace(/-/g, '').slice(2)
-
-          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-
-          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-
-          const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-
-          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
-
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
-
-          const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(8000),
-          })
-
-          if (!response.ok) {
-            return { ...trade, fill_style: 'N/A', volume: null, open_interest: null }
-          }
-
-          const data = await response.json()
-
-          if (data.results) {
-            const result = data.results
-
-            // Extract Vol/OI
-
-            const volume = result.day?.volume || null
-
-            const openInterest = result.open_interest || null
-
-            // Extract IV from snapshot (used for Targets column)
-            const impliedVolatility: number | null =
-              result.implied_volatility || result.greeks?.iv || null
-
-            successCount++
-
-            // Extract fill style from last quote
-
-            let fillStyle = 'N/A'
-
-            if (result.last_quote) {
-              const bid = result.last_quote.bid
-
-              const ask = result.last_quote.ask
-
-              const fillPrice = trade.premium_per_contract
-
-              if (bid && ask && fillPrice) {
-                const midpoint = (bid + ask) / 2
-
-                if (fillPrice >= ask + 0.01) {
-                  fillStyle = 'AA'
-                } else if (fillPrice <= bid - 0.01) {
-                  fillStyle = 'BB'
-                } else if (fillPrice === ask) {
-                  fillStyle = 'A'
-                } else if (fillPrice === bid) {
-                  fillStyle = 'B'
-                } else if (fillPrice >= midpoint) {
-                  fillStyle = 'A'
-                } else {
-                  fillStyle = 'B'
-                }
-              }
-            }
-
-            return {
-              ...trade,
-              fill_style: fillStyle,
-              volume,
-              open_interest: openInterest,
-              implied_volatility: impliedVolatility ?? trade.implied_volatility,
-            }
-          }
-
-          return { ...trade, fill_style: 'N/A', volume: null, open_interest: null }
-        } catch (error) {
-          failCount++
-
-          console.error(`? Error enriching ${trade.underlying_ticker}:`, error)
-
-          return { ...trade, fill_style: 'N/A', volume: null, open_interest: null }
-        }
-      })
-    )
-
-    allResults.push(...batchResults)
-
-    updateCallback([...allResults])
-
-    if (batchIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-    }
-  }
-
-  return allResults
-}
-
-// OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
-
-const analyzeBidAskExecutionLightning = async (
-  trades: any[],
-
-  updateCallback: (results: any[]) => void
-): Promise<any[]> => {
-  if (trades.length === 0) return trades
-
-  const BATCH_SIZE = 50 // Increased from 10 to 50 for speed
-
-  const BATCH_DELAY = 200 // 200ms delay for rate limit compliance
-
-  const batches = []
-
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    batches.push(trades.slice(i, i + BATCH_SIZE))
-  }
-
-  const allResults = []
-
-  // Process batches sequentially to avoid overwhelming the network
-
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex]
-
-    if (batchIndex % 100 === 0) {
-    }
-
-    const batchResults = await Promise.all(
-      batch.map(async (trade, tradeIndex) => {
-        // Minimal stagger - 5ms each instead of 20ms
-
-        await new Promise((resolve) => setTimeout(resolve, tradeIndex * 5))
-
-        try {
-          const expiry = trade.expiry.replace(/-/g, '').slice(2)
-
-          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-
-          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-
-          const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-
-          const tradeTime = new Date(trade.trade_timestamp)
-
-          const checkTimestamp = tradeTime.getTime() * 1000000
-
-          const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`
-
-          const response = await fetch(quotesUrl)
-
-          const data = await response.json()
-
-          if (data.results && data.results.length > 0) {
-            const quote = data.results[0]
-
-            const bid = quote.bid_price
-
-            const ask = quote.ask_price
-
-            const fillPrice = trade.premium_per_contract
-
-            if (bid && ask && fillPrice) {
-              let fillStyle = 'N/A'
-
-              const midpoint = (bid + ask) / 2
-
-              // Above Ask: Must be at least 1 cent above ask price
-
-              if (fillPrice >= ask + 0.01) {
-                fillStyle = 'AA'
-
-                // Below Bid: Must be at least 1 cent below bid price
-              } else if (fillPrice <= bid - 0.01) {
-                fillStyle = 'BB'
-
-                // At Ask: Exactly at ask price
-              } else if (fillPrice === ask) {
-                fillStyle = 'A'
-
-                // At Bid: Exactly at bid price
-              } else if (fillPrice === bid) {
-                fillStyle = 'B'
-
-                // Between bid and ask: Use midpoint logic
-              } else if (fillPrice >= midpoint) {
-                fillStyle = 'A'
-              } else {
-                fillStyle = 'B'
-              }
-
-              return { ...trade, fill_style: fillStyle }
-            }
-          }
-
-          return { ...trade, fill_style: 'N/A' }
-        } catch (error) {
-          return { ...trade, fill_style: 'N/A' }
-        }
-      })
-    )
-
-    allResults.push(...batchResults)
-
-    // Update the UI with processed trades in real-time
-
-    updateCallback([...allResults])
-
-    // Add delay between batches to prevent overwhelming the API
-
-    if (batchIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-    }
-  }
-  return allResults
-}
-
-// VOLUME & OPEN INTEREST FETCHING - ULTRA-FAST PARALLEL PROCESSING
-
-const fetchVolumeAndOpenInterest = async (
-  trades: any[],
-
-  updateCallback: (results: any[]) => void
-): Promise<any[]> => {
-  if (trades.length === 0) return trades
-
-  const BATCH_SIZE = 10 // Process only 10 trades per batch (very conservative)
-
-  const BATCH_DELAY = 200 // 200ms delay between batches (5 req/sec limit)
-
-  const REQUEST_DELAY = 100 // 100ms stagger between requests within batch
-
-  const batches = []
-
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    batches.push(trades.slice(i, i + BATCH_SIZE))
-  }
-  const allResults = []
-
-  // Process batches sequentially with massive parallel requests within each batch
-
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex]
-
-    if (batchIndex % 10 === 0) {
-    }
-
-    const batchResults = await Promise.all(
-      batch.map(async (trade, tradeIndex) => {
-        // Stagger requests to prevent connection resets
-
-        await new Promise((resolve) => setTimeout(resolve, tradeIndex * REQUEST_DELAY))
-
-        try {
-          const ticker = trade.underlying_ticker
-
-          const strike = trade.strike
-
-          const optionType = trade.type.toLowerCase() // 'call' or 'put'
-
-          const expiration = trade.expiry // Format: 2025-10-28
-
-          // Build option symbol: O:SPY251028C00679000
-
-          const expDate = expiration.split('-') // ['2025', '10', '28']
-
-          const year = expDate[0].slice(2) // '25'
-
-          const month = expDate[1] // '10'
-
-          const day = expDate[2] // '28'
-
-          const callPut = optionType === 'call' ? 'C' : 'P'
-
-          const strikeStr = Math.round(strike * 1000)
-            .toString()
-            .padStart(8, '0') // 00679000
-
-          const optionSymbol = `O:${ticker}${year}${month}${day}${callPut}${strikeStr}`
-
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionSymbol}?apikey=${POLYGON_API_KEY}`
-
-          const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(8000), // Longer timeout
-          })
-
-          if (!response.ok) {
-            return { ...trade, volume: 0, open_interest: 0 }
-          }
-
-          const data = await response.json()
-
-          if (data.status === 'OK' && data.results) {
-            const snap = data.results
-
-            const volume = snap.day?.volume || 0
-
-            const openInterest = snap.open_interest || 0
-
-            return {
-              ...trade,
-
-              volume: volume,
-
-              open_interest: openInterest,
-            }
-          }
-
-          return { ...trade, volume: 0, open_interest: 0 }
-        } catch (error) {
-          return { ...trade, volume: 0, open_interest: 0 }
-        }
-      })
-    )
-
-    allResults.push(...batchResults)
-
-    // Update the UI with processed trades in real-time
-
-    updateCallback([...allResults])
-
-    // Delay between batches to prevent rate limiting
-
-    if (batchIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-    }
-  }
-  return allResults
-}
 
 // Format a price to 4 significant figures, no trailing zeros (mobile compact)
 function fmt4sig(val: number): string {
@@ -6845,55 +6480,31 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 <div className="hidden md:flex items-center gap-2">
                   {useDropdowns ? (
-                    <select
-                      value={
-                        inputTicker === 'ETF' || inputTicker === 'MAG7' || inputTicker === 'ALL'
-                          ? inputTicker
-                          : ''
-                      }
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setInputTicker(e.target.value)
-                          onTickerChange(e.target.value)
-                          onRefresh?.(e.target.value)
-                        }
+                    <button
+                      onClick={() => {
+                        setInputTicker('ALL')
+                        onTickerChange('ALL')
+                        onRefresh?.('ALL')
                       }}
-                      className="font-black uppercase transition-all duration-200 cursor-pointer"
+                      className="toolbar-pill font-bold uppercase transition-all duration-150"
                       style={{
-                        height: '40px',
-                        padding: '0 34px 0 14px',
-                        background: '#000000',
-                        border: '1px solid #383838',
-                        borderRadius: '7px',
-                        fontSize: '16px',
-                        letterSpacing: '1.5px',
-                        fontWeight: '900',
+                        height: '31px',
+                        padding: '0 13px',
+                        background: inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                        border: inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        letterSpacing: '1.2px',
+                        fontWeight: '700',
+                        boxShadow: inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
                         outline: 'none',
-                        color: '#ffffff',
+                        color: inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
                         cursor: 'pointer',
-                        appearance: 'none',
-                        WebkitAppearance: 'none',
-                        boxShadow:
-                          '0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: 'no-repeat',
-                        backgroundPosition: 'right 11px center',
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      <option
-                        value=""
-                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
-                      >
-                        PRESETS
-                      </option>
-                      <option
-                        value="ALL"
-                        style={{ background: '#000000', color: '#ffffff', fontWeight: '900' }}
-                      >
-                        ALL TICKERS
-                      </option>
-                      {/* MAG7 and ETF presets removed from dropdown UI (logic remains) */}
-                    </select>
+                      SCAN ALL
+                    </button>
                   ) : (
                     <>
                       <button
@@ -6919,7 +6530,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           transition: 'all 0.15s ease',
                         }}
                       >
-                        All Tickers
+                        SCAN ALL
                       </button>
 
                       {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}

@@ -101,10 +101,14 @@ export async function GET(request: NextRequest) {
 
     const RISK_FREE_RATE = await (async () => {
       try {
-        const r = await fetch('https://api.fiscaldata.treasury.gov/services/api/v1/accounting/od/avg_interest_rates?fields=record_date,avg_interest_rate_amt,security_desc&filter=security_desc:eq:Treasury%20Bills&sort=-record_date&limit=1')
+        const r = await fetch(
+          'https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=5d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } }
+        )
+        if (!r.ok) return null
         const j = await r.json()
-        const v = parseFloat(j?.data?.[0]?.avg_interest_rate_amt)
-        return isNaN(v) || v <= 0 ? null : v / 100
+        const price = j?.chart?.result?.[0]?.meta?.regularMarketPrice
+        return typeof price === 'number' && price > 0 ? price / 100 : null
       } catch { return null }
     })()
     if (RISK_FREE_RATE === null) return NextResponse.json({ success: false, error: 'Could not fetch risk-free rate from Treasury' }, { status: 502 })

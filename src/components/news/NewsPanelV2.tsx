@@ -3500,53 +3500,52 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               />
             </button>
 
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close panel"
-                className="flex items-center justify-center w-11 h-11 rounded-xl border border-red-700/60 text-red-400 hover:text-white hover:border-red-500 transition-all shrink-0 active:scale-95"
-                style={{ background: 'linear-gradient(145deg,#7f1d1d,#450a0a)' }}
-              >
-                <TbX className="w-5 h-5" />
-              </button>
-            )}
           </form>
         </div>
       )}      {/* TAB BAR */}
-      <div className="flex border-b border-white/[0.07] bg-[#0a0a0a] shrink-0">
-        {tabs.map(({ id, label, icon: Icon }) => {
-          const isActive = activeTab === id
-          return (
-            <button
-              key={id}
-              onClick={() => {
-                setActiveTab(id)
-                onTabChange?.(id)
-                savedScrollPos.current = 0
-              }}
-              className={`flex-1 flex items-center justify-center gap-3 py-4 text-xl font-black tracking-widest uppercase transition-all relative ${isActive
-                ? 'bg-black text-orange-500'
-                : 'text-white hover:text-orange-300 hover:bg-[#111]'
-                }`}
-            >
-              <Icon
-                className={`w-6 h-6 shrink-0 ${isActive
-                  ? id === 'breaking'
-                    ? 'text-orange-500'
-                    : 'text-orange-500'
-                  : id === 'breaking'
-                    ? 'text-red-400'
-                    : 'text-white'
+      <div className="flex border-b border-white/[0.07] bg-[#0a0a0a] shrink-0 items-stretch">
+        <div className="flex flex-1 min-w-0">
+          {tabs.map(({ id, label, icon: Icon }) => {
+            const isActive = activeTab === id
+            return (
+              <button
+                key={id}
+                onClick={() => {
+                  setActiveTab(id)
+                  onTabChange?.(id)
+                  savedScrollPos.current = 0
+                }}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-black tracking-wider uppercase transition-all relative min-w-0 ${isActive
+                  ? 'bg-black text-orange-500'
+                  : 'text-white/70 hover:text-orange-300 hover:bg-[#111]'
                   }`}
-              />
-              <span className="hidden sm:inline">{label}</span>
-              {isActive && (
-                <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-orange-500" />
-              )}
-            </button>
-          )
-        })}
+              >
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${isActive
+                    ? 'text-orange-500'
+                    : id === 'breaking'
+                      ? 'text-red-400'
+                      : 'text-white/60'
+                    }`}
+                />
+                <span className="leading-none truncate px-0.5">{label}</span>
+                {isActive && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-orange-500" />
+                )}
+              </button>
+            )
+          })}
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className="flex items-center justify-center w-10 shrink-0 border-l border-white/[0.07] text-white/40 hover:text-white hover:bg-red-900/30 transition-all"
+          >
+            <TbX className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* CONTENT */}

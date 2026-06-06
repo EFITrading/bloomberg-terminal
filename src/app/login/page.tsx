@@ -42,93 +42,257 @@ function LoginForm() {
     resize()
     window.addEventListener('resize', resize)
 
-    // Abstract bokeh orbs
-    const orbs = Array.from({ length: 22 }, () => ({
-      x: Math.random() * window.innerWidth,
-      y: Math.random() * window.innerHeight,
-      r: Math.random() * 180 + 60,
-      alpha: Math.random() * 0.055 + 0.01,
-      dx: (Math.random() - 0.5) * 0.22,
-      dy: (Math.random() - 0.5) * 0.14,
-      // deep blue, cold white, or very faint amber — no bright orange
-      rgb: (['60,90,180', '40,70,160', '200,220,255', '255,255,255', '120,80,30'])[Math.floor(Math.random() * 5)],
+    let t = 0
+
+    // ── Simplex-like smooth noise (value noise, 2 octaves) ──────────────────
+    const noise = (x: number, y: number): number => {
+      const ix = Math.floor(x), iy = Math.floor(y)
+      const fx = x - ix, fy = y - iy
+      const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy)
+      const h = (a: number, b: number) => {
+        let n = a * 127 + b * 311
+        n = ((n >> 8) ^ n) * 1540483477
+        return ((n ^ (n >> 15)) & 0xffffffff) / 0xffffffff
+      }
+      return (
+        h(ix, iy) * (1 - ux) * (1 - uy) +
+        h(ix + 1, iy) * ux * (1 - uy) +
+        h(ix, iy + 1) * (1 - ux) * uy +
+        h(ix + 1, iy + 1) * ux * uy
+      )
+    }
+
+    // ── Flow-field particles ─────────────────────────────────────────────────
+    // Each particle follows a vector field derived from noise — curves and arcs
+    // naturally. Hot-orange core particles + cold blue dim ones.
+    const N_PARTICLES = 420
+    type Particle = {
+      x: number; y: number
+      vx: number; vy: number
+      life: number; maxLife: number
+      speed: number
+      hue: number   // 22 = orange, 200 = blue
+      bright: boolean
+    }
+    const resetParticle = (p: Partial<Particle>, w: number, h: number): Particle => {
+      const bright = Math.random() < 0.18
+      return {
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: 0, vy: 0,
+        life: 0,
+        maxLife: Math.random() * 180 + 80,
+        speed: bright ? Math.random() * 1.4 + 0.7 : Math.random() * 0.7 + 0.2,
+        hue: bright ? 22 + Math.random() * 14 : 190 + Math.random() * 30,
+        bright,
+        ...p,
+      }
+    }
+    const particles: Particle[] = Array.from({ length: N_PARTICLES }, () =>
+      resetParticle({ life: Math.random() * 200 }, window.innerWidth, window.innerHeight)
+    )
+
+    // ── Off-screen trail buffer ──────────────────────────────────────────────
+    // We draw trails onto a persistent offscreen canvas and composite it.
+    // This gives the glowing-comet-tail effect without smearing the whole frame.
+    const trail = document.createElement('canvas')
+    trail.width = window.innerWidth
+    trail.height = window.innerHeight
+    const tctx = trail.getContext('2d')!
+
+    // ── Perspective grid receding to horizon ─────────────────────────────────
+    // Drawn once per frame, very faint.  Horizon sits at 58% down the screen.
+    const drawGrid = (w: number, h: number) => {
+      const horizon = h * 0.58
+      const vp = { x: w * 0.5, y: horizon }
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255,102,0,0.06)'
+      ctx.lineWidth = 0.6
+      // Vertical lines converging to vp
+      const VLINES = 28
+      for (let i = 0; i <= VLINES; i++) {
+        const bx = (i / VLINES) * w
+        ctx.beginPath()
+        ctx.moveTo(vp.x, vp.y)
+        ctx.lineTo(bx, h)
+        ctx.stroke()
+      }
+      // Horizontal lines spaced by perspective (exponential crowding near horizon)
+      const HLINES = 18
+      for (let i = 0; i <= HLINES; i++) {
+        const frac = Math.pow(i / HLINES, 2.4)
+        const y = horizon + frac * (h - horizon)
+        const alpha = 0.03 + frac * 0.07
+        ctx.strokeStyle = `rgba(255,102,0,${alpha})`
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    // ── Data-stream sparks: fast horizontal bright dots ──────────────────────
+    type Spark = { x: number; y: number; speed: number; alpha: number; len: number }
+    const SPARKS: Spark[] = Array.from({ length: 14 }, () => ({
+      x: Math.random(),
+      y: 0.08 + Math.random() * 0.84,
+      speed: 0.003 + Math.random() * 0.009,
+      alpha: 0.3 + Math.random() * 0.5,
+      len: 0.04 + Math.random() * 0.12,
     }))
 
-    // Slow drifting diagonal light streaks
-    const streaks = Array.from({ length: 5 }, () => ({
-      x: Math.random() * window.innerWidth,
-      y: Math.random() * window.innerHeight,
-      len: Math.random() * 300 + 150,
-      alpha: Math.random() * 0.04 + 0.01,
-      speed: Math.random() * 0.3 + 0.1,
-      angle: Math.PI / 4 + (Math.random() - 0.5) * 0.4,
-    }))
+    // ── Diagonal light-slash that occasionally fires ─────────────────────────
+    type Slash = { progress: number; active: boolean; x0: number; y0: number; x1: number; y1: number; alpha: number }
+    const slash: Slash = { progress: 0, active: false, x0: 0, y0: 0, x1: 0, y1: 0, alpha: 0 }
+    let nextSlash = 90 + Math.random() * 180
 
     const draw = () => {
-      const { width, height } = canvas
+      const { width: W, height: H } = canvas
 
-      // Fade trail — near-black fill creates motion blur effect
-      ctx.fillStyle = 'rgba(0,0,0,0.18)'
-      ctx.fillRect(0, 0, width, height)
+      // ── 1. Fade trail canvas slightly — keeps comet tails ───────────────
+      tctx.fillStyle = 'rgba(0,0,0,0.055)'
+      tctx.fillRect(0, 0, W, H)
 
-      // Draw bokeh orbs
-      orbs.forEach(o => {
-        const grd = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r)
-        grd.addColorStop(0, `rgba(${o.rgb},${o.alpha})`)
-        grd.addColorStop(0.5, `rgba(${o.rgb},${o.alpha * 0.4})`)
-        grd.addColorStop(1, `rgba(${o.rgb},0)`)
-        ctx.fillStyle = grd
-        ctx.fillRect(o.x - o.r, o.y - o.r, o.r * 2, o.r * 2)
+      // ── 2. Update + draw particles onto trail canvas ────────────────────
+      particles.forEach(p => {
+        p.life++
+        if (p.life > p.maxLife) {
+          Object.assign(p, resetParticle({ x: Math.random() * W, y: Math.random() * H, life: 0 }, W, H))
+          return
+        }
 
-        // Drift
-        o.x += o.dx
-        o.y += o.dy
-        if (o.x < -o.r) o.x = width + o.r
-        if (o.x > width + o.r) o.x = -o.r
-        if (o.y < -o.r) o.y = height + o.r
-        if (o.y > height + o.r) o.y = -o.r
+        // Vector field angle from layered noise
+        const scale = 0.0022
+        const angle = (noise(p.x * scale + t * 0.12, p.y * scale + t * 0.07) * 2 - 1) * Math.PI * 2.4
+          + noise(p.x * scale * 2.1 + 4.3, p.y * scale * 2.1 + 2.7) * Math.PI
+
+        p.vx = p.vx * 0.82 + Math.cos(angle) * p.speed * 0.18
+        p.vy = p.vy * 0.82 + Math.sin(angle) * p.speed * 0.18
+        p.x += p.vx
+        p.y += p.vy
+
+        // Wrap
+        if (p.x < 0) p.x += W
+        if (p.x > W) p.x -= W
+        if (p.y < 0) p.y += H
+        if (p.y > H) p.y -= H
+
+        const lifeAlpha = Math.sin((p.life / p.maxLife) * Math.PI) // 0→1→0
+        const a = p.bright ? lifeAlpha * 0.85 : lifeAlpha * 0.22
+        const r = p.bright ? 1.6 : 0.9
+
+        tctx.beginPath()
+        tctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+        tctx.fillStyle = `hsla(${p.hue},90%,${p.bright ? 72 : 55}%,${a})`
+        tctx.fill()
       })
 
-      // Draw streaks
-      streaks.forEach(s => {
-        ctx.save()
-        ctx.translate(s.x, s.y)
-        ctx.rotate(s.angle)
-        const sg = ctx.createLinearGradient(-s.len / 2, 0, s.len / 2, 0)
-        sg.addColorStop(0, 'rgba(255,255,255,0)')
-        sg.addColorStop(0.5, `rgba(255,255,255,${s.alpha})`)
-        sg.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.strokeStyle = sg
-        ctx.lineWidth = 1
+      // ── 3. Composite: black base + trail buffer ──────────────────────────
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, W, H)
+      ctx.drawImage(trail, 0, 0)
+
+      // ── 4. Perspective grid (on top of trails, below everything else) ────
+      drawGrid(W, H)
+
+      // ── 5. Data-stream sparks ────────────────────────────────────────────
+      SPARKS.forEach(s => {
+        s.x += s.speed
+        if (s.x - s.len > 1) s.x = -s.len
+
+        const sx = s.x * W
+        const sy = s.y * H
+        const g = ctx.createLinearGradient(sx - s.len * W, sy, sx, sy)
+        g.addColorStop(0, 'rgba(255,140,20,0)')
+        g.addColorStop(0.7, `rgba(255,200,80,${s.alpha})`)
+        g.addColorStop(1, `rgba(255,255,200,${s.alpha * 0.6})`)
+        ctx.strokeStyle = g
+        ctx.lineWidth = 0.8
         ctx.beginPath()
-        ctx.moveTo(-s.len / 2, 0)
-        ctx.lineTo(s.len / 2, 0)
+        ctx.moveTo(sx - s.len * W, sy)
+        ctx.lineTo(sx, sy)
         ctx.stroke()
-        ctx.restore()
 
-        s.x += Math.cos(s.angle) * s.speed
-        s.y += Math.sin(s.angle) * s.speed
-        if (s.x > width + s.len) { s.x = -s.len; s.y = Math.random() * height }
-        if (s.y > height + s.len) { s.x = Math.random() * width; s.y = -s.len }
+        // Bright leading point
+        ctx.beginPath()
+        ctx.arc(sx, sy, 1.2, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(255,240,180,${s.alpha})`
+        ctx.fill()
       })
 
-      // Hard vignette — crushes edges to pure black
-      const vig = ctx.createRadialGradient(width / 2, height / 2, width * 0.25, width / 2, height / 2, width * 0.85)
-      vig.addColorStop(0, 'rgba(0,0,0,0)')
-      vig.addColorStop(0.6, 'rgba(0,0,0,0.2)')
-      vig.addColorStop(1, 'rgba(0,0,0,0.92)')
-      ctx.fillStyle = vig
-      ctx.fillRect(0, 0, width, height)
+      // ── 6. Diagonal light-slash ──────────────────────────────────────────
+      nextSlash--
+      if (nextSlash <= 0 && !slash.active) {
+        slash.active = true
+        slash.progress = 0
+        slash.alpha = 0.55 + Math.random() * 0.3
+        slash.x0 = Math.random() * W
+        slash.y0 = 0
+        slash.x1 = slash.x0 + (Math.random() - 0.3) * W * 0.6
+        slash.y1 = H
+        nextSlash = 120 + Math.random() * 240
+      }
+      if (slash.active) {
+        slash.progress = Math.min(slash.progress + 0.045, 1)
+        const fadeAlpha = slash.progress < 0.5
+          ? slash.progress * 2
+          : (1 - slash.progress) * 2
+        const ex = slash.x0 + (slash.x1 - slash.x0) * slash.progress
+        const ey = slash.y0 + (slash.y1 - slash.y0) * slash.progress
+        const g = ctx.createLinearGradient(slash.x0, slash.y0, ex, ey)
+        g.addColorStop(0, 'rgba(255,160,40,0)')
+        g.addColorStop(0.5, `rgba(255,200,100,${slash.alpha * fadeAlpha})`)
+        g.addColorStop(1, 'rgba(255,255,200,0)')
+        ctx.strokeStyle = g
+        ctx.lineWidth = 1.5
+        ctx.shadowColor = 'rgba(255,160,40,0.8)'
+        ctx.shadowBlur = 8
+        ctx.beginPath()
+        ctx.moveTo(slash.x0, slash.y0)
+        ctx.lineTo(ex, ey)
+        ctx.stroke()
+        ctx.shadowBlur = 0
+        if (slash.progress >= 1) slash.active = false
+      }
 
+      // ── 7. Radial glow at vanishing point ────────────────────────────────
+      const vpx = W * 0.5, vpy = H * 0.58
+      const vpg = ctx.createRadialGradient(vpx, vpy, 0, vpx, vpy, W * 0.35)
+      vpg.addColorStop(0, `rgba(255,100,20,${0.06 + Math.sin(t * 0.8) * 0.02})`)
+      vpg.addColorStop(0.4, 'rgba(255,60,0,0.02)')
+      vpg.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = vpg
+      ctx.fillRect(0, 0, W, H)
+
+      // ── 8. Heavy vignette ────────────────────────────────────────────────
+      const vig = ctx.createRadialGradient(W * 0.5, H * 0.46, W * 0.12, W * 0.5, H * 0.46, W * 0.78)
+      vig.addColorStop(0, 'rgba(0,0,0,0)')
+      vig.addColorStop(0.5, 'rgba(0,0,0,0.1)')
+      vig.addColorStop(1, 'rgba(0,0,0,0.96)')
+      ctx.fillStyle = vig
+      ctx.fillRect(0, 0, W, H)
+
+      t += 0.008
       animFrame = requestAnimationFrame(draw)
     }
+
+    // Sync trail canvas size on resize
+    const origResize = resize
+    const resizeWithTrail = () => {
+      origResize()
+      trail.width = window.innerWidth
+      trail.height = window.innerHeight
+    }
+    window.removeEventListener('resize', resize)
+    window.addEventListener('resize', resizeWithTrail)
 
     draw()
     return () => {
       cancelAnimationFrame(animFrame)
-      window.removeEventListener('resize', resize)
+      window.removeEventListener('resize', resizeWithTrail)
     }
-  }, [])
+  }, [mounted])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

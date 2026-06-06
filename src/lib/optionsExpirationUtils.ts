@@ -23,15 +23,6 @@ function getPSTDate(): Date {
   // Create date object in UTC to avoid timezone conversion issues
   const pstDate = new Date(Date.UTC(year, month - 1, day))
 
-  console.log('🕐 FIXED TIMEZONE: Current UTC Time:', new Date().toISOString())
-  console.log('🕐 FIXED TIMEZONE: PST Date Parts:', { year, month, day })
-  console.log('🕐 FIXED TIMEZONE: Parsed Date:', pstDate.toISOString())
-  console.log(
-    '🕐 FIXED TIMEZONE: Day of week:',
-    pstDate.getUTCDay(),
-    '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)'
-  )
-
   return pstDate
 }
 
@@ -232,16 +223,10 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
   // Monthly expiry: Find the third Friday of current or next month
   // CRITICAL FIX: If we're in week 2 or later, skip current month's 3rd Friday to avoid overlap with weekly
   // Third Friday falls between the 15th and 21st of the month
-  console.log('🔍 Searching for monthly expiry (3rd Friday, days 15-21)...')
-  console.log(`📅 Current week of month: ${currentWeekOfMonth}`)
-
   let monthlyExpiry
 
   if (currentWeekOfMonth >= 2) {
     // Week 2 or later: Skip current month, get NEXT month's 3rd Friday
-    console.log(
-      "✅ Week 2+: Skipping current month, finding NEXT month's 3rd Friday to avoid overlap"
-    )
     const currentMonth = today.getUTCMonth()
     const currentYear = today.getUTCFullYear()
 
@@ -251,48 +236,32 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
       const dayOfWeek = expDate.getUTCDay()
       const expMonth = expDate.getUTCMonth()
       const expYear = expDate.getUTCFullYear()
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-      console.log(
-        `   Checking ${date}: day ${dayOfMonth}, ${dayNames[dayOfWeek]} (${dayOfWeek}), month ${expMonth + 1}`
-      )
-
       // Must be: (1) a different month, (2) a Friday, (3) between 15th-21st
       const isDifferentMonth = expYear > currentYear || expMonth > currentMonth
       const isThirdFriday = dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21
       const isMatch = isDifferentMonth && isThirdFriday
 
-      if (isMatch) console.log(`   ✅ FOUND NEXT MONTH'S 3RD FRIDAY: ${date}`)
       return isMatch
     })
   } else {
     // Week 1: Get current month's 3rd Friday
-    console.log("✅ Week 1: Finding current month's 3rd Friday")
     monthlyExpiry = futureDates.find((date) => {
       const expDate = new Date(date + 'T00:00:00Z')
       const dayOfMonth = expDate.getUTCDate()
       const dayOfWeek = expDate.getUTCDay()
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-      console.log(`   Checking ${date}: day ${dayOfMonth}, ${dayNames[dayOfWeek]} (${dayOfWeek})`)
       // Must be a Friday (5) and between 15th-21st (third week)
       const isMatch = dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21
-      if (isMatch) console.log(`   ✅ FOUND MONTHLY: ${date}`)
       return isMatch
     })
   }
 
   // If no monthly expiry found, fall back to any Friday after the 15th
   if (!monthlyExpiry) {
-    console.log('⚠️ No 3rd Friday found, looking for any Friday after 15th...')
     monthlyExpiry = futureDates.find((date) => {
       const expDate = new Date(date + 'T00:00:00Z')
       return expDate.getUTCDay() === 5 && expDate.getUTCDate() >= 15
     })
   }
-
-  console.log('📊 POLYGON API RESULTS:')
-  console.log('   Weekly expiry (this/next Friday):', weeklyExpiry)
-  console.log('   Monthly expiry (based on week):', monthlyExpiry)
-  console.log('   Current week of month:', currentWeekOfMonth)
 
   return {
     weeklyExpiry: weeklyExpiry || futureDates[0],

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState, startTransition } from 'react'
 
 import { getRiskFreeRate } from '@/lib/riskFreeRate'
 import StraddlePortfolio, { spAddPosition } from './StraddlePortfolio'
@@ -2396,9 +2396,9 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
             const msg = e.data
             if (msg.type === 'hit') {
               contractionHits.push({ symbol: msg.symbol, bars: msg.bars, allEvents: msg.allEvents, recentEvents: msg.recentEvents })
-              setStats(s => ({ ...s, contractionHits: s.contractionHits + 1 }))
+              startTransition(() => setStats(s => ({ ...s, contractionHits: s.contractionHits + 1 })))
             } else if (msg.type === 'progress') {
-              setStats(s => ({ ...s, ohlcvDone: s.ohlcvDone + 1 }))
+              startTransition(() => setStats(s => ({ ...s, ohlcvDone: s.ohlcvDone + 1 })))
             } else if (msg.type === 'log') {
               tlog(msg.msg)
             } else if (msg.type === 'done') {
@@ -2667,11 +2667,11 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
                   trade,
                 }
                 addResult(result)
-                setStats((s) => ({
+                startTransition(() => setStats((s) => ({
                   ...s,
                   dpDone: s.dpDone + 1,
                   setupsFound: s.setupsFound + (setupActive ? 1 : 0),
-                }))
+                })))
                 tlog(`[DP-W${wid}] ${sym} done — hasPOI=${hasPOI} setupActive=${setupActive} dpDays=${dpResults.length}`)
 
                 // Re-use this worker for the next symbol in the queue

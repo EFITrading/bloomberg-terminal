@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 
 import { OptionsFlowTable } from '@/components/OptionsFlowTable'
 import { Button } from '@/components/ui/button'
@@ -662,6 +662,15 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
 
 export default function OptionsFlowPage() {
   const [data, setData] = useState<OptionsFlowData[]>([])
+  // Buffer SSE trades to avoid per-message setState (main thread violation fix)
+  const pendingTradesRef = useRef<OptionsFlowData[]>([])
+  const seenTradeIdsRef = useRef<Set<string>>(new Set())
+  const rafFlushRef = useRef<number | null>(null)
+  const flushPendingTrades = () => {
+    if (pendingTradesRef.current.length === 0) return
+    const batch = pendingTradesRef.current.splice(0)
+    setData((prev) => [...prev, ...batch])
+  }
   const [summary, setSummary] = useState<OptionsFlowSummary>({
     total_trades: 0,
     total_premium: 0,
@@ -710,6 +719,10 @@ export default function OptionsFlowPage() {
     setLoading(true)
     setStreamError('')
     setIsStreamComplete(false) // Reset from any previous scan
+    // Reset streaming buffers for new scan
+    pendingTradesRef.current = []
+    seenTradeIdsRef.current = new Set()
+    if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); rafFlushRef.current = null }
 
     const connectionTimeout: NodeJS.Timeout | null = null
 
@@ -821,11 +834,21 @@ export default function OptionsFlowPage() {
             const d = JSON.parse(event.data)
             if (d.type === 'status') { setStreamingStatus(d.message); return }
             if (d.type === 'ticker_complete' && d.trades?.length > 0) {
-              setData((prev) => {
-                const existingIds = new Set(prev.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
-                const newTrades = (d.trades as OptionsFlowData[]).filter((t: OptionsFlowData) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
-                return [...prev, ...newTrades]
+              const newTrades = (d.trades as OptionsFlowData[]).filter((t: OptionsFlowData) => {
+                const id = `${t.ticker}-${t.trade_timestamp}-${t.strike}`
+                if (seenTradeIdsRef.current.has(id)) return false
+                seenTradeIdsRef.current.add(id)
+                return true
               })
+              if (newTrades.length > 0) {
+                pendingTradesRef.current.push(...newTrades)
+                if (rafFlushRef.current === null) {
+                  rafFlushRef.current = requestAnimationFrame(() => {
+                    rafFlushRef.current = null
+                    flushPendingTrades()
+                  })
+                }
+              }
               return
             }
             if (d.type === 'complete') {

@@ -2507,7 +2507,7 @@ export class OptionsFlowService {
   }
 
   private getPopularTickers(): string[] {
-    // Use TOP_1800_SYMBOLS (excludes SPY, QQQ, NVDA)
+    // Use TOP_1800_SYMBOLS (includes SPY, QQQ, NVDA, ETFs, MAG7 — all in one list)
     return TOP_1800_SYMBOLS
   }
 

@@ -9,7 +9,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, startTransition } from 'react'
 import { TRADING_QUOTES, getRandomQuote } from '@/data/quotes'
 
 // Import the Top 1000 symbols
@@ -2430,13 +2430,17 @@ const GexPanel: React.FC<GexPanelProps> = ({
             liveOIMap.set(contractKey, liveOI)
           })
 
-          setLiveOIData(liveOIMap)
-          setLiveOIProgress(100) // 100% - complete
+          startTransition(() => {
+            setLiveOIData(liveOIMap)
+            setLiveOIProgress(100) // 100% - complete
+          })
 
           // Check if base options data exists, if not fetch it first
           await fetchOptionsData(liveOIMap, tradesWithFillStyle)
-          setLiveOILoading(false)
-          setLiveOIProgress(100)
+          startTransition(() => {
+            setLiveOILoading(false)
+            setLiveOIProgress(100)
+          })
         }
       } catch (error) {
         console.error('?? [LIVE] ? Error:', error)
@@ -4863,7 +4867,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
             : null,
         isLive: willUseLiveData,
       })
-      // ------------------------------------------------------------------------------
     }
     // -------------------------------------------------------------------------
 

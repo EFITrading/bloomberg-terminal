@@ -2668,6 +2668,363 @@ const renderGEXLevels = (
   ctx.globalAlpha = 1.0
 }
 
+// ============================================================================
+// GEX HEATMAP — renders per-strike per-expiry gamma exposure rectangles
+// starting from the last candle and extending forward to each expiry date.
+// Green = positive gamma, Red = negative gamma. Opacity ~ magnitude.
+// ============================================================================
+const renderGEXMap = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  minPrice: number,
+  maxPrice: number,
+  gexMapData: any,
+  visibleData: any[],
+  visibleCandleCount: number,
+  timeframe: string = 'daily'
+) => {
+  if (!gexMapData || !gexMapData.strikes || gexMapData.strikes.length === 0) return
+  if (!visibleData || visibleData.length === 0) return
+
+  const { strikes, expirations, maxAbsGEX, goldStrike, goldExpiry, purpleStrike, purpleExpiry } = gexMapData
+  if (maxAbsGEX === 0) return
+
+  const priceRange = maxPrice - minPrice
+  const priceToY = (price: number): number =>
+    height - ((price - minPrice) / priceRange) * height
+
+  const candleSpacing = width / visibleCandleCount
+  const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
+  const lastCandleX = CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + candleSpacing
+  const rightBoundary = width - 85
+
+  const lastCandleTimestamp: number = visibleData[visibleData.length - 1]?.timestamp ?? Date.now()
+  const lastCandleDate = new Date(lastCandleTimestamp)
+  lastCandleDate.setUTCHours(0, 0, 0, 0)
+
+  const candlesPerDay = (() => {
+    switch (timeframe) {
+      case '1m': return 390
+      case '5m': return 78
+      case '15m': return 26
+      case '30m': return 13
+      case '1h': return 6.5
+      case '4h': return 1.625
+      default: return 1
+    }
+  })()
+
+  const tradingDaysBetween = (base: Date, target: Date): number => {
+    let count = 0
+    const cur = new Date(base)
+    cur.setUTCHours(0, 0, 0, 0)
+    const end = new Date(target)
+    end.setUTCHours(0, 0, 0, 0)
+    while (cur < end) {
+      cur.setUTCDate(cur.getUTCDate() + 1)
+      const day = cur.getUTCDay()
+      if (day !== 0 && day !== 6) count++
+    }
+    return count
+  }
+
+  // Build expiry → X map
+  const expiryToX = new Map<string, number>()
+  for (const expDate of expirations) {
+    const expDateObj = new Date(expDate + 'T12:00:00Z')
+    const tDays = tradingDaysBetween(lastCandleDate, expDateObj)
+    const x = Math.min(lastCandleX + tDays * candlesPerDay * candleSpacing, rightBoundary)
+    expiryToX.set(expDate, x)
+  }
+
+  // Sorted expiries ascending — used to compute per-segment X ranges
+  const sortedAllExpiries = [...expirations].sort()
+
+  // Median strike spacing in pixels → gaussian half-width
+  const allStrikes = strikes.map((s: any) => s.strike).sort((a: number, b: number) => a - b)
+  let strikeSpacingPx = 20
+  if (allStrikes.length >= 2) {
+    const gaps: number[] = []
+    for (let i = 1; i < allStrikes.length; i++) {
+      gaps.push(allStrikes[i] - allStrikes[i - 1])
+    }
+    gaps.sort((a, b) => a - b)
+    const medianGap = gaps[Math.floor(gaps.length / 2)]
+    if (medianGap > 0) {
+      strikeSpacingPx = Math.abs(priceToY(allStrikes[0]) - priceToY(allStrikes[0] + medianGap))
+    }
+  }
+  // halfH = exactly half the strike gap → crisp $1/$0.5 band, no bleed into neighbours
+  const halfH = Math.max(2, strikeSpacingPx * 0.48)
+
+  // Single global gold / purple from API: one strike for the entire 45-day heatmap
+
+  ctx.save()
+  ctx.globalAlpha = 1.0
+
+  for (const strikeEntry of strikes) {
+    const { strike, expirations: strikeExpiries } = strikeEntry
+    const midY = priceToY(strike)
+    if (midY < -halfH * 3 || midY > height + halfH * 3) continue
+
+    // Build quick lookup: expDate → netGEX for this strike
+    const gexByExp = new Map<string, number>()
+    for (const [exp, d] of Object.entries(strikeExpiries as Record<string, any>)) {
+      const v = (d as any).netDealer
+      if (v !== 0) gexByExp.set(exp, v)
+    }
+    if (gexByExp.size === 0) continue
+
+    // ── One segment per expiry slot: [prevSlotX → thisSlotX]
+    //    If NO data for a slot → leave that window empty (true gap).
+    //    segStartX = previous expiry X (or lastCandleX for slot 0).
+    for (let ei = 0; ei < sortedAllExpiries.length; ei++) {
+      const expDate = sortedAllExpiries[ei]
+      const netGEX = gexByExp.get(expDate)
+      if (netGEX === undefined || netGEX === 0) continue  // gap — draw nothing
+
+      const segEndX = expiryToX.get(expDate)
+      if (!segEndX || segEndX <= lastCandleX) continue
+
+      // Start = the X where the previous expiry ended, or lastCandleX for the first
+      const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
+      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
+      const segW = segEndX - segStartX
+      if (segW < 1) continue
+
+      const normalizedMag = Math.min(1, Math.abs(netGEX) / maxAbsGEX)
+
+      const topY = midY - halfH
+      const totalH = halfH * 2
+
+      // Colour: exactly ONE gold cell and ONE purple cell matching GexPanel
+      const isGold = strike === goldStrike && expDate === goldExpiry
+      const isPurple = strike === purpleStrike && expDate === purpleExpiry
+
+      // Gold/purple: always full opacity. Others: cubic curve so low values are faint,
+      // high values are vivid. Minimum 0.03 so absolute zero isn't drawn.
+      const peakOpacity = isGold || isPurple
+        ? 0.97
+        : 0.03 + Math.pow(normalizedMag, 0.6) * 0.92  // 0.03 → 0.95
+
+      let r: number, g: number, b: number
+      if (isGold) {
+        r = 255; g = 210; b = 0    // vivid gold  #ffd200
+      } else if (isPurple) {
+        r = 180; g = 0; b = 255  // electric purple
+      } else if (netGEX > 0) {
+        r = 0; g = 230; b = 60   // green
+      } else {
+        r = 255; g = 35; b = 35   // red
+      }
+
+      // Sharp vertical bell — full opacity in centre, hard fade at band edges
+      const vGrad = ctx.createLinearGradient(0, topY, 0, topY + totalH)
+      vGrad.addColorStop(0, `rgba(${r},${g},${b},0)`)
+      vGrad.addColorStop(0.12, `rgba(${r},${g},${b},${(peakOpacity * 0.6).toFixed(3)})`)
+      vGrad.addColorStop(0.38, `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`)
+      vGrad.addColorStop(0.62, `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`)
+      vGrad.addColorStop(0.88, `rgba(${r},${g},${b},${(peakOpacity * 0.6).toFixed(3)})`)
+      vGrad.addColorStop(1, `rgba(${r},${g},${b},0)`)
+      ctx.fillStyle = vGrad
+      ctx.fillRect(segStartX, topY, segW, totalH)
+
+      // Soft right-edge dissolve
+      const fadeLen = Math.min(Math.max(14, candleSpacing * 2), segW * 0.45)
+      if (fadeLen > 2) {
+        const fadeStartX = segEndX - fadeLen
+        const rEdge = ctx.createLinearGradient(fadeStartX, 0, segEndX, 0)
+        rEdge.addColorStop(0, 'rgba(0,0,0,0)')
+        rEdge.addColorStop(1, 'rgba(0,0,0,0.93)')
+        ctx.fillStyle = rEdge
+        ctx.fillRect(fadeStartX, topY, fadeLen, totalH)
+      }
+
+      // Left-edge sunrise dimming
+      const leftFadeW = Math.min(segW * 0.15, 28)
+      if (leftFadeW > 2) {
+        const lGrad = ctx.createLinearGradient(segStartX, 0, segStartX + leftFadeW, 0)
+        lGrad.addColorStop(0, 'rgba(0,0,0,0.35)')
+        lGrad.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = lGrad
+        ctx.fillRect(segStartX, topY, leftFadeW, totalH)
+      }
+    }
+  }
+
+  ctx.restore()
+}
+
+// ── DEX Map renderer (Delta Exposure — blue=long delta, red=short delta) ──────
+const renderDEXMap = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  minPrice: number,
+  maxPrice: number,
+  dexMapData: any,
+  visibleData: any[],
+  visibleCandleCount: number,
+  timeframe: string = 'daily'
+) => {
+  if (!dexMapData || !dexMapData.strikes || dexMapData.strikes.length === 0) return
+  if (!visibleData || visibleData.length === 0) return
+
+  const { strikes, expirations, maxAbsGEX, goldStrike, goldExpiry, purpleStrike, purpleExpiry } = dexMapData
+  if (maxAbsGEX === 0) return
+
+  const priceRange = maxPrice - minPrice
+  const priceToY = (price: number): number =>
+    height - ((price - minPrice) / priceRange) * height
+
+  const candleSpacing = width / visibleCandleCount
+  const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
+  const lastCandleX = CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + candleSpacing
+  const rightBoundary = width - 85
+
+  const lastCandleTimestamp: number = visibleData[visibleData.length - 1]?.timestamp ?? Date.now()
+  const lastCandleDate = new Date(lastCandleTimestamp)
+  lastCandleDate.setUTCHours(0, 0, 0, 0)
+
+  const candlesPerDay = (() => {
+    switch (timeframe) {
+      case '1m': return 390
+      case '5m': return 78
+      case '15m': return 26
+      case '30m': return 13
+      case '1h': return 6.5
+      case '4h': return 1.625
+      default: return 1
+    }
+  })()
+
+  const tradingDaysBetween = (base: Date, target: Date): number => {
+    let count = 0
+    const cur = new Date(base)
+    cur.setUTCHours(0, 0, 0, 0)
+    const end = new Date(target)
+    end.setUTCHours(0, 0, 0, 0)
+    while (cur < end) {
+      cur.setUTCDate(cur.getUTCDate() + 1)
+      const day = cur.getUTCDay()
+      if (day !== 0 && day !== 6) count++
+    }
+    return count
+  }
+
+  const expiryToX = new Map<string, number>()
+  for (const expDate of expirations) {
+    const expDateObj = new Date(expDate + 'T12:00:00Z')
+    const tDays = tradingDaysBetween(lastCandleDate, expDateObj)
+    const x = Math.min(lastCandleX + tDays * candlesPerDay * candleSpacing, rightBoundary)
+    expiryToX.set(expDate, x)
+  }
+
+  const sortedAllExpiries = [...expirations].sort()
+
+  const allStrikes = strikes.map((s: any) => s.strike).sort((a: number, b: number) => a - b)
+  let strikeSpacingPx = 20
+  if (allStrikes.length >= 2) {
+    const gaps: number[] = []
+    for (let i = 1; i < allStrikes.length; i++) gaps.push(allStrikes[i] - allStrikes[i - 1])
+    gaps.sort((a, b) => a - b)
+    const medianGap = gaps[Math.floor(gaps.length / 2)]
+    if (medianGap > 0) strikeSpacingPx = Math.abs(priceToY(allStrikes[0]) - priceToY(allStrikes[0] + medianGap))
+  }
+  const halfH = Math.max(2, strikeSpacingPx * 0.48)
+
+  ctx.save()
+  ctx.globalAlpha = 1.0
+
+  for (const strikeEntry of strikes) {
+    const { strike, expirations: strikeExpiries } = strikeEntry
+    const midY = priceToY(strike)
+    if (midY < -halfH * 3 || midY > height + halfH * 3) continue
+
+    const dexByExp = new Map<string, number>()
+    for (const [exp, d] of Object.entries(strikeExpiries as Record<string, any>)) {
+      const v = (d as any).netDealer
+      if (v !== 0) dexByExp.set(exp, v)
+    }
+    if (dexByExp.size === 0) continue
+
+    for (let ei = 0; ei < sortedAllExpiries.length; ei++) {
+      const expDate = sortedAllExpiries[ei]
+      const netDEX = dexByExp.get(expDate)
+      if (netDEX === undefined || netDEX === 0) continue
+
+      const segEndX = expiryToX.get(expDate)
+      if (!segEndX || segEndX <= lastCandleX) continue
+
+      const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
+      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
+      const segW = segEndX - segStartX
+      if (segW < 1) continue
+
+      const normalizedMag = Math.min(1, Math.abs(netDEX) / maxAbsGEX)
+
+      const topY = midY - halfH
+      const totalH = halfH * 2
+
+      const isGold = strike === goldStrike && expDate === goldExpiry
+      const isPurple = strike === purpleStrike && expDate === purpleExpiry
+
+      const peakOpacity = isGold || isPurple
+        ? 0.97
+        : 0.03 + Math.pow(normalizedMag, 0.6) * 0.92
+
+      let r: number, g: number, b: number
+      if (isGold) {
+        r = 255; g = 210; b = 0
+      } else if (isPurple) {
+        r = 180; g = 0; b = 255
+      } else if (netDEX > 0) {
+        // Dealers long delta → cyan-blue
+        r = Math.round(20 * normalizedMag)
+        g = Math.round(140 + 80 * normalizedMag)
+        b = Math.round(200 + 55 * normalizedMag)
+      } else {
+        // Dealers short delta → red
+        r = Math.round(160 + 95 * normalizedMag)
+        g = Math.round(20 * normalizedMag)
+        b = Math.round(20 * normalizedMag)
+      }
+
+      const vGrad = ctx.createLinearGradient(0, topY, 0, topY + totalH)
+      vGrad.addColorStop(0, `rgba(${r},${g},${b},0)`)
+      vGrad.addColorStop(0.12, `rgba(${r},${g},${b},${(peakOpacity * 0.6).toFixed(3)})`)
+      vGrad.addColorStop(0.38, `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`)
+      vGrad.addColorStop(0.62, `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`)
+      vGrad.addColorStop(0.88, `rgba(${r},${g},${b},${(peakOpacity * 0.6).toFixed(3)})`)
+      vGrad.addColorStop(1, `rgba(${r},${g},${b},0)`)
+      ctx.fillStyle = vGrad
+      ctx.fillRect(segStartX, topY, segW, totalH)
+
+      const fadeLen = Math.min(Math.max(14, candleSpacing * 2), segW * 0.45)
+      if (fadeLen > 2) {
+        const fadeStartX = segEndX - fadeLen
+        const rEdge = ctx.createLinearGradient(fadeStartX, 0, segEndX, 0)
+        rEdge.addColorStop(0, 'rgba(0,0,0,0)')
+        rEdge.addColorStop(1, 'rgba(0,0,0,0.93)')
+        ctx.fillStyle = rEdge
+        ctx.fillRect(fadeStartX, topY, fadeLen, totalH)
+      }
+
+      const leftFadeW = Math.min(segW * 0.15, 28)
+      if (leftFadeW > 2) {
+        const lGrad = ctx.createLinearGradient(segStartX, 0, segStartX + leftFadeW, 0)
+        lGrad.addColorStop(0, 'rgba(0,0,0,0.35)')
+        lGrad.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = lGrad
+        ctx.fillRect(segStartX, topY, leftFadeW, totalH)
+      }
+    }
+  }
+
+  ctx.restore()
+}
+
 // Expansion/Liquidation Detection Algorithm
 interface ExpansionLiquidationZone {
   type: 'expansion' | 'liquidation'
@@ -4788,9 +5145,8 @@ const FlowPanel = React.memo(
         } else if (tickerParam === 'ETF') {
           tickerParam =
             'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'
-        } else if (tickerParam === 'ALL') {
-          tickerParam = 'ALL_EXCLUDE_ETF_MAG7'
         }
+        // ALL means truly everything — ETFs and MAG7 included; no conversion needed
 
         // --- Check saved DB flow before hitting the stream (same logic as options-flow page) ---
         try {
@@ -5800,6 +6156,19 @@ export default function TradingViewChart({
   ])
   const [activeChartId, setActiveChartId] = useState<string>('chart-1')
 
+  // Per-chart indicator overrides: only populated when in multi-chart mode
+  // Each chart stores its own toggle state independently of global state
+  const [perChartIndicators, setPerChartIndicators] = useState<Record<string, Record<string, boolean>>>({})
+
+  // Helper: set a single indicator override for the active chart (multi-chart mode only)
+  const setActiveChartIndicator = useCallback((key: string, value: boolean) => {
+    if (chartLayout === '1x1') return
+    setPerChartIndicators(prev => ({
+      ...prev,
+      [activeChartId]: { ...(prev[activeChartId] || {}), [key]: value },
+    }))
+  }, [chartLayout, activeChartId])
+
   // Per-chart data storage
   const chartCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map())
   const overlayCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map())
@@ -6246,6 +6615,108 @@ export default function TradingViewChart({
       eventSource.close()
       setIsGexLoading(false)
       setGexProgress(0)
+    }
+  }
+
+  // GEX Map (Heatmap) fetch handler
+  const handleGexMapClick = async () => {
+    if (isGexMapLoading) return
+
+    if (isGexMapActive) {
+      setIsGexMapActive(false)
+      setGexMapData(null)
+      return
+    }
+
+    setIsGexMapLoading(true)
+    try {
+      const response = await fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}`)
+      const result = await response.json()
+      if (result.success) {
+        setGexMapData(result)
+        setIsGexMapActive(true)
+      } else {
+        console.error('❌ GEX Map fetch error:', result.error)
+      }
+    } catch (err) {
+      console.error('❌ GEX Map fetch error:', err)
+    } finally {
+      setIsGexMapLoading(false)
+    }
+  }
+
+  // GEX Map 45D fetch handler
+  const handleGexMap45dClick = async () => {
+    if (isGexMap45dLoading) return
+    if (isGexMap45dActive) {
+      setIsGexMap45dActive(false)
+      setGexMap45dData(null)
+      return
+    }
+    setIsGexMap45dLoading(true)
+    try {
+      const response = await fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}&mode=45d`)
+      const result = await response.json()
+      if (result.success) {
+        setGexMap45dData(result)
+        setIsGexMap45dActive(true)
+      } else {
+        console.error('❌ GEX Map 45D fetch error:', result.error)
+      }
+    } catch (err) {
+      console.error('❌ GEX Map 45D fetch error:', err)
+    } finally {
+      setIsGexMap45dLoading(false)
+    }
+  }
+
+  // DEX Map fetch handler
+  const handleDexMapClick = async () => {
+    if (isDexMapLoading) return
+    if (isDexMapActive) {
+      setIsDexMapActive(false)
+      setDexMapData(null)
+      return
+    }
+    setIsDexMapLoading(true)
+    try {
+      const response = await fetch(`/api/dex-map?symbol=${encodeURIComponent(symbol)}`)
+      const result = await response.json()
+      if (result.success) {
+        setDexMapData(result)
+        setIsDexMapActive(true)
+      } else {
+        console.error('❌ DEX Map fetch error:', result.error)
+      }
+    } catch (err) {
+      console.error('❌ DEX Map fetch error:', err)
+    } finally {
+      setIsDexMapLoading(false)
+    }
+  }
+
+  // DEX Map 45D fetch handler
+  const handleDexMap45dClick = async () => {
+    if (isDexMap45dLoading) return
+    if (isDexMap45dActive) {
+      setIsDexMap45dActive(false)
+      setDexMap45dData(null)
+      return
+    }
+    setIsDexMap45dLoading(true)
+    try {
+      const response = await fetch(`/api/dex-map?symbol=${encodeURIComponent(symbol)}&mode=45d`)
+      const result = await response.json()
+      if (result.success) {
+        setDexMap45dData(result)
+        setIsDexMap45dActive(true)
+      } else {
+        console.error('❌ DEX Map 45D fetch error:', result.error)
+      }
+    } catch (err) {
+      console.error('❌ DEX Map 45D fetch error:', err)
+    } finally {
+      setIsDexMap45dLoading(false)
     }
   }
 
@@ -9477,6 +9948,26 @@ export default function TradingViewChart({
   const [isLiveGexActive, setIsLiveGexActive] = useState(false)
   const [isOiGexActive, setIsOiGexActive] = useState(false)
 
+  // GEX Map (heatmap) state
+  const [isGexMapActive, setIsGexMapActive] = useState(false)
+  const [isGexMapLoading, setIsGexMapLoading] = useState(false)
+  const [gexMapData, setGexMapData] = useState<any>(null)
+
+  // GEX Map 45D state
+  const [isGexMap45dActive, setIsGexMap45dActive] = useState(false)
+  const [isGexMap45dLoading, setIsGexMap45dLoading] = useState(false)
+  const [gexMap45dData, setGexMap45dData] = useState<any>(null)
+
+  // DEX Map state
+  const [isDexMapActive, setIsDexMapActive] = useState(false)
+  const [isDexMapLoading, setIsDexMapLoading] = useState(false)
+  const [dexMapData, setDexMapData] = useState<any>(null)
+
+  // DEX Map 45D state
+  const [isDexMap45dActive, setIsDexMap45dActive] = useState(false)
+  const [isDexMap45dLoading, setIsDexMap45dLoading] = useState(false)
+  const [dexMap45dData, setDexMap45dData] = useState<any>(null)
+
   // GEX data hook - ONLY fetch when mode is 'oi', NOT for 'live' mode, and never for basket symbols
   const {
     data: gexData,
@@ -9496,18 +9987,30 @@ export default function TradingViewChart({
   // Main IV Panel toggle - shows the IV panel with line toggles inside
   const [showIVPanel, setShowIVPanel] = useState(false)
   // Individual IV line toggles (controlled within the panel, not dropdown)
-  const [showCallIVLine, setShowCallIVLine] = useState(true) // Default to showing Call IV
-  const [showPutIVLine, setShowPutIVLine] = useState(true) // Default to showing Put IV
-  const [showNetIVLine, setShowNetIVLine] = useState(false) // Net IV off by default
+  const [showCallIVLine, setShowCallIVLine] = useState(false) // Call IV off by default
+  const [showPutIVLine, setShowPutIVLine] = useState(false) // Put IV off by default
+  const [showNetIVLine, setShowNetIVLine] = useState(true) // Net IV on by default
   const [showIVRankIndicator, setShowIVRankIndicator] = useState(false)
   const [showIVPercentileIndicator, setShowIVPercentileIndicator] = useState(false)
   const [showHVIndicator, setShowHVIndicator] = useState(false)
-
-  // IV Panel settings
+  // Per-line color overrides for IV panels
+  const [callIVColor, setCallIVColor] = useState('#00FF00')
+  const [putIVColor, setPutIVColor] = useState('#FF0000')
+  const [netIVColor, setNetIVColor] = useState('#FF9500')
+  const [ivRankColor, setIVRankColor] = useState('#FF6B9D')
+  const [ivPercentileColor, setIVPercentileColor] = useState('#00FF88')
+  const [hvColor, setHVColor] = useState('#00D4FF')
   const [ivPanelHeight, setIVPanelHeight] = useState(120) // Height per indicator panel
   const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false) // For resize dragging
   const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365) // Default 1 year
   const [hvWindow, setHVWindow] = useState(20) // Historical Volatility window (10, 20, 30, 60 days)
+  // Fullscreen state for IV panels
+  const [ivFullscreenPanel, setIVFullscreenPanel] = useState<'iv' | 'ivRank' | 'ivPercentile' | 'hv' | null>(null)
+  // Fullscreen state for BuySell panel
+  const [buySellFullscreen, setBuySellFullscreen] = useState(false)
+  // Fullscreen state for PE / PEG panels
+  const [peFullscreen, setPeFullscreen] = useState(false)
+  const [pegFullscreen, setPegFullscreen] = useState(false)
 
   // Event Panel settings
   const eventPanelHeight = 360 // Height for event projection panel
@@ -9635,7 +10138,7 @@ export default function TradingViewChart({
   // BUY/SELL Indicator state
   const [showBuySellIndicator, setShowBuySellIndicator] = useState(initialShowBuySell)
   const [buySellData, setBuySellData] = useState<
-    Array<{ date: string; score: number; smoothed: number; signal: number }>
+    Array<{ date: string; score: number; smoothed: number; signal: number; isTrending?: boolean }>
   >([])
   const [buySellLoadingProgress, setBuySellLoadingProgress] = useState(0)
   const [buySellPanelHeight, setBuySellPanelHeight] = useState(120)
@@ -9726,6 +10229,8 @@ export default function TradingViewChart({
   const handleIVPanelDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsDraggingIVPanel(true)
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
   }, [])
 
   const handleIVPanelDragMove = useCallback(
@@ -9739,17 +10244,15 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Calculate distance from bottom (accounting for volume, BuySell panel, and time axis)
       const volumeAndTimeHeight = 80 + 25 + (showBuySellIndicator ? buySellPanelHeight : 0)
       const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
       const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace
 
-      // Calculate new height per panel
       const newHeightPerPanel = Math.floor(distanceFromBottom / Math.max(1, activeIVPanelCount))
-
-      // Constrain between 80px and 300px per panel
       const constrainedHeight = Math.max(80, Math.min(300, newHeightPerPanel))
       setIVPanelHeight(constrainedHeight)
+      // Trigger canvas re-render immediately on every frame — don't wait for React effect
+      requestAnimationFrame(() => renderChartRef.current())
     },
     [
       isDraggingIVPanel,
@@ -9763,6 +10266,8 @@ export default function TradingViewChart({
 
   const handleIVPanelDragEnd = useCallback(() => {
     setIsDraggingIVPanel(false)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
   }, [])
 
   // Add/remove mouse event listeners for IV panel dragging
@@ -10042,6 +10547,35 @@ export default function TradingViewChart({
     structure: false,
     premiumDiscount: false,
   })
+
+  // Sync global indicator state → active chart's per-chart overrides in multi-chart mode.
+  // This means every toolbar button click automatically scopes to the active chart only.
+  useEffect(() => {
+    if (chartLayout === '1x1') return
+    setPerChartIndicators(prev => ({
+      ...prev,
+      [activeChartId]: {
+        ...(prev[activeChartId] || {}),
+        isExpectedRangeActive,
+        isWeeklyActive,
+        isMonthlyActive,
+        isSeasonalActive,
+        isSeasonal20YActive,
+        isSeasonal15YActive,
+        isSeasonal10YActive,
+        isSeasonalElectionActive,
+        isGexActive,
+        isExpansionLiquidationActive,
+        technalysisActive,
+        isFlowChartActive,
+      },
+    }))
+  }, [
+    chartLayout,
+    isExpectedRangeActive, isWeeklyActive, isMonthlyActive,
+    isSeasonalActive, isSeasonal20YActive, isSeasonal15YActive, isSeasonal10YActive, isSeasonalElectionActive,
+    isGexActive, isExpansionLiquidationActive, technalysisActive, isFlowChartActive,
+  ])
 
   // Alerts state
   const [alerts, setAlerts] = useState<PriceAlert[]>([])
@@ -11935,6 +12469,46 @@ export default function TradingViewChart({
     }
   }, [symbol])
 
+  // Auto-rescan active toolbar features when ticker switches
+  const _prevSymbolForRescanRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (_prevSymbolForRescanRef.current === null) {
+      _prevSymbolForRescanRef.current = symbol
+      return
+    }
+    if (_prevSymbolForRescanRef.current === symbol) return
+    _prevSymbolForRescanRef.current = symbol
+
+    // GEX Live — re-run scan for new ticker
+    if (isLiveGexActive) {
+      setLiveGexData(null)
+      handleLiveGEXClick()
+    }
+
+    // GEX OI — re-run OI fetch for new ticker
+    if (isOiGexActive) {
+      setLiveGexData(null)
+      handleOIGEXClick()
+    }
+
+    // IntraFlow — re-run live flow moves scan for new ticker
+    if (isFlowChartActive) {
+      setFlowChartData([])
+      handleLiveFlowMovesClick(flowMovesTimeframe)
+    }
+
+    // RRG Candle — re-run RRG calculation for new ticker
+    if (isRRGCandleActive) {
+      setRrgCandleColors(new Map())
+      if (rrgMode === 'iv' || rrgMode === 'ivspy') {
+        handleRRGCandleClick(rrgIvLookbackPeriod, rrgMode)
+      } else {
+        handleRRGCandleClick(rrgLookbackPeriod, 'price')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol])
+
   // Initialize searchQuery with symbol when component loads or symbol changes
   // Skip reset when in benchmark mode so XLK/SPY stays visible in the bar
   useEffect(() => {
@@ -12003,12 +12577,32 @@ export default function TradingViewChart({
         panel.style.width = ''
         panel.style.maxWidth = ''
       }
+    } else if (activeSidebarPanel === 'news') {
+      if (newsActiveTab === 'calendar') {
+        // Full screen for calendar
+        panel.style.left = '0px'
+        panel.style.width = '100vw'
+        panel.style.maxWidth = '100vw'
+        panel.style.borderRadius = '0px'
+      } else {
+        // 1200px wide for breaking/feed/movers
+        panel.style.left = '80px'
+        panel.style.width = '1200px'
+        panel.style.maxWidth = '1200px'
+        panel.style.borderRadius = '8px'
+      }
+      return () => {
+        panel.style.left = ''
+        panel.style.width = ''
+        panel.style.maxWidth = ''
+        panel.style.borderRadius = ''
+      }
     } else if (activeSidebarPanel !== 'gex') {
       // Clear any stale inline width left by GexPanel so CSS calc takes over
       panel.style.width = ''
       panel.style.maxWidth = ''
     }
-  }, [activeSidebarPanel, showPATPanel, isMobile, hideDesktopSidebar])
+  }, [activeSidebarPanel, newsActiveTab, showPATPanel, isMobile, hideDesktopSidebar])
 
   // OLD regime loading removed - now using parallel prefetch on panel open
 
@@ -13073,78 +13667,159 @@ export default function TradingViewChart({
           else obvArr.push(obvArr[i - 1])
         }
 
-        // 8. RS vs SPY (20-day)
+        // ════════════════════════════════════════════════════════════════════════
+        // STOCK-SPECIFIC SIGNAL ENGINE
+        // Step 1 — Regime Detection: trending vs mean-reverting (variance-ratio test)
+        // Step 2 — Regime-aware zone interpretation:
+        //   TRENDING:     high score = strong momentum = BUY zone
+        //                 low score  = momentum breakdown = SELL zone
+        //   MEAN-REVERTING: low score  = oversold = BUY zone
+        //                   high score = overbought = SELL zone
+        // Step 3 — Per-ticker exponentially-decayed correlation weights:
+        //   each indicator earns its weight from THIS stock's own forward-return history,
+        //   with recent data weighted 4× more than old data.
+        // ════════════════════════════════════════════════════════════════════════
+
+        const LOOKFORWARD = 10
+        const WARMUP = 50
         const spyMap = new Map(spyPrices.map((d) => [new Date(d.timestamp).toDateString(), d]))
+
+        // ── Pre-build all score arrays ───────────────────────────────────────
+        const obvScoreArr = new Array<number>(n).fill(0)
+        for (let i = WARMUP; i < n; i++) {
+          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
+          const obvChange = obvArr[i] - obvArr[i - 20]
+          obvScoreArr[i] = Math.max(-100, Math.min(100, (obvChange / (avgVol * 20)) * 100))
+        }
+        const rsScoreArr = new Array<number>(n).fill(0)
+        for (let i = WARMUP; i < n; i++) {
+          const candle = symbolPrices[i]
+          const spyCur = spyMap.get(new Date(candle.timestamp).toDateString())
+          const spyBase = spyMap.get(new Date(symbolPrices[i - 20].timestamp).toDateString())
+          if (spyCur && spyBase && spyBase.close > 0 && symbolPrices[i - 20].close > 0) {
+            const stockRet = (candle.close - symbolPrices[i - 20].close) / symbolPrices[i - 20].close
+            const spyRet = (spyCur.close - spyBase.close) / spyBase.close
+            rsScoreArr[i] = Math.max(-100, Math.min(100, (stockRet - spyRet) * 300))
+          }
+        }
+        const cmfScoreArr = cmfArr.map((v) => v * 100)
+
+        // Mean-reversion pressure: how far close is from 20-bar mean, ATR-normalized
+        const mrArr = new Array<number>(n).fill(0)
+        for (let i = 20; i < n; i++) {
+          const mean = closes.slice(i - 19, i + 1).reduce((a, b) => a + b, 0) / 20
+          mrArr[i] = atrArr[i] > 0 ? Math.max(-100, Math.min(100, -(closes[i] - mean) / atrArr[i] * 25)) : 0
+        }
+
+        // Breakout strength: directional range expansion × volume surge
+        const breakoutArr = new Array<number>(n).fill(0)
+        for (let i = 20; i < n; i++) {
+          const range20 = Math.max(...highs.slice(i - 19, i + 1)) - Math.min(...lows.slice(i - 19, i + 1))
+          const rangeExpand = range20 > 0 ? (highs[i] - lows[i]) / (range20 / 20) : 1
+          const volRatio = avgVol20Arr[i] > 0 ? vols[i] / avgVol20Arr[i] : 1
+          const direction = closes[i] > opens[i] ? 1 : closes[i] < opens[i] ? -1 : 0
+          breakoutArr[i] = Math.max(-100, Math.min(100, direction * Math.log1p(rangeExpand) * Math.log1p(volRatio) * 30))
+        }
+
+        type IndName = 'atrMom' | 'ivp' | 'pvd' | 'cmf' | 'efi' | 'obv' | 'rs' | 'mr' | 'breakout'
+        const indNames: IndName[] = ['atrMom', 'ivp', 'pvd', 'cmf', 'efi', 'obv', 'rs', 'mr', 'breakout']
+        const indArrayMap: Record<IndName, number[]> = {
+          atrMom: atrMomArr, ivp: ivpArr, pvd: pvdArr, cmf: cmfScoreArr,
+          efi: efiArr, obv: obvScoreArr, rs: rsScoreArr, mr: mrArr, breakout: breakoutArr,
+        }
+
+        // ── STEP 1: Regime Detection (variance-ratio test, last 100 bars) ────
+        // vratio > 1 = trending (momentum persists), < 1 = mean-reverting (price reverts)
+        const REGIME_WIN = Math.min(100, n - WARMUP - 1)
+        let vrSum1 = 0, vrSum2 = 0, vrCount = 0
+        for (let i = n - REGIME_WIN; i < n - 2; i++) {
+          vrSum1 += Math.pow(closes[i + 1] - closes[i], 2)
+          vrSum2 += Math.pow(closes[i + 2] - closes[i], 2)
+          vrCount++
+        }
+        const vratio = vrCount > 10 && vrSum1 > 0 ? vrSum2 / (2 * vrSum1) : 1
+        const isTrending = vratio > 1.05
+
+        // ── STEP 2: Per-ticker exponentially-decayed correlation weights ─────
+        // Recent 60-bar window gets 4× weight vs older history.
+        // Each indicator's weight = its actual Pearson correlation with THIS stock's
+        // forward returns. Zero correlation → zero weight. Negative → flipped contribution.
+        const trainEnd = n - LOOKFORWARD - 1
+        const fwdRet = new Array<number>(n).fill(0)
+        for (let i = WARMUP; i <= trainEnd; i++) {
+          fwdRet[i] = closes[i + LOOKFORWARD] > 0
+            ? Math.max(-100, Math.min(100, ((closes[i + LOOKFORWARD] - closes[i]) / closes[i]) * 1000))
+            : 0
+        }
+
+        const pearsonDecayed = (x: number[], y: number[], from: number, to: number, decay: number): number => {
+          const len = to - from + 1
+          if (len < 20) return 0
+          let wSum = 0, wxSum = 0, wySum = 0
+          const ws: number[] = []
+          for (let i = from; i <= to; i++) {
+            const w = Math.exp(decay * (i - from) / len)
+            ws.push(w); wSum += w; wxSum += w * x[i]; wySum += w * y[i]
+          }
+          const mX = wxSum / wSum, mY = wySum / wSum
+          let cov = 0, varX = 0, varY = 0
+          for (let j = 0; j < len; j++) {
+            const dx = x[from + j] - mX, dy = y[from + j] - mY
+            cov += ws[j] * dx * dy; varX += ws[j] * dx * dx; varY += ws[j] * dy * dy
+          }
+          const denom = Math.sqrt(varX * varY)
+          return denom > 0 ? cov / denom : 0
+        }
+
+        const mid = Math.floor((WARMUP + trainEnd) / 2)
+        const rawCorrs: Record<IndName, number> = {} as Record<IndName, number>
+        for (const name of indNames) {
+          const cOld = pearsonDecayed(indArrayMap[name], fwdRet, WARMUP, mid, 1)
+          const cMid = pearsonDecayed(indArrayMap[name], fwdRet, mid, trainEnd, 2)
+          const cRecent = pearsonDecayed(indArrayMap[name], fwdRet, Math.max(mid, trainEnd - 60), trainEnd, 4)
+          // Weighted blend: recent matters 4× more
+          rawCorrs[name] = (cOld + cMid * 2 + cRecent * 4) / 7
+        }
+
+        // In trending regime: boost momentum indicators (atrMom, ivp, breakout, efi)
+        // In mean-reverting regime: boost reversal indicators (mr, pvd, cmf)
+        // The score itself stays the same — only the VISUAL zone interpretation flips.
+        const regimeBoost: Partial<Record<IndName, number>> = isTrending
+          ? { atrMom: 1.5, ivp: 1.4, breakout: 1.5, efi: 1.3, mr: 0.3, rs: 1.2 }
+          : { mr: 1.6, pvd: 1.4, cmf: 1.3, obv: 1.2, atrMom: 0.5, breakout: 0.4 }
+        for (const name of indNames) rawCorrs[name] *= regimeBoost[name] ?? 1
+
+        const absSum = indNames.reduce((s, name) => s + Math.abs(rawCorrs[name]), 0)
+        const adaptiveWeights: Record<IndName, number> = {} as Record<IndName, number>
+        if (absSum > 0.02) {
+          for (const name of indNames) adaptiveWeights[name] = rawCorrs[name] / absSum
+        } else {
+          // Equal weights fallback
+          for (const name of indNames) adaptiveWeights[name] = 1 / indNames.length
+        }
 
         if (controller.signal.aborted) return
         setBuySellLoadingProgress(90)
 
         const scores = symbolPrices.map((candle, i) => {
           const date = new Date(candle.timestamp).toISOString().split('T')[0]
-          // Warmup: 50 bars (IVP normalisation window)
-          if (i < 50) return { date, score: 0 }
-
-          // ATR-Normalized Momentum — how significant is this move vs recent volatility
-          const atrMomScore = atrMomArr[i]
-
-          // Institutional Volume Pressure — are large prints bullish or bearish
-          const ivpScore = ivpArr[i]
-
-          // Price-Volume Divergence — are smart money and price agreeing
-          const pvdScore = pvdArr[i]
-
-          // Elder Force Index — raw directional force
-          const efiScore = efiArr[i]
-
-          // CMF -1..+1 → -100..+100
-          const cmfScore = cmfArr[i] * 100
-
-          // OBV 20-day momentum normalised by avg volume
-          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
-          const obvChange = obvArr[i] - obvArr[i - 20]
-          const obvScore = Math.max(-100, Math.min(100, (obvChange / (avgVol * 20)) * 100))
-
-          // RS vs SPY — relative outperformance vs benchmark
-          const spyCur = spyMap.get(new Date(candle.timestamp).toDateString())
-          const spyBase = spyMap.get(new Date(symbolPrices[i - 20].timestamp).toDateString())
-          let rsScore = 0
-          if (spyCur && spyBase && spyBase.close > 0 && symbolPrices[i - 20].close > 0) {
-            const stockRet =
-              (candle.close - symbolPrices[i - 20].close) / symbolPrices[i - 20].close
-            const spyRet = (spyCur.close - spyBase.close) / spyBase.close
-            rsScore = Math.max(-100, Math.min(100, (stockRet - spyRet) * 300))
-          }
-
-          // Weighted composite — 7 unique dimensions, zero RSI/MACD derivatives:
-          // ATR-Mom(19) + IVP(19) + PVD(18) + CMF(14) + EFI(11) + OBV(4) + RS(15)
-          const composite =
-            atrMomScore * 0.19 +
-            ivpScore * 0.19 +
-            pvdScore * 0.18 +
-            cmfScore * 0.14 +
-            efiScore * 0.11 +
-            obvScore * 0.04 +
-            rsScore * 0.15
-
+          if (i < WARMUP) return { date, score: 0 }
+          const composite = indNames.reduce((sum, name) => sum + indArrayMap[name][i] * adaptiveWeights[name], 0)
           return { date, score: Math.max(-100, Math.min(100, composite)) }
         })
 
-        // Post-process: EMA-3 smoothing of composite → smoothed line; EMA-9 of smoothed → signal line
+        // EMA-3 smoothing of raw composite
         const emaK3 = 2 / (3 + 1)
-        const emaK9 = 2 / (9 + 1)
         const smoothedArr: number[] = [scores[0].score]
         for (let i = 1; i < n; i++) {
           smoothedArr.push(scores[i].score * emaK3 + smoothedArr[i - 1] * (1 - emaK3))
-        }
-        const signalArr: number[] = [smoothedArr[0]]
-        for (let i = 1; i < n; i++) {
-          signalArr.push(smoothedArr[i] * emaK9 + signalArr[i - 1] * (1 - emaK9))
         }
 
         const enrichedScores = scores.map((s, i) => ({
           ...s,
           smoothed: Math.max(-100, Math.min(100, smoothedArr[i])),
-          signal: Math.max(-100, Math.min(100, signalArr[i])),
+          signal: 0, // unused — kept for type compat
+          isTrending,
         }))
 
         if (controller.signal.aborted) return
@@ -13171,6 +13846,9 @@ export default function TradingViewChart({
   )
   const manualPriceRangeRef = useRef<{ min: number; max: number } | null>(null) // For real-time drag updates
   const lastRenderedPriceRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 100 }) // Store actual rendered range
+  // Store the EXACT topPadding/bottomPadding/priceChartHeight used in drawPriceScale
+  // so screenToTimePriceCoordinates can invert the Y axis with the same values.
+  const lastRenderedPaddingRef = useRef<{ topPadding: number; bottomPadding: number; priceChartHeight: number }>({ topPadding: 20, bottomPadding: 100, priceChartHeight: 0 })
 
   const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null)
   const [boxZoomEnd, setBoxZoomEnd] = useState<{ x: number; y: number } | null>(null)
@@ -15777,6 +16455,66 @@ export default function TradingViewChart({
       )
     }
 
+    // Draw GEX Map heatmap (per-expiry per-strike gamma gradient)
+    if (isGexMapActive && gexMapData) {
+      renderGEXMap(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        gexMapData,
+        visibleData,
+        visibleCandleCount,
+        config.timeframe
+      )
+    }
+
+    // Draw GEX Map 45D heatmap (all expiries aggregated)
+    if (isGexMap45dActive && gexMap45dData) {
+      renderGEXMap(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        gexMap45dData,
+        visibleData,
+        visibleCandleCount,
+        config.timeframe
+      )
+    }
+
+    // Draw DEX Map heatmap (per-expiry per-strike delta gradient)
+    if (isDexMapActive && dexMapData) {
+      renderDEXMap(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        dexMapData,
+        visibleData,
+        visibleCandleCount,
+        config.timeframe
+      )
+    }
+
+    // Draw DEX Map 45D heatmap (all expiries aggregated)
+    if (isDexMap45dActive && dexMap45dData) {
+      renderDEXMap(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        dexMap45dData,
+        visibleData,
+        visibleCandleCount,
+        config.timeframe
+      )
+    }
+
     // ── DARK POOL PRINT OVERLAY ──────────────────────────────────────────────
     if (showDarkPoolIndicator && Object.keys(darkPoolData).length > 0) {
       ctx.save()
@@ -16334,6 +17072,7 @@ export default function TradingViewChart({
     ivPanelHeight,
     hvWindow,
     activeIVPanelCount,
+    callIVColor, putIVColor, netIVColor, ivRankColor, ivPercentileColor, hvColor,
     config.chartType,
     config.showGrid,
     isExpectedRangeActive,
@@ -16397,11 +17136,11 @@ export default function TradingViewChart({
 
     const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
-    const titleHeight = 28
-    const panelContentTop = panelStartY + titleHeight + 4
+    const headerH = 36
+    const panelContentTop = panelStartY + headerH
     const panelContentBottom = panelStartY + panelHeight - 6
 
-    // Background — match IV panel width
+    // Background
     ctx.fillStyle = '#000000'
     ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
 
@@ -16412,14 +17151,7 @@ export default function TradingViewChart({
     ctx.moveTo(padLeft, panelStartY)
     ctx.lineTo(rightEdge, panelStartY)
     ctx.stroke()
-
-    // Title — orange, solid, 50% bigger
-    ctx.save()
-    ctx.font = 'bold 20px Arial, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillStyle = '#FF8C00'
-    ctx.fillText('Price to Earnings', (padLeft + rightEdge) / 2, panelStartY + titleHeight)
-    ctx.restore()
+    // Title rendered in HTML header overlay
 
     // Build sorted array and binary-search helper
     const trailingSorted = history.slice().sort((a, b) => a.date.localeCompare(b.date))
@@ -16572,8 +17304,8 @@ export default function TradingViewChart({
 
     const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
-    const titleHeight = 28
-    const panelContentTop = panelStartY + titleHeight + 4
+    const headerH = 36
+    const panelContentTop = panelStartY + headerH
     const panelContentBottom = panelStartY + panelHeight - 6
 
     // Background
@@ -16587,14 +17319,7 @@ export default function TradingViewChart({
     ctx.moveTo(padLeft, panelStartY)
     ctx.lineTo(rightEdge, panelStartY)
     ctx.stroke()
-
-    // Title — mirrors drawPEPanel style
-    ctx.save()
-    ctx.font = 'bold 20px Arial, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillStyle = '#a78bfa'
-    ctx.fillText('PEG Ratio  (P/E ÷ EPS 3Y CAGR)', (padLeft + rightEdge) / 2, panelStartY + titleHeight)
-    ctx.restore()
+    // Title rendered in HTML header overlay
 
     // Sort history ascending
     const sorted = peg.history.slice().sort((a, b) => a.date.localeCompare(b.date))
@@ -16856,7 +17581,7 @@ export default function TradingViewChart({
 
   // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
   const drawBuySellPanel = (ctx: CanvasRenderingContext2D,
-    bsData: Array<{ date: string; score: number; smoothed: number; signal: number }>,
+    bsData: Array<{ date: string; score: number; smoothed: number; signal: number; isTrending?: boolean }>,
     visibleData: ChartDataPoint[],
     chartWidth: number,
     panelStartY: number,
@@ -16867,11 +17592,12 @@ export default function TradingViewChart({
 
     const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
+    const headerH = 36 // match HTML header bar height + 4px buffer
 
-    // Clip all drawing to the panel bounds so the line never overflows right
+    // Clip all drawing to the panel area below the header
     ctx.save()
     ctx.beginPath()
-    ctx.rect(padLeft, panelStartY, rightEdge - padLeft, panelHeight)
+    ctx.rect(padLeft, panelStartY + headerH, rightEdge - padLeft, panelHeight - headerH)
     ctx.clip()
 
     // Background
@@ -16896,43 +17622,57 @@ export default function TradingViewChart({
     const paddedMax = rawMax + rawRange * 0.2
     const paddedMin = rawMin - rawRange * 0.2
     const paddedRange = paddedMax - paddedMin
-    const toY = (value: number) => panelStartY + (panelHeight * (paddedMax - value)) / paddedRange
+    const dataStartY = panelStartY + headerH
+    const dataHeight = panelHeight - headerH
+    const toY = (value: number) => dataStartY + (dataHeight * (paddedMax - value)) / paddedRange
     const midY = toY(0)
 
-    // ── Average high/low reference lines (last 252 bars of full bsData) ─────────
+    // ── Compute AVG HIGH / AVG LOW thresholds from full history ─────────────
+    // Mean of top 15% = ceiling level. Mean of bottom 15% = floor level.
+    // TRENDING regime:     HIGH score = strong momentum = BUY zone (top)
+    //                      LOW  score = momentum collapse = SELL zone (bottom)
+    // MEAN-REVERTING regime: LOW  score = oversold bounce = BUY zone (bottom)
+    //                        HIGH score = overbought fade = SELL zone (top)
+    const isTrending = bsData.find((d) => d.isTrending !== undefined)?.isTrending ?? false
     const lookback = Math.min(252, bsData.length)
     const recent252 = bsData.slice(bsData.length - lookback)
-    const avg252High = recent252.reduce((sum, d) => Math.max(sum, d.smoothed), -Infinity)
-    const avg252Low = recent252.reduce((sum, d) => Math.min(sum, d.smoothed), Infinity)
-    // Use mean of top/bottom 10% as the "average high" and "average low"
     const sorted = [...recent252].map((d) => d.smoothed).sort((a, b) => a - b)
-    const top10pct = sorted.slice(Math.floor(sorted.length * 0.9))
-    const bot10pct = sorted.slice(0, Math.ceil(sorted.length * 0.1))
-    const avgHighVal =
-      top10pct.length > 0 ? top10pct.reduce((a, b) => a + b, 0) / top10pct.length : avg252High
-    const avgLowVal =
-      bot10pct.length > 0 ? bot10pct.reduce((a, b) => a + b, 0) / bot10pct.length : avg252Low
+    const topN = Math.max(1, Math.ceil(sorted.length * 0.15))
+    const botN = Math.max(1, Math.ceil(sorted.length * 0.15))
+    const avgHighVal = sorted.slice(sorted.length - topN).reduce((a, b) => a + b, 0) / topN
+    const avgLowVal = sorted.slice(0, botN).reduce((a, b) => a + b, 0) / botN
 
-    // Subtle zone fills (green above zero, red below)
-    ctx.fillStyle = 'rgba(34,197,94,0.06)'
-    ctx.fillRect(padLeft, panelStartY, rightEdge - padLeft, Math.max(0, midY - panelStartY))
-    ctx.fillStyle = 'rgba(239,68,68,0.06)'
-    ctx.fillRect(padLeft, midY, rightEdge - padLeft, Math.max(0, panelStartY + panelHeight - midY))
-
-    // Zero line
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-    ctx.lineWidth = 1
-    ctx.setLineDash([4, 4])
-    ctx.beginPath()
-    ctx.moveTo(padLeft, midY)
-    ctx.lineTo(rightEdge, midY)
-    ctx.stroke()
-    ctx.setLineDash([])
-
-    // Average high line (green dotted)
     const avgHighY = toY(avgHighVal)
-    if (avgHighY >= panelStartY && avgHighY <= panelStartY + panelHeight) {
-      ctx.strokeStyle = 'rgba(34,197,94,0.75)'
+    const avgLowY = toY(avgLowVal)
+
+    // ── Zone fills ───────────────────────────────────────────────────────────
+    // TRENDING:      top zone (above avgHigh) = BUY (momentum), bottom zone = SELL
+    // MEAN-REVERTING: top zone = SELL (overbought), bottom zone = BUY (oversold)
+    const topZoneColor = isTrending ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)'
+    const bottomZoneColor = isTrending ? 'rgba(239,68,68,0.10)' : 'rgba(34,197,94,0.10)'
+    const topLineColor = isTrending ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)'
+    const bottomLineColor = isTrending ? 'rgba(239,68,68,0.9)' : 'rgba(34,197,94,0.9)'
+    const topLabel = isTrending ? 'BUY / MOMENTUM' : 'SELL / SHORT'
+    const bottomLabel = isTrending ? 'SELL / BREAKDOWN' : 'BUY / OVERSOLD'
+    const topLabelColor = isTrending ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)'
+    const bottomLabelColor = isTrending ? 'rgba(239,68,68,0.95)' : 'rgba(34,197,94,0.95)'
+
+    const clampedHighY = Math.max(panelStartY + headerH, Math.min(panelStartY + panelHeight, avgHighY))
+    const clampedLowY = Math.max(panelStartY + headerH, Math.min(panelStartY + panelHeight, avgLowY))
+
+    // SELL zone (top of panel to AVG HIGH line)
+    ctx.fillStyle = topZoneColor
+    ctx.fillRect(padLeft, panelStartY + headerH, rightEdge - padLeft, Math.max(0, clampedHighY - (panelStartY + headerH)))
+    // Neutral zone (AVG HIGH to AVG LOW)
+    ctx.fillStyle = 'rgba(150,150,150,0.04)'
+    ctx.fillRect(padLeft, clampedHighY, rightEdge - padLeft, Math.max(0, clampedLowY - clampedHighY))
+    // BUY zone (AVG LOW to bottom of panel)
+    ctx.fillStyle = bottomZoneColor
+    ctx.fillRect(padLeft, clampedLowY, rightEdge - padLeft, Math.max(0, panelStartY + panelHeight - clampedLowY))
+
+    // ── AVG HIGH dashed line ─────────────────────────────────────────────────
+    if (avgHighY >= panelStartY + headerH && avgHighY <= panelStartY + panelHeight) {
+      ctx.strokeStyle = topLineColor
       ctx.lineWidth = 1.5
       ctx.setLineDash([6, 4])
       ctx.beginPath()
@@ -16942,14 +17682,13 @@ export default function TradingViewChart({
       ctx.setLineDash([])
       ctx.font = 'bold 10px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
-      ctx.fillStyle = 'rgba(34,197,94,0.85)'
-      ctx.fillText(`AVG HIGH  ${Math.round(avgHighVal)}`, padLeft + 6, avgHighY - 3)
+      ctx.fillStyle = topLabelColor
+      ctx.fillText(`${topLabel}  ${Math.round(avgHighVal)}`, padLeft + 6, avgHighY - 4)
     }
 
-    // Average low line (red dotted)
-    const avgLowY = toY(avgLowVal)
-    if (avgLowY >= panelStartY && avgLowY <= panelStartY + panelHeight) {
-      ctx.strokeStyle = 'rgba(239,68,68,0.75)'
+    // ── AVG LOW dashed line ──────────────────────────────────────────────────
+    if (avgLowY >= panelStartY + headerH && avgLowY <= panelStartY + panelHeight) {
+      ctx.strokeStyle = bottomLineColor
       ctx.lineWidth = 1.5
       ctx.setLineDash([6, 4])
       ctx.beginPath()
@@ -16959,11 +17698,23 @@ export default function TradingViewChart({
       ctx.setLineDash([])
       ctx.font = 'bold 10px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
-      ctx.fillStyle = 'rgba(239,68,68,0.85)'
-      ctx.fillText(`AVG LOW  ${Math.round(avgLowVal)}`, padLeft + 6, avgLowY + 12)
+      ctx.fillStyle = bottomLabelColor
+      ctx.fillText(`${bottomLabel}  ${Math.round(avgLowVal)}`, padLeft + 6, avgLowY + 12)
     }
 
-    // ── Smoothed composite line — color-coded solid ─────────────────────────────
+    // ── Zero line ────────────────────────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 5])
+    ctx.beginPath()
+    ctx.moveTo(padLeft, midY)
+    ctx.lineTo(rightEdge, midY)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    // ── Smoothed composite line — color by zone ──────────────────────────────
+    // TRENDING:      above avgHigh = green (BUY momentum), below avgLow = red (SELL)
+    // MEAN-REVERTING: below avgLow = green (BUY oversold), above avgHigh = red (SELL)
     for (let i = 1; i < entries.length; i++) {
       const prev = entries[i - 1]
       const curr = entries[i]
@@ -16972,9 +17723,15 @@ export default function TradingViewChart({
       const x1 = padLeft + i * candleSpacing + candleSpacing / 2
       const y0 = toY(prev.smoothed)
       const y1 = toY(curr.smoothed)
-      const avg = (prev.smoothed + curr.smoothed) / 2
-      ctx.strokeStyle = avg >= 15 ? '#00ff00' : avg <= -15 ? '#ff3232' : '#cccccc'
-      ctx.lineWidth = 2
+      const midVal = (prev.smoothed + curr.smoothed) / 2
+      let lineColor: string
+      if (isTrending) {
+        lineColor = midVal >= avgHighVal ? '#00e564' : midVal <= avgLowVal ? '#ff3232' : 'rgba(200,200,200,0.7)'
+      } else {
+        lineColor = midVal <= avgLowVal ? '#00e564' : midVal >= avgHighVal ? '#ff3232' : 'rgba(200,200,200,0.7)'
+      }
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = 2.5
       ctx.beginPath()
       ctx.moveTo(x0, y0)
       ctx.lineTo(x1, y1)
@@ -16984,58 +17741,48 @@ export default function TradingViewChart({
     // Restore clip so labels can draw outside the panel bounds
     ctx.restore()
 
-    // ── BUY / SHORT label at right edge ─────────────────────────────────────────
+    // ── Right-edge label ──────────────────────────────────────────────────────
     const lastEntry = [...entries].reverse().find((e) => e !== null)
     if (lastEntry) {
-      const isBullish = lastEntry.smoothed >= 0
-      const label = isBullish ? 'BUY' : 'SHORT'
-      const labelColor = isBullish ? '#00ff00' : '#ff3232'
+      const inTopZone = lastEntry.smoothed >= avgHighVal
+      const inBottomZone = lastEntry.smoothed <= avgLowVal
+      let label: string, labelColor: string
+      if (isTrending) {
+        label = inTopZone ? 'BUY' : inBottomZone ? 'SELL' : 'NEUTRAL'
+        labelColor = inTopZone ? '#00e564' : inBottomZone ? '#ff3232' : '#aaaaaa'
+      } else {
+        label = inBottomZone ? 'BUY' : inTopZone ? 'SHORT' : 'NEUTRAL'
+        labelColor = inBottomZone ? '#00e564' : inTopZone ? '#ff3232' : '#aaaaaa'
+      }
       const labelX = rightEdge + 6
       const labelY = toY(lastEntry.smoothed)
       ctx.save()
-      ctx.font = 'bold 17px JetBrains Mono, monospace'
+      ctx.font = 'bold 15px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
       ctx.shadowColor = labelColor
-      ctx.shadowBlur = 8
+      ctx.shadowBlur = (inTopZone || inBottomZone) ? 10 : 0
       ctx.fillStyle = labelColor
       ctx.fillText(label, labelX, labelY + 5)
       ctx.shadowBlur = 0
       ctx.restore()
     }
 
-    // ── Y-axis labels (dynamic: top, zero, bottom) — 50% larger font ─────────
+    // ── Y-axis labels ────────────────────────────────────────────────────────
     const yAxisX = rightEdge + 4
-    ctx.font = 'bold 20px JetBrains Mono, monospace'
+    ctx.font = 'bold 18px JetBrains Mono, monospace'
     ctx.textAlign = 'left'
     ctx.globalAlpha = 1
-    for (const [label, val] of [
-      [Math.round(rawMax).toString(), rawMax],
-      ['0', 0],
-      [Math.round(rawMin).toString(), rawMin],
-    ] as [string, number][]) {
-      const ly = toY(val)
-      ctx.fillStyle = val > 0 ? '#00ff00' : val < 0 ? '#ff0000' : '#ffffff'
+    for (const [label, val, color] of [
+      [Math.round(rawMax).toString(), rawMax, '#ff3232'],
+      ['0', 0, 'rgba(255,255,255,0.4)'],
+      [Math.round(rawMin).toString(), rawMin, '#00e564'],
+    ] as [string, number, string][]) {
+      const ly = toY(val as number)
+      ctx.fillStyle = color
       ctx.fillText(label, yAxisX, ly + 4)
     }
 
-    // ── Title with live score readout ────────────────────────────────────────────
-    const lastBs = [...bsData].reverse().find((d) => d.smoothed !== 0)
-    const scoreNum = lastBs ? Math.round(lastBs.smoothed) : 0
-    const scoreStr = scoreNum > 0 ? `+${scoreNum}` : `${scoreNum}`
-    const titleX = (padLeft + rightEdge) / 2
-    const titleY = panelStartY + 18
-    ctx.font = 'bold 14px JetBrains Mono, monospace'
-    ctx.textAlign = 'center'
-    ctx.shadowColor = 'rgba(255,255,255,0.4)'
-    ctx.shadowBlur = 6
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText(`BUY/SELL PRESSURE  ${scoreStr}`, titleX, titleY)
-    ctx.shadowBlur = 0
-    ctx.globalAlpha = 0.45
-    ctx.fillStyle = '#e0f0ff'
-    ctx.fillText(`BUY/SELL PRESSURE  ${scoreStr}`, titleX, titleY - 1)
-    ctx.globalAlpha = 1
-    ctx.shadowBlur = 0
+    // Title rendered in HTML header overlay — no canvas title
   }
 
   const drawVolumeProfile = (
@@ -17478,12 +18225,12 @@ export default function TradingViewChart({
 
     // Panel colors based on type - black background, crisp bright lines
     const panelConfig = {
-      iv: { title: 'IMPLIED VOLATILITY', lineColor: '#FF9500', bgColor: '#000000' },
-      ivRank: { title: 'IV RANK', lineColor: '#FF6B9D', bgColor: '#000000' },
-      ivPercentile: { title: 'IV PERCENTILE', lineColor: '#00FF88', bgColor: '#000000' },
+      iv: { title: 'IMPLIED VOLATILITY', lineColor: netIVColor, bgColor: '#000000' },
+      ivRank: { title: 'IV RANK', lineColor: ivRankColor, bgColor: '#000000' },
+      ivPercentile: { title: 'IV PERCENTILE', lineColor: ivPercentileColor, bgColor: '#000000' },
       hv: {
         title: `HISTORICAL VOLATILITY (${hvWindow}D)`,
-        lineColor: '#00D4FF',
+        lineColor: hvColor,
         bgColor: '#000000',
       },
     }
@@ -17502,17 +18249,19 @@ export default function TradingViewChart({
     ctx.lineTo(chartWidth - 80, panelStartY)
     ctx.stroke()
 
-    // Draw panel title
-    ctx.font = 'bold 11px JetBrains Mono, monospace'
-    ctx.fillStyle = '#FFFFFF'
-    ctx.textAlign = 'left'
-    ctx.fillText(config.title, 50, panelStartY + 15)
+    // Title is rendered in the HTML header overlay — skip canvas title to avoid double text
 
-    // Add padding for chart area
-    const yAxisPadding = 20
+    // Add padding for chart area — 36px to clear the 32px header bar
+    const yAxisPadding = 36
     const effectivePanelStartY = panelStartY + yAxisPadding
     const effectivePanelEndY = panelEndY - 10
     const effectivePanelHeight = effectivePanelEndY - effectivePanelStartY
+
+    // Clip drawing to the effective panel area so lines never bleed into the header
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(CHART_LEFT_MARGIN, effectivePanelStartY, chartWidth - 80, effectivePanelHeight + 10)
+    ctx.clip()
 
     // Calculate candle spacing to align with price chart
     const candleSpacing = chartWidth / visibleCandleCount
@@ -17553,9 +18302,9 @@ export default function TradingViewChart({
 
       // Define line configs for IV
       const ivLines = [
-        { key: 'callIV', color: '#00FF00', name: 'Call IV', show: showCallIVLine },
-        { key: 'putIV', color: '#FF0000', name: 'Put IV', show: showPutIVLine },
-        { key: 'netIV', color: '#FF9500', name: 'Net IV', show: showNetIVLine },
+        { key: 'callIV', color: callIVColor, name: 'Call IV', show: showCallIVLine },
+        { key: 'putIV', color: putIVColor, name: 'Put IV', show: showPutIVLine },
+        { key: 'netIV', color: netIVColor, name: 'Net IV', show: showNetIVLine },
       ]
 
       // Draw each active IV line
@@ -17596,31 +18345,42 @@ export default function TradingViewChart({
 
         ctx.stroke()
 
-        // Draw label at end of line
+        // Draw label at end of line — solid color background, white text
         if (lastValue !== null && typeof lastValue === 'number') {
           ctx.font = 'bold 11px JetBrains Mono, monospace'
           ctx.textAlign = 'left'
           const labelText = `${lineConfig.name}: ${(lastValue as number).toFixed(2)}%`
           const textWidth = ctx.measureText(labelText).width
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.9)'
+          ctx.fillStyle = lineConfig.color
           ctx.fillRect(lastX + 5, lastY - 8, textWidth + 8, 16)
 
-          ctx.fillStyle = lineConfig.color
+          ctx.fillStyle = '#FFFFFF'
           ctx.fillText(labelText, lastX + 9, lastY + 4)
         }
       })
 
-      // Draw Y-axis scale labels
-      ctx.font = 'bold 12px JetBrains Mono, monospace'
-      ctx.textAlign = 'right'
+      // Draw Y-axis scale labels — aligned with price scale column (width - 85)
+      // chartWidth = width - CHART_LEFT_MARGIN - 80, so width - 85 = chartWidth + CHART_LEFT_MARGIN + 80 - 85 = chartWidth + 3
+      ctx.restore() // end clip region before drawing Y-axis labels
+      const yAxisX = chartWidth + CHART_LEFT_MARGIN - 5 // = width - 85
+      ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      ctx.textAlign = 'left'
       ctx.fillStyle = '#FFFFFF'
 
       const steps = 3
       for (let i = 0; i <= steps; i++) {
         const value = paddedMin + (paddedRange / steps) * i
         const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
-        ctx.fillText(`${value.toFixed(1)}%`, chartWidth - 45, y + 4)
+        // Skip top label — overlaps with header buttons
+        if (y < panelStartY + yAxisPadding + 4) continue
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(yAxisX - 5, y)
+        ctx.lineTo(yAxisX, y)
+        ctx.stroke()
+        ctx.fillText(`${value.toFixed(1)}%`, yAxisX, y + 4)
       }
 
       return // Exit early for IV panel
@@ -17714,12 +18474,11 @@ export default function TradingViewChart({
 
     ctx.stroke()
 
-    // Draw current value label at the end of the line
+    // Draw current value label at the end of the line — solid color background, white text
     if (lastValue !== null && typeof lastValue === 'number') {
       ctx.font = 'bold 12px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
 
-      // Draw background box
       const displayValue = lastValue as number
       const labelText =
         panelType === 'ivRank' || panelType === 'ivPercentile'
@@ -17727,16 +18486,18 @@ export default function TradingViewChart({
           : `${displayValue.toFixed(2)}%`
       const textWidth = ctx.measureText(labelText).width
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'
+      ctx.fillStyle = config.lineColor
       ctx.fillRect(lastX + 5, lastY - 10, textWidth + 10, 20)
 
-      ctx.fillStyle = config.lineColor
+      ctx.fillStyle = '#FFFFFF'
       ctx.fillText(labelText, lastX + 10, lastY + 4)
     }
 
-    // Draw Y-axis scale labels - crispy white text
-    ctx.font = 'bold 12px JetBrains Mono, monospace'
-    ctx.textAlign = 'right'
+    // Draw Y-axis scale labels — aligned with price scale column (outside clip region)
+    ctx.restore()
+    const yAxisX2 = chartWidth + CHART_LEFT_MARGIN - 5 // = width - 85
+    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    ctx.textAlign = 'left'
     ctx.fillStyle = '#FFFFFF'
 
     const steps = 3
@@ -17744,12 +18505,21 @@ export default function TradingViewChart({
       const value = paddedMin + (paddedRange / steps) * i
       const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
 
+      // Skip top label — it sits under the header bar and overlaps the buttons
+      if (y < panelStartY + yAxisPadding + 4) continue
+
       const labelText =
         panelType === 'ivRank' || panelType === 'ivPercentile'
           ? `${value.toFixed(0)}%`
           : `${value.toFixed(1)}%`
 
-      ctx.fillText(labelText, chartWidth - 45, y + 4)
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(yAxisX2 - 5, y)
+      ctx.lineTo(yAxisX2, y)
+      ctx.stroke()
+      ctx.fillText(labelText, yAxisX2, y + 4)
     }
   }
 
@@ -18319,6 +19089,9 @@ export default function TradingViewChart({
     const bottomPadding = 100 // Increased to prevent any overlap with volume area
     const usableHeight = chartArea - topPadding - bottomPadding
 
+    // Keep ref in sync so crosshair can use identical values
+    lastRenderedPaddingRef.current = { topPadding, bottomPadding, priceChartHeight: height }
+
     for (let i = 0; i <= steps; i++) {
       const ratio = i / steps
       const rawPrice = minPrice + (maxPrice - minPrice) * (1 - ratio)
@@ -18733,10 +19506,77 @@ export default function TradingViewChart({
           }
         })
     }
+
+    // ── GEX MAP: draw expiry date labels on X-axis ───────────────────────────
+    // When the GEX map is active, stamp each expiry date at its correct X position
+    // so the heatmap columns are labelled even though they extend past today.
+    if (isGexMapActive && gexMapData && allData.length > 0) {
+      const lastCandle = allData[allData.length - 1]
+      const lastDataIdx = allData.length - 1
+      const lastDataX = CHART_LEFT_MARGIN + (lastDataIdx - Math.floor(scrollOffset)) * candleSpacing + candleSpacing / 2
+      const lastDataDate = new Date(lastCandle.timestamp)
+      lastDataDate.setHours(0, 0, 0, 0)
+
+      const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6
+      const tradingDaysBetween = (from: Date, to: Date): number => {
+        const f = new Date(from); f.setHours(0, 0, 0, 0)
+        const t = new Date(to); t.setHours(0, 0, 0, 0)
+        const forward = t >= f
+        const cur = new Date(forward ? f : t)
+        const end = new Date(forward ? t : f)
+        let count = 0
+        while (cur < end) { cur.setDate(cur.getDate() + 1); if (!isWeekend(cur)) count++ }
+        return forward ? count : -count
+      }
+
+      // Match EXACTLY how addLabel() works in drawTimeAxis
+      const axisTop = timeAxisStartY ?? (height - 25)
+      const labelY = axisTop + 16
+      const tickStartY = axisTop + 2
+      const tickEndY = axisTop + 10
+
+      ctx.save()
+      // Same font as the rest of the time axis
+      ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+      ctx.textAlign = 'center'
+
+      const usedXPositions: number[] = []
+      const MIN_GAP = 36
+
+      for (const expDate of gexMapData.expirations) {
+        const expDateObj = new Date(expDate + 'T12:00:00')
+        const td = tradingDaysBetween(lastDataDate, expDateObj)
+        const x = Math.round(lastDataX + td * candleSpacing)
+
+        if (x < CHART_LEFT_MARGIN || x > width - 10) continue
+        if (usedXPositions.some(px => Math.abs(px - x) < MIN_GAP)) continue
+        usedXPositions.push(x)
+
+        const label = expDateObj.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+
+        // Tick — same color as future ticks
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(x, tickStartY)
+        ctx.lineTo(x, tickEndY)
+        ctx.stroke()
+
+        // Label — same white color as future axis labels
+        ctx.fillStyle = config.axisStyle.xAxis.textColor
+        ctx.fillText(label, x, labelY)
+      }
+      ctx.restore()
+    }
   }
 
   // Re-render when data or settings change
   // Call renderChart only when critical dependencies change
+
+  // Keep a stable ref to renderChart so drag handlers can call it without stale closures
+  const renderChartRef = useRef(renderChart)
+  useEffect(() => { renderChartRef.current = renderChart })
+
   useEffect(() => {
     if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0 && chartLayout === '1x1') {
       renderChart()
@@ -18760,6 +19600,7 @@ export default function TradingViewChart({
     showIVPercentileIndicator,
     showHVIndicator,
     ivData.length,
+    ivPanelHeight,
     hvWindow,
     chartLayout,
     manualPriceRange,
@@ -19096,18 +19937,15 @@ export default function TradingViewChart({
 
       if (visibleData.length === 0) return { timestamp, price: 0 }
 
-      // Use the EXACT same price range that was used when the last frame was rendered
+      // Use the EXACT same price range AND paddings that were used when the last frame was rendered
       const renderedRange = lastRenderedPriceRangeRef.current
       const adjustedMin = renderedRange.min
       const adjustedMax = renderedRange.max
 
-      // Match drawPriceScale formula exactly:
-      //   y        = topPadding + (usableHeight / steps) * i   where ratio = i/steps
-      //   price    = minPrice + (maxPrice - minPrice) * (1 - ratio)
-      // Inverse (given screenY → price):
-      const topPadding = 20
-      const bottomPadding = 100
-      const usableHeight = priceChartHeight - topPadding - bottomPadding
+      // Match drawPriceScale formula exactly — read the stored paddings from the same ref
+      // that drawPriceScale writes to, so they are guaranteed identical.
+      const { topPadding, bottomPadding, priceChartHeight: renderedChartHeight } = lastRenderedPaddingRef.current
+      const usableHeight = (renderedChartHeight || priceChartHeight) - topPadding - bottomPadding
       const ratio = 1 - (screenY - topPadding) / usableHeight
 
       // Calculate price from ratio
@@ -19782,6 +20620,79 @@ export default function TradingViewChart({
         const price = coords.price
         const timestamp = coords.timestamp
 
+        // Detect if cursor is inside an IV/HV sub-panel — show actual % value instead of stock price
+        // Mirror renderChart's priceChartHeight calculation (timeAxisHeight=35, no volumeAreaHeight reserved)
+        const _timeAxisH = 35
+        const _flowH = isFlowChartActive ? flowChartHeight : 0
+        const _ivH = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
+        const _peH = showPEPanel ? pePanelHeight : 0
+        const _pegH = showPEGPanel ? pegPanelHeight : 0
+        const _bsH = showBuySellIndicator ? buySellPanelHeight : 0
+        const _realPriceChartHeight = dimensions.height - (_flowH + _ivH + _peH + _pegH + _bsH + _timeAxisH)
+        const ivPanelBaseY = _realPriceChartHeight + _flowH
+        let ivCrosshairLabel: string | null = null
+        if (isAnyIVHVActive && ivData.length > 0 && y >= ivPanelBaseY) {
+          const panelOrder = [
+            showIVIndicator ? 'iv' : null,
+            showIVRankIndicator ? 'ivRank' : null,
+            showIVPercentileIndicator ? 'ivPercentile' : null,
+            showHVIndicator ? 'hv' : null,
+          ].filter(Boolean) as Array<'iv' | 'ivRank' | 'ivPercentile' | 'hv'>
+          const panelIndex = Math.floor((y - ivPanelBaseY) / ivPanelHeight)
+          const panelType = panelOrder[panelIndex]
+          if (panelType) {
+            const panelStartY = ivPanelBaseY + panelIndex * ivPanelHeight
+            const effectivePanelEndY = panelStartY + ivPanelHeight - 10
+            const effectivePanelStartY = panelStartY + 20
+            const effectivePanelHeight = effectivePanelEndY - effectivePanelStartY
+            type IVKey = 'callIV' | 'putIV' | 'netIV' | 'ivRank' | 'ivPercentile' | 'hv'
+            const keys: IVKey[] = panelType === 'iv'
+              ? (['callIV', 'putIV', 'netIV'] as IVKey[]).filter(k => (k === 'callIV' ? showCallIVLine : k === 'putIV' ? showPutIVLine : showNetIVLine))
+              : [panelType as IVKey]
+            let panelMin = (panelType === 'ivRank' || panelType === 'ivPercentile') ? 0 : Infinity
+            let panelMax = (panelType === 'ivRank' || panelType === 'ivPercentile') ? 100 : -Infinity
+            if (panelType !== 'ivRank' && panelType !== 'ivPercentile') {
+              ivData.forEach(item => keys.forEach(k => {
+                const v = (item as any)[k] as number | null
+                if (v !== null) { panelMin = Math.min(panelMin, v); panelMax = Math.max(panelMax, v) }
+              }))
+              const r = panelMax - panelMin
+              panelMin -= r * 0.1; panelMax += r * 0.1
+            }
+            const paddedRange = panelMax - panelMin
+            if (paddedRange > 0 && y >= effectivePanelStartY && y <= effectivePanelEndY) {
+              const ratio = 1 - (y - effectivePanelStartY) / effectivePanelHeight
+              const value = panelMin + ratio * paddedRange
+              const titles: Record<string, string> = { iv: 'IV', ivRank: 'IV Rank', ivPercentile: 'IV %ile', hv: 'HV' }
+              ivCrosshairLabel = `${titles[panelType]}: ${value.toFixed(1)}%`
+            } else {
+            }
+          }
+        }
+
+        // Check if cursor is in the BuySell panel
+        let bsCrosshairLabel: string | null = null
+        if (showBuySellIndicator && buySellData.length > 0) {
+          const bsPanelStartY = _realPriceChartHeight + _flowH + _ivH
+          const bsPanelEndY = bsPanelStartY + buySellPanelHeight
+          const headerH = 36
+          const effectiveStartY = bsPanelStartY + headerH
+          const effectiveEndY = bsPanelEndY - 5
+          const effectiveH = effectiveEndY - effectiveStartY
+          if (y >= effectiveStartY && y <= effectiveEndY && effectiveH > 0) {
+            const vals = buySellData.map(d => d.smoothed)
+            const rawMin = Math.min(...vals)
+            const rawMax = Math.max(...vals)
+            const rawRange = rawMax - rawMin || 1
+            const paddedMax = rawMax + rawRange * 0.2
+            const paddedMin = rawMin - rawRange * 0.2
+            const paddedRange = paddedMax - paddedMin
+            const ratio = 1 - (y - effectiveStartY) / effectiveH
+            const value = paddedMin + ratio * paddedRange
+            bsCrosshairLabel = `B/S: ${value > 0 ? '+' : ''}${value.toFixed(1)}`
+          }
+        }
+
         // Check if we're in the future (seasonal projection area)
         const lastCandle = data[data.length - 1]
         const isInFuture = timestamp > lastCandle.timestamp
@@ -19817,10 +20728,13 @@ export default function TradingViewChart({
         })
 
         setCrosshairInfo({
-          price:
-            isInFuture && seasonalProjectionPrice
-              ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
-              : `$${price.toFixed(2)}`,
+          price: ivCrosshairLabel
+            ? ivCrosshairLabel
+            : bsCrosshairLabel
+              ? bsCrosshairLabel
+              : isInFuture && seasonalProjectionPrice
+                ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
+                : `$${price.toFixed(2)}`,
           date: dateStr,
           time: timeStr,
           visible: true,
@@ -27744,9 +28658,10 @@ export default function TradingViewChart({
                             <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Monthly{isMonthlyActive ? ' ✓' : ''}</button>
                           </div>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>GEX</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { setIsLiveGexActive(!isLiveGexActive); if (!isLiveGexActive) handleLiveGEXClick(); if (!isLiveGexActive || isOiGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isLiveGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX Live{isLiveGexActive ? ' ✓' : ''}</button>
                             <button onClick={() => { setIsOiGexActive(!isOiGexActive); if (!isOiGexActive) handleOIGEXClick(); if (!isOiGexActive || isLiveGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isOiGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX OI{isOiGexActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { handleGexMapClick() }} className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: isGexMapLoading ? 0.6 : 1 }}>{isGexMapLoading ? 'Load…' : `GEX MAP${isGexMapActive ? ' ✓' : ''}`}</button>
                           </div>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IV</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
@@ -28733,6 +29648,78 @@ export default function TradingViewChart({
                             }}
                           >
                             OI GEX
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleGexMapClick()
+                              setIsGexDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              opacity: isGexMapLoading ? 0.6 : 1,
+                            }}
+                          >
+                            {isGexMapLoading ? 'Loading…' : 'GEX MAP'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleGexMap45dClick()
+                              setIsGexDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isGexMap45dActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              opacity: isGexMap45dLoading ? 0.6 : 1,
+                            }}
+                          >
+                            {isGexMap45dLoading ? 'Loading…' : 'GEX MAP 45D'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleDexMapClick()
+                              setIsGexDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isDexMapActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              opacity: isDexMapLoading ? 0.6 : 1,
+                            }}
+                          >
+                            {isDexMapLoading ? 'Loading…' : 'DEX MAP'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleDexMap45dClick()
+                              setIsGexDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isDexMap45dActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              opacity: isDexMap45dLoading ? 0.6 : 1,
+                            }}
+                          >
+                            {isDexMap45dLoading ? 'Loading…' : 'DEX MAP 45D'}
                           </button>
                         </div>
                       </div>,
@@ -31767,6 +32754,7 @@ export default function TradingViewChart({
                   handleMouseLeave={handleMouseLeave}
                   isDraggingYAxis={isDraggingYAxisZoom}
                   setIsDraggingYAxis={setIsDraggingYAxisZoom}
+                  perChartIndicators={perChartIndicators}
                 />
               ) : (
                 <>
@@ -32094,7 +33082,7 @@ export default function TradingViewChart({
                       position: 'absolute',
                       left: 0,
                       right: 0,
-                      bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 105}px`,
+                      bottom: `${25 + buySellPanelHeight}px`,
                       height: '4px',
                       cursor: 'ns-resize',
                       backgroundColor: isDraggingBuySellPanel
@@ -32241,215 +33229,443 @@ export default function TradingViewChart({
                     </div>
                   )}
 
-                  {/* IV Panel Line Toggle Controls - Below the IMPLIED VOLATILITY title */}
-                  {showIVPanel && (
-                    <div
-                      className="absolute flex gap-2 z-[1001]"
-                      style={{
-                        left: '50px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + 5 - 35}px`,
-                        transition: 'bottom 0.1s ease-out',
-                      }}
-                    >
-                      <button
-                        onClick={() => {
-                          setShowCallIVLine((prev) => !prev)
-                        }}
-                        className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
-                        style={{
-                          backgroundColor: showCallIVLine
-                            ? 'rgba(0, 255, 0, 0.2)'
-                            : 'rgba(0, 0, 0, 0.8)',
-                          color: showCallIVLine ? '#00FF00' : 'rgba(255, 255, 255, 0.5)',
-                          border: showCallIVLine
-                            ? '1px solid #00FF00'
-                            : '1px solid rgba(255, 255, 255, 0.2)',
-                        }}
-                        title="Toggle Call IV line"
+                  {/* ── IV/HV Panel Header Toolbars — one per active panel ────────────────── */}
+                  {(() => {
+                    const flowBase = isFlowChartActive ? flowChartHeight : 0
+                    const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
+                    // Build ordered list of active panels bottom→top same order as canvas draw
+                    const panels: Array<{
+                      key: 'iv' | 'ivRank' | 'ivPercentile' | 'hv'
+                      label: string
+                      accentColor: string
+                      onClose: () => void
+                    }> = []
+                    if (showIVPanel) panels.push({ key: 'iv', label: 'IMPLIED VOLATILITY', accentColor: netIVColor, onClose: () => setShowIVPanel(false) })
+                    if (showIVRankIndicator) panels.push({ key: 'ivRank', label: 'IV RANK', accentColor: ivRankColor, onClose: () => setShowIVRankIndicator(false) })
+                    if (showIVPercentileIndicator) panels.push({ key: 'ivPercentile', label: 'IV PERCENTILE', accentColor: ivPercentileColor, onClose: () => setShowIVPercentileIndicator(false) })
+                    if (showHVIndicator) panels.push({ key: 'hv', label: `HV (${hvWindow}D)`, accentColor: hvColor, onClose: () => setShowHVIndicator(false) })
+
+                    return panels.map((panel, idx) => {
+                      // bottom of this panel = flowBase + bsBase + 25(volume) + panels above * ivPanelHeight
+                      const panelsAbove = panels.length - 1 - idx // panels rendered after this one in canvas
+                      const bottomPx = flowBase + bsBase + 25 + panelsAbove * ivPanelHeight
+                      const isFullscreen = ivFullscreenPanel === panel.key
+
+                      return (
+                        <div
+                          key={panel.key}
+                          className="absolute z-[1001] flex items-center pointer-events-none"
+                          style={{
+                            left: 0,
+                            right: 0,
+                            bottom: `${bottomPx}px`,
+                            height: `${ivPanelHeight}px`,
+                          }}
+                        >
+                          {/* Header bar at top of this panel */}
+                          <div
+                            className="pointer-events-auto flex items-center gap-2 w-full"
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: '80px', // leave space for Y-axis column
+                              height: '32px',
+                              background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
+                              borderTop: `2px solid ${panel.accentColor}55`,
+                              borderBottom: '1px solid rgba(255,255,255,0.08)',
+                              paddingLeft: '50px',
+                              paddingRight: '6px',
+                            }}
+                          >
+                            {/* Panel name */}
+                            <span style={{ color: panel.accentColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                              {panel.label}
+                            </span>
+
+                            {/* IV sub-line toggles (only for IV panel) */}
+                            {panel.key === 'iv' && (
+                              <div className="flex items-center gap-1 ml-2">
+                                {[
+                                  { label: 'Call IV', active: showCallIVLine, toggle: () => setShowCallIVLine(p => !p), activeColor: '#00FF00' },
+                                  { label: 'Put IV', active: showPutIVLine, toggle: () => setShowPutIVLine(p => !p), activeColor: '#FF0000' },
+                                  { label: 'Net IV', active: showNetIVLine, toggle: () => setShowNetIVLine(p => !p), activeColor: '#FF9500' },
+                                ].map(({ label, active, toggle, activeColor }) => (
+                                  <button key={label} onClick={toggle}
+                                    style={{ padding: '2px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '3px', border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.3)'}`, background: '#000', color: active ? activeColor : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ flex: 1 }} />
+
+                            {/* RIGHT side: color picker | fullscreen | close */}
+                            {/* Color picker for IV sub-lines */}
+                            {panel.key === 'iv' && (
+                              <div className="flex items-center gap-1">
+                                {[
+                                  { active: showCallIVLine, color: callIVColor, setColor: setCallIVColor, title: 'Call IV color' },
+                                  { active: showPutIVLine, color: putIVColor, setColor: setPutIVColor, title: 'Put IV color' },
+                                  { active: showNetIVLine, color: netIVColor, setColor: setNetIVColor, title: 'Net IV color' },
+                                ].filter(l => l.active).map(({ color, setColor, title }) => (
+                                  <div key={title} title={title} style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: color, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                                    <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                                      style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Single color picker for non-IV panels */}
+                            {panel.key !== 'iv' && (() => {
+                              const colorMap: Record<string, [string, (c: string) => void]> = {
+                                ivRank: [ivRankColor, setIVRankColor],
+                                ivPercentile: [ivPercentileColor, setIVPercentileColor],
+                                hv: [hvColor, setHVColor],
+                              }
+                              const [col, setCol] = colorMap[panel.key]
+                              return (
+                                <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                                  <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: col, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                                  <input type="color" value={col} onChange={e => setCol(e.target.value)}
+                                    style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                                </div>
+                              )
+                            })()}
+
+                            {/* Fullscreen button */}
+                            <button
+                              onClick={() => setIVFullscreenPanel(isFullscreen ? null : panel.key)}
+                              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+                            >
+                              {isFullscreen ? '⊡' : '⛶'}
+                            </button>
+
+                            {/* Close button */}
+                            <button
+                              onClick={panel.onClose}
+                              title={`Close ${panel.label}`}
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })
+                  })()}
+
+                  {/* IV Panel fullscreen overlay */}
+                  {ivFullscreenPanel && isAnyIVHVActive && ivData.length > 0 && (() => {
+                    const panelLabels: Record<string, string> = { iv: 'IMPLIED VOLATILITY', ivRank: 'IV RANK', ivPercentile: 'IV PERCENTILE', hv: `HISTORICAL VOLATILITY (${hvWindow}D)` }
+                    const accentColors: Record<string, string> = { iv: netIVColor, ivRank: ivRankColor, ivPercentile: ivPercentileColor, hv: hvColor }
+                    const accent = accentColors[ivFullscreenPanel]
+                    const label = panelLabels[ivFullscreenPanel]
+                    // Gather series data
+                    type SeriesEntry = { date: string; value: number; color: string; name: string }
+                    const series: SeriesEntry[][] = []
+                    if (ivFullscreenPanel === 'iv') {
+                      if (showCallIVLine) series.push(ivData.filter(d => d.callIV !== null).map(d => ({ date: d.date, value: d.callIV!, color: callIVColor, name: 'Call IV' })))
+                      if (showPutIVLine) series.push(ivData.filter(d => d.putIV !== null).map(d => ({ date: d.date, value: d.putIV!, color: putIVColor, name: 'Put IV' })))
+                      if (showNetIVLine) series.push(ivData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV!, color: netIVColor, name: 'Net IV' })))
+                    } else {
+                      const keyMap: Record<string, keyof typeof ivData[0]> = { ivRank: 'ivRank', ivPercentile: 'ivPercentile', hv: 'hv' }
+                      const k = keyMap[ivFullscreenPanel]
+                      series.push(ivData.filter(d => (d as any)[k] !== null).map(d => ({ date: d.date, value: (d as any)[k]!, color: accent, name: label })))
+                    }
+                    const allVals = series.flat().map(p => p.value)
+                    const minV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 0 : Math.min(...allVals) * 0.9
+                    const maxV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 100 : Math.max(...allVals) * 1.1
+                    const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
+                    const chartW = W - PL - PR, chartH = H - PT - PB
+                    const toX = (i: number, n: number) => PL + (i / (n - 1)) * chartW
+                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                    const ySteps = 5
+                    return (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setIVFullscreenPanel(null)}>
+                        <div style={{ background: '#0a0a0a', border: `2px solid ${accent}55`, borderRadius: '10px', padding: '0', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                          onClick={e => e.stopPropagation()}>
+                          {/* Header */}
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${accent}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                            <span style={{ color: accent, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>{label}</span>
+                            <button onClick={() => setIVFullscreenPanel(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                          </div>
+                          {/* SVG Chart */}
+                          <div style={{ padding: '8px 16px 16px' }}>
+                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                              {/* Y grid + labels */}
+                              {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                const v = minV + (i / ySteps) * (maxV - minV)
+                                const y = toY(v)
+                                return (
+                                  <g key={i}>
+                                    <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+                                    <text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text>
+                                  </g>
+                                )
+                              })}
+                              {/* Series lines */}
+                              {series.map((pts, si) => pts.length < 2 ? null : (
+                                <polyline key={si}
+                                  points={pts.map((p, i) => `${toX(i, pts.length)},${toY(p.value)}`).join(' ')}
+                                  fill="none" stroke={pts[0].color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                              ))}
+                              {/* Legend */}
+                              {series.map((pts, si) => pts.length > 0 && (
+                                <g key={si} transform={`translate(${PL + si * 100}, ${H - 10})`}>
+                                  <line x1="0" y1="-4" x2="14" y2="-4" stroke={pts[0].color} strokeWidth="2" />
+                                  <text x="18" y="0" fill={pts[0].color} fontSize="11" fontFamily="JetBrains Mono, monospace">{pts[0].name}</text>
+                                </g>
+                              ))}
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── P/E Panel Header Toolbar ──────────────────────────────────────────── */}
+                  {showPEPanel && (() => {
+                    const peBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
+                    return (
+                      <div className="absolute z-[1001] pointer-events-none"
+                        style={{ left: 0, right: 0, bottom: `${peBotPx}px`, height: `${pePanelHeight}px` }}>
+                        <div className="pointer-events-auto flex items-center gap-2 w-full"
+                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(255,140,0,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                          <span style={{ color: '#FF8C00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                            P/E RATIO{peData?.current != null ? `  ${peData.current.toFixed(1)}x` : ''}
+                          </span>
+                          <div style={{ flex: 1 }} />
+                          <button onClick={() => setPeFullscreen(f => !f)} title={peFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                            {peFullscreen ? '⊡' : '⛶'}
+                          </button>
+                          <button onClick={() => setShowPEPanel(false)} title="Close P/E panel"
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* P/E fullscreen overlay */}
+                  {peFullscreen && showPEPanel && peData && peData.history.length > 0 && (() => {
+                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                    const chartW = W - PL - PR, chartH = H - PT - PB
+                    const pts = peData.history.slice().sort((a, b) => a.date.localeCompare(b.date))
+                    const vals = pts.map(p => p.pe)
+                    const minV = Math.min(...vals) * 0.97, maxV = Math.max(...vals) * 1.015
+                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                    const ySteps = 5
+                    return (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setPeFullscreen(false)}>
+                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(255,140,0,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                          onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,140,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                            <span style={{ color: '#FF8C00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>P/E RATIO</span>
+                            <button onClick={() => setPeFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                          </div>
+                          <div style={{ padding: '8px 16px 16px' }}>
+                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                              {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                const v = minV + (i / ySteps) * (maxV - minV)
+                                const y = toY(v)
+                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(1)}x</text></g>)
+                              })}
+                              <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.pe)}`).join(' ')} fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── PEG Panel Header Toolbar ───────────────────────────────────────────── */}
+                  {showPEGPanel && (() => {
+                    const pegBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0)
+                    return (
+                      <div className="absolute z-[1001] pointer-events-none"
+                        style={{ left: 0, right: 0, bottom: `${pegBotPx}px`, height: `${pegPanelHeight}px` }}>
+                        <div className="pointer-events-auto flex items-center gap-2 w-full"
+                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(167,139,250,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                          <span style={{ color: '#a78bfa', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                            PEG RATIO{pegData?.pegBasic != null ? `  ${pegData.pegBasic.toFixed(2)}` : ''}
+                          </span>
+                          <div style={{ flex: 1 }} />
+                          <button onClick={() => setPegFullscreen(f => !f)} title={pegFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                            {pegFullscreen ? '⊡' : '⛶'}
+                          </button>
+                          <button onClick={() => setShowPEGPanel(false)} title="Close PEG panel"
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* PEG fullscreen overlay */}
+                  {pegFullscreen && showPEGPanel && pegData && pegData.history.length > 0 && (() => {
+                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                    const chartW = W - PL - PR, chartH = H - PT - PB
+                    const pts = pegData.history.slice().sort((a, b) => a.date.localeCompare(b.date)).filter(p => p.peg !== null && (p.peg as number) <= 30) as { date: string; peg: number }[]
+                    const vals = pts.map(p => p.peg)
+                    const minV = Math.min(...vals) * 0.93, maxV = Math.max(...vals) * 1.04
+                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                    const ySteps = 5
+                    return (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setPegFullscreen(false)}>
+                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(167,139,250,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                          onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(167,139,250,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                            <span style={{ color: '#a78bfa', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>PEG RATIO  (P/E ÷ EPS 3Y CAGR)</span>
+                            <button onClick={() => setPegFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                          </div>
+                          <div style={{ padding: '8px 16px 16px' }}>
+                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                              {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                const v = minV + (i / ySteps) * (maxV - minV)
+                                const y = toY(v)
+                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(2)}</text></g>)
+                              })}
+                              {/* PEG=1 fair value line */}
+                              {minV <= 1 && maxV >= 1 && <line x1={PL} y1={toY(1)} x2={PL + chartW} y2={toY(1)} stroke="rgba(250,204,21,0.5)" strokeWidth="1.5" strokeDasharray="5,4" />}
+                              <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.peg)}`).join(' ')} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── BuySell Panel Header Toolbar ─────────────────────────────────────── */}
+                  {showBuySellIndicator && (() => {
+                    const bsBottomPx = 25 // sits just above the time axis
+                    return (
+                      <div
+                        className="absolute z-[1001] pointer-events-none"
+                        style={{ left: 0, right: 0, bottom: `${bsBottomPx}px`, height: `${buySellPanelHeight}px` }}
                       >
-                        Call IV
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowPutIVLine((prev) => !prev)
-                        }}
-                        className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
-                        style={{
-                          backgroundColor: showPutIVLine
-                            ? 'rgba(255, 0, 0, 0.2)'
-                            : 'rgba(0, 0, 0, 0.8)',
-                          color: showPutIVLine ? '#FF0000' : 'rgba(255, 255, 255, 0.5)',
-                          border: showPutIVLine
-                            ? '1px solid #FF0000'
-                            : '1px solid rgba(255, 255, 255, 0.2)',
-                        }}
-                        title="Toggle Put IV line"
-                      >
-                        Put IV
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowNetIVLine((prev) => !prev)
-                        }}
-                        className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
-                        style={{
-                          backgroundColor: showNetIVLine
-                            ? 'rgba(255, 149, 0, 0.2)'
-                            : 'rgba(0, 0, 0, 0.8)',
-                          color: showNetIVLine ? '#FF9500' : 'rgba(255, 255, 255, 0.5)',
-                          border: showNetIVLine
-                            ? '1px solid #FF9500'
-                            : '1px solid rgba(255, 255, 255, 0.2)',
-                        }}
-                        title="Toggle Net IV (average of Call and Put)"
-                      >
-                        Net IV
-                      </button>
-                    </div>
-                  )}
+                        <div
+                          className="pointer-events-auto flex items-center gap-2 w-full"
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: '80px',
+                            height: '32px',
+                            background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
+                            borderTop: '2px solid rgba(0,255,0,0.33)',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            paddingLeft: '50px',
+                            paddingRight: '6px',
+                          }}
+                        >
+                          {/* Title */}
+                          <span style={{ color: '#00ff00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                            BUY/SELL PRESSURE
+                          </span>
+                          <div style={{ flex: 1 }} />
+                          {/* Fullscreen button */}
+                          <button
+                            onClick={() => setBuySellFullscreen(f => !f)}
+                            title={buySellFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+                          >
+                            {buySellFullscreen ? '⊡' : '⛶'}
+                          </button>
+                          {/* Close button */}
+                          <button
+                            onClick={() => setShowBuySellIndicator(false)}
+                            title="Close Buy/Sell Pressure panel"
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
-                  {/* Close buttons for each active IV/HV panel - TradingView style X button */}
-                  {showIVPanel && (
-                    <button
-                      onClick={() => setShowIVPanel(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + 5 - 18}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      title="Close Implied Volatility panel"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {showIVRankIndicator && (
-                    <button
-                      onClick={() => setShowIVRankIndicator(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0)) + 25 + 5 - 18}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      title="Close IV Rank panel"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {showIVPercentileIndicator && (
-                    <button
-                      onClick={() => setShowIVPercentileIndicator(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0) - (showIVRankIndicator ? 1 : 0)) + 25 + 5 - 18}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      title="Close IV Percentile panel"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {showHVIndicator && (
-                    <button
-                      onClick={() => setShowHVIndicator(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight + 25 + 5 - 18}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      title="Close Historical Volatility panel"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {/* Close button for P/E Ratio panel */}
-                  {showPEPanel && (
-                    <button
-                      onClick={() => setShowPEPanel(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pePanelHeight + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5 - 10}px`,
-                        width: '28px',
-                        height: '28px',
-                        backgroundColor: 'rgba(239,68,68,0.2)',
-                        borderRadius: '4px',
-                        border: '1px solid rgba(239,68,68,0.6)',
-                        color: '#ef4444',
-                        fontSize: '22px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.5)')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.2)')}
-                      title="Close P/E Ratio panel"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {/* Close button for BuySell panel */}
-                  {showBuySellIndicator && (
-                    <button
-                      onClick={() => setShowBuySellIndicator(false)}
-                      className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
-                      style={{
-                        right: '85px',
-                        bottom: `${buySellPanelHeight + 25}px`,
-                        width: '18px',
-                        height: '18px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        lineHeight: '1',
-                      }}
-                      title="Close Buy/Sell Pressure panel"
-                    >
-                      ×
-                    </button>
-                  )}
+                  {/* BuySell fullscreen overlay */}
+                  {buySellFullscreen && showBuySellIndicator && buySellData.length > 0 && (() => {
+                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                    const chartW = W - PL - PR, chartH = H - PT - PB
+                    const validData = buySellData.filter(d => d.smoothed !== undefined)
+                    const vals = validData.map(d => d.smoothed)
+                    const rawMin = Math.min(...vals)
+                    const rawMax = Math.max(...vals)
+                    const pad = (rawMax - rawMin) * 0.15 || 10
+                    const minV = rawMin - pad, maxV = rawMax + pad
+                    const toX = (i: number) => PL + (i / (validData.length - 1)) * chartW
+                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                    const ySteps = 5
+                    return (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setBuySellFullscreen(false)}>
+                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(0,255,0,0.33)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                          onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(0,255,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                            <span style={{ color: '#00ff00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>BUY/SELL PRESSURE</span>
+                            <button onClick={() => setBuySellFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                          </div>
+                          <div style={{ padding: '8px 16px 16px' }}>
+                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                              {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                const v = minV + (i / ySteps) * (maxV - minV)
+                                const y = toY(v)
+                                return (
+                                  <g key={i}>
+                                    <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+                                    <text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{Math.round(v)}</text>
+                                  </g>
+                                )
+                              })}
+                              {/* zero line */}
+                              {minV < 0 && maxV > 0 && (
+                                <line x1={PL} y1={toY(0)} x2={PL + chartW} y2={toY(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,4" />
+                              )}
+                              <polyline
+                                points={validData.map((d, i) => `${toX(i)},${toY(d.smoothed)}`).join(' ')}
+                                fill="none" stroke="#00cc00" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+                              />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
                   {isFlowChartActive && (
@@ -32653,8 +33869,8 @@ export default function TradingViewChart({
                   display: (activeSidebarPanel || showPATPanel) ? 'flex' : 'none',
                   left: (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : ((isMobile || hideDesktopSidebar) ? '0px' : '80px'),
                   right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : 'auto',
-                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : '360px'),
-                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : '360px'),
+                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
+                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
                   top: (isMobile || hideDesktopSidebar)

@@ -1,8 +1,8 @@
 .financial-dashboard {
     width: 100%;
     height: auto;
-    min-height: 800px;
-    padding: 35px 20px 20px;
+    min-height: unset;
+    padding: 24px 20px 20px;
     background: transparent;
 }
 
@@ -80,7 +80,7 @@
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, minmax(250px, 1fr));
+    grid-template-rows: auto 1fr;
     gap: 16px;
     height: auto;
     min-height: 600px;
@@ -88,11 +88,12 @@
 
 /* Widget Styles */
 .widget {
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 102, 0, 0.2);
+    background: linear-gradient(145deg, #0d0d0d 0%, #080808 100%);
+    border: 1px solid rgba(255, 102, 0, 0.25);
     border-radius: 12px;
-    padding: 16px 16px 12px 16px;
+    padding: 14px 14px 10px 14px;
     backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 4px 16px rgba(0, 0, 0, 0.6);
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
@@ -100,10 +101,10 @@
 }
 
 .widget:hover {
-    border-color: rgba(255, 102, 0, 0.4);
-    background: rgba(0, 0, 0, 0.7);
+    border-color: rgba(255, 102, 0, 0.5);
+    background: linear-gradient(145deg, #111111 0%, #0a0a0a 100%);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(255, 102, 0, 0.15);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 24px rgba(255, 102, 0, 0.15);
 }
 
 .widget-header {
@@ -130,7 +131,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.9);
+    color: #ffffff;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -139,6 +140,7 @@
 .widget-movers {
     grid-column: 1;
     grid-row: 1;
+    align-self: start;
 }
 
 .movers-list {
@@ -151,8 +153,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.02);
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 6px;
     transition: all 0.2s ease;
 }
@@ -165,7 +167,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
     font-weight: 700;
-    color: #FFFFFF;
+    color: #ffffff;
     min-width: 50px;
 }
 
@@ -173,7 +175,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.8);
+    color: #ffffff;
     flex: 1;
     text-align: center;
 }
@@ -200,14 +202,15 @@
 
 /* Heatmap Widget */
 .widget-heatmap {
-    grid-column: 2 / 4;
+    grid-column: 1 / 4;
     grid-row: 1;
+    align-self: start;
 }
 
 .heatmap-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    gap: 6px;
     flex: 1;
 }
 
@@ -216,38 +219,57 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 12px 8px;
+    padding: 18px 10px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     transition: all 0.2s ease;
     cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.heatmap-cell::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 45%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 100%);
+    border-radius: 8px 8px 0 0;
+    pointer-events: none;
 }
 
 .heatmap-cell:hover {
-    transform: scale(1.05);
-    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.04);
+    border-color: rgba(255, 255, 255, 0.35);
+    filter: brightness(1.15);
 }
 
 .heatmap-symbol {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 700;
-    color: #FFFFFF;
-    margin-bottom: 4px;
+    color: #ffffff;
+    margin-bottom: 5px;
+    position: relative;
 }
 
 .heatmap-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
-    color: #FFFFFF;
+    color: #ffffff;
+    position: relative;
 }
 
 /* News Widget */
 .widget-news {
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
     grid-row: 2;
     padding: 16px 16px 8px 16px;
+    max-height: 280px;
+    overflow: hidden;
 }
 
 .news-list {
@@ -257,7 +279,22 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
-    padding-bottom: 0;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 102, 0, 0.4) transparent;
+}
+
+.news-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.news-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.news-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 102, 0, 0.4);
+    border-radius: 2px;
 }
 
 .news-item {
@@ -286,13 +323,12 @@
     font-family: 'Inter', sans-serif;
     font-size: 12px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.9);
+    color: #ffffff;
     line-height: 1.4;
 }
 
 /* Sector Performance Widget */
-.widget-sectors,
-.widget-rs-screener {
+.widget-sectors {
     grid-column: 3;
     grid-row: 2;
     padding: 16px 16px 8px 16px;
@@ -472,13 +508,8 @@
         grid-row: auto;
     }
 
-    .widget-news {
-        grid-column: 1;
-        grid-row: auto;
-    }
-
     .widget-sectors,
-    .widget-rs-screener {
+    .widget-news {
         grid-column: 1;
         grid-row: auto;
     }
@@ -554,7 +585,7 @@
     }
 
     .widget-news {
-        grid-column: 1;
+        grid-column: 1 / 3;
         grid-row: 2;
     }
 

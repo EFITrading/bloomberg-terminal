@@ -863,6 +863,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   // Ref to track accumulated trades synchronously across async SSE events
   // (React state updates are async so the complete handler can't read flowData reliably)
   const accumulatedTradesRef = useRef<OptionsFlowData[]>([])
+  // Buffer incoming trades and flush to state via rAF to avoid per-message setState
+  const pendingTradesRef = useRef<OptionsFlowData[]>([])
+  const rafFlushRef = useRef<number | null>(null)
+  const flushPendingTrades = () => {
+    if (pendingTradesRef.current.length === 0) return
+    const batch = pendingTradesRef.current.splice(0)
+    setFlowData((prev) => [...prev, ...batch])
+  }
   const [streamStatus, setStreamStatus] = useState('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
   const [overlayActive, setOverlayActive] = useState(false)
@@ -2079,7 +2087,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             case 'ticker_complete':
               if (data.trades?.length > 0) {
                 accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades]
-                setFlowData((prev) => [...prev, ...data.trades])
+                pendingTradesRef.current.push(...data.trades)
+                if (rafFlushRef.current === null) {
+                  rafFlushRef.current = requestAnimationFrame(() => {
+                    rafFlushRef.current = null
+                    flushPendingTrades()
+                  })
+                }
                 setStreamStatus(
                   `Received ${accumulatedTradesRef.current.length} trades (${data.ticker})...`
                 )
@@ -2090,7 +2104,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             case 'trades':
               if (data.trades?.length > 0 && !isStreamComplete) {
                 accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades]
-                setFlowData((prev) => [...prev, ...data.trades])
+                pendingTradesRef.current.push(...data.trades)
+                if (rafFlushRef.current === null) {
+                  rafFlushRef.current = requestAnimationFrame(() => {
+                    rafFlushRef.current = null
+                    flushPendingTrades()
+                  })
+                }
               }
               setStreamStatus(data.status || 'Processing trades...')
               break
