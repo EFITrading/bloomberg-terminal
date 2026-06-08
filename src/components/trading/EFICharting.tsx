@@ -95,7 +95,6 @@ import GuideChatbot from '../chatbot/GuideChatbot'
 import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
-import BuySellButton from './BuySellButton'
 import ChainPanel from './ChainPanel'
 import DarkPoolButton from './DarkPoolButton'
 import InsightPanel from './InsightPanel'
@@ -1496,13 +1495,20 @@ const processDailySeasonalData = (
   return dailyData
 }
 
-// Fetch and calculate seasonality projection for next 45 days
+// Fetch and calculate seasonality projection for next 45 days (daily) or N intraday bars
 const calculateSeasonalityProjection = async (
   symbol: string,
   yearsOfData: number,
   chartData: ChartDataPoint[],
-  electionType?: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+  electionType?: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
+  timeframe?: string
 ): Promise<Array<{ date: Date; price: number }> | null> => {
+  // For intraday timeframes, use slot-based intraday seasonal logic
+  const intradayTimeframes = ['1m', '5m', '15m', '30m', '1h', '60m']
+  if (timeframe && intradayTimeframes.includes(timeframe) && !electionType) {
+    return calculateIntradaySeasonalProjection(symbol, timeframe, chartData)
+  }
+
   try {
     // Calculate date range - fetch 30 years max
     const endDate = new Date()
@@ -1584,17 +1590,13 @@ const calculateSeasonalityProjection = async (
       return null
     }
 
-    // Log sample of seasonal pattern to verify differences
-    const sampleDays = [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360]
-    sampleDays.forEach((day) => {
-      const seasonalDay = dailySeasonalData.find((d) => d.dayOfYear === day)
-      if (seasonalDay) {
-      }
+    // ── Smooth avgReturn values with a 5-day centred moving average (denoises noise) ──
+    const smoothedSeasonalData = dailySeasonalData.map((d, idx, arr) => {
+      const half = 2 // window = 5
+      const slice = arr.slice(Math.max(0, idx - half), Math.min(arr.length, idx + half + 1))
+      const smoothed = slice.reduce((sum, s) => sum + s.avgReturn, 0) / slice.length
+      return { ...d, avgReturn: smoothed }
     })
-
-    // Get current date and find where we are in the year
-    const today = new Date()
-    const currentDayOfYear = getDayOfYear(today)
 
     // Get last candle price from chartData
     if (!chartData || chartData.length === 0) {
@@ -1628,8 +1630,8 @@ const calculateSeasonalityProjection = async (
 
       const futureDayOfYear = getDayOfYear(futureDate)
 
-      // Find seasonal data for this day
-      const seasonalDay = dailySeasonalData.find((d) => d.dayOfYear === futureDayOfYear)
+      // Find smoothed seasonal data for this day
+      const seasonalDay = smoothedSeasonalData.find((d) => d.dayOfYear === futureDayOfYear)
 
       if (seasonalDay) {
         // Apply the average return to project the price
@@ -1665,6 +1667,89 @@ const calculateSeasonalityProjection = async (
 }
 
 // ==================== END SEASONALITY PROJECTION FUNCTIONS ====================
+
+// ── Intraday seasonal: fetch N years of intraday bars, average by slot-within-session ──
+const calculateIntradaySeasonalProjection = async (
+  symbol: string,
+  timeframe: string,
+  chartData: ChartDataPoint[]
+): Promise<Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> | null> => {
+  try {
+    const tfMap: Record<string, { mult: number; span: string; slotsPerDay: number; yearsBack: number }> = {
+      '1m': { mult: 1, span: 'minute', slotsPerDay: 390, yearsBack: 0.25 },
+      '5m': { mult: 5, span: 'minute', slotsPerDay: 78, yearsBack: 2 },
+      '15m': { mult: 15, span: 'minute', slotsPerDay: 26, yearsBack: 2 },
+      '30m': { mult: 30, span: 'minute', slotsPerDay: 13, yearsBack: 2 },
+      '1h': { mult: 60, span: 'minute', slotsPerDay: 16, yearsBack: 3 },
+      '60m': { mult: 60, span: 'minute', slotsPerDay: 16, yearsBack: 3 },
+    }
+    const cfg = tfMap[timeframe]
+    if (!cfg) return null
+
+    const lastCandle = chartData[chartData.length - 1]
+    const lastPrice = lastCandle.close
+    const lastCandleDate = new Date(lastCandle.timestamp)
+
+    const symbolResp = await polygonService.getBulkHistoricalData(symbol, cfg.yearsBack, cfg.span, cfg.mult)
+    if (!symbolResp?.results?.length) return null
+
+    // Group bars by trading day (using UTC date key from raw timestamp)
+    const sessionMap: Record<string, any[]> = {}
+    symbolResp.results.forEach((bar: any) => {
+      const d = new Date(bar.t)
+      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+      if (!sessionMap[key]) sessionMap[key] = []
+      sessionMap[key].push(bar)
+    })
+
+    // Per slot: collect % changes from each session's slot-0 open (normalizes across all price levels)
+    // e.g. if slot 0 open was $126 and slot 6 close was $123.65, that's -1.86% — same whether price is $126 or $220
+    const slotPct: Record<number, { openPct: number[]; highPct: number[]; lowPct: number[]; closePct: number[] }> = {}
+
+    Object.values(sessionMap).forEach((bars) => {
+      if (bars.length < 3) return
+      const sorted = [...bars].sort((a: any, b: any) => a.t - b.t)
+      const sessionOpen = sorted[0].o ?? sorted[0].c  // slot 0 open = anchor for this session
+      if (!sessionOpen || sessionOpen === 0) return
+      sorted.forEach((bar: any, slotIdx: number) => {
+        if (!slotPct[slotIdx]) slotPct[slotIdx] = { openPct: [], highPct: [], lowPct: [], closePct: [] }
+        slotPct[slotIdx].openPct.push(((bar.o ?? bar.c) - sessionOpen) / sessionOpen * 100)
+        slotPct[slotIdx].highPct.push(((bar.h ?? bar.c) - sessionOpen) / sessionOpen * 100)
+        slotPct[slotIdx].lowPct.push(((bar.l ?? bar.c) - sessionOpen) / sessionOpen * 100)
+        slotPct[slotIdx].closePct.push((bar.c - sessionOpen) / sessionOpen * 100)
+      })
+    })
+
+    if (Object.keys(slotPct).length === 0) return null
+
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
+
+    const maxSlot = Math.max(...Object.keys(slotPct).map(Number))
+    const apply = (pct: number) => lastPrice * (1 + pct / 100)
+
+    const projectSlots = Math.min(cfg.slotsPerDay * 2, maxSlot + 1)
+    const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+
+    const barMs = cfg.mult * 60 * 1000
+    let curTime = lastCandleDate.getTime()
+
+    for (let slot = 0; slot < projectSlots; slot++) {
+      curTime += barMs
+      const d = slotPct[slot % cfg.slotsPerDay]
+      if (!d || d.closePct.length === 0) continue
+      const o = apply(avg(d.openPct))
+      const h = apply(avg(d.highPct))
+      const l = apply(avg(d.lowPct))
+      const c = apply(avg(d.closePct))
+      projection.push({ date: new Date(curTime), price: c, open: o, high: h, low: l, close: c })
+    }
+
+    return projection.length > 0 ? projection : null
+  } catch (e) {
+    console.error('[IntradaySeasonal] error:', e)
+    return null
+  }
+}
 
 // ==================== MARKET EVENTS PERFORMANCE FUNCTIONS ====================
 
@@ -2145,9 +2230,6 @@ const calculateExpectedRangeLevels = async (symbol: string, customDate?: string)
       customTimeToExpiry,
     } = marketData
 
-    if (customIV && customTimeToExpiry) {
-    }
-
     // Calculate the strike prices for chart lines - EXACT same function calls as AI Suite
     const levels: any = {
       weekly80Call: findStrikeForProbability(
@@ -2265,6 +2347,89 @@ const calculateExpectedRangeLevels = async (symbol: string, customDate?: string)
   }
 }
 
+// Calculate Expected Range Levels for all expiries up to a cutoff date
+const calculateFutureExpiriesLevels = async (
+  symbol: string,
+  cutoffDate: string
+): Promise<Array<{ expiryDate: string; levels: any }>> => {
+  try {
+    const { fetchAvailableExpirationDates } = await import('../../lib/optionsExpirationUtils')
+
+    // Fetch price + all expiry dates in parallel — ONE round-trip each
+    const [allDates, priceResp, riskFreeRate] = await Promise.all([
+      fetchAvailableExpirationDates(symbol),
+      fetch(`https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`),
+      getRiskFreeRate().then(r => r ?? 0.0442),
+    ])
+
+    if (!priceResp.ok) throw new Error('Failed to fetch price')
+    const priceData = await priceResp.json()
+    const currentPrice = priceData.results.p
+    const lowerBound = currentPrice * 0.8
+    const upperBound = currentPrice * 1.2
+
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const cutoff = new Date(cutoffDate + 'T00:00:00Z')
+    const targetDates = allDates.filter(d => {
+      const dt = new Date(d + 'T00:00:00Z')
+      return dt > today && dt <= cutoff
+    })
+
+    if (targetDates.length === 0) return []
+
+    // Fetch ALL option chains in parallel — one fetch per expiry date
+    const chainResponses = await Promise.allSettled(
+      targetDates.map(expiryDate =>
+        fetch(
+          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${expiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
+        ).then(r => r.ok ? r.json() : null)
+      )
+    )
+
+    // Compute IV + levels for each expiry in parallel
+    const results = await Promise.allSettled(
+      targetDates.map(async (expiryDate, i) => {
+        const chainResult = chainResponses[i]
+        if (chainResult.status !== 'fulfilled' || !chainResult.value?.results) return null
+
+        const contracts = chainResult.value.results
+        const calls = contracts.filter((c: any) => c.contract_type === 'call')
+        const puts = contracts.filter((c: any) => c.contract_type === 'put')
+        if (calls.length === 0 || puts.length === 0) return null
+
+        const expiryDateObj = new Date(expiryDate + 'T00:00:00Z')
+        const dte = Math.max(1, getDaysUntilExpiration(expiryDateObj))
+        const T = dte / 365
+
+        const [callIV, putIV] = await Promise.all([
+          calculateIVFromOptionsChain(calls, currentPrice, T, 'Call', symbol).catch(() => null),
+          calculateIVFromOptionsChain(puts, currentPrice, T, 'Put', symbol).catch(() => null),
+        ])
+
+        if (!callIV || !putIV || callIV <= 0 || putIV <= 0) return null
+        const iv = (callIV + putIV) / 2
+
+        const levels = {
+          call90: findStrikeForProbability(currentPrice, riskFreeRate, iv, T, 90, true),
+          call80: findStrikeForProbability(currentPrice, riskFreeRate, iv, T, 80, true),
+          put80: findStrikeForProbability(currentPrice, riskFreeRate, iv, T, 80, false),
+          put90: findStrikeForProbability(currentPrice, riskFreeRate, iv, T, 90, false),
+        }
+
+        return { expiryDate, levels }
+      })
+    )
+
+    return results
+      .filter((r): r is PromiseFulfilledResult<{ expiryDate: string; levels: any }> =>
+        r.status === 'fulfilled' && r.value !== null)
+      .map(r => r.value)
+  } catch (err) {
+    console.error('Error calculating future expiries levels:', err)
+    return []
+  }
+}
+
 // Render Expected Range Lines on Chart
 const renderExpectedRangeLines = (
   ctx: CanvasRenderingContext2D,
@@ -2334,8 +2499,6 @@ const renderExpectedRangeLines = (
 
   // Filter lines based on selected range type
   const linesToDraw = allLines.filter((line) => line.type === rangeType)
-
-  ctx.lineWidth = 3 // Make lines thicker and more visible
   ctx.font = 'bold 12px Arial'
 
   let linesDrawn = 0
@@ -5756,6 +5919,8 @@ export default function TradingViewChart({
     setIsExpectedRangeDropdownOpen(false)
     setIsSeasonalDropdownOpen(false)
     setIsEventDropdownOpen(false)
+    setIsSmartPerformanceOpen(false)
+    setIsSmartEventsOpen(false)
     setIsGexDropdownOpen(false)
     setIsIVHVDropdownOpen(false)
     setIsTechnalysisDropdownOpen(false)
@@ -5888,6 +6053,9 @@ export default function TradingViewChart({
   const [isBenchmarkMode, setIsBenchmarkMode] = useState(false)
   const [benchmarkSymbol1, setBenchmarkSymbol1] = useState('')
   const [benchmarkSymbol2, setBenchmarkSymbol2] = useState('')
+  const [benchmarkDefaultTicker, setBenchmarkDefaultTicker] = useState('SPY')
+  const [isEditingBenchmarkTicker, setIsEditingBenchmarkTicker] = useState(false)
+  const [benchmarkEditValue, setBenchmarkEditValue] = useState('')
 
   // Basket mode state (TOP{N} or {ETF}{N})
   const [isBasketMode, setIsBasketMode] = useState(false)
@@ -6459,16 +6627,18 @@ export default function TradingViewChart({
   }
 
   // GEX Live OI Scan Handler - same historical bid/ask logic as AlgoFlow & Options Flow page
-  const handleLiveGEXClick = async () => {
+  const handleLiveGEXClick = async (forceRescan = false) => {
     if (isGexLoading) return
 
-    const newActiveState = !isGexActive
+    if (!forceRescan) {
+      const newActiveState = !isGexActive
 
-    // If deactivating, just toggle off
-    if (!newActiveState) {
-      setIsGexActive(false)
-      setLiveGexData(null)
-      return
+      // If deactivating, just toggle off
+      if (!newActiveState) {
+        setIsGexActive(false)
+        setLiveGexData(null)
+        return
+      }
     }
 
     setIsGexLoading(true)
@@ -9591,6 +9761,39 @@ export default function TradingViewChart({
   const [customExpirationDate, setCustomExpirationDate] = useState<string>('')
   const [pendingCustomDate, setPendingCustomDate] = useState<string>('')
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false)
+  // Future expiries scroller state
+  const [isFutureExpiriesActive, setIsFutureExpiriesActive] = useState(false)
+  const [futureExpiryCutoffDate, setFutureExpiryCutoffDate] = useState<string>('')
+  const [futureExpiriesLevels, setFutureExpiriesLevels] = useState<Array<{ expiryDate: string; levels: any }>>([])
+  const [isLoadingFutureExpiries, setIsLoadingFutureExpiries] = useState(false)
+  const [futureExpiryCutoffMonth, setFutureExpiryCutoffMonth] = useState<Date>(() => {
+    const d = new Date(); d.setMonth(d.getMonth() + 3); return d
+  })
+  // Refs so renderChart (useCallback) always reads current values without re-creating
+  const isFutureExpiriesActiveRef = useRef(false)
+  const futureExpiriesLevelsRef = useRef<Array<{ expiryDate: string; levels: any }>>([])
+  useEffect(() => { isFutureExpiriesActiveRef.current = isFutureExpiriesActive }, [isFutureExpiriesActive])
+  useEffect(() => { futureExpiriesLevelsRef.current = futureExpiriesLevels }, [futureExpiriesLevels])
+
+  // ATR Range state
+  const [isATRRangeActive, setIsATRRangeActive] = useState(false)
+  const isATRRangeActiveRef = useRef(false)
+  useEffect(() => { isATRRangeActiveRef.current = isATRRangeActive }, [isATRRangeActive])
+
+  // StdDev Range state
+  const [isStdDevRangeActive, setIsStdDevRangeActive] = useState(false)
+  const isStdDevRangeActiveRef = useRef(false)
+  useEffect(() => { isStdDevRangeActiveRef.current = isStdDevRangeActive }, [isStdDevRangeActive])
+
+  // Projected-line hover state — tracks which overlay the cursor is nearest to
+  type OverlayKey = 'futureExpiries' | 'atrRange' | 'stddevRange'
+  const hoveredOverlayRef = useRef<OverlayKey | null>(null)
+  // Hit-test points stored by the render loop: { x, y } canvas coordinates per overlay
+  const projectedPointsRef = useRef<Record<OverlayKey, Array<{ x: number; y: number }>>>({
+    futureExpiries: [],
+    atrRange: [],
+    stddevRange: [],
+  })
 
   // Seasonal state
   const [isSeasonalDropdownOpen, setIsSeasonalDropdownOpen] = useState(false)
@@ -9649,7 +9852,373 @@ export default function TradingViewChart({
     date: Date
     price: number
   }> | null>(null)
+  const [seasonalEventDate, setSeasonalEventDate] = useState<Date | null>(null)
+  const [seasonalEventLabel, setSeasonalEventLabel] = useState<string | null>(null)
   const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false)
+  const [seasonalEventNoData, setSeasonalEventNoData] = useState(false)
+  const [isEventSeasonalLoading, setIsEventSeasonalLoading] = useState(false)
+
+  // Smart Detection state
+  const [isSmartPerformanceOpen, setIsSmartPerformanceOpen] = useState(false)
+  const [isSmartEventsOpen, setIsSmartEventsOpen] = useState(false)
+  type SmartSignal = { key: string; label: string; description: string }
+  const [smartPerformanceSignals, setSmartPerformanceSignals] = useState<SmartSignal[]>([])
+  const [smartEventSignals, setSmartEventSignals] = useState<SmartSignal[]>([])
+  const [activeSmartSignal, setActiveSmartSignal] = useState<string | null>(null)
+  const [smartPerfData, setSmartPerfData] = useState<Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> | null>(null)
+  const [smartPerfTriggerDate, setSmartPerfTriggerDate] = useState<Date | null>(null)
+  const [isSmartPerfActive, setIsSmartPerfActive] = useState(false)
+
+  // Detect performance-based signals from chart data
+  const detectSmartSignals = useCallback((chartData: ChartDataPoint[]) => {
+    if (!chartData || chartData.length < 252) { setSmartPerformanceSignals([]); return }
+    const signals: SmartSignal[] = []
+    const current = chartData[chartData.length - 1].close
+    const prices252 = chartData.slice(-252).map(d => d.close)
+    const high52 = Math.max(...prices252)
+    const low52 = Math.min(...prices252)
+    const allTimePrices = chartData.map(d => d.close)
+    const ath = Math.max(...allTimePrices)
+    const atl = Math.min(...allTimePrices)
+    const pct1Y = ((current - chartData[chartData.length - 252].close) / chartData[chartData.length - 252].close) * 100
+    const pct1M = chartData.length >= 21 ? ((current - chartData[chartData.length - 21].close) / chartData[chartData.length - 21].close) * 100 : 0
+    const distFromATH = ((current - ath) / ath) * 100
+    const distFromATL = ((current - atl) / atl) * 100
+    const distFrom52H = ((current - high52) / high52) * 100
+    const distFrom52L = ((current - low52) / low52) * 100
+    // ATH / ATL
+    if (Math.abs(distFromATH) < 0.5) signals.push({ key: 'perf-ath', label: '🏔 Near All-Time High', description: `Within 0.5% of ATH ($${ath.toFixed(2)})` })
+    if (Math.abs(distFromATL) < 2) signals.push({ key: 'perf-atl', label: '🕳 Near All-Time Low', description: `Within 2% of ATL ($${atl.toFixed(2)})` })
+    // 52w high/low
+    if (Math.abs(distFrom52H) < 1) signals.push({ key: 'perf-52wh', label: '📈 52-Week High', description: `Within 1% of 52w high ($${high52.toFixed(2)})` })
+    if (Math.abs(distFrom52L) < 1) signals.push({ key: 'perf-52wl', label: '📉 52-Week Low', description: `Within 1% of 52w low ($${low52.toFixed(2)})` })
+    // Monthly moves
+    if (pct1M >= 8 && pct1M < 13) signals.push({ key: 'perf-up8-12m', label: `📊 Up ${pct1M.toFixed(1)}% (1M)`, description: 'Stock up 8–12% in last month' })
+    if (pct1M <= -8 && pct1M > -13) signals.push({ key: 'perf-dn8-12m', label: `📊 Down ${Math.abs(pct1M).toFixed(1)}% (1M)`, description: 'Stock down 8–12% in last month' })
+    if (pct1M >= 20 && pct1M < 26) signals.push({ key: 'perf-up20-25m', label: `🚀 Up ${pct1M.toFixed(1)}% (1M)`, description: 'Stock up 20–25% in last month' })
+    if (pct1M <= -20 && pct1M > -26) signals.push({ key: 'perf-dn20-25m', label: `💥 Down ${Math.abs(pct1M).toFixed(1)}% (1M)`, description: 'Stock down 20–25% in last month' })
+    // Annual moves
+    if (pct1Y >= 8 && pct1Y < 13) signals.push({ key: 'perf-up8-12y', label: `📈 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 8–12% in last year' })
+    if (pct1Y <= -8 && pct1Y > -13) signals.push({ key: 'perf-dn8-12y', label: `📉 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 8–12% in last year' })
+    if (pct1Y >= 20 && pct1Y < 26) signals.push({ key: 'perf-up20-25y', label: `🚀 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 20–25% in last year' })
+    if (pct1Y <= -20 && pct1Y > -26) signals.push({ key: 'perf-dn20-25y', label: `💥 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 20–25% in last year' })
+    if (pct1Y >= 30) signals.push({ key: 'perf-up30y', label: `🔥 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 30%+ in last year' })
+    if (pct1Y <= -30) signals.push({ key: 'perf-dn30y', label: `💀 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 30%+ in last year' })
+    setSmartPerformanceSignals(signals)
+  }, [])
+
+  // Detect time-based event signals (holidays + options events within ±30 days)
+  const detectEventSignals = useCallback(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const year = today.getFullYear()
+    const pastWindow = new Date(today); pastWindow.setDate(today.getDate() - 10)
+    const futureWindow = new Date(today); futureWindow.setDate(today.getDate() + 30)
+    const signals: SmartSignal[] = []
+    const nthWeekday = (y: number, m: number, weekday: number, n: number) => {
+      const d = new Date(y, m, 1); let count = 0
+      while (count < n) { if (d.getDay() === weekday) count++; if (count < n) d.setDate(d.getDate() + 1) }
+      return d
+    }
+    const lastWeekday = (y: number, m: number, weekday: number) => {
+      const d = new Date(y, m + 1, 0)
+      while (d.getDay() !== weekday) d.setDate(d.getDate() - 1)
+      return d
+    }
+    const thirdFriday = (y: number, m: number) => nthWeekday(y, m, 5, 3)
+    const candidates: { key: string; label: string; date: Date }[] = [
+      { key: 'newyear', label: "New Year's Day", date: new Date(year, 0, 1) },
+      { key: 'mlkday', label: 'MLK Day', date: nthWeekday(year, 0, 1, 3) },
+      { key: 'presidentsday', label: "Presidents' Day", date: nthWeekday(year, 1, 1, 3) },
+      { key: 'memorialday', label: 'Memorial Day', date: lastWeekday(year, 4, 1) },
+      { key: 'juneteenth', label: 'Juneteenth', date: new Date(year, 5, 19) },
+      { key: 'july4th', label: 'Independence Day', date: new Date(year, 6, 4) },
+      { key: 'laborday', label: 'Labor Day', date: nthWeekday(year, 8, 1, 1) },
+      { key: 'thanksgiving', label: 'Thanksgiving', date: nthWeekday(year, 10, 4, 4) },
+      { key: 'christmas', label: 'Christmas', date: new Date(year, 11, 25) },
+      { key: 'quad-witching-mar', label: 'Quad Witching (Mar)', date: thirdFriday(year, 2) },
+      { key: 'quad-witching-jun', label: 'Quad Witching (Jun)', date: thirdFriday(year, 5) },
+      { key: 'quad-witching-sep', label: 'Quad Witching (Sep)', date: thirdFriday(year, 8) },
+      { key: 'quad-witching-dec', label: 'Quad Witching (Dec)', date: thirdFriday(year, 11) },
+      { key: 'monthlyopex', label: 'Monthly OpEx', date: thirdFriday(year, today.getMonth()) },
+      { key: 'yearendrally', label: 'Year-End Rally', date: new Date(year, 11, 20) },
+      { key: 'santarally', label: 'Santa Rally', date: new Date(year, 11, 22) },
+      { key: 'halloweenrally', label: 'Halloween Rally', date: new Date(year, 9, 31) },
+      { key: 'q1-earnings', label: 'Q1 Earnings Season', date: new Date(year, 3, 15) },
+      { key: 'q2-earnings', label: 'Q2 Earnings Season', date: new Date(year, 6, 15) },
+      { key: 'q3-earnings', label: 'Q3 Earnings Season', date: new Date(year, 9, 15) },
+      { key: 'q4-earnings', label: 'Q4 Earnings Season', date: new Date(year, 0, 15) },
+    ]
+    // Also check next year for events that already passed this year
+    for (const c of [...candidates]) {
+      if (c.date < pastWindow) {
+        const next = new Date(c.date); next.setFullYear(year + 1)
+        if (next >= pastWindow && next <= futureWindow) candidates.push({ ...c, date: next })
+      }
+    }
+    for (const c of candidates) {
+      const d = c.date; d.setHours(0, 0, 0, 0)
+      if (d >= pastWindow && d <= futureWindow) {
+        const daysAway = Math.round((d.getTime() - today.getTime()) / 86400000)
+        const relStr = daysAway === 0 ? 'Today' : daysAway > 0 ? `in ${daysAway}d` : `${Math.abs(daysAway)}d ago`
+        signals.push({ key: c.key, label: `${c.label} (${relStr})`, description: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) })
+      }
+    }
+    signals.sort((a, b) => {
+      const da = candidates.find(c => c.key === a.key)?.date ?? today
+      const db = candidates.find(c => c.key === b.key)?.date ?? today
+      return da.getTime() - db.getTime()
+    })
+    setSmartEventSignals(signals)
+  }, [])
+
+  // Run detection whenever data changes
+  // (useEffect placed below data declaration at line ~13745)
+
+  // Calculate performance projection anchored to signal trigger date
+  const calculateSmartPerformanceSeasonal = useCallback(async (signalKey: string, chartData: ChartDataPoint[], timeframe?: string | null): Promise<{ projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }>; triggerDate: Date } | null> => {
+    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const SLOTS = 45
+    const isWknd = (d: Date) => d.getDay() === 0 || d.getDay() === 6
+    const isHol = (d: Date) => {
+      const m = d.getMonth(), day = d.getDate(), dow = d.getDay()
+      return (m === 0 && day === 1) || (m === 6 && day === 4) || (m === 11 && day === 25) ||
+        (m === 0 && dow === 1 && day >= 15 && day <= 21) ||
+        (m === 1 && dow === 1 && day >= 15 && day <= 21) ||
+        (m === 4 && dow === 1 && day >= 25) ||
+        (m === 8 && dow === 1 && day <= 7) ||
+        (m === 10 && dow === 4 && day >= 22 && day <= 28) ||
+        (m === 5 && day === 19) || (m === 5 && day === 18 && dow === 5) || (m === 5 && day === 20 && dow === 1)
+    }
+    const isTradDay = (d: Date) => !isWknd(d) && !isHol(d)
+
+    // Trigger date is always TODAY (last candle) — we project 45 days forward from now.
+    const lastCandleDate = new Date(chartData[chartData.length - 1].timestamp)
+    lastCandleDate.setHours(0, 0, 0, 0)
+    const lastPrice = chartData[chartData.length - 1].close
+
+    // Fetch 12 years of historical daily OHLC from Polygon
+    const endDate = new Date()
+    const startDate = new Date(); startDate.setFullYear(endDate.getFullYear() - 12)
+    let dailyBars: any[] = []
+    try {
+      let nextUrl: string | null = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+      while (nextUrl) {
+        const resp: Response = await fetch(nextUrl)
+        if (!resp.ok) break
+        const json: any = await resp.json()
+        if (!json.results?.length) break
+        dailyBars = dailyBars.concat(json.results)
+        nextUrl = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
+      }
+    } catch { return null }
+    if (dailyBars.length < 50) return null
+
+    // Find historical trigger indices — each bar where the same condition was true
+    const MIN_GAP = SLOTS // at least 45 bars between triggers to avoid overlap
+    const triggerIndices: number[] = []
+
+    if (signalKey === 'perf-ath') {
+      // New all-time high
+      let runningATH = -Infinity; let lastTrig = -999
+      for (let i = 0; i < dailyBars.length; i++) {
+        const c = dailyBars[i].c
+        if (c > runningATH) { runningATH = c; if (i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i } }
+      }
+    } else if (signalKey === 'perf-atl') {
+      // New all-time low
+      let runningATL = Infinity; let lastTrig = -999
+      for (let i = 0; i < dailyBars.length; i++) {
+        const c = dailyBars[i].c
+        if (c < runningATL) { runningATL = c; if (i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i } }
+      }
+    } else if (signalKey === 'perf-52wh') {
+      // Within 1% of 52-week high — precompute rolling max in O(n) with sliding window
+      const roll52High = new Float64Array(dailyBars.length)
+      let winMax = -Infinity
+      const winQ: number[] = [] // monotonic deque of indices (descending close)
+      for (let i = 0; i < dailyBars.length; i++) {
+        // Remove indices outside window
+        while (winQ.length && winQ[0] < i - 251) winQ.shift()
+        // Maintain descending deque
+        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c <= dailyBars[i].c) winQ.pop()
+        winQ.push(i)
+        roll52High[i] = dailyBars[winQ[0]].c
+      }
+      let lastTrig = -999
+      for (let i = 252; i < dailyBars.length; i++) {
+        if (Math.abs((dailyBars[i].c - roll52High[i]) / roll52High[i]) < 0.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+      }
+    } else if (signalKey === 'perf-52wl') {
+      // Within 1% of 52-week low — precompute rolling min in O(n) with sliding window
+      const roll52Low = new Float64Array(dailyBars.length)
+      const winQ: number[] = [] // monotonic deque of indices (ascending close)
+      for (let i = 0; i < dailyBars.length; i++) {
+        while (winQ.length && winQ[0] < i - 251) winQ.shift()
+        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c >= dailyBars[i].c) winQ.pop()
+        winQ.push(i)
+        roll52Low[i] = dailyBars[winQ[0]].c
+      }
+      let lastTrig = -999
+      for (let i = 252; i < dailyBars.length; i++) {
+        if (Math.abs((dailyBars[i].c - roll52Low[i]) / roll52Low[i]) < 0.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+      }
+    } else {
+      // Monthly / yearly move signals — find bars where rolling window return is in range
+      let window = 21, minPct = 0, maxPct = 10000, isUp = true
+      if (signalKey === 'perf-up8-12m')  { window = 21;  minPct = 8;  maxPct = 13;    isUp = true  }
+      else if (signalKey === 'perf-dn8-12m')  { window = 21;  minPct = 8;  maxPct = 13;    isUp = false }
+      else if (signalKey === 'perf-up20-25m') { window = 21;  minPct = 20; maxPct = 26;    isUp = true  }
+      else if (signalKey === 'perf-dn20-25m') { window = 21;  minPct = 20; maxPct = 26;    isUp = false }
+      else if (signalKey === 'perf-up8-12y')  { window = 252; minPct = 8;  maxPct = 13;    isUp = true  }
+      else if (signalKey === 'perf-dn8-12y')  { window = 252; minPct = 8;  maxPct = 13;    isUp = false }
+      else if (signalKey === 'perf-up20-25y') { window = 252; minPct = 20; maxPct = 26;    isUp = true  }
+      else if (signalKey === 'perf-dn20-25y') { window = 252; minPct = 20; maxPct = 26;    isUp = false }
+      else if (signalKey === 'perf-up30y')    { window = 252; minPct = 30; maxPct = 10000; isUp = true  }
+      else if (signalKey === 'perf-dn30y')    { window = 252; minPct = 30; maxPct = 10000; isUp = false }
+      let lastTrig = -999
+      for (let i = window; i < dailyBars.length; i++) {
+        const pct = (dailyBars[i].c - dailyBars[i - window].c) / dailyBars[i - window].c * 100
+        const inRange = isUp ? (pct >= minPct && pct < maxPct) : (pct <= -minPct && pct > -maxPct)
+        if (inRange && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+      }
+    }
+
+    if (triggerIndices.length === 0) return null
+
+    // ── INTRADAY PATH: fetch per-bar OHLC around each trigger (mirrors calculateEventSeasonal) ──
+    const intradayTfMap: Record<string, { mult: number; slotsPerDay: number }> = {
+      '1m': { mult: 1, slotsPerDay: 960 },
+      '5m': { mult: 5, slotsPerDay: 192 },
+      '15m': { mult: 15, slotsPerDay: 64 },
+      '30m': { mult: 30, slotsPerDay: 32 },
+      '1h': { mult: 60, slotsPerDay: 16 },
+      '60m': { mult: 60, slotsPerDay: 16 },
+      '4h': { mult: 240, slotsPerDay: 4 },
+    }
+    const intradayCfg = timeframe ? intradayTfMap[timeframe] : null
+    if (intradayCfg) {
+      const barMs = intradayCfg.mult * 60_000
+      const daysAfterEvent = intradayCfg.mult >= 60 ? 15 : intradayCfg.mult >= 30 ? 10 : 5
+      const totalSlotDays = daysAfterEvent
+      const recentTriggers = triggerIndices.slice(-10)
+      const utcKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`
+      const slotMap: Record<string, { o: number[]; h: number[]; l: number[]; c: number[] }> = {}
+
+      await Promise.all(recentTriggers.map(async (trigIdx) => {
+        const refDate = new Date(dailyBars[trigIdx].t)
+        refDate.setUTCHours(0, 0, 0, 0)
+        const fetchEnd = new Date(refDate)
+        fetchEnd.setDate(fetchEnd.getDate() + totalSlotDays + 7)
+        const startStr = refDate.toISOString().split('T')[0]
+        const endStr = fetchEnd.toISOString().split('T')[0]
+        let winBars: any[] = []
+        try {
+          const resp = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`)
+          if (!resp.ok) return
+          const json = await resp.json()
+          if (!json.results?.length) return
+          winBars = json.results
+        } catch { return }
+        if (!winBars.length) return
+
+        const winDayMap: Record<string, any[]> = {}
+        for (const bar of winBars) {
+          const k = utcKey(new Date(bar.t))
+          if (!winDayMap[k]) winDayMap[k] = []
+          winDayMap[k].push(bar)
+        }
+        const refBars = winDayMap[utcKey(refDate)]?.slice().sort((a: any, b: any) => a.t - b.t)
+        if (!refBars?.length) return
+        const refOpen = refBars[0].o ?? refBars[0].c
+        if (!refOpen) return
+
+        let dayOff = 0
+        const walkCur = new Date(refDate)
+        while (dayOff <= totalSlotDays) {
+          if (!isWknd(walkCur) && !isHol(walkCur)) {
+            const dayBars = winDayMap[utcKey(walkCur)]?.slice().sort((a: any, b: any) => a.t - b.t)
+            if (dayBars?.length) {
+              dayBars.forEach((bar: any, slotInDay: number) => {
+                const mk = `${dayOff}_${slotInDay}`
+                if (!slotMap[mk]) slotMap[mk] = { o: [], h: [], l: [], c: [] }
+                slotMap[mk].o.push(((bar.o ?? bar.c) - refOpen) / refOpen * 100)
+                slotMap[mk].h.push(((bar.h ?? bar.c) - refOpen) / refOpen * 100)
+                slotMap[mk].l.push(((bar.l ?? bar.c) - refOpen) / refOpen * 100)
+                slotMap[mk].c.push((bar.c - refOpen) / refOpen * 100)
+              })
+            }
+            dayOff++
+          }
+          walkCur.setDate(walkCur.getDate() + 1)
+        }
+      }))
+
+      if (Object.keys(slotMap).length > 0) {
+        const avgFn = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+        const apply = (pct: number) => lastPrice * (1 + pct / 100)
+        const slotsPerDayCycle = intradayCfg.slotsPerDay
+        const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+        const walkDay = new Date(lastCandleDate)
+        let dayOff = 0
+        while (dayOff <= totalSlotDays) {
+          walkDay.setDate(walkDay.getDate() + 1)
+          if (isWknd(walkDay) || isHol(walkDay)) continue
+          for (let slotInDay = 0; slotInDay < slotsPerDayCycle; slotInDay++) {
+            const d = slotMap[`${dayOff}_${slotInDay}`]
+            if (!d || d.c.length === 0) continue
+            const slotTs = Date.UTC(walkDay.getFullYear(), walkDay.getMonth(), walkDay.getDate(), 8, 0) + slotInDay * barMs
+            projection.push({ date: new Date(slotTs), price: apply(avgFn(d.c)), open: apply(avgFn(d.o)), high: apply(avgFn(d.h)), low: apply(avgFn(d.l)), close: apply(avgFn(d.c)) })
+          }
+          dayOff++
+        }
+        if (projection.length > 0) return { projection, triggerDate: lastCandleDate }
+      }
+      // Fall through to daily path if intraday fetch yielded no data
+    }
+
+    // Average OHLC % returns for slots 0..45 after each historical trigger
+    // slot 0 = trigger day, slot 1 = day after, ..., slot 45 = 45 trading days after
+    const slotData: Array<{ o: number[]; h: number[]; l: number[]; c: number[] }> =
+      Array.from({ length: SLOTS + 2 }, () => ({ o: [], h: [], l: [], c: [] }))
+    for (const trigIdx of triggerIndices) {
+      const refClose = dailyBars[trigIdx]?.c
+      if (!refClose) continue
+      for (let slot = 0; slot <= SLOTS && trigIdx + slot < dailyBars.length; slot++) {
+        const bar = dailyBars[trigIdx + slot]
+        slotData[slot].o.push((bar.o - refClose) / refClose * 100)
+        slotData[slot].h.push((bar.h - refClose) / refClose * 100)
+        slotData[slot].l.push((bar.l - refClose) / refClose * 100)
+        slotData[slot].c.push((bar.c - refClose) / refClose * 100)
+      }
+    }
+
+    const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+
+    // Build projection: slot 0 = last candle close (anchor), slots 1..45 are future candles
+    const anchorC = avg(slotData[0].c) // should be ~0 since slot 0 is trigger day itself
+    const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+    const walkCur = new Date(lastCandleDate)
+    for (let slot = 1; slot <= SLOTS; slot++) {
+      do { walkCur.setDate(walkCur.getDate() + 1) } while (!isTradDay(walkCur))
+      const sd = slotData[slot]
+      if (!sd || sd.c.length === 0) continue
+      // Re-anchor to lastPrice: subtract slot-0 average so projection starts flat from last close
+      const relO = avg(sd.o) - anchorC
+      const relH = avg(sd.h) - anchorC
+      const relL = avg(sd.l) - anchorC
+      const relC = avg(sd.c) - anchorC
+      projection.push({
+        date: new Date(walkCur),
+        price: lastPrice * (1 + relC / 100),
+        open: lastPrice * (1 + relO / 100),
+        high: lastPrice * (1 + relH / 100),
+        low: lastPrice * (1 + relL / 100),
+        close: lastPrice * (1 + relC / 100),
+      })
+    }
+    if (projection.length === 0) return null
+    return { projection, triggerDate: lastCandleDate }
+  }, [symbol])
 
   // Calculate available seasonal years based on actual data
   useEffect(() => {
@@ -9691,14 +10260,26 @@ export default function TradingViewChart({
 
   // Event seasonal calculation with Polygon API
   const calculateEventSeasonal = useCallback(
-    async (eventType: string, chartData: ChartDataPoint[]) => {
+    async (eventType: string, chartData: ChartDataPoint[], timeframe?: string) => {
       const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
       const currentYear = new Date().getFullYear()
 
+      // For intraday timeframes, use per-bar OHLC logic instead of daily
+      const intradayTfMap: Record<string, { mult: number; slotsPerDay: number }> = {
+        '1m': { mult: 1, slotsPerDay: 960 },
+        '5m': { mult: 5, slotsPerDay: 192 },
+        '15m': { mult: 15, slotsPerDay: 64 },
+        '30m': { mult: 30, slotsPerDay: 32 },
+        '1h': { mult: 60, slotsPerDay: 16 },
+        '60m': { mult: 60, slotsPerDay: 16 },
+        '4h': { mult: 240, slotsPerDay: 4 },
+      }
+      const intradayCfg = timeframe ? intradayTfMap[timeframe] : null
+
       const getEventDates = (event: string): Date[] => {
         const dates: Date[] = []
-        // Include past 5 years + current year + next year for future projections
-        for (let year = currentYear - 5; year <= currentYear + 1; year++) {
+        // Include past 10 years + current year + next year for future projections (max 10Y lookback)
+        for (let year = currentYear - 10; year <= currentYear + 1; year++) {
           switch (event) {
             case 'thanksgiving':
               const nov1 = new Date(year, 10, 1)
@@ -9728,6 +10309,9 @@ export default function TradingViewChart({
               break
             case 'july4th':
               dates.push(new Date(year, 6, 4))
+              break
+            case 'juneteenth':
+              dates.push(new Date(year, 5, 19))
               break
             case 'laborday':
               const sep1 = new Date(year, 8, 1)
@@ -9800,6 +10384,10 @@ export default function TradingViewChart({
         if (month === 4 && dayOfWeek === 1 && day >= 25) return true
         if (month === 8 && dayOfWeek === 1 && day <= 7) return true
         if (month === 10 && dayOfWeek === 4 && day >= 22 && day <= 28) return true
+        // Juneteenth (Jun 19, or observed Fri/Mon when on weekend)
+        if (month === 5 && day === 19) return true
+        if (month === 5 && day === 18 && dayOfWeek === 5) return true
+        if (month === 5 && day === 20 && dayOfWeek === 1) return true
         return false
       }
 
@@ -9818,115 +10406,287 @@ export default function TradingViewChart({
       }
 
       try {
+        setSeasonalEventNoData(false)
         const eventDates = getEventDates(eventType)
 
-        // Earnings events use 10 days before and 10 after, others use 5 before and 7 after
-        const isEarnings = eventType.includes('earnings')
-        const daysBefore = isEarnings ? 10 : 5
-        const daysAfter = isEarnings ? 10 : 7
-        const totalPoints = daysBefore + 1 + daysAfter // before + event + after
-        const eventIndex = daysBefore // Event is at index equal to days before
+        // ── INTRADAY PATH: fetch only per-event windows in parallel ──
+        if (intradayCfg) {
+          const lastCandle = chartData[chartData.length - 1]
+          const lastPrice = lastCandle.close
+          const lastCandleDate = new Date(lastCandle.timestamp)
+          const barMs = intradayCfg.mult * 60 * 1000
 
-        const allReturns: number[][] = Array(totalPoints)
-          .fill(0)
-          .map(() => [])
+          // Fast 5-year check: one small daily request instead of fetching all intraday bars
+          const fiveYearsAgo = new Date(); fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
+          try {
+            const chkResp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveYearsAgo.toISOString().slice(0,10)}/${fiveYearsAgo.toISOString().slice(0,10)}?adjusted=true&sort=asc&limit=1&apiKey=${API_KEY}`)
+            const chkJson: any = chkResp.ok ? await chkResp.json() : {}
+            if (!chkJson.results?.length) { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
+          } catch { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
 
-        for (const eventDate of eventDates) {
-          const before = getTradingDays(eventDate, daysBefore, false)
-          const after = getTradingDays(eventDate, daysAfter, true)
-          const allDays = [...before, eventDate, ...after]
-
-          const from = allDays[0].toISOString().split('T')[0]
-          const to = allDays[allDays.length - 1].toISOString().split('T')[0]
-
-          const response = await fetch(
-            `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`
-          )
-
-          if (!response.ok) {
-            console.warn('⚠️ API response not ok:', response.status)
-            continue
+          const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0)
+          const futureEvents = eventDates.filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n >= todayMidnight }).sort((a,b) => a.getTime()-b.getTime())
+          const nextEvent = futureEvents[0] ?? eventDates[eventDates.length - 1]
+          let eventOffset = 0
+          let adjustedEvent = new Date(nextEvent); adjustedEvent.setHours(0,0,0,0)
+          if (isWeekend(adjustedEvent) || isHoliday(adjustedEvent)) {
+            for (const off of [-1,1,-2,2,-3,3]) {
+              const c = new Date(nextEvent.getTime() + off*86400000); c.setHours(0,0,0,0)
+              if (!isWeekend(c) && !isHoliday(c)) { eventOffset = off; adjustedEvent = c; break }
+            }
           }
-          const data = await response.json()
-          if (!data.results || data.results.length === 0) {
-            console.warn('⚠️ No data results for', from, to)
-            continue
+          const evLabel = eventOffset === 0 ? null : `${Math.abs(eventOffset)}D ${eventOffset < 0 ? 'before' : 'after'} ${eventType.replace(/-/g,' ')}`
+
+          const daysToEvent = (() => {
+            let n = 0; const cur = new Date(lastCandleDate); cur.setHours(0,0,0,0)
+            while (cur < adjustedEvent) { cur.setDate(cur.getDate()+1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
+            return n
+          })()
+          const daysAfterEvent = intradayCfg.mult >= 60 ? 15 : intradayCfg.mult >= 30 ? 10 : 5
+          const totalSlotDays = daysToEvent + daysAfterEvent
+
+          // Past event instances (limit to 10 most recent for speed)
+          const pastEventDates = eventDates
+            .filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n < todayMidnight })
+            .slice(-10)
+
+          if (pastEventDates.length < 5) { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
+
+          const utcKey = (d: Date) => `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+          const slotMap: Record<string, { o: number[]; h: number[]; l: number[]; c: number[] }> = {}
+
+          // Fetch only the window around each past event (parallel batches of 5)
+          const processEventWindow = async (evDate: Date) => {
+            let adjEvDate = new Date(evDate); adjEvDate.setHours(0,0,0,0)
+            if (isWeekend(adjEvDate) || isHoliday(adjEvDate)) {
+              for (const off of [-1,1,-2,2,-3,3]) {
+                const c = new Date(evDate.getTime() + off*86400000); c.setHours(0,0,0,0)
+                if (!isWeekend(c) && !isHoliday(c)) { adjEvDate = c; break }
+              }
+            }
+            // Walk back daysToEvent trading days to find refDate
+            const refDate = (() => {
+              let n = 0; const cur = new Date(adjEvDate)
+              while (n < daysToEvent) { cur.setDate(cur.getDate()-1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
+              return new Date(cur)
+            })()
+            // Window: refDate to refDate + totalSlotDays + 7 calendar days buffer
+            const winFrom = refDate.toISOString().slice(0,10)
+            const winTo = new Date(refDate.getTime() + (totalSlotDays + 7) * 86400000).toISOString().slice(0,10)
+            let winBars: any[] = []
+            try {
+              let url: string | null = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${winFrom}/${winTo}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+              while (url) {
+                const r: Response = await fetch(url)
+                if (!r.ok) break
+                const j: any = await r.json()
+                if (!j.results?.length) break
+                winBars = winBars.concat(j.results)
+                url = j.next_url ? j.next_url + `&apiKey=${API_KEY}` : null
+              }
+            } catch { return }
+            if (!winBars.length) return
+
+            // Group into day map for this window
+            const winDayMap: Record<string, any[]> = {}
+            for (const bar of winBars) {
+              const k = utcKey(new Date(bar.t))
+              if (!winDayMap[k]) winDayMap[k] = []
+              winDayMap[k].push(bar)
+            }
+
+            const refBars = winDayMap[utcKey(refDate)]?.slice().sort((a: any, b: any) => a.t - b.t)
+            if (!refBars?.length) return
+            const refOpen = refBars[0].o ?? refBars[0].c
+            if (!refOpen) return
+
+            let dayOff = 0
+            const walkCur = new Date(refDate)
+            while (dayOff <= totalSlotDays) {
+              if (!isWeekend(walkCur) && !isHoliday(walkCur)) {
+                const dayBars = winDayMap[utcKey(walkCur)]?.slice().sort((a: any, b: any) => a.t - b.t)
+                if (dayBars?.length) {
+                  dayBars.forEach((bar: any, slotInDay: number) => {
+                    const mk = `${dayOff}_${slotInDay}`
+                    if (!slotMap[mk]) slotMap[mk] = { o: [], h: [], l: [], c: [] }
+                    slotMap[mk].o.push(((bar.o ?? bar.c) - refOpen) / refOpen * 100)
+                    slotMap[mk].h.push(((bar.h ?? bar.c) - refOpen) / refOpen * 100)
+                    slotMap[mk].l.push(((bar.l ?? bar.c) - refOpen) / refOpen * 100)
+                    slotMap[mk].c.push((bar.c - refOpen) / refOpen * 100)
+                  })
+                }
+                dayOff++
+              }
+              walkCur.setDate(walkCur.getDate() + 1)
+            }
           }
 
-          const prices = data.results.map((r: any) => r.c)
-
-          // Need at least eventIndex+1 data points to calculate returns
-          const minRequired = eventIndex + 1
-          if (prices.length < minRequired) {
-            console.warn(
-              `⚠️ Skipping year - insufficient data. Need ${minRequired}+ points, got`,
-              prices.length
-            )
-            continue
+          // Run all event window fetches in parallel batches of 5
+          for (let b = 0; b < pastEventDates.length; b += 5) {
+            await Promise.all(pastEventDates.slice(b, b+5).map(processEventWindow))
           }
 
-          const eventPrice = prices[eventIndex]
+          const hasData = Object.keys(slotMap).length > 0
+          if (hasData) {
+            const avg = (arr: number[]) => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0
+            const apply = (pct: number) => lastPrice * (1 + pct / 100)
+            const DAY_OPEN_UTC_H = 8
+            const DAY_OPEN_UTC_MIN = 0
+            const slotsPerDayCycle = intradayCfg.slotsPerDay
 
-          if (!eventPrice) {
-            console.warn('⚠️ Skipping year - no event price at index', eventIndex)
-            continue
-          }
+            const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+            const walkDay = new Date(lastCandleDate); walkDay.setHours(0,0,0,0)
+            let dayOff = 0
+            while (dayOff <= totalSlotDays) {
+              walkDay.setDate(walkDay.getDate() + 1)
+              if (isWeekend(walkDay) || isHoliday(walkDay)) continue
+              for (let slotInDay = 0; slotInDay < slotsPerDayCycle; slotInDay++) {
+                const d = slotMap[`${dayOff}_${slotInDay}`]
+                if (!d || d.c.length === 0) continue
+                const slotTs = Date.UTC(walkDay.getFullYear(), walkDay.getMonth(), walkDay.getDate(), DAY_OPEN_UTC_H, DAY_OPEN_UTC_MIN) + slotInDay * barMs
+                projection.push({ date: new Date(slotTs), price: apply(avg(d.c)), open: apply(avg(d.o)), high: apply(avg(d.h)), low: apply(avg(d.l)), close: apply(avg(d.c)) })
+              }
+              dayOff++
+            }
 
-          // Calculate returns for all points relative to event price
-          for (let i = 0; i < prices.length && i < totalPoints; i++) {
-            const returnPct = ((prices[i] - eventPrice) / eventPrice) * 100
-            allReturns[i].push(returnPct)
+            if (projection.length > 0) {
+              setSeasonalEventDate(adjustedEvent)
+              setSeasonalEventLabel(evLabel)
+              setSeasonalEventData(projection as any)
+              setIsSeasonalEventActive(true)
+              setIsSeasonalActive(true)
+              return
+            }
           }
+          // Fall through to daily path if no intraday data found
         }
 
-        const avgReturns = allReturns.map((returns) =>
-          returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
-        )
+        // ── DAILY PATH: fetch full OHLC per day, build candlestick projection ──
+        // Check minimum 5 years of data using pastEventDates count (annual events → ≥5 instances needed)
+        const pastEventDatesCheck = getEventDates(eventType).filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n < new Date(new Date().toDateString()) })
+        if (pastEventDatesCheck.length < 5) {
+          setSeasonalEventNoData(true)
+          setIsSeasonalEventActive(false)
+          return
+        }
+        const daysBefore = 30
+        const daysAfter = 30
+        const SLOTS = daysBefore + 1 + daysAfter
+        const eventIndex = daysBefore
 
-        allReturns.forEach((returns, idx) => { })
+        // Collect per-slot OHLC % returns across all historical instances
+        const slotOHLC: Array<{ o: number[]; h: number[]; l: number[]; c: number[] }> =
+          Array.from({ length: SLOTS }, () => ({ o: [], h: [], l: [], c: [] }))
 
+        const pastEventDates = eventDates.filter(d => {
+          const norm = new Date(d); norm.setHours(0, 0, 0, 0)
+          return norm < new Date(new Date().toDateString())
+        })
+
+        // Fetch all event date windows in parallel (batches of 5 to avoid rate limits)
+        const fetchBatch = async (dates: Date[]) => {
+          const BATCH = 5
+          for (let b = 0; b < dates.length; b += BATCH) {
+            const chunk = dates.slice(b, b + BATCH)
+            await Promise.all(chunk.map(async (eventDate) => {
+              const before = getTradingDays(eventDate, daysBefore, false)
+              const after = getTradingDays(eventDate, daysAfter, true)
+              const allDays = [...before, eventDate, ...after]
+              const from = allDays[0].toISOString().split('T')[0]
+              const to = allDays[allDays.length - 1].toISOString().split('T')[0]
+              try {
+                const resp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`)
+                if (!resp.ok) return
+                const json: any = await resp.json()
+                if (!json.results?.length) return
+                const bars: { t: number; o: number; h: number; l: number; c: number }[] = json.results
+                const eventTs = eventDate.getTime()
+                let eventIdx = 0; let minDist = Infinity
+                bars.forEach((b, i) => { const d = Math.abs(b.t - eventTs); if (d < minDist) { minDist = d; eventIdx = i } })
+                const refClose = bars[eventIdx]?.c
+                if (!refClose) return
+                bars.forEach((bar, i) => {
+                  const slot = eventIndex + (i - eventIdx)
+                  if (slot < 0 || slot >= SLOTS) return
+                  slotOHLC[slot].o.push((bar.o - refClose) / refClose * 100)
+                  slotOHLC[slot].h.push((bar.h - refClose) / refClose * 100)
+                  slotOHLC[slot].l.push((bar.l - refClose) / refClose * 100)
+                  slotOHLC[slot].c.push((bar.c - refClose) / refClose * 100)
+                })
+              } catch { /* skip failed fetch */ }
+            }))
+          }
+        }
+        await fetchBatch(pastEventDates)
+
+        const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
         const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1]?.close : 0
 
-        // Find closest event date to today (prefer recent past or near future, not a year away)
+        // Find closest event date to today
         const allEventDates = getEventDates(eventType)
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-
-        // Find event closest to today (within +/- 30 days is reasonable for projection)
-        let closestEvent = allEventDates[0]
-        let minDiff = Math.abs(allEventDates[0].getTime() - today.getTime())
-
-        for (const eventDate of allEventDates) {
-          const diff = Math.abs(eventDate.getTime() - today.getTime())
-          if (diff < minDiff) {
-            minDiff = diff
-            closestEvent = eventDate
-          }
-        }
-
-        // If closest event is more than 60 days away, use the most recent past event
-        const daysDiff = (closestEvent.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+        if (allEventDates.length === 0) { setIsSeasonalEventActive(false); return }
+        const today = new Date(); today.setHours(0, 0, 0, 0)
+        let closestEvent = allEventDates.reduce((best, d) =>
+          Math.abs(d.getTime() - today.getTime()) < Math.abs(best.getTime() - today.getTime()) ? d : best
+        )
+        const daysDiff = (closestEvent.getTime() - today.getTime()) / 86400000
         if (daysDiff > 60) {
-          // Find most recent past event
-          const pastEvents = allEventDates.filter((d) => d < today)
-          if (pastEvents.length > 0) {
-            closestEvent = pastEvents[pastEvents.length - 1]
+          const pastEvents = allEventDates.filter(d => d < today)
+          if (pastEvents.length > 0) closestEvent = pastEvents[pastEvents.length - 1]
+        }
+
+        const lastCandleDateEvt = new Date(chartData[chartData.length - 1].timestamp)
+        lastCandleDateEvt.setHours(0, 0, 0, 0)
+        const closestEventNorm = new Date(closestEvent); closestEventNorm.setHours(0, 0, 0, 0)
+
+        // Count trading days from last candle to event
+        let daysFromLastToEvent = 0
+        {
+          const step = closestEventNorm >= lastCandleDateEvt ? 1 : -1
+          const cur = new Date(lastCandleDateEvt)
+          const target = new Date(closestEventNorm)
+          while (step > 0 ? cur < target : cur > target) {
+            cur.setDate(cur.getDate() + step)
+            if (cur.getDay() !== 0 && cur.getDay() !== 6 && !isHoliday(cur)) daysFromLastToEvent += step
           }
         }
 
-        // Create projection starting from daysBefore trading days before event to daysAfter trading days after
-        const projectionData: Array<{ date: Date; price: number }> = []
-        const beforeDays = getTradingDays(closestEvent, daysBefore, false)
-        const afterDays = getTradingDays(closestEvent, daysAfter, true)
-        const projectionDates = [...beforeDays, closestEvent, ...afterDays]
+        // Re-anchor: avg % at the slot corresponding to "today"
+        const todaySlot = eventIndex + (-daysFromLastToEvent)
+        const anchorC = todaySlot >= 0 && todaySlot < SLOTS ? avg(slotOHLC[todaySlot].c) : 0
+        const anchorO = todaySlot >= 0 && todaySlot < SLOTS ? avg(slotOHLC[todaySlot].o) : 0
 
-        for (let i = 0; i < avgReturns.length && i < projectionDates.length; i++) {
-          const returnPct = avgReturns[i]
-          const projectedPrice = lastPrice * (1 + returnPct / 100)
-          projectionData.push({ date: projectionDates[i], price: projectedPrice })
+        // Build candlestick projection from last candle forward to event + 30 days
+        const projectionData: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+        const totalForwardDays = daysFromLastToEvent + daysAfter
+        const walkCur = new Date(lastCandleDateEvt)
+        let tradingDaysFwd = 0
+        while (tradingDaysFwd < Math.max(0, totalForwardDays)) {
+          walkCur.setDate(walkCur.getDate() + 1)
+          if (walkCur.getDay() === 0 || walkCur.getDay() === 6 || isHoliday(walkCur)) continue
+          tradingDaysFwd++
+          const offsetFromEvent = tradingDaysFwd - daysFromLastToEvent
+          const slot = eventIndex + offsetFromEvent
+          if (slot < 0 || slot >= SLOTS) continue
+          const sd = slotOHLC[slot]
+          if (!sd.c.length) continue
+          const relO = avg(sd.o) - anchorO
+          const relH = avg(sd.h) - anchorC
+          const relL = avg(sd.l) - anchorC
+          const relC = avg(sd.c) - anchorC
+          projectionData.push({
+            date: new Date(walkCur),
+            price: lastPrice * (1 + relC / 100),
+            open: lastPrice * (1 + relO / 100),
+            high: lastPrice * (1 + relH / 100),
+            low: lastPrice * (1 + relL / 100),
+            close: lastPrice * (1 + relC / 100),
+          })
         }
 
-        setSeasonalEventData(projectionData)
+        setSeasonalEventDate(new Date(closestEventNorm))
+        setSeasonalEventLabel(null)
+        setSeasonalEventData(projectionData as any)
         setIsSeasonalEventActive(true)
         setIsSeasonalActive(true)
       } catch (error) {
@@ -10170,6 +10930,9 @@ export default function TradingViewChart({
   // Timeframe dropdown state
   const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false)
   const timeframeButtonRef = useRef<HTMLButtonElement>(null)
+  const [showCustomTimeframeInput, setShowCustomTimeframeInput] = useState(false)
+  const [customTimeframeValue, setCustomTimeframeValue] = useState('')
+  const [customTimeframeLabel, setCustomTimeframeLabel] = useState('')
 
   // Flow chart resize handlers
   const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
@@ -12424,25 +13187,29 @@ export default function TradingViewChart({
     setSeasonal10YData(null)
     setSeasonalElectionData(null)
     setElectionInsufficientData(false)
+    setSeasonalEventNoData(false)
     setSeasonalEventData(null)
     setSeasonalProjectionData(null)
+    setSmartPerfData(null)
+    setSmartPerfTriggerDate(null)
+    setIsSmartPerfActive(false)
 
     // Reload seasonal data if buttons are active
     const reloadSeasonalData = async () => {
       if (isSeasonal20YActive) {
-        const projection = await calculateSeasonalityProjection(symbol, 20, data)
+        const projection = await calculateSeasonalityProjection(symbol, 20, data, undefined, config.timeframe)
         setSeasonal20YData(projection)
       }
       if (isSeasonal15YActive) {
-        const projection = await calculateSeasonalityProjection(symbol, 15, data)
+        const projection = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe)
         setSeasonal15YData(projection)
       }
       if (isSeasonal10YActive) {
-        const projection = await calculateSeasonalityProjection(symbol, 10, data)
+        const projection = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe)
         setSeasonal10YData(projection)
       }
       if (isSeasonalElectionActive) {
-        const projection = await calculateSeasonalityProjection(symbol, 20, data, 'Election Year')
+        const projection = await calculateSeasonalityProjection(symbol, 20, data, 'Election Year', config.timeframe)
         setSeasonalElectionData(projection)
       }
     }
@@ -12469,6 +13236,40 @@ export default function TradingViewChart({
     }
   }, [symbol])
 
+  // Re-fetch seasonal data when timeframe changes (intraday vs daily uses different bar resolution)
+  useEffect(() => {
+    const reloadSeasonalForTimeframe = async () => {
+      if (!data || data.length === 0) return
+      if (isSeasonal20YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 20, data, undefined, config.timeframe)
+        setSeasonal20YData(projection)
+      }
+      if (isSeasonal15YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe)
+        setSeasonal15YData(projection)
+      }
+      if (isSeasonal10YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe)
+        setSeasonal10YData(projection)
+      }
+      if (isSeasonalElectionActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 20, data, 'Election Year', config.timeframe)
+        setSeasonalElectionData(projection)
+      }
+      if (isSeasonalEventActive && selectedSeasonalEvent) {
+        await calculateEventSeasonal(selectedSeasonalEvent, data, config.timeframe)
+      }
+    }
+
+    if (
+      isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive ||
+      isSeasonalElectionActive || isSeasonalEventActive || isSmartPerfActive
+    ) {
+      reloadSeasonalForTimeframe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.timeframe])
+
   // Auto-rescan active toolbar features when ticker switches
   const _prevSymbolForRescanRef = useRef<string | null>(null)
   useEffect(() => {
@@ -12479,16 +13280,15 @@ export default function TradingViewChart({
     if (_prevSymbolForRescanRef.current === symbol) return
     _prevSymbolForRescanRef.current = symbol
 
-    // GEX Live — re-run scan for new ticker
+    // GEX Live — re-run scan for new ticker (forceRescan=true skips toggle-off check)
     if (isLiveGexActive) {
       setLiveGexData(null)
-      handleLiveGEXClick()
+      handleLiveGEXClick(true)
     }
 
-    // GEX OI — re-run OI fetch for new ticker
+    // GEX OI — data comes from hook; clearing liveGexData is enough for a fresh render
     if (isOiGexActive) {
       setLiveGexData(null)
-      handleOIGEXClick()
     }
 
     // IntraFlow — re-run live flow moves scan for new ticker
@@ -13503,6 +14303,8 @@ export default function TradingViewChart({
 
   // Data state - SIMPLE
   const [data, setData] = useState<ChartDataPoint[]>([])
+  // Smart detection — runs after data is available
+  useEffect(() => { if (data && data.length > 0) { detectSmartSignals(data); detectEventSignals() } }, [data, symbol, detectSmartSignals, detectEventSignals])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -13872,6 +14674,9 @@ export default function TradingViewChart({
   // TradingView-style navigation state
   const [scrollOffset, setScrollOffset] = useState(9999999) // Start at end - will be corrected when data loads
   const [visibleCandleCount, setVisibleCandleCount] = useState(150) // Number of visible candles
+
+  // Right-click context menu
+  const [chartContextMenu, setChartContextMenu] = useState<{ x: number; y: number } | null>(null)
   const scrollOffsetRef = useRef(9999999)
   const visibleCandleCountRef = useRef(150)
   useEffect(() => {
@@ -15170,7 +15975,7 @@ export default function TradingViewChart({
   // ~70% of the visible area, leaving the right 30% for the future projection.
   const anySeasonalActiveForScroll =
     isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive ||
-    isSeasonalElectionActive || isSeasonalEventActive
+    isSeasonalElectionActive || isSeasonalEventActive || isSmartPerfActive
   useEffect(() => {
     if (anySeasonalActiveForScroll && data.length > 0) {
       // Position last candle at slot 105 out of 150, leaving 45 slots for future
@@ -15837,18 +16642,14 @@ export default function TradingViewChart({
 
   // Helper function to determine if a timestamp is during market hours
   const isMarketHours = (timestamp: number): boolean => {
-    // Convert to PST/PDT timezone
-    const date = new Date(timestamp)
-    const pstString = date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-    const pstDate = new Date(pstString)
-    const hour = pstDate.getHours()
-    const minute = pstDate.getMinutes()
-    const totalMinutes = hour * 60 + minute
-
-    // Regular market hours: 6:30 AM - 1:00 PM PST (390 - 780 minutes)
-    const marketOpen = 6 * 60 + 30 // 6:30 AM PST
-    const marketClose = 13 * 60 // 1:00 PM PST
-
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false,
+    }).formatToParts(new Date(timestamp))
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+    const totalMinutes = (hour === 24 ? 0 : hour) * 60 + minute
+    const marketOpen = 6 * 60 + 30
+    const marketClose = 13 * 60
     return totalMinutes >= marketOpen && totalMinutes < marketClose
   }
 
@@ -15871,30 +16672,31 @@ export default function TradingViewChart({
     visibleData.forEach((candle, index) => {
       const x = CHART_LEFT_MARGIN + index * candleSpacing
 
-      // Convert timestamp to PST (Pacific Standard Time)
+      // Convert timestamp to PST/PDT using Intl.DateTimeFormat for reliable hour/minute extraction
       const date = new Date(candle.timestamp)
-      const pstString = date.toLocaleString('en-US', {
+      const pstParts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
+        hour: 'numeric',
+        minute: 'numeric',
         hour12: false,
-      })
-      const pstDate = new Date(pstString)
-      const hour = pstDate.getHours()
-      const minute = pstDate.getMinutes()
-      const totalMinutes = hour * 60 + minute
+      }).formatToParts(date)
+      const hour = parseInt(pstParts.find(p => p.type === 'hour')?.value ?? '0', 10)
+      const minute = parseInt(pstParts.find(p => p.type === 'minute')?.value ?? '0', 10)
+      const totalMinutes = (hour === 24 ? 0 : hour) * 60 + minute
 
-      // Market hours in PST: 6:30 AM - 1:00 PM PST (390 - 780 minutes)
-      const marketStart = 6 * 60 + 30 // 6:30 AM PST
-      const marketEnd = 13 * 60 // 1:00 PM PST
-      const preMarketStart = 1 * 60 // 1:00 AM PST
-      const afterHoursEnd = 17 * 60 // 5:00 PM PST
+      // Market hours in PST: 6:30 AM - 1:00 PM PST
+      const marketStart = 6 * 60 + 30  // 390 min
+      const marketEnd   = 13 * 60      // 780 min
+      const preMarketStart = 1 * 60    // 60 min  (1:00 AM PST)
+      const afterHoursEnd  = 17 * 60   // 1020 min (5:00 PM PST)
 
       if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
-        // Pre-market: 1:00 AM PST - 6:30 AM PST - low opacity orange tint
-        ctx.fillStyle = 'rgba(255, 140, 60, 0.08)' // Orange with 8% opacity
+        // Pre-market: 1:00 AM PST - 6:30 AM PST - orange tint
+        ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'
         ctx.fillRect(x, 0, candleSpacing, height)
       } else if (totalMinutes >= marketEnd && totalMinutes < afterHoursEnd) {
-        // After-hours: 1:00 PM PST - 5:00 PM PST - low opacity blue tint
-        ctx.fillStyle = 'rgba(100, 150, 200, 0.08)' // Blue with 8% opacity
+        // After-hours: 1:00 PM PST - 5:00 PM PST - blue tint
+        ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'
         ctx.fillRect(x, 0, candleSpacing, height)
       }
     })
@@ -15996,6 +16798,67 @@ export default function TradingViewChart({
       chartWidth,
       visibleCandleCount
     )
+
+    // Extend pre/after-hours shading into the future seasonal projection area
+    // Uses the exact same logic as drawMarketHoursBackground — just for future bar timestamps
+    if (isSeasonalActive && (config.timeframe.includes('m') || config.timeframe.includes('h'))) {
+      const tfStr = config.timeframe
+      const tfMs: Record<string, number> = {
+        '1m': 60_000, '5m': 300_000, '15m': 900_000,
+        '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
+      }
+      const barMsFut = tfMs[tfStr] ?? 300_000
+      const candleSpacingFut = chartWidth / visibleCandleCount
+
+      if (data.length > 0) {
+        const lastDataCandle = data[data.length - 1]
+        const lastDataPosOnScreen = (data.length - 1) - startIndex
+        const lastDataX = CHART_LEFT_MARGIN + lastDataPosOnScreen * candleSpacingFut + candleSpacingFut / 2
+
+        // Polygon intraday data spans UTC 08:00–00:00 for ALL sub-daily timeframes (1m–1h).
+        // Use 8*60–24*60 for all so barIdx matches real candle spacing (premarket + regular + AH).
+        const winStartUtc = 8 * 60
+        const winEndUtc   = 24 * 60
+
+        const dtFmt = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false,
+        })
+        const marketStart = 6 * 60 + 30
+        const marketEnd   = 13 * 60
+        const preStart    = 1 * 60
+        const ahEnd       = 17 * 60
+        const maxFutureBars = Math.ceil((chartWidth / candleSpacingFut) * 2)
+
+        let ts = lastDataCandle.timestamp
+        let barIdx = 0
+        while (barIdx < maxFutureBars) {
+          ts += barMsFut
+          const d = new Date(ts)
+          const utcDow = d.getUTCDay()
+          if (utcDow === 0 || utcDow === 6) continue
+
+          const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes()
+          if (utcMins < winStartUtc || utcMins >= winEndUtc) continue
+
+          barIdx++
+          const barX = Math.round(lastDataX + barIdx * candleSpacingFut)
+          if (barX > chartWidth + CHART_LEFT_MARGIN) break
+
+          const parts = dtFmt.formatToParts(d)
+          const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+          const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+          const totalMinutes = (h === 24 ? 0 : h) * 60 + m
+
+          if (totalMinutes >= preStart && totalMinutes < marketStart) {
+            ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'
+            ctx.fillRect(barX, 0, candleSpacingFut, priceChartHeight)
+          } else if (totalMinutes >= marketEnd && totalMinutes < ahEnd) {
+            ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'
+            ctx.fillRect(barX, 0, candleSpacingFut, priceChartHeight)
+          }
+        }
+      }
+    }
 
     // Calculate price range for visible data using shared function
     // If showing only future space (no visible data), use the last 100 candles for price range
@@ -16229,6 +17092,471 @@ export default function TradingViewChart({
       }
     }
 
+    // Shared x-axis label collision tracker — used by Future Expiries AND ATR Range
+    // so their tick labels never overlap each other.
+    const sharedXAxisUsed: number[] = []
+
+    // Reset hit-test points for this frame
+    projectedPointsRef.current = { futureExpiries: [], atrRange: [], stddevRange: [] }
+    const _hoveredOverlay = hoveredOverlayRef.current
+    // Alpha multiplier: active overlays that are NOT hovered fade to 0.2, hovered stays 1.0
+    const overlayAlpha = (key: OverlayKey) =>
+      _hoveredOverlay === null || _hoveredOverlay === key ? 1.0 : 0.18
+
+    // Draw Future Expiries — curved Bollinger-band style connecting lines
+    const _isFutureExpiriesActive = isFutureExpiriesActiveRef.current
+    const _futureExpiriesLevels = futureExpiriesLevelsRef.current
+    if (_isFutureExpiriesActive && _futureExpiriesLevels.length > 0) {
+      // Match EXACT same Y formula as drawPriceScale / drawGrid (topPadding=20, bottomPadding=100)
+      const erTopPadding = 20
+      const erBottomPadding = 100
+      const erUsableHeight = priceChartHeight - erTopPadding - erBottomPadding
+      const priceToY = (price: number) => {
+        const ratio = (price - adjustedMin) / (adjustedMax - adjustedMin)
+        return erTopPadding + erUsableHeight * (1 - ratio)
+      }
+
+      // Calculate X for the last data candle (starting point)
+      const lastDataCandle = data[data.length - 1]
+      const lastDataPositionOnScreen = (data.length - 1) - startIndex
+      const originX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+      const originY = priceToY(lastDataCandle.close)
+
+      // Helper: map a calendar date to chart X position using candleSpacing
+      const dateToX = (dateStr: string): number => {
+        const targetMs = new Date(dateStr + 'T00:00:00Z').getTime()
+        const lastMs = lastDataCandle.timestamp
+        // Approximate trading days difference (calendar days * 5/7)
+        const calDays = (targetMs - lastMs) / (1000 * 60 * 60 * 24)
+        const tradingDays = Math.round(calDays * 5 / 7)
+        return originX + tradingDays * candleSpacing
+      }
+
+      // Sort expiries by date
+      const sorted = [..._futureExpiriesLevels].sort((a, b) =>
+        a.expiryDate.localeCompare(b.expiryDate)
+      )
+
+      // 4 continuous paths — one per band
+      const lineConfigs = [
+        { key: 'call90', color: '#00E5FF', dash: [5, 4], width: 1.5, label: 'Dealer Range' },
+        { key: 'call80', color: '#00FF88', dash: [7, 3], width: 2.2, label: 'Expected Range' },
+        { key: 'put80', color: '#FF4444', dash: [7, 3], width: 2.2, label: 'Expected Range' },
+        { key: 'put90', color: '#FF9900', dash: [5, 4], width: 1.5, label: 'Dealer Range' },
+      ]
+
+      ctx.save()
+
+      ctx.globalAlpha *= overlayAlpha('futureExpiries')
+
+      lineConfigs.forEach(({ key, color, dash, width, label }) => {
+        // Build points: origin → each expiry
+        const points: { x: number; y: number; price: number; expiry: string }[] = [
+          { x: originX, y: originY, price: lastDataCandle.close, expiry: '' },
+        ]
+        sorted.forEach(({ expiryDate, levels }) => {
+          const price = levels[key]
+          if (!price || isNaN(price)) return
+          const x = dateToX(expiryDate)
+          if (x <= originX || x > chartWidth + 200) return
+          points.push({ x, y: priceToY(price), price, expiry: expiryDate })
+        })
+
+        if (points.length < 2) return
+
+        // Draw shadow
+        ctx.globalAlpha = 0.25
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)'
+        ctx.lineWidth = width + 2.5
+        ctx.setLineDash([])
+        ctx.beginPath()
+        points.forEach((pt, i) => {
+          if (i === 0) ctx.moveTo(pt.x, pt.y + 1.5)
+          else ctx.lineTo(pt.x, pt.y + 1.5)
+        })
+        ctx.stroke()
+
+        // Draw main line
+        ctx.globalAlpha = 0.9
+        ctx.strokeStyle = color
+        ctx.lineWidth = width
+        ctx.setLineDash(dash)
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        points.forEach((pt, i) => {
+          if (i === 0) ctx.moveTo(pt.x, pt.y)
+          else ctx.lineTo(pt.x, pt.y)
+        })
+        ctx.stroke()
+
+        // Draw dots at each expiry node
+        ctx.setLineDash([])
+        ctx.globalAlpha = overlayAlpha('futureExpiries')
+        ctx.fillStyle = color
+        points.slice(1).forEach((pt) => {
+          ctx.beginPath()
+          ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2)
+          ctx.fill()
+          // Store for hit-testing
+          projectedPointsRef.current.futureExpiries.push({ x: pt.x, y: pt.y })
+        })
+
+        // Label last visible point
+        const lastPt = points[points.length - 1]
+        if (lastPt.x < chartWidth - 10) {
+          ctx.font = 'bold 16px Arial'
+          const labelText = `${label} $${lastPt.price.toFixed(2)}`
+          const textW = ctx.measureText(labelText).width
+          ctx.fillStyle = 'rgba(0,0,0,0.75)'
+          ctx.fillRect(lastPt.x + 4, lastPt.y - 10, textW + 8, 19)
+          ctx.fillStyle = color
+          ctx.textAlign = 'left'
+          ctx.fillText(labelText, lastPt.x + 6, lastPt.y + 4)
+        }
+      })
+
+      // Shade channel between 80% call and 80% put paths
+      const call80Points: { x: number; y: number }[] = [{ x: originX, y: originY }]
+      const put80Points: { x: number; y: number }[] = [{ x: originX, y: originY }]
+      sorted.forEach(({ expiryDate, levels }) => {
+        const x = dateToX(expiryDate)
+        if (x <= originX || x > chartWidth + 200) return
+        if (levels.call80 && !isNaN(levels.call80)) call80Points.push({ x, y: priceToY(levels.call80) })
+        if (levels.put80 && !isNaN(levels.put80)) put80Points.push({ x, y: priceToY(levels.put80) })
+      })
+      if (call80Points.length > 1 && put80Points.length > 1) {
+        ctx.globalAlpha = 0.06
+        ctx.fillStyle = '#00FF88'
+        ctx.beginPath()
+        call80Points.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y))
+          ;[...put80Points].reverse().forEach(pt => ctx.lineTo(pt.x, pt.y))
+        ctx.closePath()
+        ctx.fill()
+      }
+
+      // Draw X-axis date labels at each expiry node in the time axis strip
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      const axisTop = height - timeAxisHeight
+      const tickLabelY = axisTop + 16
+      const tickStartY = axisTop + 2
+      const tickEndY = axisTop + 10
+      ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+      ctx.textAlign = 'center'
+      sorted.forEach(({ expiryDate }) => {
+        const x = dateToX(expiryDate)
+        if (x <= originX || x > chartWidth + 20) return
+        // Collision check — skip if too close to another label (shared with ATR Range)
+        const tooClose = sharedXAxisUsed.some(px => Math.abs(px - x) < 52)
+        if (tooClose) return
+        sharedXAxisUsed.push(x)
+        const d = new Date(expiryDate + 'T00:00:00Z')
+        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+        ctx.fillStyle = config.axisStyle.xAxis.textColor
+        ctx.fillText(label, x, tickLabelY)
+        ctx.strokeStyle = config.axisStyle.xAxis.textColor
+        ctx.globalAlpha = 0.4
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(x, tickStartY)
+        ctx.lineTo(x, tickEndY)
+        ctx.stroke()
+        ctx.globalAlpha = 1
+      })
+
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      ctx.restore()
+    }
+
+    // Draw ATR Range — same style as Future Expiries (lines from last candle forward)
+    if (isATRRangeActiveRef.current && data && data.length >= 45) {
+      const erTopPadding = 20
+      const erBottomPadding = 100
+      const erUsableHeight = priceChartHeight - erTopPadding - erBottomPadding
+      const priceToY = (price: number) => {
+        const ratio = (price - adjustedMin) / (adjustedMax - adjustedMin)
+        return erTopPadding + erUsableHeight * (1 - ratio)
+      }
+
+      // Calculate ATR from last 45 candles in data
+      const last45 = data.slice(-45)
+      const trueRanges = last45.map((bar: any) => bar.high - bar.low)
+      const atr = trueRanges.reduce((s: number, v: number) => s + v, 0) / trueRanges.length
+
+      const lastDataCandle = data[data.length - 1]
+      const lastDataPositionOnScreen = (data.length - 1) - startIndex
+      const originX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+      const originPrice = lastDataCandle.close
+
+      // Convert trading days forward to calendar date (approx 7/5 ratio, skip weekends)
+      const tradingDayToDate = (tradingDays: number): Date => {
+        const d = new Date(lastDataCandle.timestamp)
+        let added = 0
+        while (added < tradingDays) {
+          d.setDate(d.getDate() + 1)
+          const dow = d.getDay()
+          if (dow !== 0 && dow !== 6) added++
+        }
+        return d
+      }
+
+      // Project 20 trading days forward as individual points
+      const forwardDays = 20
+      const atrLineConfigs = [
+        { key: 'atr1up', color: '#00FF88', dash: [7, 3], width: 2.2, label: '+1 ATR', offset: atr },
+        { key: 'atr2up', color: '#00E5FF', dash: [5, 4], width: 1.5, label: '+2 ATR', offset: atr * 2 },
+        { key: 'atr1dn', color: '#FF4444', dash: [7, 3], width: 2.2, label: '-1 ATR', offset: -atr },
+        { key: 'atr2dn', color: '#FF9900', dash: [5, 4], width: 1.5, label: '-2 ATR', offset: -atr * 2 },
+      ]
+
+      ctx.save()
+      const _atrAlpha = overlayAlpha('atrRange')
+
+      atrLineConfigs.forEach(({ color, dash, width, label, offset }) => {
+        const targetPrice = originPrice + offset
+        const endX = originX + forwardDays * candleSpacing
+        const startY = priceToY(originPrice)
+        const endY = priceToY(targetPrice)
+
+        // Shadow
+        ctx.globalAlpha = 0.25 * _atrAlpha
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)'
+        ctx.lineWidth = width + 2.5
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(originX, startY + 1.5)
+        ctx.lineTo(endX, endY + 1.5)
+        ctx.stroke()
+
+        // Main line
+        ctx.globalAlpha = 0.9 * _atrAlpha
+        ctx.strokeStyle = color
+        ctx.lineWidth = width
+        ctx.setLineDash(dash)
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        ctx.moveTo(originX, startY)
+        ctx.lineTo(endX, endY)
+        ctx.stroke()
+
+        // Dot at endpoint
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1 * _atrAlpha
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(endX, endY, 3, 0, Math.PI * 2)
+        ctx.fill()
+        // Store for hit-testing
+        projectedPointsRef.current.atrRange.push({ x: endX, y: endY })
+
+        // Label at endpoint
+        if (endX < chartWidth - 10) {
+          ctx.font = 'bold 16px Arial'
+          const labelText = `${label}  $${targetPrice.toFixed(2)}`
+          const textW = ctx.measureText(labelText).width
+          ctx.fillStyle = `rgba(0,0,0,${0.75 * _atrAlpha})`
+          ctx.fillRect(endX + 4, endY - 10, textW + 8, 19)
+          ctx.fillStyle = color
+          ctx.textAlign = 'left'
+          ctx.fillText(labelText, endX + 6, endY + 4)
+        }
+      })
+
+      // Shade between ±1 ATR lines
+      const atr1upY_start = priceToY(originPrice)
+      const atr1dnY_start = priceToY(originPrice)
+      const atr1upY_end = priceToY(originPrice + atr)
+      const atr1dnY_end = priceToY(originPrice - atr)
+      const endX = originX + forwardDays * candleSpacing
+      ctx.globalAlpha = 0.06 * _atrAlpha
+      ctx.fillStyle = '#00FF88'
+      ctx.beginPath()
+      ctx.moveTo(originX, atr1upY_start)
+      ctx.lineTo(endX, atr1upY_end)
+      ctx.lineTo(endX, atr1dnY_end)
+      ctx.lineTo(originX, atr1dnY_start)
+      ctx.closePath()
+      ctx.fill()
+
+      // Draw X-axis date labels at week-boundary milestones (5, 10, 15, 20 trading days)
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      const axisTop = height - timeAxisHeight
+      const tickLabelY = axisTop + 16
+      const tickStartY = axisTop + 2
+      const tickEndY = axisTop + 10
+      ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+      ctx.textAlign = 'center'
+      const milestones = [5, 10, 15, 20]
+      milestones.forEach((tradingDay) => {
+        const x = originX + tradingDay * candleSpacing
+        if (x <= originX || x > chartWidth + 20) return
+        // Collision check — shared with Future Expiries labels
+        const tooClose = sharedXAxisUsed.some(px => Math.abs(px - x) < 52)
+        if (tooClose) return
+        sharedXAxisUsed.push(x)
+        const d = tradingDayToDate(tradingDay)
+        const labelText = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        ctx.fillStyle = config.axisStyle.xAxis.textColor
+        ctx.fillText(labelText, x, tickLabelY)
+        ctx.strokeStyle = config.axisStyle.xAxis.textColor
+        ctx.globalAlpha = 0.4
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(x, tickStartY)
+        ctx.lineTo(x, tickEndY)
+        ctx.stroke()
+        ctx.globalAlpha = 1
+      })
+
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      ctx.restore()
+    }
+
+    // Draw StdDev Range — same style as ATR Range but uses closing price standard deviation
+    if (isStdDevRangeActiveRef.current && data && data.length >= 45) {
+      const erTopPadding = 20
+      const erBottomPadding = 100
+      const erUsableHeight = priceChartHeight - erTopPadding - erBottomPadding
+      const priceToY = (price: number) => {
+        const ratio = (price - adjustedMin) / (adjustedMax - adjustedMin)
+        return erTopPadding + erUsableHeight * (1 - ratio)
+      }
+
+      // Calculate StdDev of closing prices over last 45 candles
+      const last45sd = data.slice(-45)
+      const closes = last45sd.map((bar: any) => bar.close)
+      const mean = closes.reduce((s: number, v: number) => s + v, 0) / closes.length
+      const variance = closes.reduce((s: number, v: number) => s + (v - mean) ** 2, 0) / closes.length
+      const stddev = Math.sqrt(variance)
+
+      const lastDataCandle = data[data.length - 1]
+      const lastDataPositionOnScreen = (data.length - 1) - startIndex
+      const originX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+      const originPrice = lastDataCandle.close
+
+      const tradingDayToDateSD = (tradingDays: number): Date => {
+        const d = new Date(lastDataCandle.timestamp)
+        let added = 0
+        while (added < tradingDays) {
+          d.setDate(d.getDate() + 1)
+          const dow = d.getDay()
+          if (dow !== 0 && dow !== 6) added++
+        }
+        return d
+      }
+
+      const forwardDays = 20
+      const sdLineConfigs = [
+        { color: '#00FF88', dash: [7, 3] as number[], width: 2.2, label: '+1σ', offset: stddev },
+        { color: '#00E5FF', dash: [5, 4] as number[], width: 1.5, label: '+2σ', offset: stddev * 2 },
+        { color: '#FF4444', dash: [7, 3] as number[], width: 2.2, label: '-1σ', offset: -stddev },
+        { color: '#FF9900', dash: [5, 4] as number[], width: 1.5, label: '-2σ', offset: -stddev * 2 },
+      ]
+
+      ctx.save()
+      const _sdAlpha = overlayAlpha('stddevRange')
+
+      sdLineConfigs.forEach(({ color, dash, width, label, offset }) => {
+        const targetPrice = originPrice + offset
+        const endX = originX + forwardDays * candleSpacing
+        const startY = priceToY(originPrice)
+        const endY = priceToY(targetPrice)
+
+        ctx.globalAlpha = 0.25 * _sdAlpha
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)'
+        ctx.lineWidth = width + 2.5
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(originX, startY + 1.5)
+        ctx.lineTo(endX, endY + 1.5)
+        ctx.stroke()
+
+        ctx.globalAlpha = 0.9 * _sdAlpha
+        ctx.strokeStyle = color
+        ctx.lineWidth = width
+        ctx.setLineDash(dash)
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        ctx.moveTo(originX, startY)
+        ctx.lineTo(endX, endY)
+        ctx.stroke()
+
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1 * _sdAlpha
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(endX, endY, 3, 0, Math.PI * 2)
+        ctx.fill()
+        // Store for hit-testing
+        projectedPointsRef.current.stddevRange.push({ x: endX, y: endY })
+
+        if (endX < chartWidth - 10) {
+          ctx.font = 'bold 16px Arial'
+          const labelText = `${label}  $${targetPrice.toFixed(2)}`
+          const textW = ctx.measureText(labelText).width
+          ctx.fillStyle = `rgba(0,0,0,${0.75 * _sdAlpha})`
+          ctx.fillRect(endX + 4, endY - 10, textW + 8, 19)
+          ctx.fillStyle = color
+          ctx.textAlign = 'left'
+          ctx.fillText(labelText, endX + 6, endY + 4)
+        }
+      })
+
+      // Shade ±1σ channel
+      const sd1upY_start = priceToY(originPrice)
+      const sd1dnY_start = priceToY(originPrice)
+      const sd1upY_end = priceToY(originPrice + stddev)
+      const sd1dnY_end = priceToY(originPrice - stddev)
+      const sdEndX = originX + forwardDays * candleSpacing
+      ctx.globalAlpha = 0.06 * _sdAlpha
+      ctx.fillStyle = '#00FF88'
+      ctx.beginPath()
+      ctx.moveTo(originX, sd1upY_start)
+      ctx.lineTo(sdEndX, sd1upY_end)
+      ctx.lineTo(sdEndX, sd1dnY_end)
+      ctx.lineTo(originX, sd1dnY_start)
+      ctx.closePath()
+      ctx.fill()
+
+      // X-axis date labels at week milestones (shared collision)
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      const sdAxisTop = height - timeAxisHeight
+      const sdTickLabelY = sdAxisTop + 16
+      const sdTickStartY = sdAxisTop + 2
+      const sdTickEndY = sdAxisTop + 10
+      ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+      ctx.textAlign = 'center'
+        ;[5, 10, 15, 20].forEach((tradingDay) => {
+          const x = originX + tradingDay * candleSpacing
+          if (x <= originX || x > chartWidth + 20) return
+          if (sharedXAxisUsed.some(px => Math.abs(px - x) < 52)) return
+          sharedXAxisUsed.push(x)
+          const d = tradingDayToDateSD(tradingDay)
+          const labelText = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          ctx.fillStyle = config.axisStyle.xAxis.textColor
+          ctx.fillText(labelText, x, sdTickLabelY)
+          ctx.strokeStyle = config.axisStyle.xAxis.textColor
+          ctx.globalAlpha = 0.4
+          ctx.lineWidth = 1
+          ctx.setLineDash([])
+          ctx.beginPath()
+          ctx.moveTo(x, sdTickStartY)
+          ctx.lineTo(x, sdTickEndY)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+        })
+
+      ctx.globalAlpha = 1
+      ctx.setLineDash([])
+      ctx.restore()
+    }
+
     // Draw Seasonal Projection lines on top of candlesticks
     if (isSeasonalActive && data && data.length > 0) {
       // Use ABSOLUTE LAST DATA CANDLE, not last visible
@@ -16246,15 +17574,31 @@ export default function TradingViewChart({
         ((lastCandlePrice - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
 
       // Helper function to draw a seasonal projection line
+      // forceDailyPoints=true: projection dates are midnight-normalized daily dates (event seasonal)
+      //   → always use trading-day counting even on intraday charts
+      // forceDailyPoints=false (default): intraday projections have real ms timestamps
+      //   → use ms-diff path on intraday charts
       const drawSeasonalLine = (
-        projectionData: Array<{ date: Date; price: number }> | null,
+        projectionData: Array<{ date: Date; price: number; open?: number; high?: number; low?: number; close?: number }> | null,
         color: string,
         isDashed: boolean,
-        eventLabel?: string
+        eventLabel?: string,
+        eventDate?: Date | null,
+        forceDailyPoints: boolean = false,
+        forceCandles: boolean = false
       ) => {
         if (!projectionData || projectionData.length === 0) {
           return
         }
+        // Bars per trading day for the current timeframe
+        const tf = config.timeframe
+        const barsPerDay =
+          tf === '1m' ? 390 :
+            tf === '5m' ? 78 :
+              tf === '15m' ? 26 :
+                tf === '30m' ? 13 :
+                  tf === '1h' || tf === '60m' ? 6.5 :
+                    tf === '4h' ? 1.625 : 1
 
         // Helper to count trading days between dates (excluding weekends and holidays) - handles both directions
         const countTradingDaysBetween = (startDate: Date, endDate: Date): number => {
@@ -16297,65 +17641,379 @@ export default function TradingViewChart({
         const lastCandleDate = new Date(lastDataCandle.timestamp)
         lastCandleDate.setHours(0, 0, 0, 0)
 
-        ctx.save()
-        ctx.strokeStyle = color
-        ctx.lineWidth = 3
-        ctx.globalAlpha = 0.9
+        // Detect intraday mode: only when chart is intraday AND projection has real intraday timestamps
+        // forceDailyPoints=true means projection dates are midnight-normalized regardless of chart timeframe
+        const isIntraday = barsPerDay > 1 && !forceDailyPoints
+        // Use actual timeframe ms — NOT 24h/barsPerDay which includes overnight gaps
+        const tfMsMap: Record<string, number> = {
+          '1m': 60_000, '5m': 300_000, '15m': 900_000,
+          '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
+        }
+        // barMs is non-zero for any intraday chart regardless of forceDailyPoints
+        // (needed for interpolation of daily-spaced data into per-bar candles)
+        const barMs = barsPerDay > 1 ? (tfMsMap[tf] ?? Math.round(24 * 60 * 60 * 1000 / barsPerDay)) : 0
+        const lastCandleTs = lastDataCandle.timestamp
 
-        if (isDashed) {
-          ctx.setLineDash([5, 5])
+        ctx.save()
+
+        // Helper: get session type using fast UTC-offset math (avoids Intl per-call overhead)
+        // PST = UTC-8, PDT = UTC-7; detect DST by comparing UTC offset
+        const getPstMinsFromDate = (date: Date): number => {
+          // Determine if date is in PDT (Mar second Sun → Nov first Sun)
+          const y = date.getUTCFullYear()
+          // DST start: 2nd Sunday of March at 2am PST = 10:00 UTC
+          const mar1Dow = new Date(Date.UTC(y, 2, 1)).getUTCDay()
+          const dstStart = new Date(Date.UTC(y, 2, (14 - mar1Dow) % 7 + 8, 10))
+          // DST end: 1st Sunday of November at 2am PDT = 09:00 UTC
+          const nov1Dow = new Date(Date.UTC(y, 10, 1)).getUTCDay()
+          const dstEnd = new Date(Date.UTC(y, 10, (7 - nov1Dow) % 7 + 1, 9))
+          const isPDT = date >= dstStart && date < dstEnd
+          const offsetMins = isPDT ? 7 * 60 : 8 * 60
+          const totalUtcMins = date.getUTCHours() * 60 + date.getUTCMinutes()
+          return ((totalUtcMins - offsetMins) % (24 * 60) + 24 * 60) % (24 * 60)
+        }
+        const getSession = (date: Date): 'premarket' | 'regular' | 'afterhours' | 'overnight' => {
+          if (!isIntraday) return 'regular'
+          const mins = getPstMinsFromDate(date)
+          const marketStart = 6 * 60 + 30
+          const marketEnd   = 13 * 60
+          const preStart    = 1 * 60
+          const ahEnd       = 17 * 60
+          if (mins >= preStart && mins < marketStart) return 'premarket'
+          if (mins >= marketStart && mins < marketEnd) return 'regular'
+          if (mins >= marketEnd && mins < ahEnd) return 'afterhours'
+          return 'overnight'
         }
 
-        // Calculate all points first for smooth curve
-        const points: Array<{ x: number; y: number }> = []
-        projectionData.forEach((point, index) => {
-          const projDate = new Date(point.date)
-          projDate.setHours(0, 0, 0, 0)
-          const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate)
-          const x = Math.round(lastCandleX + tradingDaysFromLast * candleSpacing)
-          const y =
-            priceChartHeight -
-            ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
-          points.push({ x, y })
+        // Map session type to stroke color (same palette as chart background shading)
+        const sessionColor = (session: string): string => {
+          if (session === 'premarket') return `rgba(255, 140, 60, ${color === '#00FF00' ? 0.9 : 0.85})`   // orange — matches pre-market shading hue
+          if (session === 'afterhours') return `rgba(100, 180, 255, ${color === '#00FF00' ? 0.9 : 0.85})`  // blue  — matches after-hours shading hue
+          return color // regular session: use caller's color
+        }
+
+        // Price-to-Y helper — exact same formula as drawCandle's internal priceToY
+        const priceToYLocal = (p: number) => {
+          const ratio = (p - adjustedMin) / (adjustedMax - adjustedMin)
+          const chartArea = priceChartHeight - 5
+          return Math.floor(chartArea - ratio * (chartArea - 20) - 10)
+        }
+
+        // For intraday candle mode we'll build a % based Y scale after collecting all projection points.
+        // Defined here as a placeholder; replaced below once we know the data range.
+        let pctToY: (price: number) => number = priceToYLocal
+
+        // Count actual Polygon bars between two timestamps, skipping overnight/weekend/holiday gaps.
+        // For 1h: Polygon window is UTC 08:00–24:00 (16 bars/day incl. pre+after hours)
+        // For sub-1h: UTC 13:30–20:00 (regular + some extended, matches chart data)
+        const isHolidayUtc = (d: Date) => {
+          const m = d.getUTCMonth(), day = d.getUTCDate(), dow = d.getUTCDay()
+          if (m === 0  && day === 1)  return true // New Year's
+          if (m === 6  && day === 4)  return true // July 4th
+          if (m === 11 && day === 25) return true // Christmas
+          if (m === 0  && dow === 1 && day >= 15 && day <= 21) return true // MLK
+          if (m === 1  && dow === 1 && day >= 15 && day <= 21) return true // Presidents Day
+          if (m === 4  && dow === 1 && day >= 25) return true // Memorial Day
+          if (m === 8  && dow === 1 && day <= 7)  return true // Labor Day
+          if (m === 10 && dow === 4 && day >= 22 && day <= 28) return true // Thanksgiving
+          if (m === 5  && day === 19) return true // Juneteenth
+          if (m === 5  && day === 18 && dow === 5) return true // Juneteenth observed Fri
+          if (m === 5  && day === 20 && dow === 1) return true // Juneteenth observed Mon
+          return false
+        }
+        const countActualBars = (fromTs: number, toTs: number): number => {
+          if (toTs <= fromTs) return 0
+          // Polygon intraday data spans UTC 08:00–00:00 for all sub-daily timeframes
+          const winStart = 8 * 60
+          const winEnd   = 24 * 60
+          let count = 0
+          let t = fromTs + barMs
+          while (t <= toTs) {
+            const d = new Date(t)
+            const dow = d.getUTCDay()
+            if (dow !== 0 && dow !== 6 && !isHolidayUtc(d)) {
+              const mins = d.getUTCHours() * 60 + d.getUTCMinutes()
+              if (mins >= winStart && mins < winEnd) count++
+            }
+            t += barMs
+          }
+          return count
+        }
+
+        // Calculate all points first (include price so we can build OHLC for candles)
+        const points: Array<{ x: number; y: number; date: Date; price: number; open?: number; high?: number; low?: number; close?: number }> = []
+
+        projectionData.forEach((point, idx) => {
+          let x: number
+          if (isIntraday && barMs > 0) {
+            // Count only real Polygon bars (skips overnight/weekend gaps) → matches chart x-spacing
+            const barsFromLast = countActualBars(lastCandleTs, new Date(point.date).getTime())
+            x = Math.round(lastCandleX + barsFromLast * candleSpacing)
+          } else {
+            const projDate = new Date(point.date)
+            projDate.setHours(0, 0, 0, 0)
+            const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate)
+            x = Math.round(lastCandleX + tradingDaysFromLast * candleSpacing * barsPerDay)
+          }
+          const y = priceToYLocal(point.price)
+          const session = getSession(new Date(point.date))
+          points.push({ x, y, date: new Date(point.date), price: point.price, open: point.open, high: point.high, low: point.low, close: point.close })
         })
 
-        // Draw smooth curve using quadratic bezier
-        if (points.length > 0) {
-          ctx.beginPath()
-          ctx.moveTo(points[0].x, points[0].y)
+        // If chart is intraday but projection data is daily-spaced (e.g. event seasonal),
+        // do NOT interpolate — daily data has no real OHLC per bar so candles would be dojis.
+        // 20Y/15Y/10Y seasonals already return per-bar OHLC from calculateIntradaySeasonalProjection.
+        // Event seasonal (forceDailyPoints=true) stays as a line.
+        const firstGapMs = points.length > 1 ? Math.abs(points[1].date.getTime() - points[0].date.getTime()) : 0
 
-          for (let i = 0; i < points.length - 1; i++) {
-            const currentPoint = points[i]
-            const nextPoint = points[i + 1]
+        // Draw as candles if chart is intraday and points are now per-bar spaced
+        const pointsArePerBar = barsPerDay > 1 && points.length > 1 && barMs > 0 &&
+          Math.abs(points[1].date.getTime() - points[0].date.getTime()) <= barMs * 3
 
-            if (i === points.length - 2) {
-              // Last segment - draw straight to end
-              ctx.lineTo(nextPoint.x, nextPoint.y)
-            } else {
-              // Use midpoint as control point for smooth curve
-              const midX = (currentPoint.x + nextPoint.x) / 2
-              const midY = (currentPoint.y + nextPoint.y) / 2
-              ctx.quadraticCurveTo(currentPoint.x, currentPoint.y, midX, midY)
-            }
+        // forceCandles: render daily OHLC projection as candles on any timeframe
+        const hasOHLC = points.length > 1 && points[0]?.open !== undefined
+        const shouldDrawCandles = pointsArePerBar || (forceCandles && hasOHLC)
+
+        if (shouldDrawCandles) {
+          // ── For intraday candle mode: build % based Y scale anchored to last price ──
+          // Use priceToYLocal for all candle modes — it uses adjustedMin/adjustedMax
+          // so Y-axis zoom (wheel on y-axis) is automatically respected.
+          // (The old custom pctToY used a fixed priceChartHeight*0.20 scale that ignored zoom.)
+          pctToY = priceToYLocal
+          // forceCandles daily mode also uses priceToYLocal (default, unchanged)
+          const cw = Math.floor(Math.max(2, candleWidth))
+          const bodyWidthInner = Math.max(2, cw - 2)
+          const bodyOffsetX = Math.floor((cw - bodyWidthInner) / 2)
+
+          // Projection candles: solid lime green for up, solid red for down
+          const bullBodyColor = '#39FF14'
+          const bullBorderColor = '#39FF14'
+          const bullWickColor = '#39FF14'
+          const bearBodyColor = '#FF0000'
+          const bearBorderColor = '#FF0000'
+          const bearWickColor = '#FF0000'
+
+          ctx.setLineDash([])
+
+          for (let i = 0; i < points.length; i++) {
+            const pt = points[i]
+            // Only apply session filter for real per-bar intraday data.
+            // forceCandles daily mode uses midnight-normalized dates → always 'overnight' → skip filter.
+            const session = pointsArePerBar ? getSession(pt.date) : 'regular'
+            if (session === 'overnight') continue
+            if (pt.x < 0 || pt.x > chartWidth + CHART_LEFT_MARGIN) continue
+
+            // Use real avg OHLC if available, otherwise fall back to previous→current price
+            const open = pt.open ?? (i > 0 ? points[i - 1].price : pt.price)
+            const close = pt.close ?? pt.price
+            const high = pt.high ?? Math.max(open, close)
+            const low = pt.low ?? Math.min(open, close)
+
+            const isBull = close >= open
+
+            const openY = pctToY(open)
+            const closeY = pctToY(close)
+            const highY = pctToY(high)
+            const lowY = pctToY(low)
+
+            const bodyTop = Math.floor(Math.min(openY, closeY))
+            const bodyH = Math.max(1, Math.floor(Math.abs(closeY - openY)))
+
+            // Candle x: pt.x is the CENTER of the bar (same as chart candle center)
+            const crispX = Math.floor(pt.x - cw / 2)
+            const wickX = Math.floor(pt.x)
+
+            ctx.globalAlpha = 1
+
+            // Wick
+            ctx.strokeStyle = isBull ? bullWickColor : bearWickColor
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(wickX, highY)
+            ctx.lineTo(wickX, lowY)
+            ctx.stroke()
+
+            // Body fill + border
+            ctx.fillStyle = isBull ? bullBodyColor : bearBodyColor
+            ctx.strokeStyle = isBull ? bullBorderColor : bearBorderColor
+            ctx.lineWidth = 1
+            ctx.fillRect(crispX + bodyOffsetX, bodyTop, bodyWidthInner, bodyH)
+            ctx.strokeRect(crispX + bodyOffsetX, bodyTop, bodyWidthInner, bodyH)
           }
 
-          ctx.stroke()
-        }
+          ctx.globalAlpha = 1
+          ctx.setLineDash([])
+
+        } else {
+          // ── DAILY / line mode: draw segmented line by session ──────────────────
+          if (points.length > 0) {
+            let segStart = 0
+            const flushSegment = (endIdx: number) => {
+              if (endIdx <= segStart) return
+              const seg = points.slice(segStart, endIdx + 1)
+              if (seg.length < 2) return
+              const session = getSession(seg[0].date)
+              ctx.strokeStyle = sessionColor(session)
+              ctx.lineWidth = session === 'regular' ? 3 : 2
+              ctx.globalAlpha = session === 'overnight' ? 0 : (session === 'regular' ? 0.9 : 0.7)
+              ctx.setLineDash(isDashed || session !== 'regular' ? [5, 5] : [])
+              ctx.beginPath()
+              ctx.moveTo(seg[0].x, seg[0].y)
+              for (let i = 0; i < seg.length - 1; i++) {
+                if (i === seg.length - 2) {
+                  ctx.lineTo(seg[i + 1].x, seg[i + 1].y)
+                } else {
+                  const midX = (seg[i].x + seg[i + 1].x) / 2
+                  const midY = (seg[i].y + seg[i + 1].y) / 2
+                  ctx.quadraticCurveTo(seg[i].x, seg[i].y, midX, midY)
+                }
+              }
+              ctx.stroke()
+            }
+
+            let curSession = getSession(points[0].date)
+            for (let i = 1; i < points.length; i++) {
+              const nextSession = getSession(points[i].date)
+              if (nextSession !== curSession) {
+                flushSegment(i - 1)
+                segStart = i - 1 // overlap by 1 point so segments connect
+                curSession = nextSession
+              }
+            }
+            flushSegment(points.length - 1)
+          }
+        } // end if/else candle vs line mode
 
         ctx.setLineDash([])
+
+        // Draw relative-day x-axis labels over the time axis area
+        // For intraday event seasonal (pointsArePerBar) or forceCandles daily mode when eventDate supplied
+        if ((pointsArePerBar || (forceCandles && hasOHLC)) && eventDate && points.length > 1) {
+          const evNorm = new Date(eventDate); evNorm.setHours(0, 0, 0, 0)
+          // Match exactly where drawTimeAxis draws labels: axisTop = height - timeAxisHeight = priceChartHeight; labelY = axisTop + 16
+          const labelY = priceChartHeight + 16
+          ctx.save()
+          // Match x-axis font exactly — bold, same size
+          ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+
+          // Group points by calendar day (local date) to get one representative x per day
+          const dayXMap: Map<string, { x: number; date: Date }> = new Map()
+          for (const pt of points) {
+            const d = pt.date
+            // Use local date string as key so daily charts group correctly
+            const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+            if (!dayXMap.has(k)) dayXMap.set(k, { x: pt.x, date: new Date(d) })
+          }
+
+          // Count trading days from event date to each projected day
+          const isWeekendLocal = (d: Date) => d.getDay() === 0 || d.getDay() === 6
+          const countTd = (from: Date, to: Date) => {
+            let n = 0; const step = to >= from ? 1 : -1
+            const cur = new Date(from); cur.setHours(0, 0, 0, 0)
+            const end = new Date(to); end.setHours(0, 0, 0, 0)
+            while (step > 0 ? cur < end : cur > end) {
+              cur.setDate(cur.getDate() + step)
+              if (!isWeekendLocal(cur)) n += step
+            }
+            return n
+          }
+
+          // Minimum pixel gap — for daily: at least 5 candle widths; for intraday: 3 day-widths
+          const minLabelGap = barsPerDay > 1
+            ? Math.max(candleSpacing * barsPerDay * 5, 50)
+            : Math.max(candleSpacing * 5, 40)
+
+          // ── Vertical dashed event line + title ──────────────────────────────
+          // Find the x for td === 0 (event day)
+          let eventLineX: number | null = null
+          for (const [, { x, date }] of dayXMap) {
+            const dayMid = new Date(date); dayMid.setHours(0, 0, 0, 0)
+            if (countTd(evNorm, dayMid) === 0) { eventLineX = x; break }
+          }
+          if (eventLineX !== null && eventLineX >= CHART_LEFT_MARGIN && eventLineX <= CHART_LEFT_MARGIN + chartWidth) {
+            ctx.save()
+            ctx.globalAlpha = 0.85
+            ctx.strokeStyle = color
+            ctx.lineWidth = 1.5
+            ctx.setLineDash([4, 4])
+            ctx.beginPath()
+            ctx.moveTo(eventLineX, 0)
+            ctx.lineTo(eventLineX, priceChartHeight)
+            ctx.stroke()
+            ctx.setLineDash([])
+
+            // Title label at top of chart
+            const titleText = eventLabel || 'Event'
+            ctx.font = `bold ${Math.max(11, config.axisStyle.xAxis.textSize + 1)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+            const tw = ctx.measureText(titleText).width
+            const padX = 6, padY = 4
+            const boxW = tw + padX * 2
+            const boxH = config.axisStyle.xAxis.textSize + padY * 2
+            const boxX = Math.min(eventLineX - boxW / 2, CHART_LEFT_MARGIN + chartWidth - boxW - 4)
+            const boxY = 6
+            // Pill background
+            ctx.globalAlpha = 0.88
+            ctx.fillStyle = '#111827'
+            ctx.beginPath()
+            if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 4)
+            else ctx.rect(boxX, boxY, boxW, boxH)
+            ctx.fill()
+            // Border
+            ctx.strokeStyle = color
+            ctx.lineWidth = 1
+            ctx.globalAlpha = 0.9
+            ctx.beginPath()
+            if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 4)
+            else ctx.rect(boxX, boxY, boxW, boxH)
+            ctx.stroke()
+            // Text
+            ctx.globalAlpha = 1
+            ctx.fillStyle = color
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(titleText, boxX + boxW / 2, boxY + boxH / 2)
+            ctx.restore()
+          }
+
+          // ── X-axis relative-day labels ───────────────────────────────────────
+          let lastLabelX = -999
+          for (const [, { x, date }] of dayXMap) {
+            if (x < CHART_LEFT_MARGIN || x > CHART_LEFT_MARGIN + chartWidth) continue
+            if (x - lastLabelX < minLabelGap) continue
+            const dayMid = new Date(date); dayMid.setHours(0, 0, 0, 0)
+            const td = countTd(evNorm, dayMid)
+            let lbl: string
+            if (td === 0) lbl = 'Event'
+            else if (td < 0) lbl = `-${Math.abs(td)}d`
+            else lbl = `+${td}d`
+
+            ctx.globalAlpha = 1
+            ctx.fillStyle = td === 0 ? color : config.axisStyle.xAxis.textColor
+            ctx.fillText(lbl, x, labelY)
+            lastLabelX = x
+          }
+          ctx.restore()
+        }
+
         ctx.restore()
       }
-
-      // Draw each active seasonal line with its color and style
-      if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false) // Solid white
-      if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false) // Solid yellow
-      if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#00E5FF', false) // Bright cyan
-      if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true) // Purple dashed
+      if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false)
+      if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false)
+      if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#00E5FF', false)
+      if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true)
+      if (isSmartPerfActive) {
+        const intradayTfs = ['1m', '5m', '15m', '30m', '1h', '60m', '4h']
+        const isIntradaySmartPerf = intradayTfs.includes(config.timeframe)
+        drawSeasonalLine(smartPerfData as any, '#FF8500', false, undefined, smartPerfTriggerDate, false, !isIntradaySmartPerf)
+      }
       if (isSeasonalEventActive) {
-        if (seasonalEventData) {
-          seasonalEventData.forEach((pt, idx) => { })
-        }
-        drawSeasonalLine(seasonalEventData, '#00FF00', true, selectedSeasonalEvent || undefined) // Green dashed
+        // Both intraday and daily paths now output OHLC candlesticks
+        // forceDailyPoints=false, forceCandles=true so daily renders as candles too
+        const intradayTfs = ['1m', '5m', '15m', '30m', '1h', '60m', '4h']
+        const isIntraday = intradayTfs.includes(config.timeframe)
+        drawSeasonalLine(seasonalEventData, '#00FF00', false, (seasonalEventLabel ?? selectedSeasonalEvent) || undefined, seasonalEventDate, false, !isIntraday)
       }
     }
 
@@ -17086,6 +18744,9 @@ export default function TradingViewChart({
     seasonal10YData,
     seasonalElectionData,
     seasonalEventData,
+    smartPerfData,
+    isSmartPerfActive,
+    smartPerfTriggerDate,
     isGexActive,
     technalysisActive,
     technalysisFeatures,
@@ -19331,7 +20992,7 @@ export default function TradingViewChart({
         labelPositions.push({ x, width: textWidth, text })
 
         // Set appropriate color
-        ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor
+        ctx.fillStyle = (isFuture && !isFutureExpiriesActiveRef.current) ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor
 
         // Time axis always draws in the last timeAxisHeight pixels of the canvas
         const axisTop = timeAxisStartY ?? (height - 25)
@@ -19343,7 +21004,7 @@ export default function TradingViewChart({
         ctx.fillText(text, x, labelY)
 
         // Draw tick mark
-        ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid
+        ctx.strokeStyle = (isFuture && !isFutureExpiriesActiveRef.current) ? 'rgba(255, 255, 255, 0.3)' : colors.grid
         ctx.lineWidth = 1
         ctx.beginPath()
         ctx.moveTo(x, tickStartY)
@@ -19374,87 +21035,64 @@ export default function TradingViewChart({
       addLabel(x, timeLabel, false)
     }
 
-    // Draw future X-axis date labels for seasonal/election projections (orange)
-    const anySeasonalActive =
+    // Draw x-axis labels into the future projection area (same spacing/format as historical data)
+    // Skip when event/perf seasonal is active — those draw their own +Xd relative labels
+    const anySeasonalActiveForAxis =
       isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive ||
-      isSeasonalElectionActive || isSeasonalEventActive
-    if (anySeasonalActive && allData.length > 0) {
-      // Pick the first available projection to get future dates
-      const activeProjection =
-        (isSeasonal20YActive && seasonal20YData) ||
-        (isSeasonal15YActive && seasonal15YData) ||
-        (isSeasonal10YActive && seasonal10YData) ||
-        (isSeasonalElectionActive && seasonalElectionData) ||
-        (isSeasonalEventActive && seasonalEventData) ||
-        null
+      isSeasonalElectionActive || isSeasonalEventActive || isSmartPerfActive
+    const useRelativeLabels = isSeasonalEventActive || isSmartPerfActive
+    if (anySeasonalActiveForAxis && !useRelativeLabels && allData.length > 0) {
+      const lastDataCandle = allData[allData.length - 1]
+      const lastDataIndex = allData.length - 1
+      const lastDataPositionOnScreen = lastDataIndex - Math.floor(scrollOffset)
+      const lastDataX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
+      const lastDataTs = lastDataCandle.timestamp
 
-      if (activeProjection && activeProjection.length > 1) {
-        const lastDataCandle = allData[allData.length - 1]
-        const lastDataIndex = allData.length - 1
-        const lastDataPositionOnScreen = lastDataIndex - Math.floor(scrollOffset)
-        const lastDataX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
-        const lastDataDate = new Date(lastDataCandle.timestamp)
-        lastDataDate.setHours(0, 0, 0, 0)
-
-        // Count trading days helper (same logic as drawSeasonalLine)
-        const isWeekendDay = (d: Date) => d.getDay() === 0 || d.getDay() === 6
-        const countFutureTradingDays = (fromDate: Date, toDate: Date): number => {
-          const start = new Date(fromDate)
-          const end = new Date(toDate)
-          start.setHours(0, 0, 0, 0)
-          end.setHours(0, 0, 0, 0)
-          const forward = end >= start
-          const cur = new Date(forward ? start : end)
-          const target = new Date(forward ? end : start)
-          let count = 0
-          while (cur < target) {
-            cur.setDate(cur.getDate() + 1)
-            if (!isWeekendDay(cur)) count++
-          }
-          return forward ? count : -count
-        }
-
-        // Place a label every ~10 trading days, using addLabel for collision detection
-        const labelEvery = 10
-        let lastLabelTradingDay = 0
-        const labelY = isMobile ? height - 45 : height - 70
-        const tickStartY = isMobile ? height - 75 : height - 95
-        const tickEndY = isMobile ? height - 52 : height - 77
-
-        ctx.save()
-        ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
-        ctx.textAlign = 'center'
-
-        // Skip index 0 (that's the last real candle date, already labeled)
-        for (let i = 1; i < activeProjection.length; i++) {
-          const projDate = new Date(activeProjection[i].date)
-          projDate.setHours(0, 0, 0, 0)
-          const tradingDays = countFutureTradingDays(lastDataDate, projDate)
-          const x = Math.round(lastDataX + tradingDays * candleSpacing)
-
-          if (tradingDays - lastLabelTradingDay >= labelEvery || i === activeProjection.length - 1) {
-            lastLabelTradingDay = tradingDays
-            if (x > lastDataX && x < width - 10) {
-              const labelText = projDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-              if (canPlaceLabel(x, labelText)) {
-                const textWidth = ctx.measureText(labelText).width
-                labelPositions.push({ x, width: textWidth, text: labelText })
-
-                ctx.fillStyle = '#FF8C00'
-                ctx.fillText(labelText, x, labelY)
-
-                ctx.strokeStyle = 'rgba(255, 140, 0, 0.5)'
-                ctx.lineWidth = 1
-                ctx.beginPath()
-                ctx.moveTo(x, tickStartY)
-                ctx.lineTo(x, tickEndY)
-                ctx.stroke()
-              }
-            }
-          }
-        }
-        ctx.restore()
+      // Determine bar interval in ms based on timeframe
+      const stf = config.timeframe
+      const sBarsPerDay =
+        stf === '1m' ? 390 : stf === '5m' ? 78 : stf === '15m' ? 26 :
+          stf === '30m' ? 13 : stf === '1h' || stf === '60m' ? 6.5 : stf === '4h' ? 1.625 : 1
+      const sIsIntraday = sBarsPerDay > 1
+      // Use actual timeframe ms, not 24h/bpd
+      const sTfMsMap: Record<string, number> = {
+        '1m': 60_000, '5m': 300_000, '15m': 900_000,
+        '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
       }
+      const sBarMs = sIsIntraday ? (sTfMsMap[stf] ?? 3_600_000) : 24 * 60 * 60 * 1000
+
+      // For daily: project ~60 trading days; for intraday: project enough bars to fill screen
+      const maxFutureBars = sIsIntraday
+        ? Math.ceil((width - lastDataX) / candleSpacing) + 10
+        : 90
+
+      ctx.save()
+      ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+      ctx.textAlign = 'center'
+
+      // Walk forward using running ts that skips weekends so labels match trading bars
+      let sRunningTs = lastDataTs
+      for (let i = 1; i <= maxFutureBars; i++) {
+        sRunningTs += sBarMs
+        // Skip weekends
+        const sPstStr = new Date(sRunningTs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+        const sPst = new Date(sPstStr)
+        const sDow = sPst.getDay()
+        const skippedWeekend = sDow === 6 || sDow === 0
+        if (sDow === 6) sRunningTs += 2 * 86_400_000 // Sat → Mon
+        else if (sDow === 0) sRunningTs += 86_400_000  // Sun → Mon
+
+        // Only place labels at spacing intervals (same as historical)
+        if (i % labelConfig.spacing !== 0) continue
+
+        const futureX = Math.round(lastDataX + i * candleSpacing)
+        if (futureX > width - 10) break
+        if (futureX <= lastDataX) continue
+
+        const labelText = formatDateLabel(sRunningTs, labelConfig.format)
+        addLabel(futureX, labelText, false)
+      }
+      ctx.restore()
     }
 
     // Draw price alerts on the chart
@@ -19611,6 +21249,8 @@ export default function TradingViewChart({
     isWeeklyActive,
     isMonthlyActive,
     isCustomActive,
+    isFutureExpiriesActive,
+    futureExpiriesLevels.length,
     isSeasonalActive,
     isGexActive,
     technalysisActive,
@@ -19619,8 +21259,6 @@ export default function TradingViewChart({
     isExpansionLiquidationActive,
     drawings.length,
   ])
-
-  // Re-render when visual config settings change (colors, background, axis styles)
   // These are NOT in the main renderChart effect so they need their own watcher
   useEffect(() => {
     if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0 && chartLayout === '1x1') {
@@ -19647,7 +21285,7 @@ export default function TradingViewChart({
   // Re-render when Expected Range data arrives
   useEffect(() => {
     if (isExpectedRangeActive && expectedRangeLevels && chartLayout === '1x1') {
-      renderChart()
+      renderChartRef.current()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -19659,6 +21297,14 @@ export default function TradingViewChart({
     chartLayout,
   ])
 
+  // Re-render when Future Expiries data arrives
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChartRef.current()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [futureExpiriesLevels, isFutureExpiriesActive])
+
   // Re-render when Seasonal data arrives
   useEffect(() => {
     if (
@@ -19667,7 +21313,7 @@ export default function TradingViewChart({
       seasonalProjectionData.length > 0 &&
       chartLayout === '1x1'
     ) {
-      renderChart()
+      renderChartRef.current()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seasonalProjectionData, isSeasonalActive, chartLayout])
@@ -19743,6 +21389,48 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawings, chartLayout])
+
+  // Re-render when ATR Range is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isATRRangeActive, chartLayout])
+
+  // Re-render when StdDev Range is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStdDevRangeActive, chartLayout])
+
+  // Re-render when seasonal data loads (async — data arrives after button click)
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonal20YData, chartLayout])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonal15YData, chartLayout])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonal10YData, chartLayout])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonalElectionData, chartLayout])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonalEventData, chartLayout])
 
   // TradingView-style interaction handlers
 
@@ -19881,49 +21569,35 @@ export default function TradingViewChart({
         // We're beyond the visible data - calculate future date using proper timeframe
         const lastCandle = data[data.length - 1]
         const periodsIntoFuture = visibleCandleIndex - visibleData.length + 1
-
-        // Calculate milliseconds per period based on timeframe
         const timeframe = config.timeframe
-        let millisecondsPerPeriod = 0
 
-        switch (timeframe) {
-          case '1m':
-            millisecondsPerPeriod = 60 * 1000
-            break
-          case '5m':
-            millisecondsPerPeriod = 5 * 60 * 1000
-            break
-          case '15m':
-            millisecondsPerPeriod = 15 * 60 * 1000
-            break
-          case '30m':
-            millisecondsPerPeriod = 30 * 60 * 1000
-            break
-          case '1h':
-            millisecondsPerPeriod = 60 * 60 * 1000
-            break
-          case '4h':
-            millisecondsPerPeriod = 4 * 60 * 60 * 1000
-            break
-          case '1d':
-            millisecondsPerPeriod = 24 * 60 * 60 * 1000
-            break
-          case '1w':
-            millisecondsPerPeriod = 7 * 24 * 60 * 60 * 1000
-            break
-          case '1mo':
-            millisecondsPerPeriod = 30 * 24 * 60 * 60 * 1000
-            break
-          case '1y':
-            millisecondsPerPeriod = 365 * 24 * 60 * 60 * 1000
-            break
-          default:
-            millisecondsPerPeriod = 24 * 60 * 60 * 1000
-            break
+        // Walk forward n trading bars skipping weekends+overnight (intraday) for correct future timestamp
+        const tfMsMap: Record<string, number> = {
+          '1m': 60_000, '5m': 300_000, '15m': 900_000,
+          '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
         }
+        const barMs = tfMsMap[timeframe] ?? (24 * 60 * 60 * 1000)
+        const isIntradayTf = barMs < 86_400_000
+        const isHourlyTf = barMs >= 3_600_000 && isIntradayTf
+        const utcWinStart = isHourlyTf ? 8 * 60 : 13 * 60 + 30
+        const utcWinEnd   = isHourlyTf ? 24 * 60 : 20 * 60
 
-        // Simple linear calculation - add time intervals based on actual timeframe
-        timestamp = lastCandle.timestamp + periodsIntoFuture * millisecondsPerPeriod
+        let walkTs = lastCandle.timestamp
+        let found = 0
+        const maxSteps = periodsIntoFuture * 4
+        for (let step = 0; step < maxSteps && found < periodsIntoFuture; step++) {
+          walkTs += barMs
+          const d = new Date(walkTs)
+          const utcDow = d.getUTCDay()
+          if (utcDow === 6) { walkTs += 2 * 86_400_000; continue }
+          if (utcDow === 0) { walkTs += 86_400_000; continue }
+          if (isIntradayTf) {
+            const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes()
+            if (utcMins < utcWinStart || utcMins >= utcWinEnd) continue
+          }
+          found++
+        }
+        timestamp = walkTs
       } else {
         // Use the actual visible candle's timestamp directly
         const boundedIndex = Math.max(0, Math.min(visibleCandleIndex, visibleData.length - 1))
@@ -20893,6 +22567,41 @@ export default function TradingViewChart({
       ivPanelHeight,
       setBuySellPanelHeight,
     ]
+  )
+
+  // Projected-line hover hit-test — runs every mouse move
+  // Reads hit-test points stored by the render loop and triggers re-render when hovered overlay changes
+  const lastHoveredOverlay = useRef<OverlayKey | null>(null)
+  const hoverRafPending = useRef(false)
+  const handleProjectedLinesHover = useCallback(
+    (x: number, y: number) => {
+      const HIT_RADIUS = 40
+      const pts = projectedPointsRef.current
+      const keys: OverlayKey[] = ['futureExpiries', 'atrRange', 'stddevRange']
+      let nearest: OverlayKey | null = null
+      let nearestDist = Infinity
+      for (const key of keys) {
+        for (const pt of pts[key]) {
+          const dist = Math.sqrt((pt.x - x) ** 2 + (pt.y - y) ** 2)
+          if (dist < HIT_RADIUS && dist < nearestDist) {
+            nearestDist = dist
+            nearest = key
+          }
+        }
+      }
+      if (nearest !== lastHoveredOverlay.current) {
+        lastHoveredOverlay.current = nearest
+        hoveredOverlayRef.current = nearest
+        if (!hoverRafPending.current) {
+          hoverRafPending.current = true
+          requestAnimationFrame(() => {
+            hoverRafPending.current = false
+            renderChartRef.current()
+          })
+        }
+      }
+    },
+    [] // refs never change
   )
 
   const handleMouseUp = useCallback(
@@ -27959,6 +29668,19 @@ export default function TradingViewChart({
  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
  to   { opacity: 1; transform: translateY(0) scale(1); }
  }
+
+ @keyframes benchmarkPulse {
+   0%   { box-shadow: 0 0 6px rgba(255,133,0,0.4), inset 0 1px 0 rgba(255,133,0,0.2); }
+   50%  { box-shadow: 0 0 14px rgba(255,133,0,0.75), 0 0 28px rgba(255,133,0,0.2), inset 0 1px 0 rgba(255,133,0,0.2); }
+   100% { box-shadow: 0 0 6px rgba(255,133,0,0.4), inset 0 1px 0 rgba(255,133,0,0.2); }
+ }
+
+ @keyframes benchmarkIconSpin {
+   0%   { transform: rotate(0deg) scale(1); }
+   40%  { transform: rotate(-12deg) scale(1.15); }
+   70%  { transform: rotate(8deg) scale(1.1); }
+   100% { transform: rotate(0deg) scale(1); }
+ }
  
  /* Sharp Corner Enhancements */
  .sharp-corners {
@@ -28226,6 +29948,116 @@ export default function TradingViewChart({
                             : symbol || 'TICKER'
                         }
                       />
+                      {/* Benchmark toggle icon */}
+                      {!isMobile && (
+                        isEditingBenchmarkTicker ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={benchmarkEditValue}
+                            onChange={(e) => setBenchmarkEditValue(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const newTicker = benchmarkEditValue.trim() || 'SPY'
+                                setBenchmarkDefaultTicker(newTicker)
+                                setIsEditingBenchmarkTicker(false)
+                                setBenchmarkEditValue('')
+                                handleSearch(`${symbol}/${newTicker}`)
+                              } else if (e.key === 'Escape') {
+                                setIsEditingBenchmarkTicker(false)
+                                setBenchmarkEditValue('')
+                              }
+                            }}
+                            onBlur={() => {
+                              setIsEditingBenchmarkTicker(false)
+                              setBenchmarkEditValue('')
+                            }}
+                            placeholder={benchmarkDefaultTicker}
+                            style={{
+                              width: '48px',
+                              background: 'rgba(255,133,0,0.15)',
+                              border: '1px solid rgba(255,133,0,0.6)',
+                              borderRadius: '3px',
+                              color: '#ff8500',
+                              fontSize: '11px',
+                              fontWeight: 'bold',
+                              fontFamily: 'monospace',
+                              padding: '2px 4px',
+                              outline: 'none',
+                            }}
+                          />
+                        ) : (
+                          <button
+                            title={isBenchmarkMode ? `Benchmarking vs ${benchmarkDefaultTicker} (double-click to change)` : `Benchmark vs ${benchmarkDefaultTicker}`}
+                            onClick={() => {
+                              if (isBenchmarkMode) {
+                                setIsBenchmarkMode(false)
+                                setBenchmarkSymbol1('')
+                                setBenchmarkSymbol2('')
+                                handleSearch(symbol)
+                              } else {
+                                handleSearch(`${symbol}/${benchmarkDefaultTicker}`)
+                              }
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation()
+                              setBenchmarkEditValue(benchmarkDefaultTicker)
+                              setIsEditingBenchmarkTicker(true)
+                            }}
+                            style={{
+                              background: isBenchmarkMode
+                                ? '#000000'
+                                : 'linear-gradient(145deg, #1e1e1e, #0a0a0a)',
+                              border: isBenchmarkMode
+                                ? '2px solid #ff8500'
+                                : '1.5px solid rgba(255,255,255,0.22)',
+                              borderRadius: '6px',
+                              color: isBenchmarkMode ? '#ff8500' : 'rgba(255,255,255,0.55)',
+                              cursor: 'pointer',
+                              padding: isBenchmarkMode ? '7px 12px' : '6px 9px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: isBenchmarkMode ? '14px' : '12px',
+                              fontWeight: '800',
+                              fontFamily: 'monospace',
+                              letterSpacing: isBenchmarkMode ? '1px' : '0.2px',
+                              transition: 'all 0.2s cubic-bezier(0.4,0,0.2,1)',
+                              flexShrink: 0,
+                              animation: isBenchmarkMode ? 'benchmarkPulse 2s ease-in-out infinite' : 'none',
+                              transform: isBenchmarkMode ? 'scale(1.08)' : 'scale(1)',
+                              textShadow: isBenchmarkMode ? '0 0 12px rgba(255,133,0,0.7)' : 'none',
+                            }}
+                          >
+                            {/* Scale/balance icon — solid fill when active */}
+                            <svg
+                              width={isBenchmarkMode ? '17' : '14'}
+                              height={isBenchmarkMode ? '17' : '14'}
+                              viewBox="0 0 24 24"
+                              fill={isBenchmarkMode ? 'rgba(255,133,0,0.18)' : 'none'}
+                              stroke={isBenchmarkMode ? '#ff8500' : 'rgba(255,255,255,0.6)'}
+                              strokeWidth={isBenchmarkMode ? '2.2' : '2'}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{
+                                flexShrink: 0,
+                                filter: isBenchmarkMode ? 'drop-shadow(0 0 4px rgba(255,133,0,0.7))' : 'none',
+                                animation: isBenchmarkMode ? 'benchmarkIconSpin 0.4s cubic-bezier(0.4,0,0.2,1)' : 'none',
+                              }}
+                            >
+                              <line x1="12" y1="3" x2="12" y2="21" />
+                              <path d="M5 7l7-4 7 4" />
+                              <path d="M3 13l4-6 4 6a4 4 0 01-8 0z" />
+                              <path d="M13 13l4-6 4 6a4 4 0 01-8 0z" />
+                            </svg>
+                            {isBenchmarkMode ? (
+                              <span style={{ color: '#ff8500', fontWeight: 900, letterSpacing: '1px' }}>{benchmarkDefaultTicker}</span>
+                            ) : (
+                              <span style={{ fontSize: '11px', letterSpacing: '0.4px', opacity: 0.7 }}>vs</span>
+                            )}
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 </div>
@@ -28384,7 +30216,7 @@ export default function TradingViewChart({
                         <button
                           ref={timeframeButtonRef}
                           onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
-                          className={`btn-3d-carved relative group ${['30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) ? 'active' : ''}`}
+                          className={`btn-3d-carved relative group ${['1m', '30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) || customTimeframeLabel ? 'active' : ''}`}
                           style={{
                             padding: '12px 12px',
                             fontWeight: '700',
@@ -28396,7 +30228,11 @@ export default function TradingViewChart({
                             gap: '4px',
                           }}
                         >
-                          {config.timeframe === '30m' ? (
+                          {customTimeframeLabel ? (
+                            <span>{customTimeframeLabel}</span>
+                          ) : config.timeframe === '1m' ? (
+                            <span>1M</span>
+                          ) : config.timeframe === '30m' ? (
                             <span>30M</span>
                           ) : config.timeframe === '4h' ? (
                             <span>4H</span>
@@ -28448,6 +30284,7 @@ export default function TradingViewChart({
                             >
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 {[
+                                  { label: '1 Minute (1m)', value: '1m' },
                                   { label: '30 Minutes (30M)', value: '30m' },
                                   { label: '4 Hours (4H)', value: '4h' },
                                   { label: 'Weekly (1W)', value: '1w' },
@@ -28457,10 +30294,11 @@ export default function TradingViewChart({
                                   <button
                                     key={tf.value}
                                     onClick={() => {
+                                      setCustomTimeframeLabel('')
                                       handleTimeframeChange(tf.value)
                                       setIsTimeframeDropdownOpen(false)
                                     }}
-                                    className={`btn-3d-carved ${config.timeframe === tf.value ? 'active' : ''}`}
+                                    className={`btn-3d-carved ${config.timeframe === tf.value && !customTimeframeLabel ? 'active' : ''}`}
                                     style={{
                                       padding: '10px 16px',
                                       fontWeight: '700',
@@ -28473,6 +30311,101 @@ export default function TradingViewChart({
                                     {tf.label}
                                   </button>
                                 ))}
+
+                                {/* Divider */}
+                                <div style={{ borderTop: '1px solid rgba(255,133,0,0.2)', margin: '2px 0' }} />
+
+                                {/* Custom Timeframe */}
+                                <button
+                                  className={`btn-3d-carved ${customTimeframeLabel ? 'active' : ''}`}
+                                  onClick={() => setShowCustomTimeframeInput((v) => !v)}
+                                  style={{
+                                    padding: '10px 16px',
+                                    fontWeight: '700',
+                                    fontSize: '14px',
+                                    textAlign: 'left',
+                                    borderRadius: '4px',
+                                    width: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    color: customTimeframeLabel ? '#ff8500' : undefined,
+                                  }}
+                                >
+                                  <span>Custom{customTimeframeLabel ? ` (${customTimeframeLabel})` : ''}</span>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d={showCustomTimeframeInput ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} />
+                                  </svg>
+                                </button>
+
+                                {showCustomTimeframeInput && (
+                                  <div style={{ padding: '8px 10px', background: '#0a0a0a', borderRadius: '4px', border: '1px solid rgba(255,133,0,0.3)' }}>
+                                    <div style={{ color: '#888', fontSize: '11px', marginBottom: '6px', fontFamily: 'monospace' }}>
+                                      e.g. 2m, 3m, 10m, 2h, 3h, 2d
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <input
+                                        autoFocus
+                                        type="text"
+                                        value={customTimeframeValue}
+                                        onChange={(e) => setCustomTimeframeValue(e.target.value.toLowerCase().replace(/[^0-9a-z]/g, ''))}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            const v = customTimeframeValue.trim()
+                                            if (v) {
+                                              setCustomTimeframeLabel(v.toUpperCase())
+                                              handleTimeframeChange(v)
+                                              setIsTimeframeDropdownOpen(false)
+                                              setShowCustomTimeframeInput(false)
+                                            }
+                                          } else if (e.key === 'Escape') {
+                                            setShowCustomTimeframeInput(false)
+                                          }
+                                        }}
+                                        placeholder="e.g. 3m"
+                                        style={{
+                                          flex: 1,
+                                          background: '#000',
+                                          border: '1px solid rgba(255,133,0,0.5)',
+                                          borderRadius: '4px',
+                                          color: '#ff8500',
+                                          fontSize: '13px',
+                                          fontWeight: '700',
+                                          fontFamily: 'monospace',
+                                          padding: '6px 8px',
+                                          outline: 'none',
+                                        }}
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          const v = customTimeframeValue.trim()
+                                          if (v) {
+                                            setCustomTimeframeLabel(v.toUpperCase())
+                                            handleTimeframeChange(v)
+                                            setIsTimeframeDropdownOpen(false)
+                                            setShowCustomTimeframeInput(false)
+                                          }
+                                        }}
+                                        className="btn-3d-carved"
+                                        style={{ padding: '6px 12px', fontWeight: '800', fontSize: '12px', borderRadius: '4px', color: customTimeframeValue ? '#ff8500' : '#555' }}
+                                      >
+                                        SET
+                                      </button>
+                                    </div>
+                                    {customTimeframeLabel && (
+                                      <button
+                                        onClick={() => {
+                                          setCustomTimeframeLabel('')
+                                          setCustomTimeframeValue('')
+                                          setShowCustomTimeframeInput(false)
+                                        }}
+                                        style={{ marginTop: '6px', background: 'none', border: 'none', color: '#ff4444', fontSize: '11px', cursor: 'pointer', fontFamily: 'monospace', padding: 0 }}
+                                      >
+                                        ✕ Clear custom
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>,
                             document.body
@@ -28498,6 +30431,7 @@ export default function TradingViewChart({
                           paddingBottom: '0',
                         }}
                       >
+                        <option value="1m">1M</option>
                         <option value="5m">5M</option>
                         <option value="30m">30M</option>
                         <option value="1h">1H</option>
@@ -28691,7 +30625,7 @@ export default function TradingViewChart({
                           {/* ── SEASONAL ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonal</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const d10 = await calculateSeasonalityProjection(symbol, 10, data); setSeasonal10YData(d10); setIsSeasonal10YActive(true); if (maxSeasonalYears >= 15) { const d15 = await calculateSeasonalityProjection(symbol, 15, data); setSeasonal15YData(d15); setIsSeasonal15YActive(true); } if (maxSeasonalYears >= 20) { const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data); setSeasonal20YData(dMax); setIsSeasonal20YActive(true); } setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isLoadingSeasonalProjection ? 'Loading...' : `Seasonality${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? ' ✓' : ''}`}</button>
+                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const d10 = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe); setSeasonal10YData(d10); setIsSeasonal10YActive(true); if (maxSeasonalYears >= 15) { const d15 = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe); setSeasonal15YData(d15); setIsSeasonal15YActive(true); } if (maxSeasonalYears >= 20) { const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data, undefined, config.timeframe); setSeasonal20YData(dMax); setIsSeasonal20YActive(true); } setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isLoadingSeasonalProjection ? 'Loading...' : `Seasonality${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? ' ✓' : ''}`}</button>
                             <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const proj = await calculateSeasonalityProjection(symbol, 20, data, cycle); setIsLoadingSeasonalProjection(false); if (!proj) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(proj); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election (N/A)' : `Election${isSeasonalElectionActive ? ' ✓' : ''}`}</button>
                           </div>
                           {/* ── TECHNALYSIS ── */}
@@ -28792,60 +30726,71 @@ export default function TradingViewChart({
                   <button
                     ref={expectedRangeButtonRef}
                     onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
-                    className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : ''}`}
+                    className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
                       fontWeight: '700',
                       fontSize: '13px',
                       borderRadius: '4px',
                       color: 'white',
+                      minWidth: isMobile ? undefined : '148px',
+                      justifyContent: 'center',
                     }}
                   >
-                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
-                    {isExpectedRangeActive ? (
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setIsWeeklyActive(false)
-                          setIsMonthlyActive(false)
-                          setIsCustomActive(false)
-                          setIsExpectedRangeActive(false)
-                          setExpectedRangeLevels(null)
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        ×
-                      </span>
-                    ) : (
+                    {(isLoadingExpectedRange || isLoadingFutureExpiries) ? (
                       <svg
-                        className="w-4 h-4 ml-1"
+                        className="animate-spin"
+                        style={{ width: 18, height: 18, color: isLoadingFutureExpiries ? '#FF9900' : 'white' }}
                         fill="none"
-                        stroke="currentColor"
                         viewBox="0 0 24 24"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                        <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                       </svg>
-                    )}
-                    {isLoadingExpectedRange && (
-                      <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
+                    ) : (
+                      <>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        {(isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setIsWeeklyActive(false)
+                              setIsMonthlyActive(false)
+                              setIsCustomActive(false)
+                              setIsExpectedRangeActive(false)
+                              setExpectedRangeLevels(null)
+                              setIsFutureExpiriesActive(false)
+                              setFutureExpiriesLevels([])
+                              const nextATR = false
+                              isATRRangeActiveRef.current = nextATR
+                              setIsATRRangeActive(nextATR)
+                              const nextSD = false
+                              isStdDevRangeActiveRef.current = nextSD
+                              setIsStdDevRangeActive(nextSD)
+                            }}
+                            className="ml-1"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#ff8500',
+                              fontSize: '20px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              padding: '0 4px',
+                              lineHeight: '1',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            ×
+                          </span>
+                        ) : (
+                          <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        )}
+                      </>
                     )}
                   </button>
 
@@ -28957,6 +30902,44 @@ export default function TradingViewChart({
                             }}
                           >
                             Monthly Range
+                          </button>
+                          <button
+                            onClick={() => {
+                              const next = !isATRRangeActiveRef.current
+                              isATRRangeActiveRef.current = next
+                              setIsATRRangeActive(next)
+                              setIsExpectedRangeDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                            }}
+                          >
+                            ATR Range
+                          </button>
+                          <button
+                            onClick={() => {
+                              const next = !isStdDevRangeActiveRef.current
+                              isStdDevRangeActiveRef.current = next
+                              setIsStdDevRangeActive(next)
+                              setIsExpectedRangeDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                            }}
+                          >
+                            StdDev Range
                           </button>
                           <button
                             onClick={() => {
@@ -29110,6 +31093,75 @@ export default function TradingViewChart({
                               </button>
                             </div>
                           )}
+
+                          {/* Future Expiries Scroller */}
+                          <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,133,0,0.2)', paddingTop: '12px' }}>
+                            <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '700', marginBottom: '8px', letterSpacing: '0.5px' }}>
+                              FUTURE EXPIRIES UP TO
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                              <button
+                                className="btn-3d-carved"
+                                onClick={() => {
+                                  const d = new Date(futureExpiryCutoffMonth)
+                                  d.setMonth(d.getMonth() - 1)
+                                  if (d > new Date()) setFutureExpiryCutoffMonth(d)
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '14px', fontWeight: '700', borderRadius: '4px', minWidth: '28px' }}
+                              >‹</button>
+                              <span style={{ color: '#ffffff', fontSize: '15.6px', fontWeight: '700', fontFamily: 'monospace', flex: 1, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                {futureExpiryCutoffMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                              </span>
+                              <button
+                                className="btn-3d-carved"
+                                onClick={() => {
+                                  const d = new Date(futureExpiryCutoffMonth)
+                                  d.setMonth(d.getMonth() + 1)
+                                  setFutureExpiryCutoffMonth(d)
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '14px', fontWeight: '700', borderRadius: '4px', minWidth: '28px' }}
+                              >›</button>
+                            </div>
+                            <button
+                              className={`btn-3d-carved ${isFutureExpiriesActive ? 'active' : ''}`}
+                              onClick={() => {
+                                if (isFutureExpiriesActive) {
+                                  setIsFutureExpiriesActive(false)
+                                  setFutureExpiriesLevels([])
+                                  setIsExpectedRangeDropdownOpen(false)
+                                } else {
+                                  const cutoff = futureExpiryCutoffMonth.toISOString().split('T')[0]
+                                  setFutureExpiryCutoffDate(cutoff)
+                                  setIsLoadingFutureExpiries(true)
+                                  setIsExpectedRangeDropdownOpen(false)
+                                  calculateFutureExpiriesLevels(symbol, cutoff).then((results) => {
+                                    setFutureExpiriesLevels(results)
+                                    setIsFutureExpiriesActive(results.length > 0)
+                                    setIsLoadingFutureExpiries(false)
+                                  }).catch((err) => { console.error('[FutureExpiries] Scan error:', err); setIsLoadingFutureExpiries(false) })
+                                }
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '9px 16px',
+                                fontWeight: '700',
+                                fontSize: '13px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              {isLoadingFutureExpiries ? (
+                                <><div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" /> Loading…</>
+                              ) : isFutureExpiriesActive ? (
+                                <>Clear Expiries ({futureExpiriesLevels.length})</>
+                              ) : (
+                                <>Scan Expiries</>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       </div>,
                       document.body
@@ -29149,7 +31201,11 @@ export default function TradingViewChart({
                         transition: 'all 0.2s ease',
                       }}
                     >
-                      <span>{isMobile ? 'SEAS' : 'Seasonality'}</span>
+                      <span style={{ color: isSeasonalActive ? '#ff8500' : isEventSeasonalLoading ? '#facc15' : undefined }}>
+                        {isEventSeasonalLoading
+                          ? (isMobile ? '...' : 'Loading…')
+                          : (isMobile ? 'SEAS' : 'Seasonality')}
+                      </span>
                       {isSeasonalActive ? (
                         <span
                           onClick={(e) => {
@@ -29163,6 +31219,13 @@ export default function TradingViewChart({
                             setSeasonal15YData(null)
                             setSeasonal10YData(null)
                             setSelectedSeasonalEvent(null)
+                            setSeasonalEventData(null)
+                            setSeasonalEventLabel(null)
+                            setIsSeasonalEventActive(false)
+                            setIsSmartPerfActive(false)
+                            setSmartPerfData(null)
+                            setSmartPerfTriggerDate(null)
+                            setActiveSmartSignal(null)
                           }}
                           className="ml-1"
                           style={{
@@ -29185,6 +31248,9 @@ export default function TradingViewChart({
                         <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
+                      )}
+                      {isLoadingSeasonalProjection && (
+                        <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" style={{ flexShrink: 0 }} />
                       )}
                     </button>
                   )}
@@ -29228,16 +31294,16 @@ export default function TradingViewChart({
                               } else {
                                 setIsLoadingSeasonalProjection(true)
                                 setIsSeasonalActive(true)
-                                const d10 = await calculateSeasonalityProjection(symbol, 10, data)
+                                const d10 = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe)
                                 setSeasonal10YData(d10)
                                 setIsSeasonal10YActive(true)
                                 if (maxSeasonalYears >= 15) {
-                                  const d15 = await calculateSeasonalityProjection(symbol, 15, data)
+                                  const d15 = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe)
                                   setSeasonal15YData(d15)
                                   setIsSeasonal15YActive(true)
                                 }
                                 if (maxSeasonalYears >= 20) {
-                                  const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data)
+                                  const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data, undefined, config.timeframe)
                                   setSeasonal20YData(dMax)
                                   setIsSeasonal20YActive(true)
                                 }
@@ -29301,11 +31367,14 @@ export default function TradingViewChart({
                           >
                             {electionInsufficientData ? 'Not Enough Data' : 'Election'}
                           </button>
+                          {/* Smart Performance Detection */}
                           <button
                             onClick={() => {
-                              setIsEventDropdownOpen(!isEventDropdownOpen)
+                              setIsSmartPerformanceOpen(v => !v)
+                              setIsEventDropdownOpen(false)
+                              setIsSmartEventsOpen(false)
                             }}
-                            className={`btn-3d-carved ${isSeasonalEventActive ? 'active' : ''}`}
+                            className={`btn-3d-carved ${activeSmartSignal?.startsWith('perf-') ? 'active' : ''}`}
                             style={{
                               padding: '10px 16px',
                               fontWeight: '700',
@@ -29316,21 +31385,42 @@ export default function TradingViewChart({
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
+                              color: activeSmartSignal?.startsWith('perf-') ? '#ff8500' : undefined,
                             }}
                           >
-                            <span>Event Seasonal</span>
-                            <svg
-                              className="w-4 h-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9 5l7 7-7 7"
-                              />
+                            <span>📊 Smart Performance</span>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+
+                          {/* Smart Events Detection */}
+                          <button
+                            onClick={() => {
+                              setIsSmartEventsOpen(v => !v)
+                              setIsEventDropdownOpen(false)
+                              setIsSmartPerformanceOpen(false)
+                            }}
+                            className={`btn-3d-carved ${activeSmartSignal && !activeSmartSignal.startsWith('perf-') ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              color: activeSmartSignal && !activeSmartSignal.startsWith('perf-') ? '#ff8500' : undefined,
+                            }}
+                          >
+                            <span>📅 Smart Events</span>
+                            <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>
+                              {smartEventSignals.length > 0 ? `${smartEventSignals.length} active` : ''}
+                            </span>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                             </svg>
                           </button>
                         </div>
@@ -29366,6 +31456,17 @@ export default function TradingViewChart({
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {isEventSeasonalLoading && (
+                            <div style={{ color: '#facc15', fontSize: '11px', fontWeight: '700', padding: '6px 8px', background: 'rgba(250,204,21,0.08)', borderRadius: '4px', border: '1px solid rgba(250,204,21,0.3)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#facc15', animation: 'pulse 1s infinite' }} />
+                              Scanning historical data…
+                            </div>
+                          )}
+                          {seasonalEventNoData && selectedSeasonalEvent && !isEventSeasonalLoading && (
+                            <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '700', padding: '6px 8px', background: 'rgba(245,158,11,0.1)', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)', marginBottom: '4px' }}>
+                              ⚠ NO DATA — {selectedSeasonalEvent} requires ≥5 years of history
+                            </div>
+                          )}
                           <div
                             style={{
                               color: '#ff8500',
@@ -29389,10 +31490,12 @@ export default function TradingViewChart({
                           ].map((event) => (
                             <button
                               key={event}
-                              onClick={() => {
+                              onClick={async () => {
                                 const eventKey = event.toLowerCase().replace(/\s+/g, '')
                                 setSelectedSeasonalEvent(eventKey)
-                                calculateEventSeasonal(eventKey, data)
+                                setIsEventSeasonalLoading(true)
+                                await calculateEventSeasonal(eventKey, data, config.timeframe)
+                                setIsEventSeasonalLoading(false)
                                 setIsEventDropdownOpen(false)
                                 setIsSeasonalDropdownOpen(false)
                               }}
@@ -29429,10 +31532,12 @@ export default function TradingViewChart({
                           ].map((event) => (
                             <button
                               key={event}
-                              onClick={() => {
+                              onClick={async () => {
                                 const eventKey = event.toLowerCase().replace(/\s+/g, '-')
                                 setSelectedSeasonalEvent(eventKey)
-                                calculateEventSeasonal(eventKey, data)
+                                setIsEventSeasonalLoading(true)
+                                await calculateEventSeasonal(eventKey, data, config.timeframe)
+                                setIsEventSeasonalLoading(false)
                                 setIsEventDropdownOpen(false)
                               }}
                               className="btn-3d-carved"
@@ -29462,10 +31567,12 @@ export default function TradingViewChart({
                           {['Year End Rally', 'Halloween Rally', 'Santa Rally'].map((event) => (
                             <button
                               key={event}
-                              onClick={() => {
+                              onClick={async () => {
                                 const eventKey = event.toLowerCase().replace(/\s+/g, '')
                                 setSelectedSeasonalEvent(eventKey)
-                                calculateEventSeasonal(eventKey, data)
+                                setIsEventSeasonalLoading(true)
+                                await calculateEventSeasonal(eventKey, data, config.timeframe)
+                                setIsEventSeasonalLoading(false)
                                 setIsEventDropdownOpen(false)
                               }}
                               className="btn-3d-carved"
@@ -29496,10 +31603,12 @@ export default function TradingViewChart({
                             (event) => (
                               <button
                                 key={event}
-                                onClick={() => {
+                                onClick={async () => {
                                   const eventKey = event.toLowerCase().replace(/\s+/g, '-')
                                   setSelectedSeasonalEvent(eventKey)
-                                  calculateEventSeasonal(eventKey, data)
+                                  setIsEventSeasonalLoading(true)
+                                  await calculateEventSeasonal(eventKey, data, config.timeframe)
+                                  setIsEventSeasonalLoading(false)
                                   setIsEventDropdownOpen(false)
                                   setIsSeasonalDropdownOpen(false)
                                 }}
@@ -29521,6 +31630,132 @@ export default function TradingViewChart({
                       document.body
                     )}
 
+                  {/* Smart Performance Sub-Dropdown */}
+                  {isSmartPerformanceOpen && createPortal(
+                    <div
+                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartPerformanceOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
+                      style={{
+                        position: 'fixed',
+                        top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                        left: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().right + 10 : 0,
+                        zIndex: 100001,
+                        animation: 'dropdownFadeIn 0.15s ease forwards',
+                        background: '#000000',
+                        border: '2px solid rgba(255, 133, 0, 0.3)',
+                        borderRadius: '8px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.1)',
+                        padding: '12px',
+                        minWidth: '260px',
+                        maxHeight: '420px',
+                        overflowY: 'auto',
+                      }}
+                    >
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '800', marginBottom: '8px', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                        Current Conditions Detected
+                      </div>
+                      {smartPerformanceSignals.length === 0 ? (
+                        <div style={{ color: '#666', fontSize: '12px', padding: '8px 0' }}>No strong conditions detected</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {smartPerformanceSignals.map(sig => (
+                            <button
+                              key={sig.key}
+                              onClick={async () => {
+                                setActiveSmartSignal(sig.key)
+                                setIsLoadingSeasonalProjection(true)
+                                setIsSeasonalActive(true)
+                                const result = await calculateSmartPerformanceSeasonal(sig.key, data, config.timeframe)
+                                if (result) {
+                                  setSmartPerfData(result.projection)
+                                  setSmartPerfTriggerDate(result.triggerDate)
+                                  setIsSmartPerfActive(true)
+                                }
+                                setIsLoadingSeasonalProjection(false)
+                                setIsSmartPerformanceOpen(false)
+                                setIsSeasonalDropdownOpen(false)
+                              }}
+                              className={`btn-3d-carved ${activeSmartSignal === sig.key ? 'active' : ''}`}
+                              style={{ padding: '9px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                            >
+                              <span style={{ fontWeight: '700', color: activeSmartSignal === sig.key ? '#ff8500' : '#fff' }}>{sig.label}</span>
+                              <span style={{ fontSize: '10px', color: '#888' }}>{sig.description} · Next 45 days avg</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {activeSmartSignal?.startsWith('perf-') && (
+                        <button
+                          onClick={() => { setActiveSmartSignal(null); setIsSmartPerfActive(false); setSmartPerfData(null); setSmartPerfTriggerDate(null); if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) setIsSeasonalActive(false); setIsSmartPerformanceOpen(false) }}
+                          style={{ marginTop: '10px', width: '100%', padding: '7px', fontSize: '12px', fontWeight: '700', color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '4px', cursor: 'pointer' }}
+                        >Clear Smart Performance</button>
+                      )}
+                    </div>,
+                    document.body
+                  )}
+
+                  {/* Smart Events Sub-Dropdown */}
+                  {isSmartEventsOpen && createPortal(
+                    <div
+                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartEventsOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
+                      style={{
+                        position: 'fixed',
+                        top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                        left: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().right + 10 : 0,
+                        zIndex: 100001,
+                        animation: 'dropdownFadeIn 0.15s ease forwards',
+                        background: '#000000',
+                        border: '2px solid rgba(255, 133, 0, 0.3)',
+                        borderRadius: '8px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.1)',
+                        padding: '12px',
+                        minWidth: '280px',
+                        maxHeight: '420px',
+                        overflowY: 'auto',
+                      }}
+                    >
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '800', marginBottom: '4px', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                        Active Events (±30 days)
+                      </div>
+                      <div style={{ color: '#555', fontSize: '10px', marginBottom: '10px' }}>
+                        Shows how {symbol} performed seasonally into & 30 days after each event
+                      </div>
+                      {smartEventSignals.length === 0 ? (
+                        <div style={{ color: '#666', fontSize: '12px', padding: '8px 0' }}>No events in range</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {smartEventSignals.map(sig => (
+                            <button
+                              key={sig.key + sig.label}
+                              onClick={async () => {
+                                setActiveSmartSignal(sig.key)
+                                setSelectedSeasonalEvent(sig.key)
+                                setIsSeasonalActive(true)
+                                setIsSeasonalEventActive(true)
+                                await calculateEventSeasonal(sig.key, data, config.timeframe)
+                                setIsSmartEventsOpen(false)
+                                setIsSeasonalDropdownOpen(false)
+                              }}
+                              className={`btn-3d-carved ${activeSmartSignal === sig.key ? 'active' : ''}`}
+                              style={{ padding: '9px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                            >
+                              <span style={{ fontWeight: '700', color: activeSmartSignal === sig.key ? '#ff8500' : '#fff' }}>{sig.label}</span>
+                              <span style={{ fontSize: '10px', color: '#888' }}>{sig.description}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {activeSmartSignal && !activeSmartSignal.startsWith('perf-') && (
+                        <button
+                          onClick={() => { setActiveSmartSignal(null); setIsSeasonalEventActive(false); setSelectedSeasonalEvent(null); setSeasonalEventData(null); setSeasonalEventLabel(null); if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) setIsSeasonalActive(false); setIsSmartEventsOpen(false) }}
+                          style={{ marginTop: '10px', width: '100%', padding: '7px', fontSize: '12px', fontWeight: '700', color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '4px', cursor: 'pointer' }}
+                        >Clear Smart Event</button>
+                      )}
+                    </div>,
+                    document.body
+                  )}
+
                 </div>
 
                 {/* GEX Button with Dropdown - Next to Expected Range */}
@@ -29540,7 +31775,7 @@ export default function TradingViewChart({
                       opacity: isGexLoading ? 0.6 : 1,
                     }}
                   >
-                    <span>{isGexLoading ? (isMobile ? 'SCAN' : `SCANNING ${gexProgress}%`) : 'Gamma Exposure'}</span>
+                    <span style={{ color: isGexActive ? '#ff8500' : undefined }}>{isGexLoading ? (isMobile ? 'SCAN' : `SCANNING ${gexProgress}%`) : 'Gamma Exposure'}</span>
                     {isGexActive ? (
                       <span
                         onClick={(e) => {
@@ -29745,7 +31980,7 @@ export default function TradingViewChart({
                       opacity: isIVLoading ? 0.6 : 1,
                     }}
                   >
-                    <span>{isIVLoading ? (isMobile ? 'LOAD' : `LOADING ${ivProgress}%`) : (isMobile ? 'IV' : 'Implied Volatility')}</span>
+                    <span style={{ color: isAnyIVHVActive ? '#ff8500' : undefined }}>{isIVLoading ? (isMobile ? 'LOAD' : `LOADING ${ivProgress}%`) : (isMobile ? 'IV' : 'Implied Volatility')}</span>
                     {isAnyIVHVActive ? (
                       <span
                         onClick={(e) => {
@@ -30062,7 +32297,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
+                    <span style={{ color: technalysisActive ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
                     {technalysisActive ? (
                       <button
                         onClick={(e) => {
@@ -30289,7 +32524,7 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span>{isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
+                  <span style={{ color: isFlowChartActive ? '#ff8500' : undefined }}>{isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
                   {isFlowChartActive ? (
                     <>
                       <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
@@ -30441,7 +32676,7 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span>
+                  <span style={{ color: isRRGCandleActive ? '#ff8500' : undefined }}>
                     RRG Candle{' '}
                     {isRRGCandleActive ? `(${rrgMode.toUpperCase()} ${rrgLookbackPeriod}d)` : ''}
                   </span>
@@ -30717,10 +32952,17 @@ export default function TradingViewChart({
 
               {/* BUY/SELL Button */}
               {!isMobile && (
-                <BuySellButton
-                  isActive={showBuySellIndicator}
-                  onClick={() => setShowBuySellIndicator((v) => !v)}
-                />
+                <div className="ml-4 relative">
+                  <button
+                    onClick={() => setShowBuySellIndicator((v) => !v)}
+                    className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2${showBuySellIndicator ? ' active' : ''}`}
+                    style={{ padding: '10px 14px', fontWeight: '700', fontSize: '13px', borderRadius: '4px' }}
+                  >
+                    <span style={{ color: '#22c55e' }}>Buy</span>
+                    <span style={{ color: '#ef4444' }}>/Sell</span>
+                    {showBuySellIndicator && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '6px' }}>✓</span>}
+                  </button>
+                </div>
               )}
 
               {/* DARK POOL Button */}
@@ -30750,7 +32992,7 @@ export default function TradingViewChart({
                     opacity: peLoading || pegLoading ? 0.6 : 1,
                   }}
                 >
-                  <span>
+                  <span style={{ color: (showPEPanel || showPEGPanel) ? '#ff8500' : undefined }}>
                     {(peLoading || pegLoading)
                       ? `LOADING…`
                       : showPEGPanel ? 'PEG' : 'P/E +G Ratio'}
@@ -31843,6 +34085,73 @@ export default function TradingViewChart({
             </div>
           </div>
 
+          {/* Chart right-click context menu */}
+          {chartContextMenu && createPortal(
+            <>
+              {/* Backdrop — click outside to close */}
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 199998 }}
+                onMouseDown={() => setChartContextMenu(null)}
+              />
+              <div
+                style={{
+                  position: 'fixed',
+                  top: chartContextMenu.y,
+                  left: chartContextMenu.x,
+                  zIndex: 199999,
+                  background: '#141414',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: '6px',
+                  padding: '4px 0',
+                  minWidth: '185px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                  fontFamily: '"Courier New", monospace',
+                  fontSize: '12px',
+                }}
+              >
+                <button
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    // Reset scroll to latest
+                    if (data.length > 0) {
+                      stopMomentumAnimation()
+                      const defaultVisible = Math.min(150, data.length)
+                      setScrollOffset(Math.max(0, data.length - defaultVisible))
+                      setVisibleCandleCount(150)
+                      setManualPriceRange(null)
+                      setIsAutoScale(true)
+                      manualPriceRangeRef.current = null
+                    }
+                    setChartContextMenu(null)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    padding: '8px 14px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,102,0,0.15)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff6600" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                  </svg>
+                  Reset Chart View
+                </button>
+              </div>
+            </>,
+            document.body
+          )}
+
           {/* Settings Panel — portalled to document.body so it lives in the root stacking
                context and paints above the sticky nav (z:10000). Previously the panel was a
                child of market-overview-container (position:fixed, z-index:auto = 0 in root),
@@ -32797,6 +35106,7 @@ export default function TradingViewChart({
                       const y = e.nativeEvent.offsetY
 
                       // Check if right-clicking on a drawing
+                      let hitDrawing = false
                       for (const drawing of drawings) {
                         const startPoint =
                           drawing.startPoint ||
@@ -32815,17 +35125,36 @@ export default function TradingViewChart({
                           isPointNearLine(x, y, startPoint, endPoint, 10)
                         ) {
                           setSelectedDrawing(drawing)
-
-                          // Drawing editor removed - drawing tools were removed as requested
+                          hitDrawing = true
                           break
                         }
                       }
+
+                      // Show chart context menu when not clicking a drawing
+                      if (!hitDrawing) {
+                        setChartContextMenu({ x: e.clientX, y: e.clientY })
+                      }
                     }}
-                    onMouseMove={activeTool ? handleCanvasMouseMove : handleMouseMove}
+                    onMouseMove={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      handleProjectedLinesHover(e.clientX - rect.left, e.clientY - rect.top);
+                      (activeTool ? handleCanvasMouseMove : handleMouseMove)(e)
+                    }}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
                       handleMouseUp(e)
                       handleMouseLeave()
+                      if (hoveredOverlayRef.current !== null) {
+                        hoveredOverlayRef.current = null
+                        lastHoveredOverlay.current = null
+                        if (!hoverRafPending.current) {
+                          hoverRafPending.current = true
+                          requestAnimationFrame(() => {
+                            hoverRafPending.current = false
+                            renderChartRef.current()
+                          })
+                        }
+                      }
                     }}
                     // Touch Events for Mobile Support
                     onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -32925,7 +35254,7 @@ export default function TradingViewChart({
                       onClose={() => setCurrentDrawingTool('select')}
                       drawings={currentSymbolDrawings}
                       setDrawings={updateDrawingsWithHistory}
-                      currentTool={currentDrawingTool}
+                      currentTool={(currentDrawingTool === 'buySellZone' ? 'select' : currentDrawingTool) as any}
                       setCurrentTool={setCurrentDrawingTool}
                       isToolLocked={isDrawingToolLocked}
                       priceToScreen={priceToScreen}
@@ -38369,3 +40698,4 @@ export default function TradingViewChart({
     </>
   )
 }
+

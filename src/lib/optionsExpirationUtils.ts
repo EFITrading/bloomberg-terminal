@@ -171,14 +171,6 @@ export async function fetchAvailableExpirationDates(symbol: string = 'SPY'): Pro
     }
 
     const expirationDates = Array.from(allExpirations).sort()
-    console.log(`📦 Fetched ${expirationDates.length} unique expiration dates from Polygon`)
-    console.log('📅 Available expiration dates from Polygon (first 20):')
-    expirationDates.slice(0, 20).forEach((date, idx) => {
-      const d = new Date(date + 'T00:00:00Z')
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-      console.log(`   ${idx + 1}. ${date} (${dayNames[d.getUTCDay()]})`)
-    })
-
     return expirationDates as string[]
   } catch (error) {
     console.error('Error fetching expiration dates from Polygon:', error)

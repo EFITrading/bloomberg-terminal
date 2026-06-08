@@ -46,9 +46,8 @@ type DrawingTool =
   | 'parallelChannel'
   | 'buyZone'
   | 'sellZone'
-  | 'buySellZone'
-  | 'priceRange'
   | 'brush'
+  | 'priceRange'
 
 interface DrawingPoint {
   time: number // Data index

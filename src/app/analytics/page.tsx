@@ -22,10 +22,6 @@ import './analytics-tabs.css'
 import './analytics.mobile.css'
 import { AnalyticsMobileNav } from './AnalyticsMobileNav'
 
-const BuySellScanner = dynamic(() => import('@/components/analytics/BuySellScanner'), {
-  ssr: false,
-})
-
 export default function Analytics() {
   const [activePanel, setActivePanel] = useState<string>('rrg')
 
@@ -34,7 +30,7 @@ export default function Analytics() {
     'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
     'market-cycle': 'Market Cycle',
-    'buy-sell-scanner': 'Buy/Sell Scan', 'dealer-cluster': 'Dealer Cluster',
+    'dealer-cluster': 'Dealer Cluster',
   }
 
   const togglePanel = (id: string) => {
@@ -108,12 +104,6 @@ export default function Analytics() {
         return (
           <div key={id} style={panelStyle}>
             <MarketCycleIndicator />
-          </div>
-        )
-      case 'buy-sell-scanner':
-        return (
-          <div key={id} style={{ ...panelStyle, overflow: 'visible', minHeight: '100vh' }}>
-            <BuySellScanner />
           </div>
         )
       case 'dealer-cluster':
@@ -373,42 +363,6 @@ export default function Analytics() {
           />
         </svg>
       ),
-      'buy-sell-scanner': (
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M4 18L10 10L14 14L20 6"
-            stroke="#00ff00"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="20" cy="6" r="2" fill="#00ff00" />
-          <path
-            d="M4 12L8 16L12 10L18 18"
-            stroke="#ff3232"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray="3 2"
-          />
-          <circle cx="18" cy="18" r="2" fill="#ff3232" />
-          <line
-            x1="3"
-            y1="12"
-            x2="21"
-            y2="12"
-            stroke="rgba(255,255,255,0.2)"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-        </svg>
-      ),
       'dealer-cluster': (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect x="3" y="10" width="4" height="11" fill="#ff4444" opacity="0.6" rx="1" />
@@ -633,7 +587,6 @@ export default function Analytics() {
           <TabButton id="heatmap" label="Heatmap" />
           <TabButton id="screeners" label="Screeners" />
           <TabButton id="market-cycle" label="Market Cycle" />
-          <TabButton id="buy-sell-scanner" label="Buy/Sell Scan" />
           <TabButton id="dealer-cluster" label="Dealer Cluster" />
         </div>
 

@@ -18,7 +18,6 @@ const MOBILE_TABS = [
     { id: 'heatmap', label: 'Heatmap' },
     { id: 'screeners', label: 'Screeners' },
     { id: 'market-cycle', label: 'Market Cycle' },
-    { id: 'buy-sell-scanner', label: 'Buy/Sell Scan' },
     { id: 'dealer-cluster', label: 'Dealer Cluster' },
 ]
 
