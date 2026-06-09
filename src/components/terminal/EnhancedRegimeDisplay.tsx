@@ -69,8 +69,8 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   compositeColor: string
   historyLoading: boolean
   historyError: string | null
-  tfRange: '1Y' | '3Y' | '5Y'
-  setTfRange: (v: '1Y' | '3Y' | '5Y') => void
+  tfRange: 'QT' | '1Y' | '3Y' | '5Y'
+  setTfRange: (v: 'QT' | '1Y' | '3Y' | '5Y') => void
   isMobile?: boolean
 }) {
   const overlayRef = useRef<SVGGElement>(null)
@@ -87,17 +87,58 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     try { return localStorage.getItem('showSpyLine') !== 'false' } catch { return true }
   })
 
+  // Zoom/pan state
+  const [zoomStart, setZoomStart] = useState(0)   // fraction 0–1
+  const [zoomEnd, setZoomEnd] = useState(1)         // fraction 0–1
+  const isPanning = useRef(false)
+  const panStartX = useRef(0)
+  const panStartZoom = useRef<[number, number]>([0, 1])
+  const svgRef = useRef<SVGSVGElement>(null)
+
+  // Global mouse handlers so pan continues even when mouse leaves the SVG
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isPanning.current || !svgRef.current) return
+      const rect = svgRef.current.getBoundingClientRect()
+      const dx = (e.clientX - panStartX.current) / rect.width
+      const [ps, pe] = panStartZoom.current
+      const span = pe - ps
+      const ns = Math.max(0, Math.min(1 - span, ps - dx))
+      setZoomStart(ns)
+      setZoomEnd(ns + span)
+    }
+    const onUp = () => { isPanning.current = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
   // Slice historyData to the selected timeframe
-  const viewData = (() => {
+  const tfSliced = (() => {
     if (!historyData.length) return historyData
     const cutoff = new Date()
-    if (tfRange === '1Y') cutoff.setFullYear(cutoff.getFullYear() - 1)
+    if (tfRange === 'QT') cutoff.setMonth(cutoff.getMonth() - 4)
+    else if (tfRange === '1Y') cutoff.setFullYear(cutoff.getFullYear() - 1)
     else if (tfRange === '3Y') cutoff.setFullYear(cutoff.getFullYear() - 3)
     else return historyData // 5Y = all
     const cutStr = cutoff.toISOString().split('T')[0]
     const idx = historyData.findIndex((d) => d.date >= cutStr)
     return idx >= 0 ? historyData.slice(idx) : historyData
   })()
+
+  // Apply zoom window
+  const viewData = (() => {
+    if (!tfSliced.length) return tfSliced
+    const s = Math.floor(zoomStart * (tfSliced.length - 1))
+    const e = Math.ceil(zoomEnd * (tfSliced.length - 1))
+    return tfSliced.slice(s, e + 1)
+  })()
+  // Reset zoom when timeframe changes
+  useEffect(() => { setZoomStart(0); setZoomEnd(1) }, [tfRange])
+
   // Always keep dataRef in sync with the current view (ref mutation in render is safe)
   dataRef.current = viewData
 
@@ -119,7 +160,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   const scoreRawMax = viewData.length > 0 ? Math.max(...scores) : 2
   const scoreRange = scoreRawMax - scoreRawMin || 1
   const scorePad = scoreRange * 0.10
-  // Axis bounds: actual data range + 10% padding, always spans zero
+  // Axis bounds: actual data range + 10% padding on both sides, always spans zero
   const axisMin = Math.min(scoreRawMin - scorePad, -0.5)
   const axisMax = Math.max(scoreRawMax + scorePad, 0.5)
   const axisRange = axisMax - axisMin
@@ -232,21 +273,28 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     const cy = ty(pt.compositeScore)
     const dotColor =
       pt.compositeScore > 0 ? '#ef4444' : pt.compositeScore < 0 ? '#10b981' : '#fbbf24'
-    const ttX = cx > W - 174 ? cx - 178 : cx + 8
-    const ttY = Math.max(pT, Math.min(cy - 22, H - pB - 64))
     const val = (pt.compositeScore >= 0 ? '+' : '') + pt.compositeScore.toFixed(3)
     const spyStr = pt.spyClose != null ? `$${pt.spyClose.toFixed(2)}` : ''
+    const ttWidth = Math.ceil(Math.max(
+      pt.date.length * 5.5 + 16,
+      val.length * 8 + 16,
+      pt.regime.length * 5 + 16,
+      spyStr ? ('SPY ' + spyStr).length * 7 + 16 : 0
+    ))
+    const ttHeight = spyStr ? 68 : 54
+    const ttX = cx > W - ttWidth - 8 ? cx - ttWidth - 8 : cx + 8
+    const ttY = Math.max(pT, Math.min(cy - 22, H - pB - ttHeight))
 
     g.style.display = 'block'
     // Use innerHTML — fastest way to update multiple SVG nodes without React
     g.innerHTML = `
       <line x1="${cx}" y1="${pT}" x2="${cx}" y2="${H - pB}" stroke="#ffffff30" stroke-width="1" stroke-dasharray="3,2"/>
       <circle cx="${cx}" cy="${cy}" r="5" fill="${dotColor}" stroke="#000" stroke-width="1.5"/>
-      <rect x="${ttX}" y="${ttY}" width="170" height="${spyStr ? 64 : 52}" rx="2" fill="#0a0a0a" stroke="${dotColor}" stroke-width="1.5"/>
-      <text x="${ttX + 6}" y="${ttY + 14}" font-size="9" fill="#ff8800" font-family="monospace" font-weight="bold">${pt.date}</text>
-      <text x="${ttX + 6}" y="${ttY + 28}" font-size="10" fill="${dotColor}" font-family="monospace" font-weight="bold">${val}</text>
-      <text x="${ttX + 6}" y="${ttY + 42}" font-size="8" fill="#999" font-family="monospace">${pt.regime}</text>
-      ${spyStr ? `<text x="${ttX + 6}" y="${ttY + 56}" font-size="9" fill="#ffffffaa" font-family="monospace" font-weight="bold">SPY ${spyStr}</text>` : ''}
+      <rect x="${ttX}" y="${ttY}" width="${ttWidth}" height="${ttHeight}" rx="2" fill="#0a0a0a" stroke="${dotColor}" stroke-width="1.5"/>
+      <text x="${ttX + 6}" y="${ttY + 14}" font-size="9" fill="#ffffff" font-family="monospace" font-weight="bold">${pt.date}</text>
+      <text x="${ttX + 6}" y="${ttY + 30}" font-size="13" fill="${dotColor}" font-family="monospace" font-weight="bold">${val}</text>
+      <text x="${ttX + 6}" y="${ttY + 44}" font-size="8" fill="#999" font-family="monospace">${pt.regime}</text>
+      ${spyStr ? `<text x="${ttX + 6}" y="${ttY + 60}" font-size="11" fill="#ffffff" font-family="monospace" font-weight="bold">SPY ${spyStr}</text>` : ''}
     `
   }, []) // stable — reads data via ref, reads chart constants from closure (never change)
 
@@ -283,7 +331,6 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
               fontWeight: '900',
               color: compositeColor,
               letterSpacing: '0.1em',
-              opacity: 1,
             }}
           >
             {compositeRegime}
@@ -294,14 +341,13 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
               fontFamily: 'monospace',
               color: '#ff6600',
               marginLeft: '6px',
-              opacity: 1,
             }}
           >
             {compositeStrength} • {Math.round(compositeConfidence)}%
           </span>
         </div>
         <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
-          {(['1Y', '3Y', '5Y'] as const).map((tf) => (
+          {(['QT', '1Y', '3Y', '5Y'] as const).map((tf) => (
             <button
               key={tf}
               onClick={() => setTfRange(tf)}
@@ -311,8 +357,8 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
                 fontSize: '10px',
                 fontWeight: '700',
                 letterSpacing: '0.05em',
-                background: tfRange === tf ? '#ff6600' : 'transparent',
-                color: tfRange === tf ? '#000' : '#666',
+                background: '#000',
+                color: tfRange === tf ? '#ff6600' : '#666',
                 border: `1px solid ${tfRange === tf ? '#ff6600' : '#333'}`,
                 borderRadius: '2px',
                 cursor: 'pointer',
@@ -396,12 +442,23 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
         <svg
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
-          height={H}
           preserveAspectRatio="none"
-          style={{ display: 'block', cursor: 'crosshair', overflow: 'visible' }}
           height={isMobile ? 204 : H}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
+          style={{ display: 'block', cursor: 'crosshair', overflow: 'visible', userSelect: 'none' }}
+          onMouseMove={(e) => { if (!isPanning.current) handleMouseMove(e) }}
+          ref={svgRef}
+          onMouseDown={(e) => { isPanning.current = true; panStartX.current = e.clientX; panStartZoom.current = [zoomStart, zoomEnd]; if (overlayRef.current) overlayRef.current.style.display = 'none' }}
+          onMouseUp={() => { isPanning.current = false }}
+          onMouseLeave={() => { if (!isPanning.current) handleMouseLeave() }}
+          onWheel={(e) => {
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            const pivot = (e.clientX - rect.left) / rect.width
+            const delta = e.deltaY > 0 ? 1.15 : 0.87
+            const span = Math.min(1, Math.max(0.05, (zoomEnd - zoomStart) * delta))
+            const ns = Math.max(0, Math.min(1 - span, pivot - pivot * span))
+            setZoomStart(ns); setZoomEnd(ns + span)
+          }}
         >
           {/* Y-axis grid lines — adapt to which lines are visible */}
           {showRegimeLine
@@ -416,8 +473,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
                     strokeDasharray={v === 0 ? '4,3' : '2,4'} />
                   <text x={pL - 3} y={y + 3.5} textAnchor="end" fontSize="16"
                     fill={v > 0 ? '#ef4444' : v < 0 ? '#10b981' : '#888'}
-                    fontFamily="monospace" fontWeight="700">{label}</text>
-                </g>
+                    fontFamily="monospace" fontWeight="700">{label}</text>                </g>
               )
             })
             : showSpyLine && spyPrices.length > 0
@@ -533,7 +589,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
               y={H - 6}
               textAnchor="middle"
               fontSize="11"
-              fill="#ffffff"
+              fill="#ff6600"
               fontFamily="monospace"
               fontWeight="700"
               letterSpacing="0.5"
@@ -569,14 +625,14 @@ function EnhancedRegimeDisplay({
   // VIX price state — fetched once on mount, used to adjust composite only
   const [vixPrice, setVixPrice] = useState<number | null>(null)
 
-  const [tfRange, setTfRange] = useState<'1Y' | '3Y' | '5Y'>(() => {
+  const [tfRange, setTfRange] = useState<'QT' | '1Y' | '3Y' | '5Y'>(() => {
     try {
       const s = localStorage.getItem('compositeTfRange')
-      if (s === '1Y' || s === '3Y' || s === '5Y') return s
+      if (s === 'QT' || s === '1Y' || s === '3Y' || s === '5Y') return s
     } catch { }
-    return '1Y'
+    return 'QT'
   })
-  const handleSetTfRange = useCallback((v: '1Y' | '3Y' | '5Y') => {
+  const handleSetTfRange = useCallback((v: 'QT' | '1Y' | '3Y' | '5Y') => {
     try {
       localStorage.setItem('compositeTfRange', v)
     } catch { }
@@ -1097,7 +1153,7 @@ function EnhancedRegimeDisplay({
                     onClick={() => handleSetCompositeView(v)}
                     style={{
                       padding: isMobile ? '2px 6px' : '3px 10px',
-                      fontSize: isMobile ? '10px' : '10px',
+                      fontSize: isMobile ? '13px' : '13px',
                       fontFamily: 'monospace',
                       fontWeight: '900',
                       letterSpacing: '0.1em',

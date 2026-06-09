@@ -2731,9 +2731,12 @@ const renderGEXMap = (
       const segEndX = expiryToX.get(expDate)
       if (!segEndX || segEndX <= lastCandleX) continue
 
-      // Start = the X where the previous expiry ended, or lastCandleX for the first
+      // Start = the X where the previous expiry ended; for the first expiry, overlap 50%
+      // into the chart area so stock candles appear inside the heatmap.
       const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
-      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
+      const segStartX = prevExpDate
+        ? (expiryToX.get(prevExpDate) ?? lastCandleX)
+        : lastCandleX - (segEndX - lastCandleX) * 0.5
       const segW = segEndX - segStartX
       if (segW < 1) continue
 
@@ -3049,7 +3052,9 @@ const renderDEXMap = (
       if (!segEndX || segEndX <= lastCandleX) continue
 
       const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
-      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
+      const segStartX = prevExpDate
+        ? (expiryToX.get(prevExpDate) ?? lastCandleX)
+        : lastCandleX - (segEndX - lastCandleX) * 0.5
       const segW = segEndX - segStartX
       if (segW < 1) continue
 
@@ -6774,6 +6779,7 @@ export default function TradingViewChart({
 
   // Live FlowMoves handler - Fetches and displays 4-line flow chart
   const handleLiveFlowMovesClick = async (timeframe: '1D' | '3D' | '1W' = '1D') => {
+    setIsFlowMovesLoading(true)
     try {
       const US_MARKET_HOLIDAYS_FM = [
         '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
@@ -6860,6 +6866,7 @@ export default function TradingViewChart({
           if (data.type === 'complete' && data.trades?.length > 0) {
             allTrades = data.trades
             eventSource.close()
+            setIsFlowMovesLoading(false)
             processFlowMovesTradesIntoChart(allTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
           }
         } catch (error) {
@@ -6870,9 +6877,11 @@ export default function TradingViewChart({
       eventSource.onerror = (error) => {
         console.error('❌ FlowMoves EventSource error:', error)
         eventSource.close()
+        setIsFlowMovesLoading(false)
       }
     } catch (error) {
       console.error('❌ Error starting FlowMoves scan:', error)
+      setIsFlowMovesLoading(false)
     }
   }
 
@@ -6882,7 +6891,7 @@ export default function TradingViewChart({
     mode: 'price' | 'iv' | 'ivspy' = 'price'
   ) => {
     const currentSymbol = symbol // Capture current symbol to avoid stale closure
-
+    setIsRRGLoading(true)
     try {
       const colorMap = new Map<number, string>()
 
@@ -7120,6 +7129,8 @@ export default function TradingViewChart({
       }
     } catch (error) {
       console.error('❌ Error calculating RRG Candle colors:', error)
+    } finally {
+      setIsRRGLoading(false)
     }
   }
 
@@ -9903,6 +9914,7 @@ export default function TradingViewChart({
         }
       } catch (error) {
         console.error('Error calculating available years:', error)
+        setMaxSeasonalYears(20)
         setAvailableSeasonalYears([10, 15, 20]) // Fallback
       }
     }
@@ -10467,8 +10479,10 @@ export default function TradingViewChart({
       const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
       const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
       const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
-      setScrollOffset(targetStart)
-      scrollOffsetRef.current = targetStart
+      if (!userManualScrollRef.current) {
+        setScrollOffset(targetStart)
+        scrollOffsetRef.current = targetStart
+      }
     } else if (timestamp === null && dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
       setScrollOffset(liveStart)
@@ -10493,8 +10507,10 @@ export default function TradingViewChart({
       const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
       const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
       const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
-      setScrollOffset(targetStart)
-      scrollOffsetRef.current = targetStart
+      if (!userManualScrollRef.current) {
+        setScrollOffset(targetStart)
+        scrollOffsetRef.current = targetStart
+      }
     } else if (timestamp === null && dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
       setScrollOffset(liveStart)
@@ -10508,6 +10524,7 @@ export default function TradingViewChart({
   // Snap chart back to the latest bar and clear replay state
   const snapToLive = useCallback(() => {
     gexReplayTimestampRef.current = null
+    userManualScrollRef.current = false // re-enable auto-scroll for next replay session
     setGexMapHistoricalPrice(null)
     if (dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
@@ -10663,6 +10680,7 @@ export default function TradingViewChart({
 
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false)
+  const [isFlowMovesLoading, setIsFlowMovesLoading] = useState(false)
   const [flowChartMaximized, setFlowChartMaximized] = useState(false)
   const [showFlowSettings, setShowFlowSettings] = useState(false)
   const [flowLineColors, setFlowLineColors] = useState({
@@ -10707,6 +10725,7 @@ export default function TradingViewChart({
   const [rrgMode, setRrgMode] = useState<'price' | 'iv' | 'ivspy'>('price') // Price, IV (self), or IV/SPY
   const [rrgIvStartTimestamp, setRrgIvStartTimestamp] = useState<number | null>(null) // First candle with IV color
   const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false)
+  const [isRRGLoading, setIsRRGLoading] = useState(false)
 
   // BUY/SELL Indicator state
   const [showBuySellIndicator, setShowBuySellIndicator] = useState(initialShowBuySell)
@@ -14524,6 +14543,7 @@ export default function TradingViewChart({
   // Right-click context menu
   const [chartContextMenu, setChartContextMenu] = useState<{ x: number; y: number } | null>(null)
   const scrollOffsetRef = useRef(9999999)
+  const userManualScrollRef = useRef(false) // set true when user pans/zooms during historical GEX replay
   const visibleCandleCountRef = useRef(150)
   const dataRef = useRef<ChartDataPoint[]>([])
   useEffect(() => {
@@ -16486,6 +16506,7 @@ export default function TradingViewChart({
           const futurePeriods = getFuturePeriods(visibleCandleCount)
           const maxScrollOffset = data.length - visibleCandleCount + futurePeriods
           const newOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset + panAmount))
+          if (gexReplayTimestampRef.current !== null) userManualScrollRef.current = true
           setScrollOffset(newOffset)
         } else {
           // PLAIN SCROLL or CTRL+SCROLL = Zoom
@@ -16522,6 +16543,7 @@ export default function TradingViewChart({
             const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newScrollOffset))
 
             setVisibleCandleCount(newCount)
+            if (gexReplayTimestampRef.current !== null) userManualScrollRef.current = true
             setScrollOffset(clampedOffset)
           }
         }
@@ -22503,6 +22525,10 @@ export default function TradingViewChart({
 
       const newScrollOffset = Math.max(0, Math.min(maxOffset, startScrollOffset - candlesMoved))
 
+      // If in historical GEX replay, mark that user has manually scrolled so auto-scroll stops
+      if (gexReplayTimestampRef.current !== null) {
+        userManualScrollRef.current = true
+      }
       setScrollOffset(newScrollOffset)
 
       // =====================
@@ -25164,13 +25190,10 @@ export default function TradingViewChart({
                               <div style={{ flex: 1, height: 1, background: `${accentColor}55` }} />
                             </div>
                             {group.label === 'BROAD MARKET' ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {renderFlowChart('SPY', rangeData['SPY'] || [], true, accentColor)}
-                                <div className={isMobile ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2'}>
-                                  {available.filter(t => t !== 'SPY').map(t => (
-                                    <div key={t}>{renderFlowChart(t, rangeData[t], false, accentColor)}</div>
-                                  ))}
-                                </div>
+                              <div className={isMobile ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2'}>
+                                {available.map(t => (
+                                  <div key={t}>{renderFlowChart(t, rangeData[t], false, accentColor)}</div>
+                                ))}
                               </div>
                             ) : (
                               <div className={isMobile ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2'}>
@@ -29482,6 +29505,11 @@ export default function TradingViewChart({
  opacity: 1 !important;
  }
 
+ /* Dropdown panel items — no side margins */
+ .toolbar-dropdown .btn-3d-carved {
+ margin: 0 !important;
+ }
+
  .btn-3d-carved::before {
  content: '';
  position: absolute;
@@ -30278,7 +30306,7 @@ export default function TradingViewChart({
                                 boxShadow:
                                   '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                                 padding: '12px',
-                                minWidth: '180px',
+                                width: 'max-content',
                               }}
                             >
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -30814,7 +30842,7 @@ export default function TradingViewChart({
                   {isExpectedRangeDropdownOpen &&
                     createPortal(
                       <div
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
@@ -30832,7 +30860,7 @@ export default function TradingViewChart({
                           boxShadow:
                             '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                           padding: '12px',
-                          minWidth: '180px',
+                          width: 'max-content',
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -31189,93 +31217,76 @@ export default function TradingViewChart({
                 <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
                   onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsSeasonalDropdownOpen(true) }}
                   onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}>
-                  {maxSeasonalYears < 10 ? (
-                    <button
-                      className="btn-3d-carved btn-seasonal"
-                      disabled
-                      style={{
-                        padding: isMobile ? '3px 8px' : '10px 14px',
-                        fontWeight: '700',
-                        fontSize: '13px',
-                        borderRadius: '4px',
-                        opacity: 0.4,
-                        cursor: 'not-allowed',
-                      }}
-                    >
-                      <span>{isMobile ? 'SEAS' : 'NO SEASONAL'}</span>
-                    </button>
-                  ) : (
-                    <button
-                      ref={seasonalButtonRef}
-                      onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
-                      className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
-                      style={{
-                        padding: isMobile ? '3px 8px' : '10px 14px',
-                        fontWeight: '700',
-                        fontSize: '13px',
-                        borderRadius: '4px',
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      <span style={{ color: isSeasonalActive ? '#ff8500' : isEventSeasonalLoading ? '#facc15' : undefined }}>
-                        {isEventSeasonalLoading
-                          ? (isMobile ? '...' : 'Loading…')
-                          : (isMobile ? 'SEAS' : 'Seasonality')}
+                  <button
+                    ref={seasonalButtonRef}
+                    onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
+                    className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
+                    style={{
+                      padding: isMobile ? '3px 8px' : '10px 14px',
+                      fontWeight: '700',
+                      fontSize: '13px',
+                      borderRadius: '4px',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <span style={{ color: isSeasonalActive ? '#ff8500' : isEventSeasonalLoading ? '#facc15' : undefined }}>
+                      {isEventSeasonalLoading
+                        ? (isMobile ? '...' : 'Loading…')
+                        : (isMobile ? 'SEAS' : 'Seasonality')}
+                    </span>
+                    {isSeasonalActive ? (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setIsSeasonal20YActive(false)
+                          setIsSeasonal15YActive(false)
+                          setIsSeasonal10YActive(false)
+                          setIsSeasonalElectionActive(false)
+                          setIsSeasonalActive(false)
+                          setSeasonal20YData(null)
+                          setSeasonal15YData(null)
+                          setSeasonal10YData(null)
+                          setSelectedSeasonalEvent(null)
+                          setSeasonalEventData(null)
+                          setSeasonalEventLabel(null)
+                          setIsSeasonalEventActive(false)
+                          setIsSmartPerfActive(false)
+                          setSmartPerfData(null)
+                          setSmartPerfTriggerDate(null)
+                          setActiveSmartSignal(null)
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ×
                       </span>
-                      {isSeasonalActive ? (
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setIsSeasonal20YActive(false)
-                            setIsSeasonal15YActive(false)
-                            setIsSeasonal10YActive(false)
-                            setIsSeasonalElectionActive(false)
-                            setIsSeasonalActive(false)
-                            setSeasonal20YData(null)
-                            setSeasonal15YData(null)
-                            setSeasonal10YData(null)
-                            setSelectedSeasonalEvent(null)
-                            setSeasonalEventData(null)
-                            setSeasonalEventLabel(null)
-                            setIsSeasonalEventActive(false)
-                            setIsSmartPerfActive(false)
-                            setSmartPerfData(null)
-                            setSmartPerfTriggerDate(null)
-                            setActiveSmartSignal(null)
-                          }}
-                          className="ml-1"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#ff8500',
-                            fontSize: '20px',
-                            fontWeight: '700',
-                            cursor: 'pointer',
-                            padding: '0 4px',
-                            lineHeight: '1',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          ×
-                        </span>
-                      ) : (
-                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      )}
-                      {isLoadingSeasonalProjection && (
-                        <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" style={{ flexShrink: 0 }} />
-                      )}
-                    </button>
-                  )}
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
+                    {isLoadingSeasonalProjection && (
+                      <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" style={{ flexShrink: 0 }} />
+                    )}
+                  </button>
 
                   {/* Seasonal Dropdown */}
                   {isSeasonalDropdownOpen &&
                     createPortal(
                       <div
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
                         style={{
                           position: 'fixed',
@@ -31292,7 +31303,7 @@ export default function TradingViewChart({
                           borderRadius: '8px',
                           boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.1)',
                           padding: '12px',
-                          minWidth: '180px',
+                          width: 'max-content',
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -31448,7 +31459,7 @@ export default function TradingViewChart({
                   {isEventDropdownOpen &&
                     createPortal(
                       <div
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
                         style={{
                           position: 'fixed',
@@ -31466,7 +31477,7 @@ export default function TradingViewChart({
                           boxShadow:
                             '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                           padding: '12px',
-                          minWidth: '200px',
+                          width: 'max-content',
                           maxHeight: '400px',
                           overflowY: 'auto',
                         }}
@@ -31649,7 +31660,7 @@ export default function TradingViewChart({
                   {/* Smart Performance Sub-Dropdown */}
                   {isSmartPerformanceOpen && createPortal(
                     <div
-                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                       onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartPerformanceOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
                       style={{
                         position: 'fixed',
@@ -31713,7 +31724,7 @@ export default function TradingViewChart({
                   {/* Smart Events Sub-Dropdown */}
                   {isSmartEventsOpen && createPortal(
                     <div
-                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                       onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartEventsOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
                       style={{
                         position: 'fixed',
@@ -31789,28 +31800,42 @@ export default function TradingViewChart({
                       borderRadius: '4px',
                     }}
                   >
-                    <span style={{ color: (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? '#ff8500' : undefined }}>Gamma Exposure</span>
-                    {(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? (
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setIsGexMapActive(false); setGexMapData(null)
-                          setIsGexMap45dActive(false); setGexMap45dData(null)
-                          setIsDexMapActive(false); setDexMapData(null)
-                          setIsDexMap45dActive(false); setDexMap45dData(null)
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent', border: 'none', color: '#ff8500',
-                          fontSize: '20px', fontWeight: '700', cursor: 'pointer',
-                          padding: '0 4px', lineHeight: '1', display: 'flex',
-                          alignItems: 'center', justifyContent: 'center',
-                        }}
-                      >×</span>
-                    ) : (
-                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    {(isGexMapLoading || isGexMap45dLoading || isDexMapLoading || isDexMap45dLoading) ? (
+                      <svg
+                        className="animate-spin"
+                        style={{ width: 18, height: 18, color: 'white' }}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                        <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                       </svg>
+                    ) : (
+                      <>
+                        <span style={{ color: (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? '#ff8500' : undefined }}>Gamma Exposure</span>
+                        {(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setIsGexMapActive(false); setGexMapData(null)
+                              setIsGexMap45dActive(false); setGexMap45dData(null)
+                              setIsDexMapActive(false); setDexMapData(null)
+                              setIsDexMap45dActive(false); setDexMap45dData(null)
+                            }}
+                            className="ml-1"
+                            style={{
+                              background: 'transparent', border: 'none', color: '#ff8500',
+                              fontSize: '20px', fontWeight: '700', cursor: 'pointer',
+                              padding: '0 4px', lineHeight: '1', display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >×</span>
+                        ) : (
+                          <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        )}
+                      </>
                     )}
                   </button>
 
@@ -31818,7 +31843,7 @@ export default function TradingViewChart({
                   {isGexDropdownOpen &&
                     createPortal(
                       <div
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsGexDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
@@ -31836,7 +31861,7 @@ export default function TradingViewChart({
                           boxShadow:
                             '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                           padding: '12px',
-                          minWidth: '180px',
+                          width: 'max-content',
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -31975,7 +32000,7 @@ export default function TradingViewChart({
                   {isIVHVDropdownOpen &&
                     createPortal(
                       <div
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
@@ -31988,7 +32013,7 @@ export default function TradingViewChart({
                           borderRadius: '8px',
                           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                           padding: '12px',
-                          minWidth: '220px',
+                          width: 'max-content',
                         }}
                       >
                         {/* Header */}
@@ -32240,8 +32265,8 @@ export default function TradingViewChart({
                         onClick={(e) => e.stopPropagation()}
                         onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTechnalysisDropdownOpen(false), 150) }}
-                        className="absolute w-48"
                         style={{
+                          position: 'fixed',
                           top: technalysisButtonRef.current
                             ? technalysisButtonRef.current.getBoundingClientRect().bottom + 10
                             : 100,
@@ -32251,6 +32276,7 @@ export default function TradingViewChart({
                           zIndex: 100000,
                           animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
+                          minWidth: '180px',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
                           boxShadow:
@@ -32403,8 +32429,18 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span style={{ color: isFlowChartActive ? '#ff8500' : undefined }}>{isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
-                  {isFlowChartActive ? (
+                  <span style={{ color: isFlowChartActive ? '#ff8500' : undefined }}>{isFlowMovesLoading ? 'Loading…' : isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
+                  {isFlowMovesLoading ? (
+                    <svg
+                      className="animate-spin"
+                      style={{ width: 16, height: 16, color: 'white', marginLeft: '6px' }}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                  ) : isFlowChartActive ? (
                     <>
                       <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
                         ✓
@@ -32454,10 +32490,10 @@ export default function TradingViewChart({
                 {isFlowMovesDropdownOpen &&
                   createPortal(
                     <div
-                      className="absolute w-48"
-                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                       onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsFlowMovesDropdownOpen(false), 150) }}
                       style={{
+                        position: 'fixed',
                         top: flowMovesButtonRef.current
                           ? flowMovesButtonRef.current.getBoundingClientRect().bottom + 10
                           : 0,
@@ -32467,6 +32503,7 @@ export default function TradingViewChart({
                         zIndex: 100000,
                         animation: 'dropdownFadeIn 0.15s ease forwards',
                         background: '#000000',
+                        minWidth: '140px',
                         border: '2px solid rgba(255, 133, 0, 0.3)',
                         borderRadius: '8px',
                         boxShadow:
@@ -32555,55 +32592,69 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span style={{ color: isRRGCandleActive ? '#ff8500' : undefined }}>
-                    RRG Candle{' '}
-                    {isRRGCandleActive ? `(${rrgMode.toUpperCase()} ${rrgLookbackPeriod}d)` : ''}
-                  </span>
-                  {isRRGCandleActive ? (
-                    <>
-                      <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
-                        ✓
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setIsRRGCandleActive(false)
-                          setRrgCandleColors(new Map())
-                          setRrgMode('price')
-                          setRrgLookbackPeriod(10)
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        ×
-                      </button>
-                    </>
-                  ) : (
+                  {isRRGLoading ? (
                     <svg
-                      className="w-4 h-4 ml-1"
+                      className="animate-spin"
+                      style={{ width: 18, height: 18, color: 'white' }}
                       fill="none"
-                      stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                     </svg>
+                  ) : (
+                    <>
+                      <span style={{ color: isRRGCandleActive ? '#ff8500' : undefined }}>
+                        RRG Candle{' '}
+                        {isRRGCandleActive ? `(${rrgMode.toUpperCase()} ${rrgLookbackPeriod}d)` : ''}
+                      </span>
+                      {isRRGCandleActive ? (
+                        <>
+                          <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>
+                            ✓
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setIsRRGCandleActive(false)
+                              setRrgCandleColors(new Map())
+                              setRrgMode('price')
+                              setRrgLookbackPeriod(10)
+                            }}
+                            className="ml-1"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#ff8500',
+                              fontSize: '20px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              padding: '0 4px',
+                              lineHeight: '1',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </>
+                      ) : (
+                        <svg
+                          className="w-4 h-4 ml-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      )}
+                    </>
                   )}
                 </button>
 
@@ -32630,7 +32681,7 @@ export default function TradingViewChart({
                         boxShadow:
                           '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                         padding: '12px',
-                        minWidth: '200px',
+                        width: 'max-content',
                       }}
                     >
                       {/* Mode Selection */}
@@ -32921,7 +32972,7 @@ export default function TradingViewChart({
                 {isPEDropdownOpen &&
                   createPortal(
                     <div
-                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
+                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
                       onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsPEDropdownOpen(false), 150) }}
                       style={{
                         position: 'fixed',
@@ -32938,7 +32989,7 @@ export default function TradingViewChart({
                         borderRadius: '8px',
                         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                         padding: '12px',
-                        minWidth: '180px',
+                        width: 'max-content',
                       }}
                     >
                       <div
@@ -34427,9 +34478,9 @@ export default function TradingViewChart({
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
                         <button onClick={() => setCurrentDrawingTool(isActive ? 'select' : tool)}
-                          style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: isActive ? bright : dim, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = bright; (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = isActive ? bright : dim; (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                          style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: bright, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = bright; (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{icon}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}</div>
                       </div>
@@ -34445,9 +34496,9 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#FCD34D' : '#78450A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#FCD34D' : '#78450A'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: '#FCD34D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #FCD34D', borderRadius: '5px', padding: '3px 9px', color: '#FCD34D', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{on ? 'Lock: ON' : 'Lock: OFF'}</div>
                       </div>
@@ -34496,9 +34547,9 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: vis ? '#4ADE80' : '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = vis ? '#4ADE80' : '#166534'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: '#4ADE80', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{vis ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6" /></svg>}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4ADE80', borderRadius: '5px', padding: '3px 9px', color: '#4ADE80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{vis ? 'Drawings: On' : 'Drawings: Off'}</div>
                       </div>
@@ -34509,9 +34560,9 @@ export default function TradingViewChart({
                     onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                     onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                   >
-                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#7F1D1D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#7F1D1D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#F87171', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                     ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
                     <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F87171', borderRadius: '5px', padding: '3px 9px', color: '#F87171', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Clear All</div>
                   </div>

@@ -3092,21 +3092,6 @@ Stock Reaction: ${scores.stockReaction}/15`
       // Always save the RAW unfiltered data so all tickers (ETFs, MAG7, etc.) are stored
       // regardless of what UI filters the user currently has active.
       const rawTrades = data ?? []
-      console.log('[SaveFlow] RAW data prop count (before filters):', rawTrades.length)
-      console.log('[SaveFlow] FILTERED display count (filteredAndSortedData):', filteredAndSortedData?.length)
-      console.log('[SaveFlow] Saving RAW data (unfiltered) · count:', rawTrades.length)
-
-      // TICKER AUDIT — show exactly which tickers are present and which key ETFs are missing
-      const saveTickerSet = new Set((rawTrades as any[]).map((t: any) => t.underlying_ticker?.toUpperCase()).filter(Boolean))
-      const watchTickers = ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'XLK', 'XLF', 'GLD', 'TLT', 'XLE', 'XLV', 'XLI', 'XLB', 'XLC', 'XLP', 'XLU', 'XLY', 'XLRE']
-      console.log('[SaveFlow] === TICKER AUDIT ===')
-      console.log('[SaveFlow] Total unique tickers in rawTrades:', saveTickerSet.size)
-      for (const tk of watchTickers) {
-        const count = (rawTrades as any[]).filter((t: any) => t.underlying_ticker?.toUpperCase() === tk).length
-        console.log(`[SaveFlow]   ${tk}: ${count > 0 ? `✅ ${count} trades` : '❌ NOT PRESENT — will be missing from DB'}`)
-      }
-      const allSaveTickers = [...saveTickerSet].sort()
-      console.log('[SaveFlow] All tickers being saved:', allSaveTickers)
 
       // Derive the trading date from the actual trade timestamps (PST), not the wall clock save time.
       // This ensures a historical scan saved on May 28 that contains May 26 trades is stored as May 26,
@@ -3123,18 +3108,18 @@ Stock Reaction: ${scores.stockReaction}/15`
       } else {
         tradeDate = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
       }
-      console.log('[SaveFlow] Trade date (from timestamps):', tradeDate)
+
 
       // Compress payload client-side to avoid 413 Payload Too Large
       const dataString = JSON.stringify({ date: tradeDate, data: rawTrades })
       const encoded = new TextEncoder().encode(dataString)
-      console.log('[SaveFlow] Payload size (uncompressed):', (encoded.length / 1024 / 1024).toFixed(2), 'MB')
+
       const cs = new CompressionStream('gzip')
       const writer = cs.writable.getWriter()
       writer.write(encoded)
       writer.close()
       const compressedBuffer = await new Response(cs.readable).arrayBuffer()
-      console.log('[SaveFlow] Compressed size:', (compressedBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB · sending to /api/flows/save')
+
 
       const response = await fetch('/api/flows/save', {
         method: 'POST',
@@ -3142,7 +3127,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         body: compressedBuffer,
       })
 
-      console.log('[SaveFlow] Response status:', response.status, response.statusText)
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
         console.error('[SaveFlow] Error response body:', errData)
@@ -3150,7 +3135,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       }
 
       const result = await response.json()
-      console.log('[SaveFlow] Success:', result)
+
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
