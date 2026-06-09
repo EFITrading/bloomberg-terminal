@@ -20,15 +20,15 @@ interface MultiChartViewProps {
   handleTimeframeChange: (timeframe: string) => void; handleMouseMove: (e: React.MouseEvent) => void;
   isSeasonalActive: boolean; seasonal20YData: any; seasonal15YData: any; seasonal10YData: any;
   seasonalElectionData: any; isSeasonal20YActive: boolean; isSeasonal15YActive: boolean;
-  isSeasonal10YActive: boolean; isSeasonalElectionActive: boolean; isGexActive: boolean;
-  liveGexData: any; gexData: any; isExpectedRangeActive: boolean; expectedRangeLevels: any;
+  isSeasonal10YActive: boolean; isSeasonalElectionActive: boolean;
+  isExpectedRangeActive: boolean; expectedRangeLevels: any;
   isWeeklyActive: boolean; isMonthlyActive: boolean; isExpansionLiquidationActive: boolean;
   technalysisActive: boolean; technalysisFeatures: any; isFlowChartActive: boolean;
   flowChartData: any[]; flowChartHeight: number; isIVRankActive: boolean; isIVPercentileActive: boolean;
   isHVActive: boolean; showIVPanel: boolean; ivData: any[]; isIVLoading: boolean;
   showCallIVLine: boolean; showPutIVLine: boolean; showNetIVLine: boolean; hvWindow: number;
   ivPanelHeight: number; drawings: any[]; activeTool: string | null;
-  renderExpectedRangeLines: any; renderGEXLevels: any; detectExpansionLiquidation: any;
+  renderExpectedRangeLines: any; detectExpansionLiquidation: any;
   invalidateTouchedZones: any; renderExpansionLiquidationZone: any; renderTechnalysisIndicators: any;
   handleUnifiedMouseDown: any; handleCanvasMouseMove: any; handleMouseLeave: any;
   perChartIndicators?: Record<string, Record<string, any>>;
@@ -42,7 +42,7 @@ export default function MultiChartView({
   setIsDragging, setIsDraggingYAxis, handleTimeframeChange, handleMouseMove,
   isSeasonalActive, seasonal20YData, seasonal15YData, seasonal10YData, seasonalElectionData,
   isSeasonal20YActive, isSeasonal15YActive, isSeasonal10YActive, isSeasonalElectionActive,
-  isGexActive, liveGexData, gexData, isExpectedRangeActive, expectedRangeLevels,
+  isExpectedRangeActive, expectedRangeLevels,
   isWeeklyActive, isMonthlyActive, isExpansionLiquidationActive, technalysisActive, technalysisFeatures,
   isFlowChartActive, flowChartData, flowChartHeight, isIVRankActive, isIVPercentileActive,
   isHVActive, showIVPanel, ivData, isIVLoading, showCallIVLine, showPutIVLine, showNetIVLine,
@@ -53,13 +53,13 @@ export default function MultiChartView({
   perChartIndicators = {},
 }: MultiChartViewProps) {
 
-  const chartCanvasRefs      = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const overlayCanvasRefs    = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const chartDataMap         = useRef<Map<string, ChartDataPoint[]>>(new Map());
-  const chartScrollMap       = useRef<Map<string, number>>(new Map());
-  const chartZoomMap         = useRef<Map<string, number>>(new Map());
-  const chartPriceRangeMap   = useRef<Map<string, { min: number; max: number } | null>>(new Map());
-  const chartLoadingMap      = useRef<Map<string, boolean>>(new Map());
+  const chartCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const overlayCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const chartDataMap = useRef<Map<string, ChartDataPoint[]>>(new Map());
+  const chartScrollMap = useRef<Map<string, number>>(new Map());
+  const chartZoomMap = useRef<Map<string, number>>(new Map());
+  const chartPriceRangeMap = useRef<Map<string, { min: number; max: number } | null>>(new Map());
+  const chartLoadingMap = useRef<Map<string, boolean>>(new Map());
   const chartComputedStateMap = useRef<Map<string, {
     adjustedMin: number; adjustedMax: number; priceChartHeight: number; chartWidth: number;
     candleSpacing: number; visibleData: ChartDataPoint[]; startIndex: number; timeframe: string;
@@ -92,27 +92,26 @@ export default function MultiChartView({
     // Per-chart indicator isolation
     const ovr = perChartIndicators[chartId] || {};
     const d = (k: string, g: boolean) => ovr[k] !== undefined ? ovr[k] : (isMultiChart ? false : g);
-    const eRA  = d('isExpectedRangeActive',    isExpectedRangeActive);
-    const wkA  = d('isWeeklyActive',           isWeeklyActive);
-    const moA  = d('isMonthlyActive',          isMonthlyActive);
-    const seaA = d('isSeasonalActive',         isSeasonalActive);
-    const s20A = d('isSeasonal20YActive',      isSeasonal20YActive);
-    const s15A = d('isSeasonal15YActive',      isSeasonal15YActive);
-    const s10A = d('isSeasonal10YActive',      isSeasonal10YActive);
+    const eRA = d('isExpectedRangeActive', isExpectedRangeActive);
+    const wkA = d('isWeeklyActive', isWeeklyActive);
+    const moA = d('isMonthlyActive', isMonthlyActive);
+    const seaA = d('isSeasonalActive', isSeasonalActive);
+    const s20A = d('isSeasonal20YActive', isSeasonal20YActive);
+    const s15A = d('isSeasonal15YActive', isSeasonal15YActive);
+    const s10A = d('isSeasonal10YActive', isSeasonal10YActive);
     const selA = d('isSeasonalElectionActive', isSeasonalElectionActive);
-    const gexA = d('isGexActive',              isGexActive);
     const expA = d('isExpansionLiquidationActive', isExpansionLiquidationActive);
-    const tecA = d('technalysisActive',        technalysisActive);
-    const flwA = d('isFlowChartActive',        isFlowChartActive);
+    const tecA = d('technalysisActive', technalysisActive);
+    const flwA = d('isFlowChartActive', isFlowChartActive);
 
-    const timeAxisH  = 30;
-    const flowH      = flwA ? flowChartHeight : 0;
-    const ivCount    = [isIVRankActive, isIVPercentileActive, isHVActive].filter(Boolean).length;
-    const ivH        = ivCount > 0 ? ivCount * ivPanelHeight : 0;
-    const volH       = 80;
-    const botH       = flowH + ivH + volH + timeAxisH;
-    const priceCH    = H - botH;
-    const chartW     = W - 120;
+    const timeAxisH = 30;
+    const flowH = flwA ? flowChartHeight : 0;
+    const ivCount = [isIVRankActive, isIVPercentileActive, isHVActive].filter(Boolean).length;
+    const ivH = ivCount > 0 ? ivCount * ivPanelHeight : 0;
+    const volH = 80;
+    const botH = flowH + ivH + volH + timeAxisH;
+    const priceCH = H - botH;
+    const chartW = W - 120;
 
     if (!chartZoomMap.current.has(chartId))
       chartZoomMap.current.set(chartId, Math.max(30, Math.min(300, Math.floor(chartW / 8))));
@@ -186,10 +185,10 @@ export default function MultiChartView({
       vis.forEach((c2, i) => {
         const x = Math.round(40 + i * cs + (cs - cw) / 2);
         const bull = c2.close >= c2.open;
-        const hiY  = priceCH - ((c2.high  - aMin) / (aMax - aMin)) * priceCH;
-        const loY  = priceCH - ((c2.low   - aMin) / (aMax - aMin)) * priceCH;
-        const opY  = priceCH - ((c2.open  - aMin) / (aMax - aMin)) * priceCH;
-        const clY  = priceCH - ((c2.close - aMin) / (aMax - aMin)) * priceCH;
+        const hiY = priceCH - ((c2.high - aMin) / (aMax - aMin)) * priceCH;
+        const loY = priceCH - ((c2.low - aMin) / (aMax - aMin)) * priceCH;
+        const opY = priceCH - ((c2.open - aMin) / (aMax - aMin)) * priceCH;
+        const clY = priceCH - ((c2.close - aMin) / (aMax - aMin)) * priceCH;
         ctx.strokeStyle = bull ? config.colors.bullish.wick : config.colors.bearish.wick;
         ctx.lineWidth = Math.max(1, cw * 0.1);
         ctx.beginPath(); ctx.moveTo(x + cw / 2, hiY); ctx.lineTo(x + cw / 2, loY); ctx.stroke();
@@ -242,10 +241,6 @@ export default function MultiChartView({
       if (selA) drawSea(seasonalElectionData, '#9370DB', true);
     }
 
-    // GEX
-    if (gexA && (liveGexData || gexData) && renderGEXLevels)
-      renderGEXLevels(ctx, chartW, priceCH, aMin, aMax, liveGexData || gexData);
-
     // Expansion/Liquidation
     if (expA && detectExpansionLiquidation && invalidateTouchedZones && renderExpansionLiquidationZone) {
       const zones = invalidateTouchedZones(detectExpansionLiquidation(chartData), chartData);
@@ -288,12 +283,12 @@ export default function MultiChartView({
       const intra = tf.includes('m') || tf.includes('h');
       const hrs = span / 3600000, days = span / 86400000, mos = days / 30, yrs = days / 365;
       let fmt: string, spc: number;
-      if      (intra && hrs  <=  24) { fmt = 'time';      spc = Math.max(1, Math.floor(visCount / 12)); }
-      else if (intra && hrs  <= 168) { fmt = 'datetime';  spc = Math.max(1, Math.floor(visCount / 16)); }
-      else if (days  <=  30)         { fmt = 'date';      spc = Math.max(1, Math.floor(visCount / 12)); }
-      else if (mos   <=  12)         { fmt = 'monthday';  spc = Math.max(1, Math.floor(visCount / 16)); }
-      else if (yrs   <=   5)         { fmt = 'monthyear'; spc = Math.max(1, Math.floor(visCount / 20)); }
-      else                           { fmt = 'year';      spc = Math.max(1, Math.floor(visCount / 24)); }
+      if (intra && hrs <= 24) { fmt = 'time'; spc = Math.max(1, Math.floor(visCount / 12)); }
+      else if (intra && hrs <= 168) { fmt = 'datetime'; spc = Math.max(1, Math.floor(visCount / 16)); }
+      else if (days <= 30) { fmt = 'date'; spc = Math.max(1, Math.floor(visCount / 12)); }
+      else if (mos <= 12) { fmt = 'monthday'; spc = Math.max(1, Math.floor(visCount / 16)); }
+      else if (yrs <= 5) { fmt = 'monthyear'; spc = Math.max(1, Math.floor(visCount / 20)); }
+      else { fmt = 'year'; spc = Math.max(1, Math.floor(visCount / 24)); }
 
       let lastL = '';
       const placed: { x: number; w: number }[] = [];
@@ -301,7 +296,7 @@ export default function MultiChartView({
       const fmtL = (ts: number): string => {
         const dt = new Date(ts); let lbl = '';
         switch (fmt) {
-          case 'time':      lbl = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }); break;
+          case 'time': lbl = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }); break;
           case 'datetime': {
             const ds = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });
             const ts2 = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' });
@@ -345,10 +340,9 @@ export default function MultiChartView({
     isSeasonalActive, seasonal20YData, seasonal15YData, seasonal10YData,
     seasonalElectionData, isSeasonal20YActive, isSeasonal15YActive,
     isSeasonal10YActive, isSeasonalElectionActive,
-    isGexActive, liveGexData, gexData,
     isExpansionLiquidationActive, technalysisActive, technalysisFeatures,
     isFlowChartActive, flowChartHeight, isIVRankActive, isIVPercentileActive, isHVActive, ivPanelHeight,
-    renderExpectedRangeLines, renderGEXLevels, detectExpansionLiquidation,
+    renderExpectedRangeLines, detectExpansionLiquidation,
     invalidateTouchedZones, renderExpansionLiquidationZone, renderTechnalysisIndicators,
   ]);
 
@@ -385,7 +379,7 @@ export default function MultiChartView({
       }
     };
     fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(instances.map(i => ({ symbol: i.symbol, timeframe: i.timeframe })))]);
 
   useEffect(() => {
@@ -503,7 +497,7 @@ export default function MultiChartView({
                       if (ci2 >= 0 && ci2 < vis2.length) {
                         const candle = vis2[ci2];
                         const dt = new Date(candle.timestamp);
-                        const intra = ['1m','5m','15m','30m','1h','2h','4h'].includes(tf2);
+                        const intra = ['1m', '5m', '15m', '30m', '1h', '2h', '4h'].includes(tf2);
                         let dateTxt: string;
                         if (intra) {
                           const ds = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });

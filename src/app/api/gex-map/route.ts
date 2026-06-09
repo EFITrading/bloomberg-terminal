@@ -8,6 +8,27 @@ const gunzipAsync = promisify(gunzip);
 
 export const runtime = 'nodejs';
 
+// Black-Scholes gamma (for historical price recalculation)
+function calculateGamma(S: number, K: number, T: number, IV: number, r = 0.0408): number {
+    if (T <= 0 || IV <= 0 || S <= 0 || K <= 0) return 0
+    const d1 = (Math.log(S / K) + (r + 0.5 * IV * IV) * T) / (IV * Math.sqrt(T))
+    const nPrimeD1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1)
+    return nPrimeD1 / (S * IV * Math.sqrt(T))
+}
+
+// Black-Scholes delta (for historical price recalculation)
+function calculateDelta(S: number, K: number, T: number, IV: number, r = 0.0408, isCall = true): number {
+    if (T <= 0 || IV <= 0 || S <= 0) return isCall ? 1 : -1
+    const d1 = (Math.log(S / K) + (r + 0.5 * IV * IV) * T) / (IV * Math.sqrt(T))
+    const N = (x: number) => {
+        const t = 1 / (1 + 0.2316419 * Math.abs(x))
+        const d = 0.3989423 * Math.exp(-0.5 * x * x)
+        const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
+        return x > 0 ? 1 - p : p
+    }
+    return isCall ? N(d1) : N(d1) - 1
+}
+
 // Exact copy of GexPanel's calculateVanna (line 1802)
 function calculateVanna(strike: number, spotPrice: number, T: number, impliedVol: number, riskFreeRate = 0.0408): number {
     if (T <= 0 || impliedVol <= 0 || spotPrice <= 0) return 0
@@ -29,6 +50,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get('symbol') || 'SPY';
     const mode = searchParams.get('mode') || 'normal'; // 'normal' | '45d'
+    const priceParam = searchParams.get('price')
+    const historicalPrice = priceParam ? parseFloat(priceParam) : null
 
     try {
         const host = request.nextUrl.host;
@@ -51,7 +74,7 @@ export async function GET(request: NextRequest) {
             throw new Error(optData.error || 'Failed to fetch options chain');
         }
 
-        const spotPrice: number = optData.currentPrice || 0;
+        const spotPrice: number = (historicalPrice && historicalPrice > 0) ? historicalPrice : (optData.currentPrice || 0);
         if (!spotPrice) throw new Error('No spot price returned');
 
         const rawData: Record<string, { calls: Record<string, any>; puts: Record<string, any> }> = optData.data;
@@ -168,13 +191,20 @@ export async function GET(request: NextRequest) {
             if (calls) {
                 for (const [strikeStr, opt] of Object.entries(calls)) {
                     const strikeNum = parseFloat(strikeStr);
-                    const gamma = opt.greeks?.gamma || 0;
-                    const delta = opt.greeks?.delta || 0;
-                    let vanna = opt.greeks?.vanna || 0;
+                    const iv = opt.implied_volatility || 0.3;
+                    // When historical price provided, recalculate greeks from Black-Scholes at that price
+                    const gamma = historicalPrice
+                        ? calculateGamma(spotPrice, strikeNum, T, iv)
+                        : (opt.greeks?.gamma || 0);
+                    const delta = historicalPrice
+                        ? calculateDelta(spotPrice, strikeNum, T, iv, 0.0408, true)
+                        : (opt.greeks?.delta || 0);
+                    let vanna = historicalPrice
+                        ? calculateVanna(strikeNum, spotPrice, T, iv)
+                        : (opt.greeks?.vanna || 0);
                     if (!gamma) continue;
                     // Calculate vanna when missing — EXACT same as GexPanel lines 3580-3588
                     if (vanna === 0 && gamma !== 0) {
-                        const iv = opt.implied_volatility || 0.3;
                         vanna = calculateVanna(strikeNum, spotPrice, T, iv);
                     }
                     // Live OI override — same contractKey format as GexPanel (line 3555)
@@ -201,13 +231,18 @@ export async function GET(request: NextRequest) {
             if (puts) {
                 for (const [strikeStr, opt] of Object.entries(puts)) {
                     const strikeNum = parseFloat(strikeStr);
-                    const gamma = opt.greeks?.gamma || 0;
-                    const delta = opt.greeks?.delta || 0;
-                    let vanna = opt.greeks?.vanna || 0;
+                    const iv = opt.implied_volatility || 0.3;
+                    const gamma = historicalPrice
+                        ? calculateGamma(spotPrice, strikeNum, T, iv)
+                        : (opt.greeks?.gamma || 0);
+                    const delta = historicalPrice
+                        ? calculateDelta(spotPrice, strikeNum, T, iv, 0.0408, false)
+                        : (opt.greeks?.delta || 0);
+                    let vanna = historicalPrice
+                        ? calculateVanna(strikeNum, spotPrice, T, iv)
+                        : (opt.greeks?.vanna || 0);
                     if (!gamma) continue;
-                    // Calculate vanna when missing — EXACT same as GexPanel lines 3580-3588
                     if (vanna === 0 && gamma !== 0) {
-                        const iv = opt.implied_volatility || 0.3;
                         vanna = calculateVanna(strikeNum, spotPrice, T, iv);
                     }
                     const contractKey = `${tickerUpper}_${strikeNum}_put_${expDate}`;

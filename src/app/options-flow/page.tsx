@@ -977,8 +977,8 @@ export default function OptionsFlowPage() {
             let summary: any = null
             let market_info: any = null
 
-            // ALL_TICKERS includes ETFs and MAG7 — no separate openCommaSSE needed
-            const sseUrl = `/api/stream-options-flow?ticker=ALL_TICKERS&offset=${offset}&limit=${BATCH}`
+            // Phase 1 excludes ETFs and MAG7 — server skips them entirely
+            const sseUrl = `/api/stream-options-flow?ticker=ALL_TICKERS&offset=${offset}&limit=${BATCH}&exclude=${encodeURIComponent(ETF_COMMA + ',' + MAG7_COMMA)}`
             console.log(`[ALL-CHUNK offset=${offset}] Opening SSE:`, sseUrl)
             const es = new EventSource(sseUrl)
             const timeout = setTimeout(
@@ -1036,36 +1036,122 @@ export default function OptionsFlowPage() {
             }
           })
 
+        // ── Ticker sets for phase separation ──────────────────────────────────
+        const ETF_TICKERS = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
+        const MAG7_TICKERS = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'AVGO', 'MU'])
+        const MAG7_COMMA = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG,AVGO,MU'
+        const ETF_COMMA = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'
+
+        // Opens a comma-list SSE (non-chunked), resolves with trades, never rejects
+        const openCommaSSE = (tickerList: string, label: string): Promise<OptionsFlowData[]> =>
+          new Promise((resolve) => {
+            const trades: OptionsFlowData[] = []
+            const url = `/api/stream-options-flow?ticker=${tickerList}`
+            console.log(`[${label}] Opening SSE:`, url)
+            const es = new EventSource(url)
+            const timeout = setTimeout(() => {
+              console.warn(`[${label}] TIMED OUT — resolving with ${trades.length} trades`)
+              es.close(); resolve(trades)
+            }, 5 * 60 * 1000)
+            es.onmessage = (event) => {
+              try {
+                const d = JSON.parse(event.data)
+                if (d.type === 'ticker_complete' && d.trades?.length) trades.push(...d.trades)
+                if (d.type === 'complete') { clearTimeout(timeout); es.close(); resolve(trades) }
+                if (d.type === 'error') { clearTimeout(timeout); es.close(); resolve(trades) }
+                if (d.type === 'close') { clearTimeout(timeout); es.close(); resolve(trades) }
+              } catch { /* ignore parse errors */ }
+            }
+            es.onerror = () => { clearTimeout(timeout); es.close(); resolve(trades) }
+          })
+
         try {
-          setStreamingStatus(`[ALL Scan] Scanning all tickers simultaneously...`)
+          // ── PHASE 1: ALL tickers except ETFs & MAG7 ───────────────────────
+          setStreamingStatus('Phase 1/3 — Scanning all tickers (excluding ETFs & MAG7)...')
+          setData([])
 
-          // Fire all chunk SSEs in parallel — ETF + MAG7 are now included in the ALL_TICKERS pool
-          const offsets = Array.from({ length: MAX_SSE }, (_, i) => i * BATCH)
-          const results = await Promise.all(offsets.map((off) => openSSE(off)))
+          // Discover total symbols first via a single probe chunk
+          let probeTotal = 0
+          const probeResult = await openSSE(0)
+          probeTotal = probeResult.total || 0
+          console.log(`[ALL SCAN] totalSymbols discovered: ${probeTotal}`)
 
-          // Collect everything
-          const allTrades: OptionsFlowData[] = []
-          for (const r of results) {
-            allTrades.push(...r.trades)
-            if (r.total > 0) totalSymbols = r.total
-            if (r.summary) setSummary(r.summary)
-            if (r.market_info) setMarketInfo(r.market_info)
+          // Now roll through ALL offsets 10 at a time
+          const MAX_CONCURRENT = 10
+          const phase1Raw: OptionsFlowData[] = [...probeResult.trades]
+          if (probeResult.summary) setSummary(probeResult.summary)
+          if (probeResult.market_info) setMarketInfo(probeResult.market_info)
+
+          let offset = BATCH
+          while (offset < probeTotal) {
+            const groupOffsets: number[] = []
+            for (let i = 0; i < MAX_CONCURRENT && offset + i * BATCH < probeTotal; i++) {
+              groupOffsets.push(offset + i * BATCH)
+            }
+            setStreamingStatus(`Phase 1/3 — Scanning tickers ${offset + 1}–${Math.min(offset + groupOffsets.length * BATCH, probeTotal)} of ${probeTotal}...`)
+            const groupResults = await Promise.all(groupOffsets.map((off) => openSSE(off)))
+            for (const r of groupResults) {
+              phase1Raw.push(...r.trades)
+              if (r.summary) setSummary(r.summary)
+            }
+            offset += groupOffsets.length * BATCH
           }
+
+          // Server already excluded ETFs and MAG7 — no client-side filtering needed
+          const phase1Trades = phase1Raw
+          console.log(`[ALL SCAN Phase 1] ${phase1Raw.length} trades (ETFs/MAG7 excluded server-side)`)
+
+          // Enrich phase 1 and show immediately
+          setStreamingStatus(`Phase 1/3 done — enriching ${phase1Trades.length} trades...`)
+          const enriched1 = await enrichTradeDataCombined(phase1Trades)
+          setStreamingStatus('Phase 1/3 — Computing live OI...')
+          const withOI1 = applyLiveOI(enriched1)
+          setData(withOI1)
+          setLastUpdate(new Date().toLocaleString())
+          console.log(`[ALL SCAN Phase 1] ✅ ${withOI1.length} trades displayed`)
+
+          // ── PHASE 2: ETFs ─────────────────────────────────────────────────
+          setStreamingStatus('Phase 2/3 — Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
+          const phase2Raw = await openCommaSSE(ETF_COMMA, 'ETF-PHASE')
+          console.log(`[ALL SCAN Phase 2] ${phase2Raw.length} raw ETF trades`)
+
+          setStreamingStatus(`Phase 2/3 — Enriching ${phase2Raw.length} ETF trades...`)
+          const enriched2 = await enrichTradeDataCombined(phase2Raw)
+          setStreamingStatus('Phase 2/3 — Computing live OI for ETFs...')
+          const withOI2 = applyLiveOI(enriched2)
+
+          // Merge ETF trades on top of phase 1 (most recent trades appear at top via sort in table)
+          setData((prev) => {
+            const existingIds = new Set(prev.map((t) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+            const newETF = withOI2.filter((t) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+            console.log(`[ALL SCAN Phase 2] ✅ Adding ${newETF.length} ETF trades`)
+            return [...prev, ...newETF]
+          })
           setLastUpdate(new Date().toLocaleString())
 
-          // Enrich everything at once, then apply live OI
-          if (allTrades.length > 0) {
-            setStreamingStatus(`Enriching ${allTrades.length} trades...`)
-            const enriched = await enrichTradeDataCombined(allTrades)
-            setStreamingStatus('Computing live OI...')
-            setData(applyLiveOI(enriched))
-          } else {
-            console.warn('[ALL SCAN] 0 total trades — nothing to enrich')
-          }
+          // ── PHASE 3: MAG7 ─────────────────────────────────────────────────
+          setStreamingStatus('Phase 3/3 — Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
+          const phase3Raw = await openCommaSSE(MAG7_COMMA, 'MAG7-PHASE')
+          console.log(`[ALL SCAN Phase 3] ${phase3Raw.length} raw MAG7 trades`)
+
+          setStreamingStatus(`Phase 3/3 — Enriching ${phase3Raw.length} MAG7 trades...`)
+          const enriched3 = await enrichTradeDataCombined(phase3Raw)
+          setStreamingStatus('Phase 3/3 — Computing live OI for MAG7...')
+          const withOI3 = applyLiveOI(enriched3)
+
+          // Merge MAG7 trades
+          setData((prev) => {
+            const existingIds = new Set(prev.map((t) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+            const newMAG7 = withOI3.filter((t) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
+            console.log(`[ALL SCAN Phase 3] ✅ Adding ${newMAG7.length} MAG7 trades`)
+            return [...prev, ...newMAG7]
+          })
 
           setIsStreamComplete(true)
           setLoading(false)
+          setLastUpdate(new Date().toLocaleString())
           setStreamingStatus('')
+          console.log('[ALL SCAN] All 3 phases complete')
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed'
           console.error('[ALL SCAN] Error:', msg)

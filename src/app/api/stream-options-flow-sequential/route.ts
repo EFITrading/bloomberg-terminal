@@ -85,12 +85,7 @@ export async function GET(request: NextRequest) {
                         { startTimestamp, endTimestamp, currentDate, isLive }
                     );
 
-                    send({ type: 'status', message: `[${ticker}] Scan complete: ${tickerTrades.length} trades. Enriching...` });
-
-                    // 2. Enrich this ticker's trades immediately
-                    tickerTrades = await service.enrichTradesWithVolOIParallel(tickerTrades);
-
-                    send({ type: 'status', message: `[${ticker}] Enrichment complete: ${tickerTrades.length} trades. Streaming...` });
+                    send({ type: 'status', message: `[${ticker}] Scan complete: ${tickerTrades.length} trades. Streaming raw trades (client will enrich).` });
 
                     // 3. Stream this ticker's results right now
                     const summary = {

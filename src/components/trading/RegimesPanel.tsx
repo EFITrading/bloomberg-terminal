@@ -1597,9 +1597,8 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
   // ── Fetch helpers ───────────────────────────────────────────────────────────
   const fetchSnapshotRows = async (): Promise<ScannerRow[]> => {
     const tickers = SCANNER_UNIVERSE.join(',')
-    const resp = await fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
-    )
+    const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
+    const resp = await fetch(url)
     const data = await resp.json()
     const snaps: any[] = data.tickers || []
     return snaps

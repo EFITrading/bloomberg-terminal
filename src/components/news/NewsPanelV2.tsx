@@ -1258,15 +1258,12 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     return () => clearInterval(id)
   }, [fetchCalendarData, calMonth])
 
-  // ── Auto-queue implied vol for the current week's earnings on mount / data change ──
+  // ── Auto-queue implied vol for notable earnings tickers only ──
+  // Scans this week's earnings (top 5 notable tickers per day).
+  // On Thursdays also scans next week so the data is ready for Monday.
   useEffect(() => {
     if (liveCalEvents.length === 0) return
     const extractT = (event: string): string => event.match(/\(([A-Z]{1,5})\)/)?.[1] ?? ''
-    const weekDays: Date[] = Array.from({ length: 5 }, (_, i) => {
-      const d = new Date(calWeekOf)
-      d.setDate(calWeekOf.getDate() + i)
-      return d
-    })
     const MCAP_RANK: Record<string, number> = {
       MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9, BRK: 10,
       LLY: 11, JPM: 12, V: 13, UNH: 14, XOM: 15, MA: 16, COST: 17, HD: 18, PG: 19, JNJ: 20,
@@ -1287,22 +1284,41 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       AME: 161, ETN: 162, EMR: 163, ROK: 164, DOV: 165, ITW: 166, PH: 167, GWW: 168, TT: 169, IR: 170,
     }
     const mcapSort = (a: string, b: string) => (MCAP_RANK[a] ?? 999) - (MCAP_RANK[b] ?? 999)
-    weekDays.forEach((day) => {
-      const dayEvs = liveCalEvents.filter(
-        (ev) =>
-          ev.type === 'earnings' &&
-          ev.year === day.getFullYear() &&
-          ev.month === day.getMonth() &&
-          ev.dayNum === day.getDate()
-      )
-      const tickers = dayEvs
-        .map((ev) => extractT(ev.event))
-        .filter(Boolean)
-      tickers.sort(mcapSort)
-      tickers.slice(0, 20).forEach((t) => {
-        impliedQueueRef.current.push({ ticker: t, date: day })
+
+    const queueWeek = (weekStart: Date) => {
+      Array.from({ length: 5 }, (_, i) => {
+        const d = new Date(weekStart)
+        d.setDate(weekStart.getDate() + i)
+        return d
+      }).forEach((day) => {
+        const dayEvs = liveCalEvents.filter(
+          (ev) =>
+            ev.type === 'earnings' &&
+            ev.year === day.getFullYear() &&
+            ev.month === day.getMonth() &&
+            ev.dayNum === day.getDate()
+        )
+        const tickers = dayEvs
+          .map((ev) => extractT(ev.event))
+          .filter((t) => Boolean(t) && t in MCAP_RANK) // notable tickers only
+        tickers.sort(mcapSort)
+        tickers.slice(0, 5).forEach((t) => { // top 5 per day
+          impliedQueueRef.current.push({ ticker: t, date: day })
+        })
       })
-    })
+    }
+
+    // Always queue this week
+    queueWeek(calWeekOf)
+
+    // On Thursdays (day 4), also pre-queue next week
+    const todayDow = new Date().getDay()
+    if (todayDow === 4) {
+      const nextWeekStart = new Date(calWeekOf)
+      nextWeekStart.setDate(calWeekOf.getDate() + 7)
+      queueWeek(nextWeekStart)
+    }
+
     scheduleImpliedProcessing()
   }, [liveCalEvents, calWeekOf, scheduleImpliedProcessing])
 
@@ -2657,7 +2673,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             </div>
           )}
           {/* DESKTOP: 5-column grid */}
-          {!isMobile && <div style={{ height: '20px' }} />}
           {!isMobile && (
             <div
               className="flex-1 grid grid-cols-5"
@@ -3515,20 +3530,15 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   onTabChange?.(id)
                   savedScrollPos.current = 0
                 }}
-                className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-black tracking-wider uppercase transition-all relative min-w-0 ${isActive
+                className={`flex-1 flex flex-row items-center justify-center gap-1.5 py-2.5 text-[13px] font-black tracking-wider uppercase transition-all relative min-w-0 ${isActive
                   ? 'bg-black text-orange-500'
-                  : 'text-white/70 hover:text-orange-300 hover:bg-[#111]'
+                  : 'text-white hover:text-orange-300 hover:bg-[#111]'
                   }`}
               >
                 <Icon
-                  className={`w-4 h-4 shrink-0 ${isActive
-                    ? 'text-orange-500'
-                    : id === 'breaking'
-                      ? 'text-red-400'
-                      : 'text-white/60'
-                    }`}
+                  className={`w-4 h-4 shrink-0 ${isActive ? 'text-orange-500' : 'text-white'}`}
                 />
-                <span className="leading-none truncate px-0.5">{label}</span>
+                <span className="leading-none truncate">{label}</span>
                 {isActive && (
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-orange-500" />
                 )}

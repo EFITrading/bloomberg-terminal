@@ -54,7 +54,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { enrichTradeDataCombined } from '@/lib/enrichTradeData'
 
 import { useMarketRegime } from '../../contexts/MarketRegimeContext'
-import { useGEXData } from '../../hooks/useGEXData'
 import { createApiUrl } from '../../lib/apiConfig'
 import ChartDataCache from '../../lib/chartDataCache'
 import ElectionCycleService from '../../lib/electionCycleService'
@@ -87,6 +86,7 @@ import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
 import GexPanel from '../analytics/GexPanel'
+import GEXTimelineScrubber from '../analytics/GEXTimelineScrubber'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import StraddleTownScreener from '../analytics/StraddleTownScreener'
 import ScreenersPanel from '../analytics/ScreenersPanel'
@@ -2609,228 +2609,6 @@ const positionLabelsWithoutOverlap = (
   return positioned
 }
 
-// Render GEX levels on chart with smart text positioning
-const renderGEXLevels = (
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  minPrice: number,
-  maxPrice: number,
-  gexData: any,
-  visibleData?: any[],
-  visibleCandleCount?: number
-) => {
-  if (!gexData || !gexData.gexData) return
-
-  const priceToY = (price: number) => {
-    return height - ((price - minPrice) / (maxPrice - minPrice)) * height
-  }
-
-  // Calculate where the last candle is positioned (same as Expected Range)
-  let lastCandleX = width - 100 // Default fallback
-  if (visibleData && visibleCandleCount) {
-    const candleSpacing = width / visibleCandleCount
-    const candleWidth = Math.max(2, (width / visibleCandleCount) * 0.8)
-    const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
-    lastCandleX =
-      CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + (candleSpacing - candleWidth) / 2 + candleWidth
-  }
-
-  // Collect all text labels for smart positioning
-  const textLabels: TextLabel[] = []
-
-  // Zero Gamma Level
-  if (gexData.gexData.zeroGammaLevel) {
-    const y = priceToY(gexData.gexData.zeroGammaLevel)
-
-    ctx.strokeStyle = '#eab308'
-    ctx.lineWidth = 3
-    ctx.setLineDash([8, 4])
-    ctx.globalAlpha = 0.9
-
-    ctx.beginPath()
-    ctx.moveTo(lastCandleX, y)
-    ctx.lineTo(width - 80, y)
-    ctx.stroke()
-
-    // Add to labels array instead of drawing immediately
-    textLabels.push({
-      text: `Zero G: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`,
-      x: width - 10,
-      y: y - 5,
-      originalY: y - 5,
-      price: gexData.gexData.zeroGammaLevel,
-      priority: 10, // High priority
-      color: '#ffff00',
-      strokeColor: '#000000',
-      font: 'bold 16px monospace',
-      textAlign: 'right',
-    })
-  }
-
-  // GEX Flip Level - Critical dealer behavior change level
-  if (gexData.gexData.gexFlipLevel) {
-    const y = priceToY(gexData.gexData.gexFlipLevel)
-
-    // Color based on gamma environment
-    const flipColor = gexData.gexData.isPositiveGamma ? '#8b5cf6' : '#f97316' // Purple for positive, Orange for negative
-
-    ctx.strokeStyle = flipColor
-    ctx.lineWidth = 4
-    ctx.setLineDash([12, 6, 4, 6]) // Distinctive dash pattern
-    ctx.globalAlpha = 0.95
-
-    ctx.beginPath()
-    ctx.moveTo(lastCandleX, y)
-    ctx.lineTo(width - 80, y)
-    ctx.stroke()
-
-    // Add to labels array instead of drawing immediately
-    textLabels.push({
-      text: `ATTRACTION: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`,
-      x: width - 10,
-      y: y + 15,
-      originalY: y + 15,
-      price: gexData.gexData.gexFlipLevel,
-      priority: 9, // High priority
-      color: gexData.gexData.isPositiveGamma ? '#ff00ff' : '#ff8800',
-      strokeColor: '#000000',
-      font: 'bold 16px monospace',
-      textAlign: 'right',
-    })
-  }
-
-  // Process all walls to show NET GEX (calls and puts combined)
-  const wallsByStrike = new Map()
-
-  // Add call walls
-  if (gexData.gexData.callWalls && gexData.gexData.callWalls.length > 0) {
-    gexData.gexData.callWalls.forEach((wall: any) => {
-      wallsByStrike.set(wall.strike, {
-        strike: wall.strike,
-        callGEX: wall.gex,
-        putGEX: 0,
-      })
-    })
-  }
-
-  // Add put walls (merge with existing strikes or create new)
-  if (gexData.gexData.putWalls && gexData.gexData.putWalls.length > 0) {
-    gexData.gexData.putWalls.forEach((wall: any) => {
-      const existing = wallsByStrike.get(wall.strike)
-      if (existing) {
-        existing.putGEX = wall.gex
-      } else {
-        wallsByStrike.set(wall.strike, {
-          strike: wall.strike,
-          callGEX: 0,
-          putGEX: wall.gex,
-        })
-      }
-    })
-  }
-
-  // Calculate net GEX for each strike and find the highest
-  const wallDataArray = Array.from(wallsByStrike.values()).map((wallData) => ({
-    ...wallData,
-    netGEX: wallData.callGEX - wallData.putGEX,
-    absNetGEX: Math.abs(wallData.callGEX - wallData.putGEX),
-  }))
-
-  // Find the strike with highest absolute NET GEX
-  const highestGEXWall = wallDataArray.reduce((max, current) =>
-    current.absNetGEX > max.absNetGEX ? current : max
-  )
-
-  // Render each wall line and collect labels
-  wallDataArray.forEach((wallData) => {
-    const isCallDominated = wallData.netGEX > 0
-    const isHighestGEX = wallData.strike === highestGEXWall.strike
-
-    const y = priceToY(wallData.strike)
-
-    // Line thickness based on NET GEX strength
-    const thickness = Math.max(1, Math.min(4, wallData.absNetGEX / 10000000000))
-
-    // Color based on which side dominates
-    const lineColor = isCallDominated ? '#22c55e' : '#ef4444'
-    const textColor = isCallDominated ? '#00ff00' : '#ff0000'
-
-    const wallType = isCallDominated ? 'Call Wall' : 'Put Wall'
-    const sign = isCallDominated ? '+' : '-'
-
-    // Special glow effect for highest GEX line - glow in appropriate color
-    if (isHighestGEX) {
-      // Draw glow effect with multiple passes in the appropriate color
-      const glowColor = isCallDominated ? [34, 197, 94] : [239, 68, 68] // RGB values
-      for (let i = 0; i < 3; i++) {
-        ctx.strokeStyle = `rgba(${glowColor[0]}, ${glowColor[1]}, ${glowColor[2]}, ${0.4 - i * 0.1})`
-        ctx.lineWidth = thickness + (3 - i) * 2
-        ctx.setLineDash([])
-        ctx.globalAlpha = 0.5
-
-        ctx.beginPath()
-        ctx.moveTo(lastCandleX, y)
-        ctx.lineTo(width - 80, y)
-        ctx.stroke()
-      }
-    }
-
-    // Main line
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = thickness
-    ctx.setLineDash([])
-    ctx.globalAlpha = 0.8
-
-    ctx.beginPath()
-    ctx.moveTo(lastCandleX, y)
-    ctx.lineTo(width - 80, y)
-    ctx.stroke()
-
-    // Add wall label to labels array instead of drawing immediately
-    const yOffset = isCallDominated ? -5 : 15
-    const label = `${wallType}: $${wallData.strike.toFixed(0)} (${sign}${(wallData.absNetGEX / 1000000000).toFixed(1)}B)`
-    const priority = isHighestGEX ? 8 : isCallDominated ? 6 : 5 // Highest GEX gets priority, then calls over puts
-
-    textLabels.push({
-      text: label,
-      x: width - 90,
-      y: y + yOffset,
-      originalY: y + yOffset,
-      price: wallData.strike,
-      priority: priority,
-      color: textColor,
-      strokeColor: '#000000',
-      font: 'bold 15px monospace',
-      textAlign: 'right',
-    })
-  })
-
-  // Position all labels to avoid overlaps
-  const positionedLabels = positionLabelsWithoutOverlap(textLabels, ctx)
-
-  // Draw all labels with adjusted positions
-  ctx.globalAlpha = 1.0
-  ctx.lineWidth = 4
-
-  positionedLabels.forEach((label) => {
-    // Draw text stroke (outline)
-    ctx.strokeStyle = label.strokeColor
-    ctx.font = label.font
-    ctx.textAlign = label.textAlign
-    ctx.strokeText(label.text, label.x, label.y)
-
-    // Draw text fill
-    ctx.fillStyle = label.color
-    ctx.fillText(label.text, label.x, label.y)
-
-  })
-
-  // Reset canvas state
-  ctx.setLineDash([])
-  ctx.globalAlpha = 1.0
-}
-
 // ============================================================================
 // GEX HEATMAP — renders per-strike per-expiry gamma exposure rectangles
 // starting from the last candle and extending forward to each expiry date.
@@ -2845,7 +2623,8 @@ const renderGEXMap = (
   gexMapData: any,
   visibleData: any[],
   visibleCandleCount: number,
-  timeframe: string = 'daily'
+  timeframe: string = 'daily',
+  animTime: number = 0
 ) => {
   if (!gexMapData || !gexMapData.strikes || gexMapData.strikes.length === 0) return
   if (!visibleData || visibleData.length === 0) return
@@ -2860,7 +2639,9 @@ const renderGEXMap = (
   const candleSpacing = width / visibleCandleCount
   const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
   const lastCandleX = CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + candleSpacing
-  const rightBoundary = width - 85
+  // width is already chartWidth (canvas width - CHART_LEFT_MARGIN - 80), so the y-axis is already excluded.
+  // Use width directly — no further subtraction needed.
+  const rightBoundary = width
 
   const lastCandleTimestamp: number = visibleData[visibleData.length - 1]?.timestamp ?? Date.now()
   const lastCandleDate = new Date(lastCandleTimestamp)
@@ -2965,21 +2746,29 @@ const renderGEXMap = (
       const isGold = strike === goldStrike && expDate === goldExpiry
       const isPurple = strike === purpleStrike && expDate === purpleExpiry
 
-      // Gold/purple: always full opacity. Others: cubic curve so low values are faint,
-      // high values are vivid. Minimum 0.03 so absolute zero isn't drawn.
+      // Aggressive opacity curve: low values are faint but visible, high values are fully solid.
+      // pow(1.5) gives a clear visual hierarchy without hiding any cells.
+      // Range: ~0.10 (at normalizedMag 0) → 0.95 (at normalizedMag 1)
       const peakOpacity = isGold || isPurple
-        ? 0.97
-        : 0.03 + Math.pow(normalizedMag, 0.6) * 0.92  // 0.03 → 0.95
+        ? 1.0
+        : 0.10 + Math.pow(normalizedMag, 1.5) * 0.85  // faint → fully opaque
 
+      // Brighter base colors for GEX:
       let r: number, g: number, b: number
       if (isGold) {
-        r = 255; g = 210; b = 0    // vivid gold  #ffd200
+        r = 255; g = 220; b = 0    // vivid gold #ffdc00
       } else if (isPurple) {
-        r = 180; g = 0; b = 255  // electric purple
+        r = 200; g = 0; b = 255  // electric purple
       } else if (netGEX > 0) {
-        r = 0; g = 230; b = 60   // green
+        // Positive gamma — bright lime-green, intensity scales with magnitude
+        r = Math.round(0 + 60 * normalizedMag)
+        g = Math.round(220 + 35 * normalizedMag)  // 220 → 255
+        b = Math.round(40 + 30 * normalizedMag)
       } else {
-        r = 255; g = 35; b = 35   // red
+        // Negative gamma — vivid red, intensity scales
+        r = Math.round(220 + 35 * normalizedMag)  // 220 → 255
+        g = Math.round(20 * normalizedMag)
+        b = Math.round(20 * normalizedMag)
       }
 
       // Sharp vertical bell — full opacity in centre, hard fade at band edges
@@ -3017,6 +2806,142 @@ const renderGEXMap = (
   }
 
   ctx.restore()
+
+  // ── Hotspot: nearest expiry with meaningful concentration ─────────────────
+  // Meaningful = strike |netGEX| >= 8% of maxAbsGEX (relative, not absolute)
+  const meaningfulThreshold = maxAbsGEX * 0.08
+  // Find the nearest (first) expiry that has at least 2 meaningful strikes
+  let hotExp: string | null = null
+  let hotPrevExp: string | null = null
+  for (let ei = 0; ei < sortedAllExpiries.length; ei++) {
+    const exp = sortedAllExpiries[ei]
+    const expX = expiryToX.get(exp) ?? 0
+    if (expX <= lastCandleX) continue
+    let meaningfulCount = 0
+    for (const s of strikes) {
+      if (Math.abs((s.expirations[exp] as any)?.netDealer ?? 0) >= meaningfulThreshold) meaningfulCount++
+    }
+    if (meaningfulCount >= 2) {
+      hotExp = exp
+      hotPrevExp = ei > 0 ? sortedAllExpiries[ei - 1] : null
+      break
+    }
+  }
+  if (!hotExp) { ctx.restore(); return }
+
+  // X bounds: from previous expiry boundary to this expiry
+  const hotXStart = hotPrevExp ? (expiryToX.get(hotPrevExp) ?? lastCandleX) : lastCandleX
+  const hotXEnd = expiryToX.get(hotExp)!
+  if (hotXEnd <= lastCandleX || hotXEnd <= hotXStart) { ctx.restore(); return }
+
+  // Collect all meaningful strikes sorted by magnitude, anchor on top 1, keep only nearby
+  const allHotSorted: { strike: number; mag: number; signed: number }[] = strikes
+    .map((s: any) => ({ strike: s.strike as number, mag: Math.abs((s.expirations[hotExp!] as any)?.netDealer ?? 0) as number, signed: ((s.expirations[hotExp!] as any)?.netDealer ?? 0) as number }))
+    .filter((s: { strike: number; mag: number; signed: number }) => s.mag >= meaningfulThreshold)
+    .sort((a: { strike: number; mag: number; signed: number }, b: { strike: number; mag: number; signed: number }) => b.mag - a.mag)
+  if (allHotSorted.length === 0) { ctx.restore(); return }
+  // Compute min gap from meaningful strikes only (avoids pollution from far-OTM strikes in full array)
+  const meaningfulByPrice = [...allHotSorted].sort((a: { strike: number; mag: number; signed: number }, b: { strike: number; mag: number; signed: number }) => a.strike - b.strike)
+  let minGap = 5
+  for (let i = 1; i < meaningfulByPrice.length; i++) {
+    const gap = (meaningfulByPrice[i]!.strike) - (meaningfulByPrice[i - 1]!.strike)
+    if (gap > 0 && gap < minGap) minGap = gap
+  }
+  const topStrike = allHotSorted[0]!.strike
+  const clusterRadius = minGap * 2 // only 2 strike intervals from top
+  const hotStrikes = allHotSorted.filter((s: { strike: number; mag: number; signed: number }) => Math.abs(s.strike - topStrike) <= clusterRadius).slice(0, 4)
+
+  // Sentiment: sum signed netDealer of cluster → green if net positive, red if net negative, gray if mixed
+  const hotSignedSum = hotStrikes.reduce((acc: number, s: { strike: number; mag: number; signed: number }) => acc + s.signed, 0)
+  const hotSentimentRatio = hotStrikes.length > 0 ? hotSignedSum / hotStrikes.reduce((acc: number, s: { strike: number; mag: number; signed: number }) => acc + s.mag, 0) : 0
+  // ratio: +1 = all positive, -1 = all negative, ~0 = mixed
+  const isGreenGlow = hotSentimentRatio > 0.3
+  const isRedGlow = hotSentimentRatio < -0.3
+  const glowR = isGreenGlow ? 40 : isRedGlow ? 255 : 160
+  const glowG = isGreenGlow ? 220 : isRedGlow ? 60 : 160
+  const glowB = isGreenGlow ? 100 : isRedGlow ? 40 : 160
+
+  // Y bounds: actual span of the cluster ± halfH padding
+  const hotYs = hotStrikes.map((s: { strike: number; mag: number; signed: number }) => priceToY(s.strike))
+  const hotY1 = Math.min(...hotYs) - halfH * 1.2
+  const hotY2 = Math.max(...hotYs) + halfH * 1.2
+  if (hotY2 < 0 || hotY1 > height) { ctx.restore(); return }
+
+  // Draw animated bubbly rounded-rect
+  const pulse = 0.5 + 0.5 * Math.sin(animTime * 0.0025)
+  const rx = Math.max(lastCandleX, hotXStart)
+  const ry = Math.max(0, hotY1)
+  const rw = Math.max(4, hotXEnd - rx)
+  const rh = Math.min(height, hotY2) - ry
+  if (rw < 4 || rh < 4) { ctx.restore(); return }
+  const radius = Math.min(rw * 0.18, rh * 0.28, 10)
+
+  ctx.save()
+  // ── Liquid glass: sentiment glow (green/red/gray) + gold tint ───────────
+  // 1. Soft outer glow — color reflects majority gamma sign
+  ctx.shadowColor = `rgba(${glowR},${glowG},${glowB},${(0.22 + 0.14 * pulse).toFixed(3)})`
+  ctx.shadowBlur = 14 + 8 * pulse
+  ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, radius)
+  ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fill() // ghost fill just for shadow
+  ctx.shadowBlur = 0
+
+  // 2. Main frosted-glass body fill (top→bottom gradient)
+  const bodyGrad = ctx.createLinearGradient(rx, ry, rx, ry + rh)
+  bodyGrad.addColorStop(0, `rgba(255,245,180,${(0.13 + 0.07 * pulse).toFixed(3)})`)
+  bodyGrad.addColorStop(0.45, `rgba(255,220,80,${(0.07 + 0.03 * pulse).toFixed(3)})`)
+  bodyGrad.addColorStop(1, `rgba(255,180,20,${(0.03).toFixed(3)})`)
+  ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, radius)
+  ctx.fillStyle = bodyGrad; ctx.fill()
+
+  // 3. Diagonal specular sheen (top-left → bottom-right, like the glass image)
+  const sheenGrad = ctx.createLinearGradient(rx, ry, rx + rw, ry + rh)
+  sheenGrad.addColorStop(0, `rgba(255,255,220,${(0.18 + 0.1 * pulse).toFixed(3)})`)
+  sheenGrad.addColorStop(0.35, `rgba(255,255,200,${(0.08 + 0.04 * pulse).toFixed(3)})`)
+  sheenGrad.addColorStop(0.5, 'rgba(255,255,180,0.00)')
+  sheenGrad.addColorStop(1, 'rgba(255,230,100,0.00)')
+  ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, radius)
+  ctx.fillStyle = sheenGrad; ctx.fill()
+
+  // 4. Rim — bright top edge highlight + full perimeter stroke
+  // Top-edge bright line
+  ctx.save()
+  ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, radius)
+  ctx.clip()
+  const rimGrad = ctx.createLinearGradient(rx, ry, rx, ry + rh * 0.12)
+  rimGrad.addColorStop(0, `rgba(255,255,210,${(0.55 + 0.3 * pulse).toFixed(3)})`)
+  rimGrad.addColorStop(1, 'rgba(255,255,200,0.00)')
+  ctx.fillStyle = rimGrad
+  ctx.fillRect(rx, ry, rw, rh * 0.12)
+  ctx.restore()
+  // Perimeter stroke
+  ctx.strokeStyle = `rgba(255,240,120,${(0.32 + 0.22 * pulse).toFixed(3)})`
+  ctx.lineWidth = 1.2
+  ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, radius)
+  ctx.stroke()
+
+  // 5. Corner sparkle glints
+  const glintAlpha = 0.4 + 0.4 * pulse
+  const glintSize = 2.5
+  // Extra sentiment glow ring — drawn as a faint colored stroke outside the shape
+  ctx.save()
+  ctx.shadowColor = `rgba(${glowR},${glowG},${glowB},${(0.35 + 0.3 * pulse).toFixed(3)})`
+  ctx.shadowBlur = 8 + 6 * pulse
+  ctx.strokeStyle = `rgba(${glowR},${glowG},${glowB},${(0.18 + 0.12 * pulse).toFixed(3)})`
+  ctx.lineWidth = 2
+  ctx.beginPath(); ctx.roundRect(rx - 1, ry - 1, rw + 2, rh + 2, radius + 1)
+  ctx.stroke()
+  ctx.shadowBlur = 0
+  ctx.restore()
+  const corners = [[rx + radius, ry + radius], [rx + rw - radius, ry + radius]] as const
+  for (const [cx, cy] of corners) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glintSize * 2)
+    g.addColorStop(0, `rgba(255,255,230,${glintAlpha.toFixed(3)})`)
+    g.addColorStop(1, 'rgba(255,255,255,0.00)')
+    ctx.beginPath(); ctx.arc(cx, cy, glintSize * 2, 0, Math.PI * 2)
+    ctx.fillStyle = g; ctx.fill()
+  }
+
+  ctx.restore()
 }
 
 // ── DEX Map renderer (Delta Exposure — blue=long delta, red=short delta) ──────
@@ -3029,7 +2954,8 @@ const renderDEXMap = (
   dexMapData: any,
   visibleData: any[],
   visibleCandleCount: number,
-  timeframe: string = 'daily'
+  timeframe: string = 'daily',
+  animTime: number = 0
 ) => {
   if (!dexMapData || !dexMapData.strikes || dexMapData.strikes.length === 0) return
   if (!visibleData || visibleData.length === 0) return
@@ -3044,7 +2970,9 @@ const renderDEXMap = (
   const candleSpacing = width / visibleCandleCount
   const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
   const lastCandleX = CHART_LEFT_MARGIN + lastVisibleIndex * candleSpacing + candleSpacing
-  const rightBoundary = width - 85
+  // width is already chartWidth (canvas width - CHART_LEFT_MARGIN - 80), so the y-axis is already excluded.
+  // Use width directly — no further subtraction needed.
+  const rightBoundary = width
 
   const lastCandleTimestamp: number = visibleData[visibleData.length - 1]?.timestamp ?? Date.now()
   const lastCandleDate = new Date(lastCandleTimestamp)
@@ -3133,23 +3061,24 @@ const renderDEXMap = (
       const isGold = strike === goldStrike && expDate === goldExpiry
       const isPurple = strike === purpleStrike && expDate === purpleExpiry
 
+      // Aggressive opacity curve — same as GEX map for consistent visual language.
       const peakOpacity = isGold || isPurple
-        ? 0.97
-        : 0.03 + Math.pow(normalizedMag, 0.6) * 0.92
+        ? 1.0
+        : 0.10 + Math.pow(normalizedMag, 1.5) * 0.85
 
       let r: number, g: number, b: number
       if (isGold) {
-        r = 255; g = 210; b = 0
+        r = 255; g = 220; b = 0
       } else if (isPurple) {
-        r = 180; g = 0; b = 255
+        r = 200; g = 0; b = 255
       } else if (netDEX > 0) {
-        // Dealers long delta → cyan-blue
-        r = Math.round(20 * normalizedMag)
-        g = Math.round(140 + 80 * normalizedMag)
-        b = Math.round(200 + 55 * normalizedMag)
+        // Dealers long delta → vivid cyan-blue, scales with magnitude
+        r = Math.round(0 + 30 * normalizedMag)
+        g = Math.round(160 + 80 * normalizedMag)  // 160 → 240
+        b = Math.round(220 + 35 * normalizedMag)  // 220 → 255
       } else {
-        // Dealers short delta → red
-        r = Math.round(160 + 95 * normalizedMag)
+        // Dealers short delta → vivid red
+        r = Math.round(220 + 35 * normalizedMag)  // 220 → 255
         g = Math.round(20 * normalizedMag)
         b = Math.round(20 * normalizedMag)
       }
@@ -3183,6 +3112,133 @@ const renderDEXMap = (
         ctx.fillRect(segStartX, topY, leftFadeW, totalH)
       }
     }
+  }
+
+  ctx.restore()
+
+  // ── DEX Hotspot: same logic as GEX but cyan glow ─────────────────────────
+  const meaningfulThresholdDex = maxAbsGEX * 0.08
+  let hotExpDex: string | null = null
+  let hotPrevExpDex: string | null = null
+  for (let ei = 0; ei < sortedAllExpiries.length; ei++) {
+    const exp = sortedAllExpiries[ei]
+    const expX = expiryToX.get(exp) ?? 0
+    if (expX <= lastCandleX) continue
+    let meaningfulCount = 0
+    for (const s of strikes) {
+      if (Math.abs((s.expirations[exp] as any)?.netDealer ?? 0) >= meaningfulThresholdDex) meaningfulCount++
+    }
+    if (meaningfulCount >= 2) {
+      hotExpDex = exp
+      hotPrevExpDex = ei > 0 ? sortedAllExpiries[ei - 1] : null
+      break
+    }
+  }
+  if (!hotExpDex) { ctx.restore(); return }
+
+  const hotXStartDex = hotPrevExpDex ? (expiryToX.get(hotPrevExpDex) ?? lastCandleX) : lastCandleX
+  const hotXEndDex = expiryToX.get(hotExpDex)!
+  if (hotXEndDex <= lastCandleX || hotXEndDex <= hotXStartDex) { ctx.restore(); return }
+
+  const allHotSortedDex: { strike: number; mag: number; signed: number }[] = strikes
+    .map((s: any) => ({ strike: s.strike as number, mag: Math.abs((s.expirations[hotExpDex!] as any)?.netDealer ?? 0) as number, signed: ((s.expirations[hotExpDex!] as any)?.netDealer ?? 0) as number }))
+    .filter((s: { strike: number; mag: number; signed: number }) => s.mag >= meaningfulThresholdDex)
+    .sort((a: { strike: number; mag: number; signed: number }, b: { strike: number; mag: number; signed: number }) => b.mag - a.mag)
+  if (allHotSortedDex.length === 0) { ctx.restore(); return }
+  const meaningfulByPriceDex = [...allHotSortedDex].sort((a: { strike: number; mag: number; signed: number }, b: { strike: number; mag: number; signed: number }) => a.strike - b.strike)
+  let minGapDex = 5
+  for (let i = 1; i < meaningfulByPriceDex.length; i++) {
+    const gap = (meaningfulByPriceDex[i]!.strike) - (meaningfulByPriceDex[i - 1]!.strike)
+    if (gap > 0 && gap < minGapDex) minGapDex = gap
+  }
+  const topStrikeDex = allHotSortedDex[0]!.strike
+  const clusterRadiusDex = minGapDex * 2
+  const hotStrikesDex = allHotSortedDex.filter((s: { strike: number; mag: number; signed: number }) => Math.abs(s.strike - topStrikeDex) <= clusterRadiusDex).slice(0, 4)
+  if (hotStrikesDex.length === 0) { ctx.restore(); return }
+
+  // Sentiment for DEX cluster
+  const hotSignedSumDex = hotStrikesDex.reduce((acc: number, s: { strike: number; mag: number; signed: number }) => acc + s.signed, 0)
+  const hotSentimentRatioDex = hotStrikesDex.length > 0 ? hotSignedSumDex / hotStrikesDex.reduce((acc: number, s: { strike: number; mag: number; signed: number }) => acc + s.mag, 0) : 0
+  const isGreenGlowDex = hotSentimentRatioDex > 0.3
+  const isRedGlowDex = hotSentimentRatioDex < -0.3
+  const glowRD = isGreenGlowDex ? 40 : isRedGlowDex ? 255 : 160
+  const glowGD = isGreenGlowDex ? 220 : isRedGlowDex ? 60 : 160
+  const glowBD = isGreenGlowDex ? 100 : isRedGlowDex ? 40 : 160
+
+  const hotYsDex = hotStrikesDex.map((s: { strike: number; mag: number }) => priceToY(s.strike))
+  const hotY1Dex = Math.min(...hotYsDex) - halfH * 1.2
+  const hotY2Dex = Math.max(...hotYsDex) + halfH * 1.2
+  if (hotY2Dex < 0 || hotY1Dex > height) { ctx.restore(); return }
+
+  const pulseDex = 0.5 + 0.5 * Math.sin(animTime * 0.0025)
+  const rxD = Math.max(lastCandleX, hotXStartDex)
+  const ryD = Math.max(0, hotY1Dex)
+  const rwD = Math.max(4, hotXEndDex - rxD)
+  const rhD = Math.min(height, hotY2Dex) - ryD
+  if (rwD < 4 || rhD < 4) { ctx.restore(); return }
+  const radiusDex = Math.min(rwD * 0.18, rhD * 0.28, 10)
+
+  ctx.save()
+  // ── Liquid glass: sentiment glow (green/red/gray) + cyan tint ────────────
+  // 1. Outer glow — color reflects majority delta sign
+  ctx.shadowColor = `rgba(${glowRD},${glowGD},${glowBD},${(0.22 + 0.14 * pulseDex).toFixed(3)})`
+  ctx.shadowBlur = 14 + 8 * pulseDex
+  ctx.beginPath(); ctx.roundRect(rxD, ryD, rwD, rhD, radiusDex)
+  ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fill()
+  ctx.shadowBlur = 0
+
+  // 2. Frosted body fill
+  const bodyGradD = ctx.createLinearGradient(rxD, ryD, rxD, ryD + rhD)
+  bodyGradD.addColorStop(0, `rgba(180,245,255,${(0.13 + 0.07 * pulseDex).toFixed(3)})`)
+  bodyGradD.addColorStop(0.45, `rgba(0,220,255,${(0.07 + 0.03 * pulseDex).toFixed(3)})`)
+  bodyGradD.addColorStop(1, `rgba(0,170,255,0.03)`)
+  ctx.beginPath(); ctx.roundRect(rxD, ryD, rwD, rhD, radiusDex)
+  ctx.fillStyle = bodyGradD; ctx.fill()
+
+  // 3. Diagonal specular sheen
+  const sheenGradD = ctx.createLinearGradient(rxD, ryD, rxD + rwD, ryD + rhD)
+  sheenGradD.addColorStop(0, `rgba(220,250,255,${(0.18 + 0.1 * pulseDex).toFixed(3)})`)
+  sheenGradD.addColorStop(0.35, `rgba(200,245,255,${(0.08 + 0.04 * pulseDex).toFixed(3)})`)
+  sheenGradD.addColorStop(0.5, 'rgba(180,240,255,0.00)')
+  sheenGradD.addColorStop(1, 'rgba(0,210,255,0.00)')
+  ctx.beginPath(); ctx.roundRect(rxD, ryD, rwD, rhD, radiusDex)
+  ctx.fillStyle = sheenGradD; ctx.fill()
+
+  // 4. Rim highlight
+  ctx.save()
+  ctx.beginPath(); ctx.roundRect(rxD, ryD, rwD, rhD, radiusDex)
+  ctx.clip()
+  const rimGradD = ctx.createLinearGradient(rxD, ryD, rxD, ryD + rhD * 0.12)
+  rimGradD.addColorStop(0, `rgba(220,255,255,${(0.55 + 0.3 * pulseDex).toFixed(3)})`)
+  rimGradD.addColorStop(1, 'rgba(200,255,255,0.00)')
+  ctx.fillStyle = rimGradD
+  ctx.fillRect(rxD, ryD, rwD, rhD * 0.12)
+  ctx.restore()
+  ctx.strokeStyle = `rgba(0,230,255,${(0.32 + 0.22 * pulseDex).toFixed(3)})`
+  ctx.lineWidth = 1.2
+  ctx.beginPath(); ctx.roundRect(rxD, ryD, rwD, rhD, radiusDex)
+  ctx.stroke()
+
+  // 5. Corner glints
+  const glintAlphaD = 0.4 + 0.4 * pulseDex
+  const glintSizeD = 2.5
+  // Sentiment glow ring
+  ctx.save()
+  ctx.shadowColor = `rgba(${glowRD},${glowGD},${glowBD},${(0.35 + 0.3 * pulseDex).toFixed(3)})`
+  ctx.shadowBlur = 8 + 6 * pulseDex
+  ctx.strokeStyle = `rgba(${glowRD},${glowGD},${glowBD},${(0.18 + 0.12 * pulseDex).toFixed(3)})`
+  ctx.lineWidth = 2
+  ctx.beginPath(); ctx.roundRect(rxD - 1, ryD - 1, rwD + 2, rhD + 2, radiusDex + 1)
+  ctx.stroke()
+  ctx.shadowBlur = 0
+  ctx.restore()
+  const cornersD = [[rxD + radiusDex, ryD + radiusDex], [rxD + rwD - radiusDex, ryD + radiusDex]] as const
+  for (const [cx, cy] of cornersD) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glintSizeD * 2)
+    g.addColorStop(0, `rgba(220,255,255,${glintAlphaD.toFixed(3)})`)
+    g.addColorStop(1, 'rgba(200,255,255,0.00)')
+    ctx.beginPath(); ctx.arc(cx, cy, glintSizeD * 2, 0, Math.PI * 2)
+    ctx.fillStyle = g; ctx.fill()
   }
 
   ctx.restore()
@@ -6381,413 +6437,6 @@ export default function TradingViewChart({
     [chartInstances, symbol, config, activeChartId]
   )
 
-  // GEX OI Handler - Uses Polygon snapshot data (old way)
-  const handleOIGEXClick = async () => {
-    if (isGexLoading) return
-
-    const newActiveState = !isGexActive
-
-    // If deactivating, just toggle off
-    if (!newActiveState) {
-      setIsGexActive(false)
-      setLiveGexData(null)
-      return
-    }
-
-    // Activate OI GEX - clear any live data and use hook data
-    setLiveGexData(null) // CRITICAL: Clear live data so gexData from hook is used
-    setIsGexActive(true)
-  }
-
-  // GEX Live OI Scan Handler - shared processing helper for saved + live scan paths
-  const processLiveGEXTrades = async (allTrades: any[]) => {
-    try {
-      // Step 1: Fetch volume and OI data for all trades using Polygon API
-      const uniqueExpirations = [...new Set(allTrades.map((t: any) => t.expiry))]
-      const allContracts = new Map()
-
-      for (let i = 0; i < uniqueExpirations.length; i++) {
-        const expiry = uniqueExpirations[i] as string
-        const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
-        try {
-          const response = await fetch(
-            `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiryParam}&limit=250&apiKey=qyKP_vdrxtME8uAj0gufQA8sTOdcoaSl`
-          )
-          if (response.ok) {
-            const chainData = await response.json()
-            if (chainData.results) {
-              chainData.results.forEach((contract: any) => {
-                if (contract.details?.ticker) {
-                  allContracts.set(contract.details.ticker, {
-                    volume: contract.day?.volume || 0,
-                    open_interest: contract.open_interest || 0,
-                  })
-                }
-              })
-            }
-          }
-          setGexProgress(20 + Math.round(((i + 1) / uniqueExpirations.length) * 40))
-        } catch (error) {
-          console.error(`❌ Error fetching ${expiryParam}:`, error)
-        }
-      }
-
-      setGexProgress(60) // 60% - contracts fetched
-
-      // Step 2: Enrich trades with volume/OI
-      const enrichedTrades = allTrades.map((trade: any) => {
-        const contractData = allContracts.get(trade.ticker)
-        return {
-          ...trade,
-          volume: contractData?.volume || 0,
-          open_interest: contractData?.open_interest || 0,
-          underlying_ticker: trade.underlying_ticker || symbol,
-        }
-      })
-      setGexProgress(70) // 70% - trades enriched
-
-      // Step 3: Detect fill styles using HISTORICAL bid/ask at exact trade timestamp
-      // Same approach as AlgoFlowScreener & Options Flow page
-      const normalizeTickerForOptions = (ticker: string) => {
-        const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' }
-        return specialCases[ticker] || ticker
-      }
-
-      const buildOptionTicker = (trade: any): string => {
-        const expiry = trade.expiry.replace(/-/g, '').slice(2)
-        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-        return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-      }
-
-      const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
-        const midpoint = (bid + ask) / 2
-        if (fillPrice >= ask + 0.01) return 'AA'
-        if (fillPrice <= bid - 0.01) return 'BB'
-        if (fillPrice === ask) return 'A'
-        if (fillPrice === bid) return 'B'
-        return fillPrice >= midpoint ? 'A' : 'B'
-      }
-
-      // Build deduplicated batch — unique by contract + second bucket (same as AlgoFlow)
-      type QuoteKey = string
-      const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
-      for (const trade of enrichedTrades) {
-        const contract = buildOptionTicker(trade)
-        const tradeMs =
-          typeof trade.trade_timestamp === 'number'
-            ? trade.trade_timestamp
-            : new Date(trade.trade_timestamp).getTime()
-        const timestampNs = tradeMs * 1_000_000
-        const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
-        if (!uniqueQuotes.has(key))
-          uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
-      }
-
-      // Single batch POST — server fans out all Polygon historical quote calls simultaneously
-      const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
-      const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
-      try {
-        const res = await fetch('/api/options-quotes-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trades: batchPayload }),
-        })
-        const batchData = await res.json()
-        for (const r of batchData.results as {
-          id: string
-          bid: number | null
-          ask: number | null
-        }[]) {
-          quoteResultMap.set(
-            r.id,
-            r.bid && r.ask && r.bid > 0 && r.ask > 0 ? { bid: r.bid, ask: r.ask } : null
-          )
-        }
-      } catch {
-        // All trades fall through to N/A
-      }
-
-      setGexProgress(78) // 78% - historical quotes fetched
-
-      // Map historical quotes back to each trade
-      // For saved trades, fill_style is already set — skip re-computation if present
-      const tradesWithFillStyle: any[] = enrichedTrades.map((trade: any) => {
-        if (trade.fill_style && trade.fill_style !== 'N/A') return trade
-        const contract = buildOptionTicker(trade)
-        const tradeMs =
-          typeof trade.trade_timestamp === 'number'
-            ? trade.trade_timestamp
-            : new Date(trade.trade_timestamp).getTime()
-        const timestampNs = tradeMs * 1_000_000
-        const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`
-        const quote = quoteResultMap.get(key) ?? null
-        if (quote) {
-          return {
-            ...trade,
-            fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask),
-          }
-        }
-        return { ...trade, fill_style: 'N/A' }
-      })
-
-      setGexProgress(80) // 80% - fill styles calculated
-
-      // Step 4: Calculate Live OI for each unique contract - EXACT DealerAttraction logic
-      const liveOIMap = new Map<string, number>()
-      const uniqueContracts = new Set<string>()
-
-      tradesWithFillStyle.forEach((trade) => {
-        const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-        uniqueContracts.add(contractKey)
-      })
-
-      uniqueContracts.forEach((contractKey) => {
-        const matchingTrade = tradesWithFillStyle.find(
-          (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-        )
-
-        const originalOI = matchingTrade?.open_interest || 0
-
-        const contractTrades = tradesWithFillStyle.filter(
-          (t) => `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
-        )
-
-        let liveOI = originalOI
-        const processedTradeIds = new Set<string>()
-
-        const sortedTrades = [...contractTrades].sort(
-          (a, b) =>
-            new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-        )
-
-        sortedTrades.forEach((trade) => {
-          const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`
-          if (processedTradeIds.has(tradeId)) return
-          processedTradeIds.add(tradeId)
-          const contracts = trade.trade_size || 0
-          const fillStyle = trade.fill_style
-          switch (fillStyle) {
-            case 'A':
-            case 'AA':
-            case 'BB':
-              liveOI += contracts
-              break
-            case 'B':
-              if (contracts > originalOI) {
-                liveOI += contracts
-              } else {
-                liveOI -= contracts
-              }
-              break
-          }
-        })
-
-        liveOI = Math.max(0, liveOI)
-        liveOIMap.set(contractKey, liveOI)
-      })
-
-      setGexProgress(90)
-
-      // Step 5: Send to GEX API
-      const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
-        const parts = key.split('_')
-        return {
-          ticker: parts[0],
-          strike: parseFloat(parts[1]),
-          type: parts[2] === 'call' ? 'C' : 'P',
-          expiry: parts.slice(3).join('_'),
-          liveOI: oi,
-        }
-      })
-
-      const response = await fetch('/api/gex', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, liveOI: liveOIArray }),
-      })
-
-      const gexResult = await response.json()
-
-      if (gexResult.success) {
-        setLiveGexData(gexResult)
-        setIsGexActive(true)
-        setGexProgress(100)
-        setTimeout(() => renderChart(), 100)
-        setTimeout(() => { setIsGexLoading(false) }, 500)
-      } else {
-        throw new Error(gexResult.error || 'GEX calculation failed')
-      }
-    } catch (error) {
-      console.error('❌ Error in Live GEX scan:', error)
-      setIsGexLoading(false)
-      setIsGexActive(false)
-      setGexProgress(0)
-    }
-  }
-
-  // GEX Live OI Scan Handler - same historical bid/ask logic as AlgoFlow & Options Flow page
-  const handleLiveGEXClick = async (forceRescan = false) => {
-    if (isGexLoading) return
-
-    if (!forceRescan) {
-      const newActiveState = !isGexActive
-
-      // If deactivating, just toggle off
-      if (!newActiveState) {
-        setIsGexActive(false)
-        setLiveGexData(null)
-        return
-      }
-    }
-
-    setIsGexLoading(true)
-    setGexProgress(0)
-
-    // ── Try saved flow data first — exact same logic as GexPanel.tsx ─────────
-    try {
-      const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-      const target = new Date(nowPST)
-      if (nowPST.getHours() < 6 || (nowPST.getHours() === 6 && nowPST.getMinutes() < 30)) {
-        target.setDate(target.getDate() - 1)
-        while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1)
-      }
-      const tradingDate = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`
-
-      const datesResp = await fetch('/api/flows/dates')
-      if (datesResp.ok) {
-        const dates: { date: string }[] = await datesResp.json()
-        if (dates.length > 0) {
-          const latestDay = new Date(dates[0].date).toISOString().split('T')[0]
-          if (latestDay === tradingDate) {
-            const flowResp = await fetch(`/api/flows/${encodeURIComponent(dates[0].date)}`)
-            if (flowResp.ok) {
-              const flowData = await flowResp.json()
-              const allSaved: any[] = Array.isArray(flowData.data) ? flowData.data : []
-              const savedTrades = allSaved.filter(
-                (t) => t.underlying_ticker?.toUpperCase() === symbol?.toUpperCase()
-              )
-              if (savedTrades.length > 0) {
-                // Build liveOIMap from saved trades — exactly as GexPanel does it.
-                // Group by contract + PST day, keep only the most recent day per contract.
-                const contractDayGroups = new Map<string, any[]>()
-                for (const trade of savedTrades) {
-                  const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                  const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${day}`
-                  if (!contractDayGroups.has(key)) contractDayGroups.set(key, [])
-                  contractDayGroups.get(key)!.push(trade)
-                }
-                const latestDayPerContract = new Map<string, string>()
-                for (const key of contractDayGroups.keys()) {
-                  const contractKey = key.split('_').slice(0, -1).join('_')
-                  const day = key.split('_').slice(-1)[0]
-                  const existing = latestDayPerContract.get(contractKey)
-                  if (!existing || day > existing) latestDayPerContract.set(contractKey, day)
-                }
-                const liveOIMap = new Map<string, number>()
-                for (const [key, trades] of contractDayGroups) {
-                  const contractKey = key.split('_').slice(0, -1).join('_')
-                  const day = key.split('_').slice(-1)[0]
-                  if (latestDayPerContract.get(contractKey) !== day) continue
-                  const sorted = [...trades].sort(
-                    (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-                  )
-                  const baseOI = sorted[0].open_interest ?? 0
-                  let liveOI = baseOI
-                  const seen = new Set<string>()
-                  for (const trade of sorted) {
-                    const tradeId = `${trade.ticker}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`
-                    if (seen.has(tradeId)) continue
-                    seen.add(tradeId)
-                    const contracts = trade.trade_size ?? 0
-                    switch (trade.fill_style) {
-                      case 'A': case 'AA': case 'BB': liveOI += contracts; break
-                      case 'B': liveOI += contracts > baseOI ? contracts : -contracts; break
-                    }
-                  }
-                  liveOIMap.set(contractKey, Math.max(0, liveOI))
-                }
-
-                // Send to /api/gex
-                setGexProgress(90)
-                const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
-                  const parts = key.split('_')
-                  return {
-                    ticker: parts[0],
-                    strike: parseFloat(parts[1]),
-                    type: parts[2] === 'call' ? 'C' : 'P',
-                    expiry: parts.slice(3).join('_'),
-                    liveOI: oi,
-                  }
-                })
-                const gexResp = await fetch('/api/gex', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ symbol, liveOI: liveOIArray }),
-                })
-                const gexResult = await gexResp.json()
-                if (gexResult.success) {
-                  setLiveGexData(gexResult)
-                  setIsGexActive(true)
-                  setGexProgress(100)
-                  setTimeout(() => renderChart(), 100)
-                  setTimeout(() => setIsGexLoading(false), 500)
-                  return
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[LiveGEX] Saved flow check failed, falling back to live scan:', err)
-    }
-    // ── End saved flow check ─────────────────────────────────────────────────
-
-    const eventSource = new EventSource(`/api/stream-options-flow?ticker=${symbol}`)
-    let allTrades: any[] = []
-    let scanComplete = false
-
-    eventSource.onmessage = async (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        // Accumulate trades from ticker_complete events (same as DealerAttraction)
-        if (data.type === 'ticker_complete' && data.trades?.length > 0) {
-          allTrades.push(...data.trades)
-          return
-        }
-
-        if (data.type === 'complete') {
-          if (data.trades?.length > 0) allTrades = data.trades
-          if (allTrades.length === 0) {
-            eventSource.close()
-            setIsGexLoading(false)
-            setGexProgress(0)
-            return
-          }
-
-          scanComplete = true
-          eventSource.close()
-          setGexProgress(20) // 20% - trades received
-          await processLiveGEXTrades(allTrades)
-        }
-      } catch (error) {
-        console.error('❌ Error in Live GEX scan:', error)
-        setIsGexLoading(false)
-        setIsGexActive(false)
-        setGexProgress(0)
-      }
-    }
-
-    eventSource.onerror = (error) => {
-      console.error('❌ EventSource error:', error)
-      eventSource.close()
-      setIsGexLoading(false)
-      setGexProgress(0)
-    }
-  }
-
   // GEX Map (Heatmap) fetch handler
   const handleGexMapClick = async () => {
     if (isGexMapLoading) return
@@ -6805,6 +6454,7 @@ export default function TradingViewChart({
       if (result.success) {
         setGexMapData(result)
         setIsGexMapActive(true)
+        handleGexMapActivated(currentPrice)
       } else {
         console.error('❌ GEX Map fetch error:', result.error)
       }
@@ -6830,6 +6480,7 @@ export default function TradingViewChart({
       if (result.success) {
         setGexMap45dData(result)
         setIsGexMap45dActive(true)
+        handleGexMap45dActivated(currentPrice)
       } else {
         console.error('❌ GEX Map 45D fetch error:', result.error)
       }
@@ -6855,6 +6506,7 @@ export default function TradingViewChart({
       if (result.success) {
         setDexMapData(result)
         setIsDexMapActive(true)
+        handleDexMapActivated(currentPrice)
       } else {
         console.error('❌ DEX Map fetch error:', result.error)
       }
@@ -6880,6 +6532,7 @@ export default function TradingViewChart({
       if (result.success) {
         setDexMap45dData(result)
         setIsDexMap45dActive(true)
+        handleDexMap45dActivated(currentPrice)
       } else {
         console.error('❌ DEX Map 45D fetch error:', result.error)
       }
@@ -9669,10 +9322,9 @@ export default function TradingViewChart({
     }
   }, [regimeDataCache])
 
-  // Load Market Regimes after watchlist completes (background prefetch)
+  // Load Market Regimes — only when the Markets panel is first opened
   useEffect(() => {
-    if (disableSidebarAutoScan) return // trading-lens: no background regime scan
-    if (watchlistLoading) return // Wait for watchlist to populate first
+    if (activeSidebarPanel !== 'markets') return // Don't scan until panel is opened
     if (allRegimesLoaded || Object.keys(regimeDataCache).length > 0) return // Already loaded
     const fetchAllRegimes = async () => {
       setIsLoadingRegimes(true)
@@ -9711,7 +9363,7 @@ export default function TradingViewChart({
     }
 
     fetchAllRegimes()
-  }, [watchlistLoading]) // Run after watchlist completes
+  }, [activeSidebarPanel]) // Trigger when panel is opened
 
   // AI Trade Highlighting System - Clean Implementation with per-tab caching
   const [highlightedTrades, setHighlightedTrades] = useState<Record<string, any>>({})
@@ -10065,16 +9717,16 @@ export default function TradingViewChart({
     } else {
       // Monthly / yearly move signals — find bars where rolling window return is in range
       let window = 21, minPct = 0, maxPct = 10000, isUp = true
-      if (signalKey === 'perf-up8-12m')  { window = 21;  minPct = 8;  maxPct = 13;    isUp = true  }
-      else if (signalKey === 'perf-dn8-12m')  { window = 21;  minPct = 8;  maxPct = 13;    isUp = false }
-      else if (signalKey === 'perf-up20-25m') { window = 21;  minPct = 20; maxPct = 26;    isUp = true  }
-      else if (signalKey === 'perf-dn20-25m') { window = 21;  minPct = 20; maxPct = 26;    isUp = false }
-      else if (signalKey === 'perf-up8-12y')  { window = 252; minPct = 8;  maxPct = 13;    isUp = true  }
-      else if (signalKey === 'perf-dn8-12y')  { window = 252; minPct = 8;  maxPct = 13;    isUp = false }
-      else if (signalKey === 'perf-up20-25y') { window = 252; minPct = 20; maxPct = 26;    isUp = true  }
-      else if (signalKey === 'perf-dn20-25y') { window = 252; minPct = 20; maxPct = 26;    isUp = false }
-      else if (signalKey === 'perf-up30y')    { window = 252; minPct = 30; maxPct = 10000; isUp = true  }
-      else if (signalKey === 'perf-dn30y')    { window = 252; minPct = 30; maxPct = 10000; isUp = false }
+      if (signalKey === 'perf-up8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = true }
+      else if (signalKey === 'perf-dn8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = false }
+      else if (signalKey === 'perf-up20-25m') { window = 21; minPct = 20; maxPct = 26; isUp = true }
+      else if (signalKey === 'perf-dn20-25m') { window = 21; minPct = 20; maxPct = 26; isUp = false }
+      else if (signalKey === 'perf-up8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = true }
+      else if (signalKey === 'perf-dn8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = false }
+      else if (signalKey === 'perf-up20-25y') { window = 252; minPct = 20; maxPct = 26; isUp = true }
+      else if (signalKey === 'perf-dn20-25y') { window = 252; minPct = 20; maxPct = 26; isUp = false }
+      else if (signalKey === 'perf-up30y') { window = 252; minPct = 30; maxPct = 10000; isUp = true }
+      else if (signalKey === 'perf-dn30y') { window = 252; minPct = 30; maxPct = 10000; isUp = false }
       let lastTrig = -999
       for (let i = window; i < dailyBars.length; i++) {
         const pct = (dailyBars[i].c - dailyBars[i - window].c) / dailyBars[i - window].c * 100
@@ -10101,7 +9753,7 @@ export default function TradingViewChart({
       const daysAfterEvent = intradayCfg.mult >= 60 ? 15 : intradayCfg.mult >= 30 ? 10 : 5
       const totalSlotDays = daysAfterEvent
       const recentTriggers = triggerIndices.slice(-10)
-      const utcKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`
+      const utcKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
       const slotMap: Record<string, { o: number[]; h: number[]; l: number[]; c: number[] }> = {}
 
       await Promise.all(recentTriggers.map(async (trigIdx) => {
@@ -10419,27 +10071,27 @@ export default function TradingViewChart({
           // Fast 5-year check: one small daily request instead of fetching all intraday bars
           const fiveYearsAgo = new Date(); fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
           try {
-            const chkResp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveYearsAgo.toISOString().slice(0,10)}/${fiveYearsAgo.toISOString().slice(0,10)}?adjusted=true&sort=asc&limit=1&apiKey=${API_KEY}`)
+            const chkResp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveYearsAgo.toISOString().slice(0, 10)}/${fiveYearsAgo.toISOString().slice(0, 10)}?adjusted=true&sort=asc&limit=1&apiKey=${API_KEY}`)
             const chkJson: any = chkResp.ok ? await chkResp.json() : {}
             if (!chkJson.results?.length) { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
           } catch { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
 
           const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0)
-          const futureEvents = eventDates.filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n >= todayMidnight }).sort((a,b) => a.getTime()-b.getTime())
+          const futureEvents = eventDates.filter(d => { const n = new Date(d); n.setHours(0, 0, 0, 0); return n >= todayMidnight }).sort((a, b) => a.getTime() - b.getTime())
           const nextEvent = futureEvents[0] ?? eventDates[eventDates.length - 1]
           let eventOffset = 0
-          let adjustedEvent = new Date(nextEvent); adjustedEvent.setHours(0,0,0,0)
+          let adjustedEvent = new Date(nextEvent); adjustedEvent.setHours(0, 0, 0, 0)
           if (isWeekend(adjustedEvent) || isHoliday(adjustedEvent)) {
-            for (const off of [-1,1,-2,2,-3,3]) {
-              const c = new Date(nextEvent.getTime() + off*86400000); c.setHours(0,0,0,0)
+            for (const off of [-1, 1, -2, 2, -3, 3]) {
+              const c = new Date(nextEvent.getTime() + off * 86400000); c.setHours(0, 0, 0, 0)
               if (!isWeekend(c) && !isHoliday(c)) { eventOffset = off; adjustedEvent = c; break }
             }
           }
-          const evLabel = eventOffset === 0 ? null : `${Math.abs(eventOffset)}D ${eventOffset < 0 ? 'before' : 'after'} ${eventType.replace(/-/g,' ')}`
+          const evLabel = eventOffset === 0 ? null : `${Math.abs(eventOffset)}D ${eventOffset < 0 ? 'before' : 'after'} ${eventType.replace(/-/g, ' ')}`
 
           const daysToEvent = (() => {
-            let n = 0; const cur = new Date(lastCandleDate); cur.setHours(0,0,0,0)
-            while (cur < adjustedEvent) { cur.setDate(cur.getDate()+1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
+            let n = 0; const cur = new Date(lastCandleDate); cur.setHours(0, 0, 0, 0)
+            while (cur < adjustedEvent) { cur.setDate(cur.getDate() + 1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
             return n
           })()
           const daysAfterEvent = intradayCfg.mult >= 60 ? 15 : intradayCfg.mult >= 30 ? 10 : 5
@@ -10447,7 +10099,7 @@ export default function TradingViewChart({
 
           // Past event instances (limit to 10 most recent for speed)
           const pastEventDates = eventDates
-            .filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n < todayMidnight })
+            .filter(d => { const n = new Date(d); n.setHours(0, 0, 0, 0); return n < todayMidnight })
             .slice(-10)
 
           if (pastEventDates.length < 5) { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
@@ -10457,22 +10109,22 @@ export default function TradingViewChart({
 
           // Fetch only the window around each past event (parallel batches of 5)
           const processEventWindow = async (evDate: Date) => {
-            let adjEvDate = new Date(evDate); adjEvDate.setHours(0,0,0,0)
+            let adjEvDate = new Date(evDate); adjEvDate.setHours(0, 0, 0, 0)
             if (isWeekend(adjEvDate) || isHoliday(adjEvDate)) {
-              for (const off of [-1,1,-2,2,-3,3]) {
-                const c = new Date(evDate.getTime() + off*86400000); c.setHours(0,0,0,0)
+              for (const off of [-1, 1, -2, 2, -3, 3]) {
+                const c = new Date(evDate.getTime() + off * 86400000); c.setHours(0, 0, 0, 0)
                 if (!isWeekend(c) && !isHoliday(c)) { adjEvDate = c; break }
               }
             }
             // Walk back daysToEvent trading days to find refDate
             const refDate = (() => {
               let n = 0; const cur = new Date(adjEvDate)
-              while (n < daysToEvent) { cur.setDate(cur.getDate()-1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
+              while (n < daysToEvent) { cur.setDate(cur.getDate() - 1); if (!isWeekend(cur) && !isHoliday(cur)) n++ }
               return new Date(cur)
             })()
             // Window: refDate to refDate + totalSlotDays + 7 calendar days buffer
-            const winFrom = refDate.toISOString().slice(0,10)
-            const winTo = new Date(refDate.getTime() + (totalSlotDays + 7) * 86400000).toISOString().slice(0,10)
+            const winFrom = refDate.toISOString().slice(0, 10)
+            const winTo = new Date(refDate.getTime() + (totalSlotDays + 7) * 86400000).toISOString().slice(0, 10)
             let winBars: any[] = []
             try {
               let url: string | null = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${winFrom}/${winTo}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
@@ -10523,19 +10175,19 @@ export default function TradingViewChart({
 
           // Run all event window fetches in parallel batches of 5
           for (let b = 0; b < pastEventDates.length; b += 5) {
-            await Promise.all(pastEventDates.slice(b, b+5).map(processEventWindow))
+            await Promise.all(pastEventDates.slice(b, b + 5).map(processEventWindow))
           }
 
           const hasData = Object.keys(slotMap).length > 0
           if (hasData) {
-            const avg = (arr: number[]) => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : 0
+            const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
             const apply = (pct: number) => lastPrice * (1 + pct / 100)
             const DAY_OPEN_UTC_H = 8
             const DAY_OPEN_UTC_MIN = 0
             const slotsPerDayCycle = intradayCfg.slotsPerDay
 
             const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
-            const walkDay = new Date(lastCandleDate); walkDay.setHours(0,0,0,0)
+            const walkDay = new Date(lastCandleDate); walkDay.setHours(0, 0, 0, 0)
             let dayOff = 0
             while (dayOff <= totalSlotDays) {
               walkDay.setDate(walkDay.getDate() + 1)
@@ -10563,7 +10215,7 @@ export default function TradingViewChart({
 
         // ── DAILY PATH: fetch full OHLC per day, build candlestick projection ──
         // Check minimum 5 years of data using pastEventDates count (annual events → ≥5 instances needed)
-        const pastEventDatesCheck = getEventDates(eventType).filter(d => { const n = new Date(d); n.setHours(0,0,0,0); return n < new Date(new Date().toDateString()) })
+        const pastEventDatesCheck = getEventDates(eventType).filter(d => { const n = new Date(d); n.setHours(0, 0, 0, 0); return n < new Date(new Date().toDateString()) })
         if (pastEventDatesCheck.length < 5) {
           setSeasonalEventNoData(true)
           setIsSeasonalEventActive(false)
@@ -10698,15 +10350,17 @@ export default function TradingViewChart({
     [symbol]
   )
 
-  // GEX state for gamma exposure levels
-  const [isGexActive, setIsGexActive] = useState(false)
-  const [isGexLoading, setIsGexLoading] = useState(false)
-  const [gexProgress, setGexProgress] = useState(0)
-  const [liveGexData, setLiveGexData] = useState<any>(null)
-  const [gexMode, setGexMode] = useState<'live' | 'oi'>('oi') // 'live' scans flow, 'oi' uses Polygon data
+  // GEX state
   const [isGexDropdownOpen, setIsGexDropdownOpen] = useState(false)
-  const [isLiveGexActive, setIsLiveGexActive] = useState(false)
-  const [isOiGexActive, setIsOiGexActive] = useState(false)
+
+  // GEX/DEX map historical scrubber state
+  const [gexMapHistoricalPrice, setGexMapHistoricalPrice] = useState<number | null>(null)
+  const gexHistoricalFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showGexScrubber, setShowGexScrubber] = useState(false)
+  const [isGexHistoricalLoading, setIsGexHistoricalLoading] = useState(false)
+  // Animation clock for GEX/DEX hotspot glow — driven by RAF loop below
+  const gexAnimTimeRef = useRef(0)
+  const gexAnimRafRef = useRef<number | null>(null)
 
   // GEX Map (heatmap) state
   const [isGexMapActive, setIsGexMapActive] = useState(false)
@@ -10728,15 +10382,153 @@ export default function TradingViewChart({
   const [isDexMap45dLoading, setIsDexMap45dLoading] = useState(false)
   const [dexMap45dData, setDexMap45dData] = useState<any>(null)
 
-  // GEX data hook - ONLY fetch when mode is 'oi', NOT for 'live' mode, and never for basket symbols
-  const {
-    data: gexData,
-    loading: isLoadingGex,
-    error: gexError,
-  } = useGEXData(
-    isBasketMode ? '' : symbol,
-    !isBasketMode && isGexActive && gexMode === 'oi' // Only auto-refresh when OI GEX is active
-  )
+  // Refs so renderChart (useCallback) always reads the latest map state without stale closures
+  const isGexMapActiveRef = useRef(false)
+  const gexMapDataRef = useRef<any>(null)
+  const isGexMap45dActiveRef = useRef(false)
+  const gexMap45dDataRef = useRef<any>(null)
+  const isDexMapActiveRef = useRef(false)
+  const dexMapDataRef = useRef<any>(null)
+  const isDexMap45dActiveRef = useRef(false)
+  const dexMap45dDataRef = useRef<any>(null)
+  // Replay timestamp ref — when set, renderChart caps visibleData at this timestamp
+  const gexReplayTimestampRef = useRef<number | null>(null)
+
+  // Sync map state → refs so canvas renderer always sees latest values
+  useEffect(() => { isGexMapActiveRef.current = isGexMapActive }, [isGexMapActive])
+  useEffect(() => { gexMapDataRef.current = gexMapData }, [gexMapData])
+  useEffect(() => { isGexMap45dActiveRef.current = isGexMap45dActive }, [isGexMap45dActive])
+  useEffect(() => { gexMap45dDataRef.current = gexMap45dData }, [gexMap45dData])
+  useEffect(() => { isDexMapActiveRef.current = isDexMapActive }, [isDexMapActive])
+  useEffect(() => { dexMapDataRef.current = dexMapData }, [dexMapData])
+  useEffect(() => { isDexMap45dActiveRef.current = isDexMap45dActive }, [isDexMap45dActive])
+  useEffect(() => { dexMap45dDataRef.current = dexMap45dData }, [dexMap45dData])
+
+  // RAF loop — drives hotspot glow animation when any GEX/DEX map is active
+  useEffect(() => {
+    const anyActive = isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive
+    if (!anyActive) {
+      if (gexAnimRafRef.current) { cancelAnimationFrame(gexAnimRafRef.current); gexAnimRafRef.current = null }
+      return
+    }
+    let running = true
+    const tick = () => {
+      if (!running) return
+      gexAnimTimeRef.current = performance.now()
+      renderChartRef.current()
+      gexAnimRafRef.current = requestAnimationFrame(tick)
+    }
+    gexAnimRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      running = false
+      if (gexAnimRafRef.current) { cancelAnimationFrame(gexAnimRafRef.current); gexAnimRafRef.current = null }
+    }
+  }, [isGexMapActive, isGexMap45dActive, isDexMapActive, isDexMap45dActive])
+
+  // Re-fetch all active GEX/DEX maps at a given spot price (null = live price)
+  const refreshActiveMapsWithPrice = useCallback(async (price: number | null) => {
+    const priceSuffix = price ? `&price=${price}` : ''
+    const fetches: Promise<void>[] = []
+    if (isGexMapActive) fetches.push(
+      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}${priceSuffix}`)
+        .then(r => r.json()).then(result => { if (result.success) setGexMapData(result) })
+    )
+    if (isGexMap45dActive) fetches.push(
+      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}&mode=45d${priceSuffix}`)
+        .then(r => r.json()).then(result => { if (result.success) setGexMap45dData(result) })
+    )
+    if (isDexMapActive) fetches.push(
+      fetch(`/api/dex-map?symbol=${encodeURIComponent(symbol)}${priceSuffix}`)
+        .then(r => r.json()).then(result => { if (result.success) setDexMapData(result) })
+    )
+    if (isDexMap45dActive) fetches.push(
+      fetch(`/api/dex-map?symbol=${encodeURIComponent(symbol)}&mode=45d${priceSuffix}`)
+        .then(r => r.json()).then(result => { if (result.success) setDexMap45dData(result) })
+    )
+    if (fetches.length === 0) return
+    setIsGexHistoricalLoading(true)
+    try {
+      await Promise.all(fetches)
+    } finally {
+      setIsGexHistoricalLoading(false)
+    }
+  }, [symbol, isGexMapActive, isGexMap45dActive, isDexMapActive, isDexMap45dActive])
+
+  // Timeline scrubber handler — debounced 200ms for manual scrubbing
+  const handleGexMapTimeChange = useCallback((timestamp: number | null, price: number) => {
+    const newPrice = timestamp === null ? null : price
+    setGexMapHistoricalPrice(newPrice)
+
+    // Update replay ref immediately so renderChart caps candles on next frame
+    gexReplayTimestampRef.current = timestamp
+
+    // Auto-scroll the chart to the replay timestamp position
+    if (timestamp !== null && dataRef.current.length > 0) {
+      const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
+      const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
+      const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
+      setScrollOffset(targetStart)
+      scrollOffsetRef.current = targetStart
+    } else if (timestamp === null && dataRef.current.length > 0) {
+      const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
+      setScrollOffset(liveStart)
+      scrollOffsetRef.current = liveStart
+    }
+
+    // Debounce GEX/DEX map re-fetch (only for manual scrubbing; play mode uses handleGexMapPlayStep)
+    if (gexHistoricalFetchTimerRef.current) clearTimeout(gexHistoricalFetchTimerRef.current)
+    gexHistoricalFetchTimerRef.current = setTimeout(() => {
+      refreshActiveMapsWithPrice(newPrice)
+    }, 200)
+  }, [refreshActiveMapsWithPrice])
+
+  // Play-mode step — called by scrubber and awaited before advancing to next bar
+  const handleGexMapPlayStep = useCallback(async (timestamp: number | null, price: number) => {
+    const newPrice = timestamp === null ? null : price
+    setGexMapHistoricalPrice(newPrice)
+
+    // Update replay ref + scroll immediately
+    gexReplayTimestampRef.current = timestamp
+    if (timestamp !== null && dataRef.current.length > 0) {
+      const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
+      const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
+      const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
+      setScrollOffset(targetStart)
+      scrollOffsetRef.current = targetStart
+    } else if (timestamp === null && dataRef.current.length > 0) {
+      const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
+      setScrollOffset(liveStart)
+      scrollOffsetRef.current = liveStart
+    }
+
+    // Directly await the GEX/DEX map re-fetch (no debounce — play mode blocks on this)
+    await refreshActiveMapsWithPrice(newPrice)
+  }, [refreshActiveMapsWithPrice])
+
+  // Snap chart back to the latest bar and clear replay state
+  const snapToLive = useCallback(() => {
+    gexReplayTimestampRef.current = null
+    setGexMapHistoricalPrice(null)
+    if (dataRef.current.length > 0) {
+      const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
+      setScrollOffset(liveStart)
+      scrollOffsetRef.current = liveStart
+    }
+  }, [])
+
+  // Reset to live when all maps are closed
+  useEffect(() => {
+    if (!isGexMapActive && !isGexMap45dActive && !isDexMapActive && !isDexMap45dActive) {
+      snapToLive()
+    }
+  }, [isGexMapActive, isGexMap45dActive, isDexMapActive, isDexMap45dActive, snapToLive])
+
+  // Auto-close GEX dropdown once all loading has finished (so user sees spinner while fetching)
+  useEffect(() => {
+    if (!isGexMapLoading && !isGexMap45dLoading && !isDexMapLoading && !isDexMap45dLoading) {
+      setIsGexDropdownOpen(false)
+    }
+  }, [isGexMapLoading, isGexMap45dLoading, isDexMapLoading, isDexMap45dLoading])
 
   // IV & HV Indicator state - TradingView style bottom panel indicators
   const [isIVHVDropdownOpen, setIsIVHVDropdownOpen] = useState(false)
@@ -10764,6 +10556,26 @@ export default function TradingViewChart({
   const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false) // For resize dragging
   const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365) // Default 1 year
   const [hvWindow, setHVWindow] = useState(20) // Historical Volatility window (10, 20, 30, 60 days)
+
+  // IV 30D state - separate 30-day IV panel
+  const [showIV30DPanel, setShowIV30DPanel] = useState(false)
+  const [isIV30DLoading, setIsIV30DLoading] = useState(false)
+  const [iv30DProgress, setIV30DProgress] = useState(0)
+  const [iv30DColor, setIV30DColor] = useState('#FFFFFF')
+  const [iv30DFullscreen, setIV30DFullscreen] = useState(false)
+  const [iv30DData, setIV30DData] = useState<
+    Array<{
+      date: string
+      callIV: number | null
+      putIV: number | null
+      netIV: number | null
+      ivRank: number | null
+      ivPercentile: number | null
+      hv: number | null
+      price: number
+      expiration: string
+    }>
+  >([])
   // Fullscreen state for IV panels
   const [ivFullscreenPanel, setIVFullscreenPanel] = useState<'iv' | 'ivRank' | 'ivPercentile' | 'hv' | null>(null)
   // Fullscreen state for BuySell panel
@@ -10846,6 +10658,7 @@ export default function TradingViewChart({
     showIVRankIndicator,
     showIVPercentileIndicator,
     showHVIndicator,
+    showIV30DPanel,
   ].filter(Boolean).length
 
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
@@ -11297,6 +11110,60 @@ export default function TradingViewChart({
     }
   }, [isAnyIVHVActive, ivData.length, fetchIVData])
 
+  // Fetch 30-day IV data
+  const isAnyIV30DActive = showIV30DPanel
+  const fetchIV30DData = useCallback(async () => {
+    if (isIV30DLoading) return
+    setIsIV30DLoading(true)
+    setIV30DProgress(0)
+    try {
+      const response = await fetch(`/api/calculate-historical-iv?ticker=${symbol}&days=30`)
+      const result = await response.json()
+      setIV30DProgress(50)
+      if (result.success && result.data.history && result.data.history.length > 0) {
+        const { history } = result.data
+        const ivValues = history
+          .map((h: any) => (h.callIV && h.putIV ? (h.callIV + h.putIV) / 2 : null))
+          .filter((v: any) => v !== null)
+        const minIV = Math.min(...ivValues)
+        const maxIV = Math.max(...ivValues)
+        const chartData = history.map((h: any) => {
+          const netIV = h.callIV && h.putIV ? (h.callIV + h.putIV) / 2 : null
+          const ivRank = netIV && maxIV !== minIV ? ((netIV - minIV) / (maxIV - minIV)) * 100 : null
+          const ivPercentile = netIV
+            ? (ivValues.filter((v: number) => v <= netIV).length / ivValues.length) * 100
+            : null
+          return {
+            date: h.date,
+            callIV: h.callIV,
+            putIV: h.putIV,
+            netIV,
+            ivRank,
+            ivPercentile,
+            hv: null,
+            price: h.price,
+            expiration: h.expiration,
+          }
+        })
+        setIV30DData(chartData)
+        setIV30DProgress(100)
+      } else {
+        console.error('❌ Failed to fetch 30D IV data:', result.error)
+      }
+    } catch (error) {
+      console.error('❌ IV 30D Fetch Error:', error)
+    } finally {
+      setIsIV30DLoading(false)
+    }
+  }, [symbol, isIV30DLoading])
+
+  // Auto-fetch 30D IV data when any 30D indicator is activated
+  useEffect(() => {
+    if (isAnyIV30DActive && iv30DData.length === 0) {
+      fetchIV30DData()
+    }
+  }, [isAnyIV30DActive, iv30DData.length, fetchIV30DData])
+
   // Expansion/Liquidation indicator state
   const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false)
   const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([])
@@ -11327,7 +11194,6 @@ export default function TradingViewChart({
         isSeasonal15YActive,
         isSeasonal10YActive,
         isSeasonalElectionActive,
-        isGexActive,
         isExpansionLiquidationActive,
         technalysisActive,
         isFlowChartActive,
@@ -11337,7 +11203,7 @@ export default function TradingViewChart({
     chartLayout,
     isExpectedRangeActive, isWeeklyActive, isMonthlyActive,
     isSeasonalActive, isSeasonal20YActive, isSeasonal15YActive, isSeasonal10YActive, isSeasonalElectionActive,
-    isGexActive, isExpansionLiquidationActive, technalysisActive, isFlowChartActive,
+    isExpansionLiquidationActive, technalysisActive, isFlowChartActive,
   ])
 
   // Alerts state
@@ -11978,7 +11844,8 @@ export default function TradingViewChart({
       ]
 
       // Always load all symbols — full watchlist required for AI scan sectors mode
-      const symbols = [...coreSymbols, ...additionalSymbols]
+      // Deduplicate: sector holdings and industry ETF holdings overlap significantly
+      const symbols = Array.from(new Set([...coreSymbols, ...additionalSymbols]))
 
       const processedData: {
         [symbol: string]: {
@@ -11997,6 +11864,7 @@ export default function TradingViewChart({
 
       try {
         // Fetch ALL symbols in parallel - no artificial delays or batching
+        const _watchlistSlowThreshold = 3000 // warn if any single symbol takes >3s
         const allPromises = symbols.map(async (symbol) => {
           try {
             // Get historical data - need full year for YTD calculation
@@ -12652,20 +12520,15 @@ export default function TradingViewChart({
     const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
     const ETF_TICKERS = [
       // Broad market
-      'SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'IVV', 'MDY', 'IJR',
+      'SPY', 'QQQ', 'IWM', 'DIA',
       // Sector SPDR
       'XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE',
       // Fixed income
-      'TLT', 'IEF', 'SHY', 'HYG', 'LQD', 'AGG', 'BND', 'TIP',
+      'TLT', 'HYG',
       // Commodities
-      'GLD', 'SLV', 'GDX', 'GDXJ', 'USO', 'UNG', 'DBC', 'PDBC',
-      // Leveraged / inverse
-      'TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'UVXY', 'SVXY',
-      // International
-      'EEM', 'EFA', 'VEA', 'VWO', 'FXI', 'EWJ', 'IEMG', 'KWEB',
+      'GLD', 'SLV',
       // Thematic
-      'ARKK', 'ARKG', 'ARKW', 'SOXX', 'SMH', 'CIBR', 'BOTZ',
-      'XBI', 'IBB', 'ICLN', 'TAN', 'LIT', 'JETS', 'ITB',
+      'ARKK', 'KWEB', 'XHB', 'SMH', 'XBI', 'TAN', 'IGV', 'XRT', 'KRE', 'ITA',
     ]
 
     // Fetch full 5Y at weekly resolution — all ranges filter client-side (no re-fetch on tab switch)
@@ -12721,7 +12584,7 @@ export default function TradingViewChart({
     const throttledFetch = (url: string): Promise<any> =>
       new Promise((resolve) => {
         const task = async () => {
-          const delays = [500, 1000]
+          const delays = [500, 1000, 2000]
           for (let attempt = 0; attempt <= delays.length; attempt++) {
             try {
               const r = await fetch(url, { headers: { Accept: 'application/json' } })
@@ -12949,37 +12812,29 @@ export default function TradingViewChart({
         const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
 
         const results: any = {}
-        const BATCH_SIZE = 2 // Further reduced to 2 to prevent connection resets
-        const DELAY_MS = 800 // Increased to 800ms for more stability
+        const BATCH_SIZE = 10 // Parallel per batch — 10 concurrent calls
+        const DELAY_MS = 150  // Short cooldown between batches
 
         const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
         const fetchSymbol = async (symbol: string) => {
           try {
             if (trackingTimeframe === '1D') {
-              const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_API_KEY}`
-              const dailyResponse = await fetchWithRetry(dailyUrl)
-              const dailyData = await dailyResponse.json()
+              // Single call: 5-minute bars for today — replaces old daily + 1-min two-call approach.
+              // First bar's open is used as prev-close approximation; last bar's close is current price.
+              // ~78 bars max (6.5h × 12 bars/h) vs 390 bars at 1-min — 5× less data per call.
+              const fiveMinsUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${startDateStr}/${todayStr}?adjusted=true&sort=asc&limit=1000&apiKey=${POLYGON_API_KEY}`
+              const fiveMinsResponse = await fetchWithRetry(fiveMinsUrl)
+              const fiveMinsData = await fiveMinsResponse.json()
 
-              if (!dailyData.results || dailyData.results.length < 2) {
+              if (!fiveMinsData.results || fiveMinsData.results.length === 0) {
                 return null
               }
 
-              const lastTradingDayTimestamp = dailyData.results[0].t
-              const lastTradingDay = new Date(lastTradingDayTimestamp)
-              const lastTradingDayStr = `${lastTradingDay.getUTCFullYear()}-${String(lastTradingDay.getUTCMonth() + 1).padStart(2, '0')}-${String(lastTradingDay.getUTCDate()).padStart(2, '0')}`
-
-              const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
-              const intradayResponse = await fetchWithRetry(intradayUrl)
-              const intradayData = await intradayResponse.json()
-
-              if (!intradayData.results || intradayData.results.length === 0) {
-                return null
-              }
-
-              const intradayResults = intradayData.results
+              const intradayResults = fiveMinsData.results
               const currentPrice = intradayResults[intradayResults.length - 1].c
-              const previousDayClose = dailyData.results[1].c
+              // Use the open of the first bar of the day as previous close approximation
+              const previousDayClose = intradayResults[0].o
               const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100
 
               const sparklineData = intradayResults.map((bar: any) => {
@@ -13280,16 +13135,7 @@ export default function TradingViewChart({
     if (_prevSymbolForRescanRef.current === symbol) return
     _prevSymbolForRescanRef.current = symbol
 
-    // GEX Live — re-run scan for new ticker (forceRescan=true skips toggle-off check)
-    if (isLiveGexActive) {
-      setLiveGexData(null)
-      handleLiveGEXClick(true)
-    }
-
-    // GEX OI — data comes from hook; clearing liveGexData is enough for a fresh render
-    if (isOiGexActive) {
-      setLiveGexData(null)
-    }
+    // GEX Map — no rescan needed; maps remain valid until user explicitly clears them
 
     // IntraFlow — re-run live flow moves scan for new ticker
     if (isFlowChartActive) {
@@ -14679,12 +14525,16 @@ export default function TradingViewChart({
   const [chartContextMenu, setChartContextMenu] = useState<{ x: number; y: number } | null>(null)
   const scrollOffsetRef = useRef(9999999)
   const visibleCandleCountRef = useRef(150)
+  const dataRef = useRef<ChartDataPoint[]>([])
   useEffect(() => {
     scrollOffsetRef.current = scrollOffset
   }, [scrollOffset])
   useEffect(() => {
     visibleCandleCountRef.current = visibleCandleCount
   }, [visibleCandleCount])
+  useEffect(() => {
+    dataRef.current = data
+  }, [data])
 
   // ============================================================================
   // DARK POOL DATA FETCH
@@ -15032,6 +14882,88 @@ export default function TradingViewChart({
   const [currentPrice, setCurrentPrice] = useState(0)
   const [priceChange, setPriceChange] = useState(0)
   const [priceChangePercent, setPriceChangePercent] = useState(0)
+
+  // ── Auto-refresh GEX/DEX maps when live price moves past a threshold ────────
+  // Tracks the price captured at the last successful fetch for each map type.
+  const gexMapFetchedPriceRef = useRef<number>(0)
+  const gexMap45dFetchedPriceRef = useRef<number>(0)
+  const dexMapFetchedPriceRef = useRef<number>(0)
+  const dexMap45dFetchedPriceRef = useRef<number>(0)
+
+  // Helper: minimum price move (in $) before triggering a refresh.
+  // Scales with price so cheap stocks don't refresh every tick and expensive
+  // stocks don't stay stale for too long.
+  const getMapRefreshThreshold = (price: number): number => {
+    if (price <= 0) return Infinity
+    if (price < 20) return 0.25
+    if (price < 100) return 1
+    if (price < 500) return 3
+    if (price < 2000) return 10
+    return 25
+  }
+
+  useEffect(() => {
+    if (currentPrice <= 0) return
+
+    const threshold = getMapRefreshThreshold(currentPrice)
+
+    const refreshMap = async (
+      fetchedPriceRef: React.MutableRefObject<number>,
+      endpoint: string,
+      setter: (data: any) => void,
+      loadingSetter: (v: boolean) => void,
+      label: string,
+      extraParam?: string
+    ) => {
+      const lastFetched = fetchedPriceRef.current
+      if (lastFetched > 0 && Math.abs(currentPrice - lastFetched) < threshold) return
+      loadingSetter(true)
+      try {
+        const url = `/api/${endpoint}?symbol=${encodeURIComponent(symbol)}${extraParam ?? ''}`
+        const res = await fetch(url)
+        const result = await res.json()
+        if (result.success) {
+          setter(result)
+          fetchedPriceRef.current = currentPrice
+        }
+      } catch (err) {
+        console.error(`❌ ${label} auto-refresh error:`, err)
+      } finally {
+        loadingSetter(false)
+      }
+    }
+
+    if (isGexMapActive) {
+      refreshMap(gexMapFetchedPriceRef, 'gex-map', setGexMapData, setIsGexMapLoading, 'GEX Map')
+    }
+    if (isGexMap45dActive) {
+      refreshMap(gexMap45dFetchedPriceRef, 'gex-map', setGexMap45dData, setIsGexMap45dLoading, 'GEX Map 45D', '&mode=45d')
+    }
+    if (isDexMapActive) {
+      refreshMap(dexMapFetchedPriceRef, 'dex-map', setDexMapData, setIsDexMapLoading, 'DEX Map')
+    }
+    if (isDexMap45dActive) {
+      refreshMap(dexMap45dFetchedPriceRef, 'dex-map', setDexMap45dData, setIsDexMap45dLoading, 'DEX Map 45D', '&mode=45d')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPrice])
+
+  // Reset fetched-price refs when the symbol changes so the new symbol triggers
+  // an immediate fetch rather than comparing against the old symbol's price.
+  useEffect(() => {
+    gexMapFetchedPriceRef.current = 0
+    gexMap45dFetchedPriceRef.current = 0
+    dexMapFetchedPriceRef.current = 0
+    dexMap45dFetchedPriceRef.current = 0
+  }, [symbol])
+
+  // Also stamp the fetched price when a map is first manually activated
+  // so the threshold comparison starts from the correct baseline.
+  const handleGexMapActivated = (price: number) => { gexMapFetchedPriceRef.current = price }
+  const handleGexMap45dActivated = (price: number) => { gexMap45dFetchedPriceRef.current = price }
+  const handleDexMapActivated = (price: number) => { dexMapFetchedPriceRef.current = price }
+  const handleDexMap45dActivated = (price: number) => { dexMap45dFetchedPriceRef.current = price }
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Chart dimensions
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
@@ -16686,9 +16618,9 @@ export default function TradingViewChart({
 
       // Market hours in PST: 6:30 AM - 1:00 PM PST
       const marketStart = 6 * 60 + 30  // 390 min
-      const marketEnd   = 13 * 60      // 780 min
+      const marketEnd = 13 * 60      // 780 min
       const preMarketStart = 1 * 60    // 60 min  (1:00 AM PST)
-      const afterHoursEnd  = 17 * 60   // 1020 min (5:00 PM PST)
+      const afterHoursEnd = 17 * 60   // 1020 min (5:00 PM PST)
 
       if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
         // Pre-market: 1:00 AM PST - 6:30 AM PST - orange tint
@@ -16740,7 +16672,7 @@ export default function TradingViewChart({
     // Calculate chart areas - reserve space for volume and time axis
     const timeAxisHeight = 35
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
-    const actualIVPanelHeight = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
+    const actualIVPanelHeight = (isAnyIVHVActive || isAnyIV30DActive) ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
     const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
     const actualPEGPanelHeight = showPEGPanel ? pegPanelHeight : 0 // PEG panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
@@ -16764,7 +16696,14 @@ export default function TradingViewChart({
     const startIndex = Math.max(0, Math.floor(scrollOffset))
     const endIndex = Math.min(data.length, startIndex + visibleCandleCount)
 
-    const visibleData = data.slice(startIndex, endIndex)
+    // Replay mode: cap visible data at the scrubber timestamp (TradingView replay style)
+    let replayEndIndex = endIndex
+    if (gexReplayTimestampRef.current) {
+      const cutoff = data.findIndex(d => d.timestamp > gexReplayTimestampRef.current!)
+      if (cutoff !== -1) replayEndIndex = Math.min(endIndex, cutoff)
+    }
+
+    const visibleData = data.slice(startIndex, replayEndIndex)
 
     // ENHANCED: Handle future scrolling beyond actual data
     const beyondDataOffset = Math.max(0, scrollOffset + visibleCandleCount - data.length)
@@ -16818,15 +16757,15 @@ export default function TradingViewChart({
         // Polygon intraday data spans UTC 08:00–00:00 for ALL sub-daily timeframes (1m–1h).
         // Use 8*60–24*60 for all so barIdx matches real candle spacing (premarket + regular + AH).
         const winStartUtc = 8 * 60
-        const winEndUtc   = 24 * 60
+        const winEndUtc = 24 * 60
 
         const dtFmt = new Intl.DateTimeFormat('en-US', {
           timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false,
         })
         const marketStart = 6 * 60 + 30
-        const marketEnd   = 13 * 60
-        const preStart    = 1 * 60
-        const ahEnd       = 17 * 60
+        const marketEnd = 13 * 60
+        const preStart = 1 * 60
+        const ahEnd = 17 * 60
         const maxFutureBars = Math.ceil((chartWidth / candleSpacingFut) * 2)
 
         let ts = lastDataCandle.timestamp
@@ -17676,9 +17615,9 @@ export default function TradingViewChart({
           if (!isIntraday) return 'regular'
           const mins = getPstMinsFromDate(date)
           const marketStart = 6 * 60 + 30
-          const marketEnd   = 13 * 60
-          const preStart    = 1 * 60
-          const ahEnd       = 17 * 60
+          const marketEnd = 13 * 60
+          const preStart = 1 * 60
+          const ahEnd = 17 * 60
           if (mins >= preStart && mins < marketStart) return 'premarket'
           if (mins >= marketStart && mins < marketEnd) return 'regular'
           if (mins >= marketEnd && mins < ahEnd) return 'afterhours'
@@ -17708,24 +17647,24 @@ export default function TradingViewChart({
         // For sub-1h: UTC 13:30–20:00 (regular + some extended, matches chart data)
         const isHolidayUtc = (d: Date) => {
           const m = d.getUTCMonth(), day = d.getUTCDate(), dow = d.getUTCDay()
-          if (m === 0  && day === 1)  return true // New Year's
-          if (m === 6  && day === 4)  return true // July 4th
+          if (m === 0 && day === 1) return true // New Year's
+          if (m === 6 && day === 4) return true // July 4th
           if (m === 11 && day === 25) return true // Christmas
-          if (m === 0  && dow === 1 && day >= 15 && day <= 21) return true // MLK
-          if (m === 1  && dow === 1 && day >= 15 && day <= 21) return true // Presidents Day
-          if (m === 4  && dow === 1 && day >= 25) return true // Memorial Day
-          if (m === 8  && dow === 1 && day <= 7)  return true // Labor Day
+          if (m === 0 && dow === 1 && day >= 15 && day <= 21) return true // MLK
+          if (m === 1 && dow === 1 && day >= 15 && day <= 21) return true // Presidents Day
+          if (m === 4 && dow === 1 && day >= 25) return true // Memorial Day
+          if (m === 8 && dow === 1 && day <= 7) return true // Labor Day
           if (m === 10 && dow === 4 && day >= 22 && day <= 28) return true // Thanksgiving
-          if (m === 5  && day === 19) return true // Juneteenth
-          if (m === 5  && day === 18 && dow === 5) return true // Juneteenth observed Fri
-          if (m === 5  && day === 20 && dow === 1) return true // Juneteenth observed Mon
+          if (m === 5 && day === 19) return true // Juneteenth
+          if (m === 5 && day === 18 && dow === 5) return true // Juneteenth observed Fri
+          if (m === 5 && day === 20 && dow === 1) return true // Juneteenth observed Mon
           return false
         }
         const countActualBars = (fromTs: number, toTs: number): number => {
           if (toTs <= fromTs) return 0
           // Polygon intraday data spans UTC 08:00–00:00 for all sub-daily timeframes
           const winStart = 8 * 60
-          const winEnd   = 24 * 60
+          const winEnd = 24 * 60
           let count = 0
           let t = fromTs + barMs
           while (t <= toTs) {
@@ -18098,78 +18037,67 @@ export default function TradingViewChart({
       }
     }
 
-    // Draw GEX levels on top of candlesticks (standalone button)
-    if (isGexActive && (liveGexData || gexData)) {
-      const gexDataToUse = liveGexData || gexData
-      renderGEXLevels(
-        ctx,
-        chartWidth,
-        priceChartHeight,
-        adjustedMin,
-        adjustedMax,
-        gexDataToUse,
-        visibleData,
-        visibleCandleCount
-      )
-    }
-
     // Draw GEX Map heatmap (per-expiry per-strike gamma gradient)
-    if (isGexMapActive && gexMapData) {
+    if (isGexMapActiveRef.current && gexMapDataRef.current) {
       renderGEXMap(
         ctx,
         chartWidth,
         priceChartHeight,
         adjustedMin,
         adjustedMax,
-        gexMapData,
+        gexMapDataRef.current,
         visibleData,
         visibleCandleCount,
-        config.timeframe
+        config.timeframe,
+        gexAnimTimeRef.current
       )
     }
 
     // Draw GEX Map 45D heatmap (all expiries aggregated)
-    if (isGexMap45dActive && gexMap45dData) {
+    if (isGexMap45dActiveRef.current && gexMap45dDataRef.current) {
       renderGEXMap(
         ctx,
         chartWidth,
         priceChartHeight,
         adjustedMin,
         adjustedMax,
-        gexMap45dData,
+        gexMap45dDataRef.current,
         visibleData,
         visibleCandleCount,
-        config.timeframe
+        config.timeframe,
+        gexAnimTimeRef.current
       )
     }
 
     // Draw DEX Map heatmap (per-expiry per-strike delta gradient)
-    if (isDexMapActive && dexMapData) {
+    if (isDexMapActiveRef.current && dexMapDataRef.current) {
       renderDEXMap(
         ctx,
         chartWidth,
         priceChartHeight,
         adjustedMin,
         adjustedMax,
-        dexMapData,
+        dexMapDataRef.current,
         visibleData,
         visibleCandleCount,
-        config.timeframe
+        config.timeframe,
+        gexAnimTimeRef.current
       )
     }
 
     // Draw DEX Map 45D heatmap (all expiries aggregated)
-    if (isDexMap45dActive && dexMap45dData) {
+    if (isDexMap45dActiveRef.current && dexMap45dDataRef.current) {
       renderDEXMap(
         ctx,
         chartWidth,
         priceChartHeight,
         adjustedMin,
         adjustedMax,
-        dexMap45dData,
+        dexMap45dDataRef.current,
         visibleData,
         visibleCandleCount,
-        config.timeframe
+        config.timeframe,
+        gexAnimTimeRef.current
       )
     }
 
@@ -18566,6 +18494,33 @@ export default function TradingViewChart({
           currentPanelY += ivPanelHeight
         }
       }
+
+    }
+
+    // Draw 30D IV panels (always independent of 1-year isAnyIVHVActive)
+    if (isAnyIV30DActive) {
+      const iv30DBaseY = priceChartHeight + actualFlowChartHeight + actualEventPanelHeight +
+        (isAnyIVHVActive ? [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length * ivPanelHeight : 0)
+      let panel30DY = iv30DBaseY
+      const drawLoadingPanel30D = (panelY: number, panelTitle: string) => {
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(0, panelY, chartWidth, ivPanelHeight)
+        ctx.strokeStyle = 'rgba(255, 200, 0, 0.2)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(0, panelY)
+        ctx.lineTo(chartWidth, panelY)
+        ctx.stroke()
+        ctx.font = 'bold 12px JetBrains Mono, monospace'
+        ctx.fillStyle = 'rgba(255, 200, 0, 0.5)'
+        ctx.textAlign = 'center'
+        ctx.fillText(`Loading ${panelTitle} (30D)...`, chartWidth / 2, panelY + ivPanelHeight / 2 + 4)
+      }
+      if (iv30DData.length === 0) {
+        drawLoadingPanel30D(panel30DY, 'IV 30D')
+      } else {
+        drawIVPanel(ctx, 'iv', iv30DData, visibleData, chartWidth, panel30DY, visibleCandleCount, ivPanelHeight, iv30DColor)
+      }
     }
 
     // P/E RATIO panel — sits below buySell panel
@@ -18731,6 +18686,11 @@ export default function TradingViewChart({
     hvWindow,
     activeIVPanelCount,
     callIVColor, putIVColor, netIVColor, ivRankColor, ivPercentileColor, hvColor,
+    isAnyIV30DActive,
+    iv30DData,
+    iv30DData.length,
+    showIV30DPanel,
+    iv30DColor,
     config.chartType,
     config.showGrid,
     isExpectedRangeActive,
@@ -18747,7 +18707,6 @@ export default function TradingViewChart({
     smartPerfData,
     isSmartPerfActive,
     smartPerfTriggerDate,
-    isGexActive,
     technalysisActive,
     technalysisFeatures,
     isRRGCandleActive,
@@ -19878,7 +19837,8 @@ export default function TradingViewChart({
     chartWidth: number,
     panelStartY: number,
     visibleCandleCount: number,
-    panelHeight: number
+    panelHeight: number,
+    lineColorOverride?: string
   ) => {
     if (!ivDataArray.length || !visibleData.length) return
 
@@ -19886,7 +19846,7 @@ export default function TradingViewChart({
 
     // Panel colors based on type - black background, crisp bright lines
     const panelConfig = {
-      iv: { title: 'IMPLIED VOLATILITY', lineColor: netIVColor, bgColor: '#000000' },
+      iv: { title: 'IMPLIED VOLATILITY', lineColor: lineColorOverride ?? netIVColor, bgColor: '#000000' },
       ivRank: { title: 'IV RANK', lineColor: ivRankColor, bgColor: '#000000' },
       ivPercentile: { title: 'IV PERCENTILE', lineColor: ivPercentileColor, bgColor: '#000000' },
       hv: {
@@ -19968,6 +19928,9 @@ export default function TradingViewChart({
         { key: 'netIV', color: netIVColor, name: 'Net IV', show: showNetIVLine },
       ]
 
+      // Collect last positions while drawing lines (don't draw tags yet)
+      const ivLineTags: { lastY: number; lastValue: number; color: string }[] = []
+
       // Draw each active IV line
       ivLines.forEach((lineConfig) => {
         if (!lineConfig.show) return
@@ -20006,26 +19969,15 @@ export default function TradingViewChart({
 
         ctx.stroke()
 
-        // Draw label at end of line — solid color background, white text
-        if (lastValue !== null && typeof lastValue === 'number') {
-          ctx.font = 'bold 11px JetBrains Mono, monospace'
-          ctx.textAlign = 'left'
-          const labelText = `${lineConfig.name}: ${(lastValue as number).toFixed(2)}%`
-          const textWidth = ctx.measureText(labelText).width
-
-          ctx.fillStyle = lineConfig.color
-          ctx.fillRect(lastX + 5, lastY - 8, textWidth + 8, 16)
-
-          ctx.fillStyle = '#FFFFFF'
-          ctx.fillText(labelText, lastX + 9, lastY + 4)
+        if (lastValue !== null) {
+          ivLineTags.push({ lastY, lastValue, color: lineConfig.color })
         }
       })
 
-      // Draw Y-axis scale labels — aligned with price scale column (width - 85)
-      // chartWidth = width - CHART_LEFT_MARGIN - 80, so width - 85 = chartWidth + CHART_LEFT_MARGIN + 80 - 85 = chartWidth + 3
-      ctx.restore() // end clip region before drawing Y-axis labels
-      const yAxisX = chartWidth + CHART_LEFT_MARGIN - 5 // = width - 85
-      ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      // Draw Y-axis scale labels first (behind price tags)
+      ctx.restore()
+      const yAxisX = chartWidth + CHART_LEFT_MARGIN - 5
+      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       ctx.textAlign = 'left'
       ctx.fillStyle = '#FFFFFF'
 
@@ -20033,7 +19985,6 @@ export default function TradingViewChart({
       for (let i = 0; i <= steps; i++) {
         const value = paddedMin + (paddedRange / steps) * i
         const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
-        // Skip top label — overlaps with header buttons
         if (y < panelStartY + yAxisPadding + 4) continue
         ctx.strokeStyle = 'rgba(255,255,255,0.25)'
         ctx.lineWidth = 1
@@ -20041,8 +19992,21 @@ export default function TradingViewChart({
         ctx.moveTo(yAxisX - 5, y)
         ctx.lineTo(yAxisX, y)
         ctx.stroke()
-        ctx.fillText(`${value.toFixed(1)}%`, yAxisX, y + 4)
+        ctx.fillText(`${value.toFixed(1)}%`, yAxisX, y + 6)
       }
+
+      // Now draw price tags ON TOP of Y-axis labels
+      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      ctx.textAlign = 'left'
+      ivLineTags.forEach(({ lastY, lastValue, color }) => {
+        const labelText = `${lastValue.toFixed(1)}%`
+        const textWidth = ctx.measureText(labelText).width
+        // Solid black background covers any Y-axis label underneath
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(yAxisX - 2, lastY - 13, textWidth + 14, 26)
+        ctx.fillStyle = color
+        ctx.fillText(labelText, yAxisX + 5, lastY + 7)
+      })
 
       return // Exit early for IV panel
     }
@@ -20135,29 +20099,10 @@ export default function TradingViewChart({
 
     ctx.stroke()
 
-    // Draw current value label at the end of the line — solid color background, white text
-    if (lastValue !== null && typeof lastValue === 'number') {
-      ctx.font = 'bold 12px JetBrains Mono, monospace'
-      ctx.textAlign = 'left'
-
-      const displayValue = lastValue as number
-      const labelText =
-        panelType === 'ivRank' || panelType === 'ivPercentile'
-          ? `${displayValue.toFixed(1)}%`
-          : `${displayValue.toFixed(2)}%`
-      const textWidth = ctx.measureText(labelText).width
-
-      ctx.fillStyle = config.lineColor
-      ctx.fillRect(lastX + 5, lastY - 10, textWidth + 10, 20)
-
-      ctx.fillStyle = '#FFFFFF'
-      ctx.fillText(labelText, lastX + 10, lastY + 4)
-    }
-
-    // Draw Y-axis scale labels — aligned with price scale column (outside clip region)
+    // Exit clip region, draw Y-axis labels first, then price tag on top
     ctx.restore()
-    const yAxisX2 = chartWidth + CHART_LEFT_MARGIN - 5 // = width - 85
-    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    const yAxisX2 = chartWidth + CHART_LEFT_MARGIN - 5
+    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     ctx.textAlign = 'left'
     ctx.fillStyle = '#FFFFFF'
 
@@ -20166,7 +20111,6 @@ export default function TradingViewChart({
       const value = paddedMin + (paddedRange / steps) * i
       const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
 
-      // Skip top label — it sits under the header bar and overlaps the buttons
       if (y < panelStartY + yAxisPadding + 4) continue
 
       const labelText =
@@ -20180,7 +20124,24 @@ export default function TradingViewChart({
       ctx.moveTo(yAxisX2 - 5, y)
       ctx.lineTo(yAxisX2, y)
       ctx.stroke()
-      ctx.fillText(labelText, yAxisX2, y + 4)
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillText(labelText, yAxisX2, y + 6)
+    }
+
+    // Draw price tag ON TOP of Y-axis labels
+    if (lastValue !== null && typeof lastValue === 'number') {
+      const displayValue = lastValue as number
+      const priceLabel =
+        panelType === 'ivRank' || panelType === 'ivPercentile'
+          ? `${displayValue.toFixed(1)}%`
+          : `${displayValue.toFixed(1)}%`
+      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      ctx.textAlign = 'left'
+      const textWidth = ctx.measureText(priceLabel).width
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(yAxisX2 - 2, lastY - 13, textWidth + 14, 26)
+      ctx.fillStyle = config.lineColor
+      ctx.fillText(priceLabel, yAxisX2 + 5, lastY + 7)
     }
   }
 
@@ -21178,13 +21139,27 @@ export default function TradingViewChart({
       ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
       ctx.textAlign = 'center'
 
+      // Candles per trading day — must match renderGEXMap
+      const gexCandlesPerDay = (() => {
+        switch (config.timeframe) {
+          case '1m': return 390
+          case '5m': return 78
+          case '15m': return 26
+          case '30m': return 13
+          case '1h': case '60m': return 6.5
+          case '4h': return 1.625
+          default: return 1
+        }
+      })()
+
       const usedXPositions: number[] = []
-      const MIN_GAP = 36
+      const MIN_GAP = 48
 
       for (const expDate of gexMapData.expirations) {
         const expDateObj = new Date(expDate + 'T12:00:00')
         const td = tradingDaysBetween(lastDataDate, expDateObj)
-        const x = Math.round(lastDataX + td * candleSpacing)
+        // Multiply by gexCandlesPerDay so intraday charts place labels at the correct screen X
+        const x = Math.round(lastDataX + td * gexCandlesPerDay * candleSpacing)
 
         if (x < CHART_LEFT_MARGIN || x > width - 10) continue
         if (usedXPositions.some(px => Math.abs(px - x) < MIN_GAP)) continue
@@ -21252,7 +21227,6 @@ export default function TradingViewChart({
     isFutureExpiriesActive,
     futureExpiriesLevels.length,
     isSeasonalActive,
-    isGexActive,
     technalysisActive,
     isRRGCandleActive,
     rrgMode,
@@ -21326,13 +21300,26 @@ export default function TradingViewChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [technalysisActive, technalysisFeatures, chartLayout])
 
-  // Re-render when GEX data arrives
+  // Re-render when GEX Map / DEX Map data arrives (so the heatmap shows immediately on load)
   useEffect(() => {
-    if (isGexActive && (liveGexData || gexData) && chartLayout === '1x1') {
-      renderChart()
-    }
+    if (chartLayout === '1x1') renderChartRef.current()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveGexData, gexData, isGexActive, chartLayout])
+  }, [gexMapData, isGexMapActive])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChartRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gexMap45dData, isGexMap45dActive])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChartRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dexMapData, isDexMapActive])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChartRef.current()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dexMap45dData, isDexMap45dActive])
 
   // Re-render when Technalysis features change
   useEffect(() => {
@@ -21373,6 +21360,18 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPEGPanel, pegData, pegPanelHeight, chartLayout])
+
+  // Re-render when IV/HV data arrives or panels are toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ivData, showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, chartLayout])
+
+  // Re-render when IV 30D data arrives or panel is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iv30DData, showIV30DPanel, chartLayout])
 
   // Re-render when Dark Pool data arrives or is toggled
   useEffect(() => {
@@ -21580,7 +21579,7 @@ export default function TradingViewChart({
         const isIntradayTf = barMs < 86_400_000
         const isHourlyTf = barMs >= 3_600_000 && isIntradayTf
         const utcWinStart = isHourlyTf ? 8 * 60 : 13 * 60 + 30
-        const utcWinEnd   = isHourlyTf ? 24 * 60 : 20 * 60
+        const utcWinEnd = isHourlyTf ? 24 * 60 : 20 * 60
 
         let walkTs = lastCandle.timestamp
         let found = 0
@@ -30573,7 +30572,7 @@ export default function TradingViewChart({
                 {isMobile && isMounted && (
                   <>
                     <div className="mobile-dtd-group">
-                      <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
+                      <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
                       <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
                       <button onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: currentDrawingTool !== 'select' ? '#000' : '#fff', background: currentDrawingTool !== 'select' ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DRAW</button>
                     </div>
@@ -30591,11 +30590,28 @@ export default function TradingViewChart({
                             <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Weekly{isWeeklyActive ? ' ✓' : ''}</button>
                             <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Monthly{isMonthlyActive ? ' ✓' : ''}</button>
                           </div>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>GEX</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { setIsLiveGexActive(!isLiveGexActive); if (!isLiveGexActive) handleLiveGEXClick(); if (!isLiveGexActive || isOiGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isLiveGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX Live{isLiveGexActive ? ' ✓' : ''}</button>
-                            <button onClick={() => { setIsOiGexActive(!isOiGexActive); if (!isOiGexActive) handleOIGEXClick(); if (!isOiGexActive || isLiveGexActive) setIsGexActive(true); else setIsGexActive(false); }} className={`btn-3d-carved ${isOiGexActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>GEX OI{isOiGexActive ? ' ✓' : ''}</button>
-                            <button onClick={() => { handleGexMapClick() }} className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: isGexMapLoading ? 0.6 : 1 }}>{isGexMapLoading ? 'Load…' : `GEX MAP${isGexMapActive ? ' ✓' : ''}`}</button>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>GEX / DEX</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { handleGexMapClick() }} className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              {isGexMapLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                              <span>{isGexMapLoading ? 'Load…' : 'GEX MAP'}</span>
+                              {isGexMapActive && !isGexMapLoading && <span onClick={(e) => { e.stopPropagation(); setIsGexMapActive(false); setGexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                            </button>
+                            <button onClick={() => { handleGexMap45dClick() }} className={`btn-3d-carved ${isGexMap45dActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              {isGexMap45dLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                              <span>{isGexMap45dLoading ? 'Load…' : 'GEX 45D'}</span>
+                              {isGexMap45dActive && !isGexMap45dLoading && <span onClick={(e) => { e.stopPropagation(); setIsGexMap45dActive(false); setGexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                            </button>
+                            <button onClick={() => { handleDexMapClick() }} className={`btn-3d-carved ${isDexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              {isDexMapLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                              <span>{isDexMapLoading ? 'Load…' : 'DEX MAP'}</span>
+                              {isDexMapActive && !isDexMapLoading && <span onClick={(e) => { e.stopPropagation(); setIsDexMapActive(false); setDexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                            </button>
+                            <button onClick={() => { handleDexMap45dClick() }} className={`btn-3d-carved ${isDexMap45dActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              {isDexMap45dLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                              <span>{isDexMap45dLoading ? 'Load…' : 'DEX 45D'}</span>
+                              {isDexMap45dActive && !isDexMap45dLoading && <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                            </button>
                           </div>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IV</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
@@ -31765,55 +31781,35 @@ export default function TradingViewChart({
                   <button
                     ref={gexButtonRef}
                     onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
-                    disabled={isGexLoading}
-                    className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : ''}`}
+                    className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
                       fontWeight: '700',
                       fontSize: '13px',
                       borderRadius: '4px',
-                      opacity: isGexLoading ? 0.6 : 1,
                     }}
                   >
-                    <span style={{ color: isGexActive ? '#ff8500' : undefined }}>{isGexLoading ? (isMobile ? 'SCAN' : `SCANNING ${gexProgress}%`) : 'Gamma Exposure'}</span>
-                    {isGexActive ? (
+                    <span style={{ color: (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? '#ff8500' : undefined }}>Gamma Exposure</span>
+                    {(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? (
                       <span
                         onClick={(e) => {
                           e.stopPropagation()
-                          setIsLiveGexActive(false)
-                          setIsOiGexActive(false)
-                          setIsGexActive(false)
+                          setIsGexMapActive(false); setGexMapData(null)
+                          setIsGexMap45dActive(false); setGexMap45dData(null)
+                          setIsDexMapActive(false); setDexMapData(null)
+                          setIsDexMap45dActive(false); setDexMap45dData(null)
                         }}
                         className="ml-1"
                         style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          background: 'transparent', border: 'none', color: '#ff8500',
+                          fontSize: '20px', fontWeight: '700', cursor: 'pointer',
+                          padding: '0 4px', lineHeight: '1', display: 'flex',
+                          alignItems: 'center', justifyContent: 'center',
                         }}
-                      >
-                        ×
-                      </span>
+                      >×</span>
                     ) : (
-                      <svg
-                        className="w-4 h-4 ml-1"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     )}
                   </button>
@@ -31844,118 +31840,99 @@ export default function TradingViewChart({
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {/* GEX MAP */}
                           <button
-                            onClick={() => {
-                              setIsLiveGexActive(!isLiveGexActive)
-                              if (!isLiveGexActive) handleLiveGEXClick()
-                              if (!isLiveGexActive || isOiGexActive) setIsGexActive(true)
-                              else if (isLiveGexActive && !isOiGexActive) setIsGexActive(false)
-                              setIsGexDropdownOpen(false)
-                            }}
-                            className={`btn-3d-carved ${isLiveGexActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Live GEX
-                          </button>
-                          <button
-                            onClick={() => {
-                              setIsOiGexActive(!isOiGexActive)
-                              if (!isOiGexActive) handleOIGEXClick()
-                              if (!isOiGexActive || isLiveGexActive) setIsGexActive(true)
-                              else if (isOiGexActive && !isLiveGexActive) setIsGexActive(false)
-                              setIsGexDropdownOpen(false)
-                            }}
-                            className={`btn-3d-carved ${isOiGexActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            OI GEX
-                          </button>
-                          <button
-                            onClick={() => {
-                              handleGexMapClick()
-                              setIsGexDropdownOpen(false)
-                            }}
+                            onClick={() => { if (isGexMapActive) { setIsGexMapActive(false); setGexMapData(null); } else { handleGexMapClick() } }}
                             className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                              opacity: isGexMapLoading ? 0.6 : 1,
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
-                            {isGexMapLoading ? 'Loading…' : 'GEX MAP'}
+                            {isGexMapLoading ? (
+                              <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                              </svg>
+                            ) : null}
+                            <span style={{ flex: 1 }}>{isGexMapLoading ? 'Loading…' : 'GEX MAP'}</span>
+                            {isGexMapActive && !isGexMapLoading && (
+                              <span onClick={(e) => { e.stopPropagation(); setIsGexMapActive(false); setGexMapData(null) }}
+                                style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
+                            )}
                           </button>
+                          {/* GEX MAP 45D */}
                           <button
-                            onClick={() => {
-                              handleGexMap45dClick()
-                              setIsGexDropdownOpen(false)
-                            }}
+                            onClick={() => { if (isGexMap45dActive) { setIsGexMap45dActive(false); setGexMap45dData(null); } else { handleGexMap45dClick() } }}
                             className={`btn-3d-carved ${isGexMap45dActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                              opacity: isGexMap45dLoading ? 0.6 : 1,
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
-                            {isGexMap45dLoading ? 'Loading…' : 'GEX MAP 45D'}
+                            {isGexMap45dLoading ? (
+                              <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                              </svg>
+                            ) : null}
+                            <span style={{ flex: 1 }}>{isGexMap45dLoading ? 'Loading…' : 'GEX MAP 45D'}</span>
+                            {isGexMap45dActive && !isGexMap45dLoading && (
+                              <span onClick={(e) => { e.stopPropagation(); setIsGexMap45dActive(false); setGexMap45dData(null) }}
+                                style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
+                            )}
                           </button>
+                          {/* DEX MAP */}
                           <button
-                            onClick={() => {
-                              handleDexMapClick()
-                              setIsGexDropdownOpen(false)
-                            }}
+                            onClick={() => { if (isDexMapActive) { setIsDexMapActive(false); setDexMapData(null); } else { handleDexMapClick() } }}
                             className={`btn-3d-carved ${isDexMapActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                              opacity: isDexMapLoading ? 0.6 : 1,
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
-                            {isDexMapLoading ? 'Loading…' : 'DEX MAP'}
+                            {isDexMapLoading ? (
+                              <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                              </svg>
+                            ) : null}
+                            <span style={{ flex: 1 }}>{isDexMapLoading ? 'Loading…' : 'DEX MAP'}</span>
+                            {isDexMapActive && !isDexMapLoading && (
+                              <span onClick={(e) => { e.stopPropagation(); setIsDexMapActive(false); setDexMapData(null) }}
+                                style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
+                            )}
                           </button>
+                          {/* DEX MAP 45D */}
                           <button
-                            onClick={() => {
-                              handleDexMap45dClick()
-                              setIsGexDropdownOpen(false)
-                            }}
+                            onClick={() => { if (isDexMap45dActive) { setIsDexMap45dActive(false); setDexMap45dData(null); } else { handleDexMap45dClick() } }}
                             className={`btn-3d-carved ${isDexMap45dActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                              opacity: isDexMap45dLoading ? 0.6 : 1,
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
-                            {isDexMap45dLoading ? 'Loading…' : 'DEX MAP 45D'}
+                            {isDexMap45dLoading ? (
+                              <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                              </svg>
+                            ) : null}
+                            <span style={{ flex: 1 }}>{isDexMap45dLoading ? 'Loading…' : 'DEX MAP 45D'}</span>
+                            {isDexMap45dActive && !isDexMap45dLoading && (
+                              <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }}
+                                style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
+                            )}
                           </button>
+
+                          {/* HISTORICAL GEX SCRUBBER toggle — only shown when a map is active */}
+                          {(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) && !['SPX', 'VIX'].includes(symbol.toUpperCase()) && (
+                            <div style={{ borderTop: '1px solid rgba(255,133,0,0.2)', marginTop: '4px', paddingTop: '8px' }}>
+                              <button
+                                onClick={() => { setShowGexScrubber(v => { if (v) snapToLive(); return !v }); setIsGexDropdownOpen(false) }}
+                                className={`btn-3d-carved ${showGexScrubber ? 'active' : ''}`}
+                                style={{ padding: '10px 16px', fontWeight: '700', fontSize: '13px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}
+                              >
+                                <span style={{ flex: 1, color: showGexScrubber ? '#ff8500' : undefined }}>HISTORICAL GEX</span>
+                                <span style={{
+                                  fontSize: '11px', fontWeight: '700', padding: '2px 6px', borderRadius: '3px',
+                                  background: showGexScrubber ? '#ff8500' : 'rgba(255,133,0,0.15)',
+                                  color: showGexScrubber ? '#000' : '#ff8500',
+                                  letterSpacing: '0.05em',
+                                }}>
+                                  {showGexScrubber ? 'ON' : 'OFF'}
+                                </span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>,
                       document.body
@@ -31971,7 +31948,7 @@ export default function TradingViewChart({
                     ref={ivhvButtonRef}
                     onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
                     disabled={isIVLoading}
-                    className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${isAnyIVHVActive ? 'active' : ''}`}
+                    className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${(isAnyIVHVActive || isAnyIV30DActive) ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
                       fontWeight: '700',
@@ -31980,52 +31957,16 @@ export default function TradingViewChart({
                       opacity: isIVLoading ? 0.6 : 1,
                     }}
                   >
-                    <span style={{ color: isAnyIVHVActive ? '#ff8500' : undefined }}>{isIVLoading ? (isMobile ? 'LOAD' : `LOADING ${ivProgress}%`) : (isMobile ? 'IV' : 'Implied Volatility')}</span>
-                    {isAnyIVHVActive ? (
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          // Clear all IV/HV overlays
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        ×
-                      </span>
-                    ) : (
-                      <svg
-                        className="w-4 h-4 ml-1"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    )}
-                    {isAnyIVHVActive && (
+                    <span style={{ color: (isAnyIVHVActive || isAnyIV30DActive) ? '#ff8500' : undefined }}>
+                      {isIVLoading ? `LOADING ${ivProgress}%` : 'Implied Volatility'}
+                    </span>
+                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    {(isAnyIVHVActive || isAnyIV30DActive) && (
                       <div
                         className="absolute -top-1 -right-1 w-3 h-3 bg-orange-400 rounded-full"
-                        style={{
-                          boxShadow: '0 0 6px rgba(255, 140, 0, 0.8)',
-                          animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                        }}
+                        style={{ boxShadow: '0 0 6px rgba(255, 140, 0, 0.8)', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
                       />
                     )}
                   </button>
@@ -32038,64 +31979,51 @@ export default function TradingViewChart({
                         onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
-                          top: ivhvButtonRef.current
-                            ? ivhvButtonRef.current.getBoundingClientRect().bottom + 10
-                            : 0,
-                          left: ivhvButtonRef.current
-                            ? ivhvButtonRef.current.getBoundingClientRect().left
-                            : 0,
+                          top: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                          left: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().left : 0,
                           zIndex: 100000,
                           animation: 'dropdownFadeIn 0.15s ease forwards',
                           background: '#000000',
                           border: '2px solid rgba(255, 133, 0, 0.3)',
                           borderRadius: '8px',
-                          boxShadow:
-                            '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                           padding: '12px',
                           minWidth: '220px',
                         }}
                       >
                         {/* Header */}
-                        <div
-                          style={{
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                            paddingBottom: '6px',
-                            marginBottom: '6px',
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: '#ff8c00',
-                              fontWeight: '700',
-                              fontSize: '12px',
-                              letterSpacing: '0.5px',
-                            }}
-                          >
+                        <div style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '6px', marginBottom: '6px' }}>
+                          <span style={{ color: '#ff8c00', fontWeight: '700', fontSize: '12px', letterSpacing: '0.5px' }}>
                             VOLATILITY INDICATORS
                           </span>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {/* Implied Volatility - Single toggle, line options inside panel */}
-                          <button
-                            onClick={() => {
-                              setShowIVPanel(!showIVPanel)
-                              if (!showIVPanel && ivData.length === 0) {
-                                fetchIVData()
-                              }
-                            }}
-                            className={`btn-3d-carved ${showIVPanel ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Implied Volatility
-                          </button>
+                          {/* Implied Volatility — split: IV (1yr) left | IV 30D right */}
+                          <div style={{ display: 'flex' }}>
+                            <button
+                              onClick={() => {
+                                setShowIVPanel(!showIVPanel)
+                                if (!showIVPanel && ivData.length === 0) fetchIVData()
+                              }}
+                              className={`btn-3d-carved ${showIVPanel ? 'active' : ''}`}
+                              style={{ padding: '10px 0', fontWeight: '700', fontSize: '13px', textAlign: 'center', borderRadius: '4px 0 0 4px', flex: 1, borderRight: '1px solid rgba(255,255,255,0.15)' }}
+                            >
+                              IV
+                            </button>
+                            <button
+                              onClick={() => {
+                                const turnOn = !showIV30DPanel
+                                setShowIV30DPanel(turnOn)
+                                if (turnOn && iv30DData.length === 0) fetchIV30DData()
+                                if (!turnOn) setIV30DData([])
+                              }}
+                              className={`btn-3d-carved ${showIV30DPanel ? 'active' : ''}`}
+                              style={{ padding: '10px 0', fontWeight: '700', fontSize: '13px', textAlign: 'center', borderRadius: '0 4px 4px 0', flex: 1 }}
+                            >
+                              {isIV30DLoading ? `${iv30DProgress}%` : 'IV 30D'}
+                            </button>
+                          </div>
 
                           {/* IV Rank */}
                           <button
@@ -32106,14 +32034,7 @@ export default function TradingViewChart({
                               }
                             }}
                             className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
                           >
                             IV Rank
                           </button>
@@ -32127,14 +32048,7 @@ export default function TradingViewChart({
                               }
                             }}
                             className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
                           >
                             IV Percentile
                           </button>
@@ -32148,14 +32062,7 @@ export default function TradingViewChart({
                               }
                             }}
                             className={`btn-3d-carved ${showHVIndicator ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
                           >
                             Historical Volatility
                           </button>
@@ -32172,23 +32079,15 @@ export default function TradingViewChart({
                                 justifyContent: 'space-between',
                               }}
                             >
-                              <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>
-                                HV Window:
-                              </span>
+                              <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>HV Window:</span>
                               <div style={{ display: 'flex', gap: '4px' }}>
                                 {[10, 20, 30, 60].map((window) => (
                                   <button
                                     key={window}
-                                    onClick={() => {
-                                      setHVWindow(window)
-                                      recalculateHV(window)
-                                    }}
+                                    onClick={() => { setHVWindow(window); recalculateHV(window) }}
                                     style={{
                                       padding: '4px 8px',
-                                      background:
-                                        hvWindow === window
-                                          ? '#00d4ff'
-                                          : 'rgba(255, 255, 255, 0.1)',
+                                      background: hvWindow === window ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
                                       border: 'none',
                                       borderRadius: '4px',
                                       color: hvWindow === window ? '#000' : '#fff',
@@ -32205,37 +32104,20 @@ export default function TradingViewChart({
                           )}
 
                           {/* Divider */}
-                          <div
-                            style={{
-                              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                              margin: '8px 0',
-                            }}
-                          ></div>
+                          <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', margin: '8px 0' }} />
 
                           {/* Lookback Period */}
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '4px 0',
-                            }}
-                          >
-                            <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>
-                              Lookback:
-                            </span>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
+                            <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>Lookback:</span>
                             <select
                               value={ivLookbackPeriod}
                               onChange={(e) => {
                                 setIVLookbackPeriod(Number(e.target.value))
-                                // Refetch data with new lookback period
-                                if (isAnyIVHVActive) {
-                                  setIVData([]) // Clear existing data to trigger refetch
-                                }
+                                if (isAnyIVHVActive) { setIVData([]) }
                               }}
                               style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
+                                background: '#000000',
+                                border: '1px solid rgba(255, 255, 255, 0.2)',
                                 borderRadius: '4px',
                                 color: '#fff',
                                 padding: '4px 8px',
@@ -32253,10 +32135,7 @@ export default function TradingViewChart({
                           {/* Refresh Button */}
                           {isAnyIVHVActive && (
                             <button
-                              onClick={() => {
-                                setIVData([])
-                                fetchIVData()
-                              }}
+                              onClick={() => { setIVData([]); fetchIVData() }}
                               disabled={isIVLoading}
                               style={{
                                 marginTop: '8px',
@@ -34970,6 +34849,45 @@ export default function TradingViewChart({
                 }
               `}</style>
 
+              {/* GEX/DEX Historical Timeline Scrubber — top of chart canvas */}
+              {showGexScrubber && (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) && !['SPX', 'VIX'].includes(symbol.toUpperCase()) && (
+                <div
+                  className="absolute z-40 left-0 right-0"
+                  style={{
+                    top: isMobile ? 4 : 8,
+                    padding: '0 8px',
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  <GEXTimelineScrubber
+                    key={`${symbol}-gex-scrubber`}
+                    ticker={symbol}
+                    date={(() => {
+                      const now = new Date()
+                      const fmt = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/Los_Angeles',
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', hour12: false,
+                      })
+                      const parts = fmt.formatToParts(now)
+                      const hour = parseInt(parts.find(p => p.type === 'hour')!.value)
+                      const minute = parseInt(parts.find(p => p.type === 'minute')!.value)
+                      const today = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                      if (hour < 6 || (hour === 6 && minute < 30)) {
+                        today.setDate(today.getDate() - 1)
+                      }
+                      const dow = today.getDay()
+                      if (dow === 0) today.setDate(today.getDate() - 2)
+                      else if (dow === 6) today.setDate(today.getDate() - 1)
+                      return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+                    })()}
+                    currentPrice={currentPrice}
+                    onTimeChange={handleGexMapTimeChange}
+                    onPlayStep={handleGexMapPlayStep}
+                  />
+                </div>
+              )}
+
               {/* Loading Overlay */}
               {loading && (
                 <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
@@ -35009,9 +34927,6 @@ export default function TradingViewChart({
                   isSeasonal15YActive={isSeasonal15YActive}
                   isSeasonal10YActive={isSeasonal10YActive}
                   isSeasonalElectionActive={isSeasonalElectionActive}
-                  isGexActive={isGexActive}
-                  liveGexData={liveGexData}
-                  gexData={gexData}
                   isExpectedRangeActive={isExpectedRangeActive}
                   expectedRangeLevels={expectedRangeLevels}
                   isWeeklyActive={isWeeklyActive}
@@ -35053,7 +34968,6 @@ export default function TradingViewChart({
                   drawings={drawings}
                   activeTool={activeTool}
                   renderExpectedRangeLines={renderExpectedRangeLines}
-                  renderGEXLevels={renderGEXLevels}
                   detectExpansionLiquidation={detectExpansionLiquidation}
                   invalidateTouchedZones={invalidateTouchedZones}
                   renderExpansionLiquidationZone={renderExpansionLiquidationZone}
@@ -35692,6 +35606,89 @@ export default function TradingViewChart({
                     })
                   })()}
 
+                  {/* IV 30D Panel Header Toolbar */}
+                  {showIV30DPanel && (() => {
+                    const flowBase = isFlowChartActive ? flowChartHeight : 0
+                    const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
+                    // IV 30D panel sits directly above the 1yr IV panels
+                    const iv1yrCount = [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length
+                    const bottomPx = flowBase + bsBase + 25 + iv1yrCount * ivPanelHeight
+                    return (
+                      <div className="absolute z-[1001] flex items-center pointer-events-none"
+                        style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
+                        <div className="pointer-events-auto flex items-center gap-2 w-full"
+                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: `2px solid ${iv30DColor}55`, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                          <span style={{ color: iv30DColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                            IMPLIED VOLATILITY  <span style={{ opacity: 0.7, fontSize: '10px' }}>30D</span>
+                          </span>
+                          <div style={{ flex: 1 }} />
+                          {/* Color picker */}
+                          <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                            <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: iv30DColor, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                            <input type="color" value={iv30DColor} onChange={e => setIV30DColor(e.target.value)}
+                              style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                          </div>
+                          {/* Fullscreen */}
+                          <button onClick={() => setIV30DFullscreen(f => !f)} title={iv30DFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                            {iv30DFullscreen ? '⊡' : '⛶'}
+                          </button>
+                          {/* Close */}
+                          <button onClick={() => { setShowIV30DPanel(false); setIV30DData([]) }} title="Close IV 30D panel"
+                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* IV 30D fullscreen overlay */}
+                  {iv30DFullscreen && showIV30DPanel && iv30DData.length > 0 && (() => {
+                    const pts = iv30DData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV! }))
+                    const vals = pts.map(p => p.value)
+                    const minV = Math.min(...vals) * 0.9, maxV = Math.max(...vals) * 1.1
+                    const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
+                    const chartW = W - PL - PR, chartH = H - PT - PB
+                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                    const ySteps = 5
+                    return (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setIV30DFullscreen(false)}>
+                        <div style={{ background: '#0a0a0a', border: `2px solid ${iv30DColor}55`, borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                          onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${iv30DColor}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                            <span style={{ color: iv30DColor, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>IMPLIED VOLATILITY · 30D</span>
+                            <button onClick={() => setIV30DFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                          </div>
+                          <div style={{ padding: '8px 16px 16px' }}>
+                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                              {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                const v = minV + (i / ySteps) * (maxV - minV)
+                                const y = toY(v)
+                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text></g>)
+                              })}
+                              {pts.length > 1 && (
+                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.value)}`).join(' ')}
+                                  fill="none" stroke={iv30DColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                              )}
+                              <g transform={`translate(${PL}, ${H - 10})`}>
+                                <line x1="0" y1="-4" x2="14" y2="-4" stroke={iv30DColor} strokeWidth="2" />
+                                <text x="18" y="0" fill={iv30DColor} fontSize="11" fontFamily="JetBrains Mono, monospace">Net IV (30D)</text>
+                              </g>
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   {/* IV Panel fullscreen overlay */}
                   {ivFullscreenPanel && isAnyIVHVActive && ivData.length > 0 && (() => {
                     const panelLabels: Record<string, string> = { iv: 'IMPLIED VOLATILITY', ivRank: 'IV RANK', ivPercentile: 'IV PERCENTILE', hv: `HISTORICAL VOLATILITY (${hvWindow}D)` }
@@ -36257,16 +36254,14 @@ export default function TradingViewChart({
                       moneyScrollRef={moneySavedScrollRef}
                     />
                   )}
-                  {/* Always mounted so MarketScannerPanel auto-scans in background.
-                      In trading-lens (disableSidebarAutoScan) we use conditional mount
-                      to prevent background API calls when the panel is hidden. */}
+                  {/* Conditionally mounted — only when Markets panel is open, to prevent background scans */}
                   <div
                     style={{
                       display: activeSidebarPanel === 'markets' ? 'block' : 'none',
                       height: '100%',
                     }}
                   >
-                    {(!disableSidebarAutoScan || activeSidebarPanel === 'markets') && (
+                    {activeSidebarPanel === 'markets' && (
                       <RegimesPanelComponent
                         activeTab={regimesTab}
                         setActiveTab={setRegimesTab}

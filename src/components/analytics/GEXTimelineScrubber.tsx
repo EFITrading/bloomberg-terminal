@@ -1,6 +1,6 @@
 import { Clock, Pause, Play } from 'lucide-react'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 interface TimelineDataPoint {
   timestamp: number
@@ -12,6 +12,7 @@ interface GEXTimelineScrubberProps {
   ticker: string
   date: string // YYYY-MM-DD
   onTimeChange: (timestamp: number | null, price: number) => void
+  onPlayStep?: (timestamp: number | null, price: number) => Promise<void> // async — awaited before next bar
   currentPrice?: number
 }
 
@@ -64,13 +65,24 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
   ticker,
   date,
   onTimeChange,
+  onPlayStep,
   currentPrice = 0,
 }) => {
   const [timelineData, setTimelineData] = useState<TimelineDataPoint[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
-  const playIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isPlayingRef = useRef(false)
+  const selectedIndexRef = useRef<number | null>(null)
+  const timelineDataRef = useRef<TimelineDataPoint[]>([])
+  const onPlayStepRef = useRef(onPlayStep)
+  const onTimeChangeRef = useRef(onTimeChange)
+
+  // Keep refs current
+  useEffect(() => { onPlayStepRef.current = onPlayStep }, [onPlayStep])
+  useEffect(() => { onTimeChangeRef.current = onTimeChange }, [onTimeChange])
+  useEffect(() => { selectedIndexRef.current = selectedIndex }, [selectedIndex])
+  useEffect(() => { timelineDataRef.current = timelineData }, [timelineData])
 
   // Fetch historical price bars for the timeline
   useEffect(() => {
@@ -133,46 +145,46 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
     }
   }
 
-  // Play/pause animation
+  // Play/pause — each step awaits onPlayStep so the GEX map is fully loaded before advancing
+  const runPlay = useCallback(async () => {
+    while (isPlayingRef.current) {
+      const prev = selectedIndexRef.current
+      const data = timelineDataRef.current
+      if (prev === null || prev >= data.length - 1) {
+        isPlayingRef.current = false
+        setIsPlaying(false)
+        return
+      }
+      const nextIndex = prev + 1
+      const point = data[nextIndex]
+      const ts = nextIndex === data.length - 1 ? null : point.timestamp
+      setSelectedIndex(nextIndex)
+      // Await the fetch so the GEX map updates before we move on
+      if (onPlayStepRef.current) {
+        await onPlayStepRef.current(ts, point.price)
+      } else {
+        onTimeChangeRef.current(ts, point.price)
+        // Small pause so the chart has time to render
+        await new Promise(r => setTimeout(r, 300))
+      }
+    }
+  }, [])
+
   const togglePlay = () => {
     if (isPlaying) {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-        playIntervalRef.current = null
-      }
+      isPlayingRef.current = false
       setIsPlaying(false)
     } else {
+      isPlayingRef.current = true
       setIsPlaying(true)
-      playIntervalRef.current = setInterval(() => {
-        setSelectedIndex((prev) => {
-          if (prev === null || prev >= timelineData.length - 1) {
-            // Stop at end
-            if (playIntervalRef.current) {
-              clearInterval(playIntervalRef.current)
-              playIntervalRef.current = null
-            }
-            setIsPlaying(false)
-            return timelineData.length - 1
-          }
-          const nextIndex = prev + 1
-          const point = timelineData[nextIndex]
-          if (nextIndex === timelineData.length - 1) {
-            onTimeChange(null, currentPrice)
-          } else {
-            onTimeChange(point.timestamp, point.price)
-          }
-          return nextIndex
-        })
-      }, 500) // 500ms per bar
+      runPlay()
     }
   }
 
-  // Cleanup interval on unmount
+  // Cleanup on unmount — stop play loop
   useEffect(() => {
     return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-      }
+      isPlayingRef.current = false
     }
   }, [])
 
@@ -374,12 +386,13 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
         <div className="relative" style={{ height: '10px', marginTop: '2px', overflow: 'visible' }}>
           {timelineData
             .filter((point) => {
-              // Show only specific times: 4AM, 9:30AM, 12PM, 4PM, 7:55PM
+              // Show only specific times: 4AM, Market Open (6:30AM PT), Market Close (1:00PM PT), 4PM, 7:55PM
               const time = point.label
               return (
                 time === '4:00 AM' ||
-                time === '9:30 AM' ||
-                time === '12:00 PM' ||
+                time === '6:30 AM' ||
+                time === '10:30 AM' ||
+                time === '1:00 PM' ||
                 time === '4:00 PM' ||
                 time === '7:55 PM'
               )
@@ -391,6 +404,12 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
               if (idx === 0) transform = 'translateX(0)' // First label: left-align
               if (idx === arr.length - 1) transform = 'translateX(-100%)' // Last label: right-align
 
+              // Map raw times to display labels
+              const displayLabel =
+                point.label === '6:30 AM' ? 'Market Open' :
+                  point.label === '1:00 PM' ? 'Market Close' :
+                    point.label
+
               return (
                 <span
                   key={point.timestamp}
@@ -398,7 +417,7 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
                     position: 'absolute',
                     left: `${position}%`,
                     transform: transform,
-                    color: '#ffffff',
+                    color: point.label === '6:30 AM' ? '#00ff88' : point.label === '1:00 PM' ? '#ff4444' : '#ffffff',
                     fontSize: '14px',
                     fontWeight: 'bold',
                     fontFamily: 'monospace',
@@ -406,7 +425,7 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {point.label}
+                  {displayLabel}
                 </span>
               )
             })}

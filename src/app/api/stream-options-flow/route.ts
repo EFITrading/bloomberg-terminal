@@ -198,13 +198,18 @@ export async function GET(request: NextRequest) {
 
           // Chunked ALL scan: slice the symbol list to stay within Vercel's 300s limit
           if (tickersToScan.length === 1 && (tickersToScan[0] === 'ALL' || tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7' || tickersToScan[0] === 'ALL_TICKERS')) {
+            // Optional server-side exclude list (comma-separated tickers to skip entirely)
+            const excludeParam = searchParams.get('exclude') || ''
+            const excludeSet = excludeParam ? new Set(excludeParam.split(',').map((t: string) => t.trim().toUpperCase()).filter(Boolean)) : new Set<string>()
+
             const allSymbols = optionsFlowService.getTop1000Symbols()
-            totalSymbolsForChunk = allSymbols.length
-            tickersToScan = allSymbols.slice(chunkOffset, chunkOffset + chunkLimit)
+            const filteredSymbols = excludeSet.size > 0 ? allSymbols.filter((s: string) => !excludeSet.has(s.toUpperCase())) : allSymbols
+            totalSymbolsForChunk = filteredSymbols.length
+            tickersToScan = filteredSymbols.slice(chunkOffset, chunkOffset + chunkLimit)
             isLastChunk = chunkOffset + chunkLimit >= totalSymbolsForChunk
             sendData({
               type: 'status',
-              message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}...`,
+              message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}${excludeSet.size > 0 ? ` (excluded ${excludeSet.size} tickers)` : ''}...`,
             })
           }
 

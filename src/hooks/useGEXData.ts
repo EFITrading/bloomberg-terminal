@@ -36,13 +36,11 @@ export function useGEXData(symbol: string, autoRefresh: boolean = true) {
     };
 
     useEffect(() => {
-        if (!symbol) return; // skip fetch for empty/basket symbols
+        if (!symbol || !autoRefresh) return; // skip fetch when disabled or no symbol
         fetchData();
 
-        if (autoRefresh) {
-            const interval = setInterval(fetchData, 5 * 60 * 1000); // 5 minutes
-            return () => clearInterval(interval);
-        }
+        const interval = setInterval(fetchData, 5 * 60 * 1000); // 5 minutes
+        return () => clearInterval(interval);
     }, [symbol, autoRefresh]);
 
     return { data, loading, error, refetch: fetchData };
