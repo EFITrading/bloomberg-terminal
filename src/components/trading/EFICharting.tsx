@@ -1453,7 +1453,7 @@ const calculateSeasonalityCandleProjection = async (
     if (actualYears < 4) return 'NOT_ENOUGH_DATA'
 
     type OHLCSlot = { o: number[]; h: number[]; l: number[]; c: number[] }
-    type AvgSlot  = { o: number;   h: number;   l: number;   c: number   }
+    type AvgSlot = { o: number; h: number; l: number; c: number }
 
     const avgFn = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
 
@@ -1471,7 +1471,7 @@ const calculateSeasonalityCandleProjection = async (
         s.o.push(((cur.o ?? cur.c) - prevClose) / prevClose * 100)
         s.h.push(((cur.h ?? cur.c) - prevClose) / prevClose * 100)
         s.l.push(((cur.l ?? cur.c) - prevClose) / prevClose * 100)
-        s.c.push((cur.c             - prevClose) / prevClose * 100)
+        s.c.push((cur.c - prevClose) / prevClose * 100)
       }
       const avgMap = new Map<number, AvgSlot>()
       for (const [doy, s] of raw) {
@@ -1488,19 +1488,19 @@ const calculateSeasonalityCandleProjection = async (
     if (actualYears < 6) {
       // 4–6Y: single group, no weighting
       groupYears = [Math.floor(actualYears)]
-      weights    = [1.0]
+      weights = [1.0]
     } else if (actualYears < 10) {
       // 6–10Y: recent 5Y at 70%, older years at 30%
       groupYears = [5, Math.floor(actualYears)]
-      weights    = [0.70, 0.30]
+      weights = [0.70, 0.30]
     } else if (actualYears < 15) {
       // 10–15Y: 5Y=40%, 5-10Y=20%, remaining=20%
       groupYears = [5, 10, Math.floor(actualYears)]
-      weights    = [0.40, 0.20, 0.20]
+      weights = [0.40, 0.20, 0.20]
     } else {
       // 15–20Y: 5Y=35%, 10Y=30%, 15Y=20%, 20Y=15%
       groupYears = [5, 10, 15, Math.min(20, Math.floor(actualYears))]
-      weights    = [0.35, 0.30, 0.20, 0.15]
+      weights = [0.35, 0.30, 0.20, 0.15]
     }
 
     const avgMaps = groupYears.map(y => buildAvgMap(y))
@@ -1539,16 +1539,16 @@ const calculateSeasonalityCandleProjection = async (
       const doy = getDayOfYear(walkCur)
       const s = averaged.get(doy)
       if (!s) continue
-      const projOpen  = prevClose * (1 + s.o / 100)
-      const projHigh  = prevClose * (1 + s.h / 100)
-      const projLow   = prevClose * (1 + s.l / 100)
+      const projOpen = prevClose * (1 + s.o / 100)
+      const projHigh = prevClose * (1 + s.h / 100)
+      const projLow = prevClose * (1 + s.l / 100)
       const projClose = prevClose * (1 + s.c / 100)
       projection.push({
-        date:  new Date(walkCur),
+        date: new Date(walkCur),
         price: projClose,
-        open:  projOpen,
-        high:  Math.max(projHigh, projOpen, projClose),
-        low:   Math.min(projLow,  projOpen, projClose),
+        open: projOpen,
+        high: Math.max(projHigh, projOpen, projClose),
+        low: Math.min(projLow, projOpen, projClose),
         close: projClose,
       })
       prevClose = projClose
@@ -1590,10 +1590,10 @@ const calculateElectionCandleProjection = async (
 
     // Years for each cycle type (same as electionCycleService)
     const cycleYears: Record<string, number[]> = {
-      'Election Year':  [2008, 2012, 2016, 2020, 2024],
-      'Post-Election':  [2005, 2009, 2013, 2017, 2021],
-      'Mid-Term':       [2006, 2010, 2014, 2018, 2022],
-      'Pre-Election':   [2007, 2011, 2015, 2019, 2023],
+      'Election Year': [2008, 2012, 2016, 2020, 2024],
+      'Post-Election': [2005, 2009, 2013, 2017, 2021],
+      'Mid-Term': [2006, 2010, 2014, 2018, 2022],
+      'Pre-Election': [2007, 2011, 2015, 2019, 2023],
     }
 
     const targetYears = cycleYears[electionType] ?? []
@@ -1622,7 +1622,7 @@ const calculateElectionCandleProjection = async (
       s.o.push(((cur.o ?? cur.c) - prevClose) / prevClose * 100)
       s.h.push(((cur.h ?? cur.c) - prevClose) / prevClose * 100)
       s.l.push(((cur.l ?? cur.c) - prevClose) / prevClose * 100)
-      s.c.push((cur.c             - prevClose) / prevClose * 100)
+      s.c.push((cur.c - prevClose) / prevClose * 100)
     }
 
     if (doyMap.size === 0) return null
@@ -1648,16 +1648,16 @@ const calculateElectionCandleProjection = async (
       const doy = getDayOfYear(walkCur)
       const s = averaged.get(doy)
       if (!s) continue
-      const projOpen  = prevClose * (1 + s.o / 100)
-      const projHigh  = prevClose * (1 + s.h / 100)
-      const projLow   = prevClose * (1 + s.l / 100)
+      const projOpen = prevClose * (1 + s.o / 100)
+      const projHigh = prevClose * (1 + s.h / 100)
+      const projLow = prevClose * (1 + s.l / 100)
       const projClose = prevClose * (1 + s.c / 100)
       projection.push({
-        date:  new Date(walkCur),
+        date: new Date(walkCur),
         price: projClose,
-        open:  projOpen,
-        high:  Math.max(projHigh, projOpen, projClose),
-        low:   Math.min(projLow,  projOpen, projClose),
+        open: projOpen,
+        high: Math.max(projHigh, projOpen, projClose),
+        low: Math.min(projLow, projOpen, projClose),
         close: projClose,
       })
       prevClose = projClose
@@ -2688,7 +2688,7 @@ const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string)
     // 2. Expiry + time
     const { weeklyExpiry, weeklyDate } = await getExpirationDatesFromAPI(symbol)
     let chosenExpiry = overrideExpiry || weeklyExpiry
-    let chosenDate  = overrideExpiry ? new Date(overrideExpiry + 'T00:00:00') : weeklyDate
+    let chosenDate = overrideExpiry ? new Date(overrideExpiry + 'T00:00:00') : weeklyDate
     const rfr = await getRiskFreeRate().then(v => v ?? 0.0442)
 
     // 3. Get ATM IV from snapshot — fetch all calls, find closest strike to S
@@ -2788,7 +2788,7 @@ const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string)
     }
 
     return {
-      p5:  interpolateStrike(0.05),
+      p5: interpolateStrike(0.05),
       p25: interpolateStrike(0.25),
       p50: interpolateStrike(0.50),
       p75: interpolateStrike(0.75),
@@ -2844,7 +2844,7 @@ const renderPctChanceLines = (
     { price: levels.p75, color: '#69F0AE', label: '75% chance below' },
     { price: levels.p50, color: '#FFD700', label: 'Median (50%)' },
     { price: levels.p25, color: '#FF8A65', label: '25% chance below' },
-    { price: levels.p5,  color: '#FF1744', label: '5% chance below'  },
+    { price: levels.p5, color: '#FF1744', label: '5% chance below' },
   ]
 
   const rightEdge = chartWidth + CHART_LEFT_MARGIN
@@ -17382,7 +17382,7 @@ export default function TradingViewChart({
     if (isPctChanceActiveRef.current && pctChanceLevelsRef.current && !manualPriceRange) {
       const lvls = pctChanceLevelsRef.current
       const padding = (adjustedMax - adjustedMin) * 0.05
-      adjustedMin = Math.min(adjustedMin, lvls.p5  - padding)
+      adjustedMin = Math.min(adjustedMin, lvls.p5 - padding)
       adjustedMax = Math.max(adjustedMax, lvls.p95 + padding)
     }
 
@@ -21663,9 +21663,9 @@ export default function TradingViewChart({
         // Target ~3-5 time labels per visible day
         const timeIntervalMs = stf === '1m' ? 30 * 60_000
           : stf === '5m' ? 60 * 60_000
-          : stf === '15m' ? 2 * 60 * 60_000
-          : stf === '30m' ? 2 * 60 * 60_000
-          : 4 * 60 * 60_000  // 1h/4h
+            : stf === '15m' ? 2 * 60 * 60_000
+              : stf === '30m' ? 2 * 60 * 60_000
+                : 4 * 60 * 60_000  // 1h/4h
         let sNextTimeLabelTs = lastDataTs + timeIntervalMs
 
         let sStep = 0
@@ -31440,7 +31440,7 @@ export default function TradingViewChart({
                         >
                           <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
                           <path fill="url(#spinner-grad-er)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                          <defs><linearGradient id="spinner-grad-er" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                          <defs><linearGradient id="spinner-grad-er" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700" /><stop offset="100%" stopColor="#FF8500" /></linearGradient></defs>
                         </svg>
                       </>
                     ) : (
@@ -31674,11 +31674,11 @@ export default function TradingViewChart({
                                   </circle>
                                 </svg>
                               </>
-                          ) : '% Chance'}
+                            ) : '% Chance'}
                           </button>
                           {/* % Chance expiry — custom calendar showing valid expiry dates */}
                           {(() => {
-                            const today = new Date(); today.setHours(0,0,0,0)
+                            const today = new Date(); today.setHours(0, 0, 0, 0)
                             const yr = pctChanceCalMonth.getFullYear()
                             const mo = pctChanceCalMonth.getMonth()
                             const firstDay = new Date(yr, mo, 1).getDay() // 0=Sun
@@ -31701,7 +31701,7 @@ export default function TradingViewChart({
                                 </div>
                                 {/* Day-of-week labels */}
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '2px' }}>
-                                  {['S','M','T','W','T','F','S'].map((d,i) => (
+                                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
                                     <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>
                                   ))}
                                 </div>
@@ -32021,7 +32021,7 @@ export default function TradingViewChart({
                       <svg className="animate-spin" style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }} fill="none" viewBox="0 0 24 24">
                         <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
                         <path fill="url(#spinner-grad-seas)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                        <defs><linearGradient id="spinner-grad-seas" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                        <defs><linearGradient id="spinner-grad-seas" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700" /><stop offset="100%" stopColor="#FF8500" /></linearGradient></defs>
                       </svg>
                     )}
                     {isSeasonalActive ? (
@@ -32595,7 +32595,7 @@ export default function TradingViewChart({
                         >
                           <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
                           <path fill="url(#spinner-grad-gex)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                          <defs><linearGradient id="spinner-grad-gex" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                          <defs><linearGradient id="spinner-grad-gex" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700" /><stop offset="100%" stopColor="#FF8500" /></linearGradient></defs>
                         </svg>
                       </>
                     ) : (
