@@ -1,3 +1,5 @@
+import { fetchNewsArticles } from '@/app/api/news/route';
+
 interface SentimentAnalysis {
  overall_sentiment: 'bullish' | 'bearish' | 'neutral';
  sentiment_score: number; // -1 to 1
@@ -43,18 +45,13 @@ class MarketSentimentService {
 
  async analyzeSentiment(timeframe: '1h' | '4h' | '1d' | '1w' = '1d'): Promise<SentimentAnalysis> {
  try {
- // Fetch recent news for analysis
- const baseUrl = process.env.NODE_ENV === 'production' 
- ? 'https://your-domain.com' 
- : 'http://localhost:3000';
- const newsResponse = await fetch(`${baseUrl}/api/news?limit=100`);
- const newsData = await newsResponse.json();
+ // Fetch recent news directly (avoids loopback HTTP which causes ECONNREFUSED)
+ const articles = await fetchNewsArticles(100);
 
- if (!newsData.success || !newsData.articles) {
+ if (!articles.length) {
  throw new Error('Failed to fetch news for sentiment analysis');
  }
 
- const articles = newsData.articles;
  
  // Calculate overall market sentiment
  const overallSentiment = this.calculateOverallSentiment(articles);

@@ -1428,6 +1428,248 @@ const getDayOfYear = (date: Date): number => {
   return Math.floor(diff / (1000 * 60 * 60 * 24))
 }
 
+// ── Seasonality Candle Projection — smart year-based weighting ──
+// Returns null for normal errors, 'NOT_ENOUGH_DATA' sentinel string when < 4Y of data exists.
+const calculateSeasonalityCandleProjection = async (
+  symbol: string,
+  chartData: ChartDataPoint[]
+): Promise<Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> | 'NOT_ENOUGH_DATA' | null> => {
+  try {
+    if (!chartData || chartData.length === 0) return null
+    const lastCandle = chartData[chartData.length - 1]
+    const lastPrice = lastCandle.close
+    const lastCandleDate = new Date(lastCandle.timestamp)
+    lastCandleDate.setHours(0, 0, 0, 0)
+
+    const resp = await polygonService.getBulkHistoricalData(symbol, 20)
+    if (!resp?.results?.length) return null
+
+    const allBars = [...resp.results].sort((a, b) => a.t - b.t)
+    const lastBarTs = allBars[allBars.length - 1].t
+    const firstBarTs = allBars[0].t
+    const actualYears = (lastBarTs - firstBarTs) / (365.25 * 24 * 3600 * 1000)
+
+    // < 4 years of data — not enough
+    if (actualYears < 4) return 'NOT_ENOUGH_DATA'
+
+    type OHLCSlot = { o: number[]; h: number[]; l: number[]; c: number[] }
+    type AvgSlot  = { o: number;   h: number;   l: number;   c: number   }
+
+    const avgFn = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
+
+    const buildAvgMap = (yearsBack: number): Map<number, AvgSlot> => {
+      const cutoff = lastBarTs - yearsBack * 365.25 * 24 * 3600 * 1000
+      const bars = allBars.filter(b => b.t >= cutoff)
+      const raw = new Map<number, OHLCSlot>()
+      for (let i = 1; i < bars.length; i++) {
+        const prev = bars[i - 1], cur = bars[i]
+        const prevClose = prev.c
+        if (!prevClose || prevClose === 0) continue
+        const doy = getDayOfYear(new Date(cur.t))
+        if (!raw.has(doy)) raw.set(doy, { o: [], h: [], l: [], c: [] })
+        const s = raw.get(doy)!
+        s.o.push(((cur.o ?? cur.c) - prevClose) / prevClose * 100)
+        s.h.push(((cur.h ?? cur.c) - prevClose) / prevClose * 100)
+        s.l.push(((cur.l ?? cur.c) - prevClose) / prevClose * 100)
+        s.c.push((cur.c             - prevClose) / prevClose * 100)
+      }
+      const avgMap = new Map<number, AvgSlot>()
+      for (const [doy, s] of raw) {
+        if (s.c.length === 0) continue
+        avgMap.set(doy, { o: avgFn(s.o), h: avgFn(s.h), l: avgFn(s.l), c: avgFn(s.c) })
+      }
+      return avgMap
+    }
+
+    // Determine groups + weights based on actual available years
+    let groupYears: number[]
+    let weights: number[]
+
+    if (actualYears < 6) {
+      // 4–6Y: single group, no weighting
+      groupYears = [Math.floor(actualYears)]
+      weights    = [1.0]
+    } else if (actualYears < 10) {
+      // 6–10Y: recent 5Y at 70%, older years at 30%
+      groupYears = [5, Math.floor(actualYears)]
+      weights    = [0.70, 0.30]
+    } else if (actualYears < 15) {
+      // 10–15Y: 5Y=40%, 5-10Y=20%, remaining=20%
+      groupYears = [5, 10, Math.floor(actualYears)]
+      weights    = [0.40, 0.20, 0.20]
+    } else {
+      // 15–20Y: 5Y=35%, 10Y=30%, 15Y=20%, 20Y=15%
+      groupYears = [5, 10, 15, Math.min(20, Math.floor(actualYears))]
+      weights    = [0.35, 0.30, 0.20, 0.15]
+    }
+
+    const avgMaps = groupYears.map(y => buildAvgMap(y))
+
+    // Combine with weights (normalize in case a DOY is missing from some groups)
+    const allDoys = new Set<number>()
+    for (const m of avgMaps) for (const k of m.keys()) allDoys.add(k)
+    if (allDoys.size === 0) return null
+
+    const averaged = new Map<number, AvgSlot>()
+    for (const doy of allDoys) {
+      let wO = 0, wH = 0, wL = 0, wC = 0, totalW = 0
+      for (let i = 0; i < avgMaps.length; i++) {
+        const s = avgMaps[i].get(doy)
+        if (!s) continue
+        const w = weights[i]
+        wO += s.o * w; wH += s.h * w; wL += s.l * w; wC += s.c * w
+        totalW += w
+      }
+      if (totalW === 0) continue
+      averaged.set(doy, { o: wO / totalW, h: wH / totalW, l: wL / totalW, c: wC / totalW })
+    }
+
+    // Compound forward 90 trading days from last close
+    const isWeekendLocal = (d: Date) => { const dow = d.getDay(); return dow === 0 || dow === 6 }
+
+    const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+    let prevClose = lastPrice
+    const walkCur = new Date(lastCandleDate)
+    let steps = 0
+
+    while (steps < 90) {
+      walkCur.setDate(walkCur.getDate() + 1)
+      if (isWeekendLocal(walkCur)) continue
+      steps++
+      const doy = getDayOfYear(walkCur)
+      const s = averaged.get(doy)
+      if (!s) continue
+      const projOpen  = prevClose * (1 + s.o / 100)
+      const projHigh  = prevClose * (1 + s.h / 100)
+      const projLow   = prevClose * (1 + s.l / 100)
+      const projClose = prevClose * (1 + s.c / 100)
+      projection.push({
+        date:  new Date(walkCur),
+        price: projClose,
+        open:  projOpen,
+        high:  Math.max(projHigh, projOpen, projClose),
+        low:   Math.min(projLow,  projOpen, projClose),
+        close: projClose,
+      })
+      prevClose = projClose
+    }
+
+    return projection.length > 0 ? projection : null
+  } catch (e) {
+    console.error('[SeasonalCandle] error:', e)
+    return null
+  }
+}
+
+// ── Election Cycle Candle Projection ──
+// Same OHLC day-over-day approach as calculateSeasonalityCandleProjection, but only uses
+// bars from years that match the current election cycle (e.g. 2008,2012,2016,2020,2024 for "Election Year").
+// Requires stock to have existed for at least 8 years (≥2 election cycle occurrences).
+// Returns 'NOT_ENOUGH_DATA' sentinel when stock data < 8Y or < 2 matching years available.
+const calculateElectionCandleProjection = async (
+  symbol: string,
+  chartData: ChartDataPoint[],
+  electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+): Promise<Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> | 'NOT_ENOUGH_DATA' | null> => {
+  try {
+    if (!chartData || chartData.length === 0) return null
+    const lastCandle = chartData[chartData.length - 1]
+    const lastPrice = lastCandle.close
+    const lastCandleDate = new Date(lastCandle.timestamp)
+    lastCandleDate.setHours(0, 0, 0, 0)
+
+    const resp = await polygonService.getBulkHistoricalData(symbol, 20)
+    if (!resp?.results?.length) return null
+
+    const allBars = [...resp.results].sort((a, b) => a.t - b.t)
+    const lastBarTs = allBars[allBars.length - 1].t
+    const firstBarTs = allBars[0].t
+    const actualYears = (lastBarTs - firstBarTs) / (365.25 * 24 * 3600 * 1000)
+
+    if (actualYears < 8) return 'NOT_ENOUGH_DATA'
+
+    // Years for each cycle type (same as electionCycleService)
+    const cycleYears: Record<string, number[]> = {
+      'Election Year':  [2008, 2012, 2016, 2020, 2024],
+      'Post-Election':  [2005, 2009, 2013, 2017, 2021],
+      'Mid-Term':       [2006, 2010, 2014, 2018, 2022],
+      'Pre-Election':   [2007, 2011, 2015, 2019, 2023],
+    }
+
+    const targetYears = cycleYears[electionType] ?? []
+    // Only keep years covered by the fetched data
+    const firstYear = new Date(firstBarTs).getFullYear()
+    const validYears = targetYears.filter(y => y >= firstYear && y <= new Date(lastBarTs).getFullYear())
+
+    if (validYears.length < 2) return 'NOT_ENOUGH_DATA'
+
+    type OHLCSlot = { o: number[]; h: number[]; l: number[]; c: number[] }
+
+    const avgFn = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
+
+    // Collect OHLC day-over-day returns only from bars within the matching election years
+    const doyMap = new Map<number, OHLCSlot>()
+
+    for (let i = 1; i < allBars.length; i++) {
+      const prev = allBars[i - 1], cur = allBars[i]
+      const year = new Date(cur.t).getFullYear()
+      if (!validYears.includes(year)) continue
+      const prevClose = prev.c
+      if (!prevClose || prevClose === 0) continue
+      const doy = getDayOfYear(new Date(cur.t))
+      if (!doyMap.has(doy)) doyMap.set(doy, { o: [], h: [], l: [], c: [] })
+      const s = doyMap.get(doy)!
+      s.o.push(((cur.o ?? cur.c) - prevClose) / prevClose * 100)
+      s.h.push(((cur.h ?? cur.c) - prevClose) / prevClose * 100)
+      s.l.push(((cur.l ?? cur.c) - prevClose) / prevClose * 100)
+      s.c.push((cur.c             - prevClose) / prevClose * 100)
+    }
+
+    if (doyMap.size === 0) return null
+
+    // Simple average per DOY — no weighting
+    const averaged = new Map<number, { o: number; h: number; l: number; c: number }>()
+    for (const [doy, s] of doyMap) {
+      if (s.c.length === 0) continue
+      averaged.set(doy, { o: avgFn(s.o), h: avgFn(s.h), l: avgFn(s.l), c: avgFn(s.c) })
+    }
+
+    // Compound forward 90 trading days
+    const isWeekendLocal = (d: Date) => { const dow = d.getDay(); return dow === 0 || dow === 6 }
+    const projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> = []
+    let prevClose = lastPrice
+    const walkCur = new Date(lastCandleDate)
+    let steps = 0
+
+    while (steps < 90) {
+      walkCur.setDate(walkCur.getDate() + 1)
+      if (isWeekendLocal(walkCur)) continue
+      steps++
+      const doy = getDayOfYear(walkCur)
+      const s = averaged.get(doy)
+      if (!s) continue
+      const projOpen  = prevClose * (1 + s.o / 100)
+      const projHigh  = prevClose * (1 + s.h / 100)
+      const projLow   = prevClose * (1 + s.l / 100)
+      const projClose = prevClose * (1 + s.c / 100)
+      projection.push({
+        date:  new Date(walkCur),
+        price: projClose,
+        open:  projOpen,
+        high:  Math.max(projHigh, projOpen, projClose),
+        low:   Math.min(projLow,  projOpen, projClose),
+        close: projClose,
+      })
+      prevClose = projClose
+    }
+
+    return projection.length > 0 ? projection : null
+  } catch (e) {
+    console.error('[ElectionCandle] error:', e)
+    return null
+  }
+}
+
 // Process daily seasonal data benchmarked against SPY
 const processDailySeasonalData = (
   symbolData: PolygonDataPoint[],
@@ -2430,6 +2672,211 @@ const calculateFutureExpiriesLevels = async (
   }
 }
 
+// ── Breeden-Litzenberger % Chance levels ──
+// Extracts the market-implied probability distribution from option prices using the
+// second derivative of call prices with respect to strike (Breeden-Litzenberger 1978).
+// f(K) = e^(rT) * d²C/dK²   →   integrate to CDF  →  invert at 5/25/50/75/95 percentiles
+const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string) => {
+  try {
+    // 1. Current price
+    const priceResp = await fetch(`https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`)
+    if (!priceResp.ok) throw new Error('Failed to fetch price')
+    const priceData = await priceResp.json()
+    const S = priceData.results?.p as number
+    if (!S) throw new Error('No price in response')
+
+    // 2. Expiry + time
+    const { weeklyExpiry, weeklyDate } = await getExpirationDatesFromAPI(symbol)
+    let chosenExpiry = overrideExpiry || weeklyExpiry
+    let chosenDate  = overrideExpiry ? new Date(overrideExpiry + 'T00:00:00') : weeklyDate
+    const rfr = await getRiskFreeRate().then(v => v ?? 0.0442)
+
+    // 3. Get ATM IV from snapshot — fetch all calls, find closest strike to S
+    let allCallsSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+
+    // If chosen expiry has no options (e.g. holiday), fall back to nearest valid expiry
+    if (!allCallsSnap.results?.length && overrideExpiry) {
+      allCallsSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${weeklyExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+      chosenExpiry = weeklyExpiry
+      chosenDate = weeklyDate
+    }
+
+    // Compute T after fallback so it uses the final chosenDate
+    const dte = Math.max(1, getDaysUntilExpiration(chosenDate))
+    const T = dte / 365
+
+    if (!allCallsSnap.results?.length) throw new Error('No call snapshot results')
+    const atmSnap = (allCallsSnap.results as any[])
+      .filter(s => (s.details?.strike_price ?? s.strike_price) > 0)
+      .sort((a, b) => Math.abs((a.details?.strike_price ?? a.strike_price) - S) - Math.abs((b.details?.strike_price ?? b.strike_price) - S))[0]
+    const atmIV: number = atmSnap?.implied_volatility ?? 0.20
+
+    // 4. Use existing 90% probability logic to find the scan bounds (same as Expected Range)
+    const lo = findStrikeForProbability(S, rfr, atmIV, T, 90, false)
+    const hi = findStrikeForProbability(S, rfr, atmIV, T, 90, true)
+
+    // 5. Snapshot for puts within the 90% band (calls already fetched above)
+    const putSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=put&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+
+    // 6. Build (K, C) pairs
+    type KCPair = { K: number; C: number }
+    const pairs: KCPair[] = []
+
+    for (const snap of allCallsSnap.results ?? []) {
+      const K: number = snap.details?.strike_price ?? snap.strike_price
+      if (!K || K < lo || K > hi) continue
+      const q: any = snap.last_quote || {}
+      const mid = ((Number(q.bid) || 0) + (Number(q.ask) || 0)) / 2 || Number(snap.last_trade?.price) || 0
+      const iv: number = snap.implied_volatility ?? 0
+      const C = mid > 0 ? mid : (iv > 0 ? calculateBlackScholesPrice(S, K, rfr, iv, T, true) : 0)
+      if (C > 0) pairs.push({ K, C })
+    }
+
+    const disc = Math.exp(-rfr * T)
+    for (const snap of putSnap.results ?? []) {
+      const K: number = snap.details?.strike_price ?? snap.strike_price
+      if (!K || K < lo || K >= S) continue
+      const q: any = snap.last_quote || {}
+      const P = ((Number(q.bid) || 0) + (Number(q.ask) || 0)) / 2 || Number(snap.last_trade?.price) || 0
+      const iv: number = snap.implied_volatility ?? 0
+      const Pval = P > 0 ? P : (iv > 0 ? calculateBlackScholesPrice(S, K, rfr, iv, T, false) : 0)
+      if (Pval > 0) pairs.push({ K, C: Pval + S - K * disc })
+    }
+
+    pairs.sort((a, b) => a.K - b.K)
+    const deduped: KCPair[] = []
+    for (const p of pairs) {
+      if (deduped.length === 0 || p.K !== deduped[deduped.length - 1].K) deduped.push(p)
+    }
+    if (deduped.length < 5) throw new Error('Not enough strikes: ' + deduped.length)
+
+    // 7. Breeden-Litzenberger second derivative → risk-neutral density
+    const discFwd = Math.exp(rfr * T)
+    type Density = { K: number; f: number }
+    const density: Density[] = []
+    for (let i = 1; i < deduped.length - 1; i++) {
+      const { K: K0, C: C0 } = deduped[i - 1]
+      const { K: K1, C: C1 } = deduped[i]
+      const { K: K2, C: C2 } = deduped[i + 1]
+      const dK = (K2 - K0) / 2
+      if (dK <= 0) continue
+      const d2C = (C2 - 2 * C1 + C0) / (dK * dK)
+      density.push({ K: K1, f: discFwd * Math.max(0, d2C) })
+    }
+    if (density.length < 3) throw new Error('Insufficient density points')
+
+    // 8. Trapezoid CDF → normalize
+    const cdf: { K: number; p: number }[] = [{ K: density[0].K, p: 0 }]
+    let total = 0
+    for (let i = 1; i < density.length; i++) {
+      const dK = density[i].K - density[i - 1].K
+      total += 0.5 * (density[i].f + density[i - 1].f) * dK
+      cdf.push({ K: density[i].K, p: total })
+    }
+    if (total <= 0) throw new Error('Zero probability mass')
+    for (const pt of cdf) pt.p /= total
+
+    // 9. Invert CDF at percentiles
+    const interpolateStrike = (targetP: number): number => {
+      for (let i = 1; i < cdf.length; i++) {
+        if (cdf[i].p >= targetP) {
+          const t = (targetP - cdf[i - 1].p) / (cdf[i].p - cdf[i - 1].p)
+          return cdf[i - 1].K + t * (cdf[i].K - cdf[i - 1].K)
+        }
+      }
+      return cdf[cdf.length - 1].K
+    }
+
+    return {
+      p5:  interpolateStrike(0.05),
+      p25: interpolateStrike(0.25),
+      p50: interpolateStrike(0.50),
+      p75: interpolateStrike(0.75),
+      p95: interpolateStrike(0.95),
+      currentPrice: S,
+      expiryLabel: chosenExpiry,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Fetch all unique option expiry dates for a symbol (up to 1 year out)
+const fetchOptionExpiries = async (sym: string): Promise<Set<string>> => {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const oneYearOut = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    let url = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${sym}&expiration_date.gte=${today}&expiration_date.lte=${oneYearOut}&limit=1000&sort=expiration_date&order=asc&apikey=${POLYGON_API_KEY}`
+    const dates = new Set<string>()
+    while (url) {
+      const data = await fetch(url).then(r => r.json())
+      for (const c of data.results ?? []) {
+        if (c.expiration_date) dates.add(c.expiration_date)
+      }
+      url = data.next_url ? data.next_url + `&apikey=${POLYGON_API_KEY}` : ''
+      if (dates.size > 0 && !data.next_url) break // got all pages
+    }
+    return dates
+  } catch {
+    return new Set()
+  }
+}
+
+// Render % Chance (Breeden-Litzenberger) levels on chart
+const renderPctChanceLines = (
+  ctx: CanvasRenderingContext2D,
+  chartWidth: number,
+  priceChartHeight: number,
+  adjustedMin: number,
+  adjustedMax: number,
+  levels: { p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string },
+  visibleCandleCount: number,
+  lastCandleX: number
+) => {
+  const priceToY = (p: number) => {
+    const ratio = (p - adjustedMin) / (adjustedMax - adjustedMin)
+    return Math.floor((priceChartHeight - 5) - ratio * (priceChartHeight - 5 - 20) - 10)
+  }
+
+  // Percentile levels config
+  const lines = [
+    { price: levels.p95, color: '#00E676', label: '95% chance below' },
+    { price: levels.p75, color: '#69F0AE', label: '75% chance below' },
+    { price: levels.p50, color: '#FFD700', label: 'Median (50%)' },
+    { price: levels.p25, color: '#FF8A65', label: '25% chance below' },
+    { price: levels.p5,  color: '#FF1744', label: '5% chance below'  },
+  ]
+
+  const rightEdge = chartWidth + CHART_LEFT_MARGIN
+  const lineStartX = lastCandleX + 12
+
+  ctx.save()
+  ctx.setLineDash([5, 4])
+  ctx.lineWidth = 1.5
+
+  for (const ln of lines) {
+    const y = priceToY(ln.price)
+    if (y < 0 || y > priceChartHeight) continue // truly off-screen, skip
+
+    ctx.strokeStyle = ln.color
+    ctx.globalAlpha = 1
+    ctx.beginPath()
+    ctx.moveTo(lineStartX, y)
+    ctx.lineTo(rightEdge - 6, y)
+    ctx.stroke()
+
+    // Label: right-aligned just before Y axis so it never overflows
+    ctx.fillStyle = ln.color
+    ctx.font = 'bold 20px monospace'
+    ctx.textAlign = 'right'
+    ctx.fillText(`${ln.label} · $${ln.price.toFixed(2)}`, rightEdge - 8, y - 5)
+  }
+
+  ctx.setLineDash([])
+  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
 // Render Expected Range Lines on Chart
 const renderExpectedRangeLines = (
   ctx: CanvasRenderingContext2D,
@@ -2731,12 +3178,9 @@ const renderGEXMap = (
       const segEndX = expiryToX.get(expDate)
       if (!segEndX || segEndX <= lastCandleX) continue
 
-      // Start = the X where the previous expiry ended; for the first expiry, overlap 50%
-      // into the chart area so stock candles appear inside the heatmap.
+      // Start = the X where the previous expiry ended, or lastCandleX for the first
       const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
-      const segStartX = prevExpDate
-        ? (expiryToX.get(prevExpDate) ?? lastCandleX)
-        : lastCandleX - (segEndX - lastCandleX) * 0.5
+      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
       const segW = segEndX - segStartX
       if (segW < 1) continue
 
@@ -3052,9 +3496,7 @@ const renderDEXMap = (
       if (!segEndX || segEndX <= lastCandleX) continue
 
       const prevExpDate = ei > 0 ? sortedAllExpiries[ei - 1] : null
-      const segStartX = prevExpDate
-        ? (expiryToX.get(prevExpDate) ?? lastCandleX)
-        : lastCandleX - (segEndX - lastCandleX) * 0.5
+      const segStartX = prevExpDate ? (expiryToX.get(prevExpDate) ?? lastCandleX) : lastCandleX
       const segW = segEndX - segStartX
       if (segW < 1) continue
 
@@ -7176,6 +7618,14 @@ export default function TradingViewChart({
     visible: false,
     ohlc: undefined,
   })
+  // Ref mirror of crosshairInfo — always current, avoids 1-frame stale reads in renderOverlay
+  const crosshairInfoRef = useRef<{ price: string; date: string; time: string; visible: boolean; ohlc?: { open: number; high: number; low: number; close: number; change?: number; changePercent?: number; volume?: number } }>({
+    price: '',
+    date: '',
+    time: '',
+    visible: false,
+    ohlc: undefined,
+  })
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
@@ -9421,6 +9871,19 @@ export default function TradingViewChart({
   const [isWeeklyActive, setIsWeeklyActive] = useState(false)
   const [isMonthlyActive, setIsMonthlyActive] = useState(false)
   const [isCustomActive, setIsCustomActive] = useState(false)
+  // % Chance (Breeden-Litzenberger) state
+  const [isPctChanceActive, setIsPctChanceActive] = useState(false)
+  const isPctChanceActiveRef = useRef(false)
+  useEffect(() => { isPctChanceActiveRef.current = isPctChanceActive }, [isPctChanceActive])
+  const [isLoadingPctChance, setIsLoadingPctChance] = useState(false)
+  const [pctChanceCustomDate, setPctChanceCustomDate] = useState<string>('')
+  const [pctChanceAvailExpiries, setPctChanceAvailExpiries] = useState<Set<string>>(new Set())
+  const [pctChanceCalMonth, setPctChanceCalMonth] = useState<Date>(() => new Date())
+  const [pctChanceLevels, setPctChanceLevels] = useState<{
+    p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string
+  } | null>(null)
+  const pctChanceLevelsRef = useRef<typeof pctChanceLevels>(null)
+  useEffect(() => { pctChanceLevelsRef.current = pctChanceLevels }, [pctChanceLevels])
   const [customExpirationDate, setCustomExpirationDate] = useState<string>('')
   const [pendingCustomDate, setPendingCustomDate] = useState<string>('')
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false)
@@ -9483,11 +9946,16 @@ export default function TradingViewChart({
   })
   const [isSeasonalActive, setIsSeasonalActive] = useState(false)
   const [isSeasonal20YActive, setIsSeasonal20YActive] = useState(false)
+  const [seasonalCandleNoData, setSeasonalCandleNoData] = useState(false)
   const [isSeasonal15YActive, setIsSeasonal15YActive] = useState(false)
   const [isSeasonal10YActive, setIsSeasonal10YActive] = useState(false)
   const [isSeasonalElectionActive, setIsSeasonalElectionActive] = useState(false)
   const [electionInsufficientData, setElectionInsufficientData] = useState(false)
   const seasonalButtonRef = useRef<HTMLButtonElement>(null)
+  // Combined 20Y OHLC candle seasonal data (main Seasonality button, 1D only)
+  const [seasonalCandleData, setSeasonalCandleData] = useState<Array<{
+    date: Date; price: number; open: number; high: number; low: number; close: number
+  }> | null>(null)
   const [seasonalProjectionData, setSeasonalProjectionData] = useState<Array<{
     date: Date
     price: number
@@ -9507,6 +9975,10 @@ export default function TradingViewChart({
   const [seasonalElectionData, setSeasonalElectionData] = useState<Array<{
     date: Date
     price: number
+    open?: number
+    high?: number
+    low?: number
+    close?: number
   }> | null>(null)
   const [isLoadingSeasonalProjection, setIsLoadingSeasonalProjection] = useState(false)
   const [isSeasonalEventActive, setIsSeasonalEventActive] = useState(false)
@@ -10479,10 +10951,8 @@ export default function TradingViewChart({
       const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
       const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
       const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
-      if (!userManualScrollRef.current) {
-        setScrollOffset(targetStart)
-        scrollOffsetRef.current = targetStart
-      }
+      setScrollOffset(targetStart)
+      scrollOffsetRef.current = targetStart
     } else if (timestamp === null && dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
       setScrollOffset(liveStart)
@@ -10507,10 +10977,8 @@ export default function TradingViewChart({
       const cutoff = dataRef.current.findIndex(d => d.timestamp > timestamp)
       const replayIdx = cutoff === -1 ? dataRef.current.length : cutoff
       const targetStart = Math.max(0, replayIdx - Math.floor(visibleCandleCountRef.current * 0.8))
-      if (!userManualScrollRef.current) {
-        setScrollOffset(targetStart)
-        scrollOffsetRef.current = targetStart
-      }
+      setScrollOffset(targetStart)
+      scrollOffsetRef.current = targetStart
     } else if (timestamp === null && dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
       setScrollOffset(liveStart)
@@ -10524,7 +10992,6 @@ export default function TradingViewChart({
   // Snap chart back to the latest bar and clear replay state
   const snapToLive = useCallback(() => {
     gexReplayTimestampRef.current = null
-    userManualScrollRef.current = false // re-enable auto-scroll for next replay session
     setGexMapHistoricalPrice(null)
     if (dataRef.current.length > 0) {
       const liveStart = Math.max(0, dataRef.current.length - visibleCandleCountRef.current)
@@ -13059,6 +13526,7 @@ export default function TradingViewChart({
     setSeasonal20YData(null)
     setSeasonal15YData(null)
     setSeasonal10YData(null)
+    setSeasonalCandleData(null)
     setSeasonalElectionData(null)
     setElectionInsufficientData(false)
     setSeasonalEventNoData(false)
@@ -13067,6 +13535,11 @@ export default function TradingViewChart({
     setSmartPerfData(null)
     setSmartPerfTriggerDate(null)
     setIsSmartPerfActive(false)
+    // Reset % Chance levels
+    setIsPctChanceActive(false)
+    setPctChanceLevels(null)
+    setPctChanceCustomDate('')
+    setPctChanceAvailExpiries(new Set())
 
     // Reload seasonal data if buttons are active
     const reloadSeasonalData = async () => {
@@ -14543,7 +15016,6 @@ export default function TradingViewChart({
   // Right-click context menu
   const [chartContextMenu, setChartContextMenu] = useState<{ x: number; y: number } | null>(null)
   const scrollOffsetRef = useRef(9999999)
-  const userManualScrollRef = useRef(false) // set true when user pans/zooms during historical GEX replay
   const visibleCandleCountRef = useRef(150)
   const dataRef = useRef<ChartDataPoint[]>([])
   useEffect(() => {
@@ -16014,27 +16486,28 @@ export default function TradingViewChart({
       ctx.setLineDash([])
 
       // PROFESSIONAL CROSSHAIR LABELS - Display price and date/time on axes
-      if (crosshairInfo.visible) {
-        // CRISP HIGH-QUALITY TEXT RENDERING - Larger and crisper
-        ctx.font = 'bold 18px "Segoe UI", system-ui, -apple-system, sans-serif'
+      // Read from ref (not state) so the value is always current — avoids 1-frame stale lag
+      const _ci = crosshairInfoRef.current
+      if (_ci.visible) {
+        // Font matches the actual chart time-axis labels
+        ctx.font = `bold ${config.axisStyle.xAxis.textSize}px "Segoe UI", system-ui, -apple-system, sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.imageSmoothingEnabled = false // Disable for crisper text
+        ctx.imageSmoothingEnabled = false
         ctx.imageSmoothingQuality = 'high'
 
         // Y-AXIS PRICE LABEL (right side)
-        const priceText = crosshairInfo.price
-        const priceTextWidth = ctx.measureText(priceText).width + 24 // Increased padding for larger text
+        const priceText = _ci.price
+        const priceTextWidth = ctx.measureText(priceText).width + 16
         const priceY = crosshairPosition.y
 
-        // Price label background (right side of chart) - darker for contrast
+        // Price label background (right side of chart)
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748'
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568'
         ctx.lineWidth = 1
-        ctx.fillRect(width - priceTextWidth - 5, priceY - 16, priceTextWidth, 32) // Larger background
-        ctx.strokeRect(width - priceTextWidth - 5, priceY - 16, priceTextWidth, 32)
+        ctx.fillRect(width - priceTextWidth - 5, priceY - 12, priceTextWidth, 24)
+        ctx.strokeRect(width - priceTextWidth - 5, priceY - 12, priceTextWidth, 24)
 
-        // CRISP WHITE PRICE TEXT with enhanced shadow for maximum clarity
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'
         ctx.shadowBlur = 3
         ctx.shadowOffsetX = 1
@@ -16043,59 +16516,55 @@ export default function TradingViewChart({
         ctx.textAlign = 'center'
         ctx.fillText(priceText, width - priceTextWidth / 2 - 5, priceY)
 
-        // Reset shadow
         ctx.shadowColor = 'transparent'
         ctx.shadowBlur = 0
         ctx.shadowOffsetX = 0
         ctx.shadowOffsetY = 0
 
-        // X-AXIS DATE/TIME LABEL (bottom of price chart area, above volume/time axis)
-        // Show date + time for intraday timeframes (5m, 30m, 1h), date only for daily+
-        const isIntradayTimeframe = ['5m', '30m', '1h', '15m', '1m', '4h'].includes(
-          config.timeframe
-        )
-        const dateText = isIntradayTimeframe
-          ? `${crosshairInfo.date} ${crosshairInfo.time}`
-          : crosshairInfo.date
-        const dateTextWidth = ctx.measureText(dateText).width + 24 // Increased padding
+        // X-AXIS DATE/TIME LABEL — aligned exactly with drawTimeAxis label position:
+        //   axisTop  = height - timeAxisHeight (timeAxisHeight = 35)
+        //   labelY   = axisTop + 16  (drawTimeAxis uses default alphabetic baseline)
+        //   textBaseline here = 'alphabetic' to match drawTimeAxis exactly
+        const isIntradayTimeframe = ['1m', '5m', '15m', '30m', '1h', '60m', '4h'].includes(config.timeframe)
+        const dateText = isIntradayTimeframe ? `${_ci.time}` : _ci.date
+        const dateTextWidth = ctx.measureText(dateText).width + 16
         const dateX = crosshairPosition.x
 
-        // Align crosshair date label with the actual time axis label position
-        // Time axis labels are drawn at: desktop → height-70, mobile → height-45
-        // Background top = labelCenter - 14, so: desktop → height-84, mobile → height-59
-        const isMobileDevice = isMobile
-        const xLabelCenterY = isMobileDevice ? height - 45 : height - 70
-        const priceChartBottom = xLabelCenterY - 14
+        // Match drawTimeAxis: axisTop = height - 35, labelY = axisTop + 16
+        const timeAxisHeight = 35
+        const xLabelY = height - timeAxisHeight + 16  // exact same as drawTimeAxis addLabel
+        const boxH = timeAxisHeight - 4              // fill the whole time-axis strip
+        const boxTop = height - timeAxisHeight + 2   // start just inside the strip top
 
-        // Ensure date label doesn't go off screen
+        // Clamp so label stays within canvas horizontally
         const labelX = Math.max(dateTextWidth / 2, Math.min(width - dateTextWidth / 2, dateX))
 
-        // Date label background aligned with time axis - darker for contrast
+        // Background box covers the time-axis strip at the correct Y
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748'
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568'
         ctx.lineWidth = 1
-        ctx.fillRect(labelX - dateTextWidth / 2, priceChartBottom, dateTextWidth, 28)
-        ctx.strokeRect(labelX - dateTextWidth / 2, priceChartBottom, dateTextWidth, 28)
+        ctx.fillRect(Math.floor(labelX - dateTextWidth / 2), boxTop, Math.ceil(dateTextWidth), boxH)
+        ctx.strokeRect(Math.floor(labelX - dateTextWidth / 2), boxTop, Math.ceil(dateTextWidth), boxH)
 
-        // CRISP ORANGE DATE TEXT with enhanced shadow for maximum clarity
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'
         ctx.shadowBlur = 3
         ctx.shadowOffsetX = 1
         ctx.shadowOffsetY = 1
         ctx.fillStyle = '#FF6600'
         ctx.textAlign = 'center'
-        ctx.fillText(dateText, labelX, xLabelCenterY)
+        ctx.textBaseline = 'alphabetic'  // match drawTimeAxis baseline
+        ctx.fillText(dateText, labelX, xLabelY)
 
-        // Reset shadow
         ctx.shadowColor = 'transparent'
         ctx.shadowBlur = 0
         ctx.shadowOffsetX = 0
         ctx.shadowOffsetY = 0
+        ctx.textBaseline = 'middle'  // restore default for OHLC panel below
 
         // Enhanced OHLC Info Panel (top-left corner) - Desktop only
         // Hide on mobile devices (screen width < 768px)
-        if (crosshairInfo.ohlc && !isMobile) {
-          const ohlc = crosshairInfo.ohlc
+        if (_ci.ohlc && !isMobile) {
+          const ohlc = _ci.ohlc
           const panelX = 20
           const panelY = 20
           const panelWidth = 200
@@ -16506,7 +16975,6 @@ export default function TradingViewChart({
           const futurePeriods = getFuturePeriods(visibleCandleCount)
           const maxScrollOffset = data.length - visibleCandleCount + futurePeriods
           const newOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset + panAmount))
-          if (gexReplayTimestampRef.current !== null) userManualScrollRef.current = true
           setScrollOffset(newOffset)
         } else {
           // PLAIN SCROLL or CTRL+SCROLL = Zoom
@@ -16543,7 +17011,6 @@ export default function TradingViewChart({
             const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newScrollOffset))
 
             setVisibleCandleCount(newCount)
-            if (gexReplayTimestampRef.current !== null) userManualScrollRef.current = true
             setScrollOffset(clampedOffset)
           }
         }
@@ -16623,37 +17090,60 @@ export default function TradingViewChart({
 
     const candleSpacing = chartWidth / visibleCandleCount
 
+    // Bar interval for overnight-gap detection (gaps > 2 hours = day boundary)
+    const tfMs: Record<string, number> = {
+      '1m': 60_000, '5m': 300_000, '15m': 900_000,
+      '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
+    }
+    const barMs = tfMs[config.timeframe] ?? 300_000
+    const gapThreshold = Math.max(barMs * 4, 2 * 60 * 60 * 1000) // at least 2 hours
+
+    const dtFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false,
+    })
+
+    const getSession = (timestamp: number): 'premarket' | 'regular' | 'afterhours' => {
+      const parts = dtFmt.formatToParts(new Date(timestamp))
+      const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+      const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+      const mins = (h === 24 ? 0 : h) * 60 + m
+      if (mins >= 60 && mins < 390) return 'premarket'    // 1:00 AM – 6:30 AM PST
+      if (mins >= 780 && mins < 1020) return 'afterhours'  // 1:00 PM – 5:00 PM PST
+      return 'regular'
+    }
+
+    // Fill continuous bands instead of per-candle rects to avoid gaps from missing bars
+    let bandSession: 'premarket' | 'afterhours' | null = null
+    let bandStartX = CHART_LEFT_MARGIN
+
+    const flushBand = (endX: number) => {
+      if (bandSession === null) return
+      const w = Math.ceil(endX - bandStartX) + 1
+      if (w <= 0) return
+      ctx.fillStyle = bandSession === 'premarket'
+        ? 'rgba(255, 140, 60, 0.08)'
+        : 'rgba(100, 150, 200, 0.08)'
+      ctx.fillRect(Math.floor(bandStartX), 0, w, height)
+    }
+
     visibleData.forEach((candle, index) => {
       const x = CHART_LEFT_MARGIN + index * candleSpacing
+      const session = getSession(candle.timestamp)
+      const isOvernightGap = index > 0 &&
+        (candle.timestamp - visibleData[index - 1].timestamp) > gapThreshold
 
-      // Convert timestamp to PST/PDT using Intl.DateTimeFormat for reliable hour/minute extraction
-      const date = new Date(candle.timestamp)
-      const pstParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/Los_Angeles',
-        hour: 'numeric',
-        minute: 'numeric',
-        hour12: false,
-      }).formatToParts(date)
-      const hour = parseInt(pstParts.find(p => p.type === 'hour')?.value ?? '0', 10)
-      const minute = parseInt(pstParts.find(p => p.type === 'minute')?.value ?? '0', 10)
-      const totalMinutes = (hour === 24 ? 0 : hour) * 60 + minute
+      const incomingBandSession = session !== 'regular' ? session : null
 
-      // Market hours in PST: 6:30 AM - 1:00 PM PST
-      const marketStart = 6 * 60 + 30  // 390 min
-      const marketEnd = 13 * 60      // 780 min
-      const preMarketStart = 1 * 60    // 60 min  (1:00 AM PST)
-      const afterHoursEnd = 17 * 60   // 1020 min (5:00 PM PST)
-
-      if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
-        // Pre-market: 1:00 AM PST - 6:30 AM PST - orange tint
-        ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'
-        ctx.fillRect(x, 0, candleSpacing, height)
-      } else if (totalMinutes >= marketEnd && totalMinutes < afterHoursEnd) {
-        // After-hours: 1:00 PM PST - 5:00 PM PST - blue tint
-        ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'
-        ctx.fillRect(x, 0, candleSpacing, height)
+      // Only act when the COLORED session changes or an overnight gap resets the band
+      if (incomingBandSession !== bandSession || isOvernightGap) {
+        flushBand(x)
+        bandSession = incomingBandSession
+        bandStartX = x
       }
     })
+
+    // Flush the last open band
+    flushBand(CHART_LEFT_MARGIN + visibleData.length * candleSpacing)
   }
 
   // Render main price chart
@@ -16790,6 +17280,18 @@ export default function TradingViewChart({
         const ahEnd = 17 * 60
         const maxFutureBars = Math.ceil((chartWidth / candleSpacingFut) * 2)
 
+        // Band-fill approach for future area — same logic as drawMarketHoursBackground
+        let futureBandSession: 'premarket' | 'afterhours' | null = null
+        let futureBandStartX = lastDataX + candleSpacingFut
+
+        const flushFutureBand = (endX: number) => {
+          if (futureBandSession === null) return
+          ctx.fillStyle = futureBandSession === 'premarket'
+            ? 'rgba(255, 220, 0, 0.07)'
+            : 'rgba(160, 160, 160, 0.07)'
+          ctx.fillRect(Math.floor(futureBandStartX), 0, Math.ceil(endX - futureBandStartX) + 1, priceChartHeight)
+        }
+
         let ts = lastDataCandle.timestamp
         let barIdx = 0
         while (barIdx < maxFutureBars) {
@@ -16810,14 +17312,18 @@ export default function TradingViewChart({
           const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
           const totalMinutes = (h === 24 ? 0 : h) * 60 + m
 
-          if (totalMinutes >= preStart && totalMinutes < marketStart) {
-            ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'
-            ctx.fillRect(barX, 0, candleSpacingFut, priceChartHeight)
-          } else if (totalMinutes >= marketEnd && totalMinutes < ahEnd) {
-            ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'
-            ctx.fillRect(barX, 0, candleSpacingFut, priceChartHeight)
+          const futSession: 'premarket' | 'afterhours' | null =
+            totalMinutes >= preStart && totalMinutes < marketStart ? 'premarket'
+              : totalMinutes >= marketEnd && totalMinutes < ahEnd ? 'afterhours'
+                : null
+
+          if (futSession !== futureBandSession) {
+            flushFutureBand(barX)
+            futureBandSession = futSession
+            futureBandStartX = barX
           }
         }
+        flushFutureBand(Math.round(lastDataX + barIdx * candleSpacingFut))
       }
     }
 
@@ -16870,6 +17376,14 @@ export default function TradingViewChart({
 
       adjustedMin = Math.min(adjustedMin, minLevel - padding)
       adjustedMax = Math.max(adjustedMax, maxLevel + padding)
+    }
+
+    // Expand Y range to include % Chance (Breeden-Litzenberger) levels
+    if (isPctChanceActiveRef.current && pctChanceLevelsRef.current && !manualPriceRange) {
+      const lvls = pctChanceLevelsRef.current
+      const padding = (adjustedMax - adjustedMin) * 0.05
+      adjustedMin = Math.min(adjustedMin, lvls.p5  - padding)
+      adjustedMax = Math.max(adjustedMax, lvls.p95 + padding)
     }
 
     // Store the FINAL rendered range AFTER all adjustments for drag initialization
@@ -17053,6 +17567,12 @@ export default function TradingViewChart({
       }
     }
 
+    // % Chance (Breeden-Litzenberger) — always independent of isExpectedRangeActive
+    if (isPctChanceActiveRef.current && pctChanceLevelsRef.current) {
+      const lcX = CHART_LEFT_MARGIN + (visibleData.length - 1) * candleSpacing + candleSpacing
+      renderPctChanceLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, pctChanceLevelsRef.current, visibleCandleCount, lcX)
+    }
+
     // Shared x-axis label collision tracker — used by Future Expiries AND ATR Range
     // so their tick labels never overlap each other.
     const sharedXAxisUsed: number[] = []
@@ -17162,17 +17682,21 @@ export default function TradingViewChart({
           projectedPointsRef.current.futureExpiries.push({ x: pt.x, y: pt.y })
         })
 
-        // Label last visible point
+        // Label last visible point — clamp so it never enters the Y-axis area (rightmost 80px)
         const lastPt = points[points.length - 1]
         if (lastPt.x < chartWidth - 10) {
           ctx.font = 'bold 16px Arial'
           const labelText = `${label} $${lastPt.price.toFixed(2)}`
           const textW = ctx.measureText(labelText).width
-          ctx.fillStyle = 'rgba(0,0,0,0.75)'
-          ctx.fillRect(lastPt.x + 4, lastPt.y - 10, textW + 8, 19)
-          ctx.fillStyle = color
-          ctx.textAlign = 'left'
-          ctx.fillText(labelText, lastPt.x + 6, lastPt.y + 4)
+          const maxLabelRight = chartWidth - 4 // stop before Y-axis
+          const labelX = Math.min(lastPt.x + 6, maxLabelRight - textW)
+          if (labelX + textW > 0) {
+            ctx.fillStyle = 'rgba(0,0,0,0.75)'
+            ctx.fillRect(labelX - 2, lastPt.y - 10, textW + 8, 19)
+            ctx.fillStyle = color
+            ctx.textAlign = 'left'
+            ctx.fillText(labelText, labelX, lastPt.y + 4)
+          }
         }
       })
 
@@ -17704,20 +18228,30 @@ export default function TradingViewChart({
         // Calculate all points first (include price so we can build OHLC for candles)
         const points: Array<{ x: number; y: number; date: Date; price: number; open?: number; high?: number; low?: number; close?: number }> = []
 
+        // FIX: incremental bar counting — O(N) total instead of O(N²).
+        // For intraday per-bar data, each consecutive point is exactly 1 valid bar later than the previous.
+        // countActualBars(prevTs, curTs) loops only once (one barMs step), not from lastCandleTs each time.
+        let _incrBarsFromLast = 0
+        let _incrPrevTs = lastCandleTs
+        const visibleRight = chartWidth + CHART_LEFT_MARGIN + candleSpacing * 2 // small buffer
+
         projectionData.forEach((point, idx) => {
           let x: number
           if (isIntraday && barMs > 0) {
-            // Count only real Polygon bars (skips overnight/weekend gaps) → matches chart x-spacing
-            const barsFromLast = countActualBars(lastCandleTs, new Date(point.date).getTime())
-            x = Math.round(lastCandleX + barsFromLast * candleSpacing)
+            // Incremental: count only the bars SINCE the previous point (almost always 0 or 1)
+            const curTs = new Date(point.date).getTime()
+            _incrBarsFromLast += countActualBars(_incrPrevTs, curTs)
+            _incrPrevTs = curTs
+            x = Math.round(lastCandleX + _incrBarsFromLast * candleSpacing)
           } else {
             const projDate = new Date(point.date)
             projDate.setHours(0, 0, 0, 0)
             const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate)
             x = Math.round(lastCandleX + tradingDaysFromLast * candleSpacing * barsPerDay)
           }
+          // Early exit: once we're past the right edge of the visible canvas, stop adding points
+          if (x > visibleRight) return
           const y = priceToYLocal(point.price)
-          const session = getSession(new Date(point.date))
           points.push({ x, y, date: new Date(point.date), price: point.price, open: point.open, high: point.high, low: point.low, close: point.close })
         })
 
@@ -17734,6 +18268,8 @@ export default function TradingViewChart({
         // forceCandles: render daily OHLC projection as candles on any timeframe
         const hasOHLC = points.length > 1 && points[0]?.open !== undefined
         const shouldDrawCandles = pointsArePerBar || (forceCandles && hasOHLC)
+
+
 
         if (shouldDrawCandles) {
           // ── For intraday candle mode: build % based Y scale anchored to last price ──
@@ -17851,13 +18387,16 @@ export default function TradingViewChart({
         // For intraday event seasonal (pointsArePerBar) or forceCandles daily mode when eventDate supplied
         if ((pointsArePerBar || (forceCandles && hasOHLC)) && eventDate && points.length > 1) {
           const evNorm = new Date(eventDate); evNorm.setHours(0, 0, 0, 0)
-          // Match exactly where drawTimeAxis draws labels: axisTop = height - timeAxisHeight = priceChartHeight; labelY = axisTop + 16
-          const labelY = priceChartHeight + 16
+          // Match exactly where drawTimeAxis draws labels:
+          // timeAxisStartY = height - timeAxisHeight (passed into drawSeasonalLine as the full canvas height)
+          // labelY = timeAxisStartY + 16, baseline = alphabetic (same as addLabel in drawTimeAxis)
+          const _timeAxisHeight = 35
+          const labelY = height - _timeAxisHeight + 16
           ctx.save()
           // Match x-axis font exactly — bold, same size
           ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
           ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
+          ctx.textBaseline = 'alphabetic'
 
           // Group points by calendar day (local date) to get one representative x per day
           const dayXMap: Map<string, { x: number; date: Date }> = new Map()
@@ -17881,9 +18420,9 @@ export default function TradingViewChart({
             return n
           }
 
-          // Minimum pixel gap — for daily: at least 5 candle widths; for intraday: 3 day-widths
+          // Minimum pixel gap — for daily: at least 5 candle widths; for intraday: just enough to prevent text overlap (~50px)
           const minLabelGap = barsPerDay > 1
-            ? Math.max(candleSpacing * barsPerDay * 5, 50)
+            ? 50
             : Math.max(candleSpacing * 5, 40)
 
           // ── Vertical dashed event line + title ──────────────────────────────
@@ -17938,11 +18477,12 @@ export default function TradingViewChart({
             ctx.restore()
           }
 
-          // ── X-axis relative-day labels ───────────────────────────────────────
+          // ── X-axis relative-day labels + intraday time labels ────────────────
           let lastLabelX = -999
+          // First pass: place day labels
           for (const [, { x, date }] of dayXMap) {
-            if (x < CHART_LEFT_MARGIN || x > CHART_LEFT_MARGIN + chartWidth) continue
-            if (x - lastLabelX < minLabelGap) continue
+            if (x < CHART_LEFT_MARGIN || x > CHART_LEFT_MARGIN + chartWidth) { continue }
+            if (x - lastLabelX < minLabelGap) { continue }
             const dayMid = new Date(date); dayMid.setHours(0, 0, 0, 0)
             const td = countTd(evNorm, dayMid)
             let lbl: string
@@ -17955,16 +18495,75 @@ export default function TradingViewChart({
             ctx.fillText(lbl, x, labelY)
             lastLabelX = x
           }
+
+          // Second pass (intraday only): place time labels within each day
+          if (barsPerDay > 1 && points.length > 1) {
+            // Dynamic interval: pick smallest clean hour boundary so adjacent labels stay ≥ minTimePxGap apart.
+            // pxPerInterval = (intervalMs / barMs) * candleSpacing
+            // This adapts to every timeframe AND every zoom level automatically.
+            const minTimePxGap = Math.max(55, ctx.measureText('12:00 PM').width + 14)
+            const timeIntervalMs = [1, 2, 3, 4, 6, 8, 12, 24]
+              .map(h => h * 3_600_000)
+              .find(ms => (ms / barMs) * candleSpacing >= minTimePxGap)
+              ?? (24 * 3_600_000)
+
+            let nextTimeLabelTs = points[0].date.getTime() + timeIntervalMs
+            // Track only DRAWN day-label positions to avoid overlap with time labels
+            const dayLabelXSet = new Set<number>()
+            {
+              let tmpLastX = -999
+              for (const [, { x, date }] of dayXMap) {
+                if (x < CHART_LEFT_MARGIN || x > CHART_LEFT_MARGIN + chartWidth) continue
+                if (x - tmpLastX < minLabelGap) continue
+                dayLabelXSet.add(Math.round(x))
+                tmpLastX = x
+              }
+            }
+
+            // Use SEPARATE lastX for time labels so day-label pass doesn't contaminate it
+            let lastTimeLabelX = -999
+
+            for (const pt of points) {
+              if (pt.x < CHART_LEFT_MARGIN || pt.x > CHART_LEFT_MARGIN + chartWidth) { continue }
+              const ptTs = pt.date.getTime()
+              if (ptTs < nextTimeLabelTs) { continue }
+              nextTimeLabelTs = ptTs + timeIntervalMs
+
+              // Skip if too close to a DRAWN day label (use half the minTimePxGap as clearance)
+              const clearance = minTimePxGap * 0.5
+              const tooClose = [...dayLabelXSet].some(dx => Math.abs(pt.x - dx) < clearance)
+              if (tooClose) { continue }
+
+              const timeLbl = pt.date.toLocaleTimeString('en-US', {
+                timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true,
+              })
+              // Check overlap with previously placed TIME labels only
+              const tw = ctx.measureText(timeLbl).width
+              const lLeft = pt.x - tw / 2 - 4
+              const lRight = pt.x + tw / 2 + 4
+              const overlaps = (lastTimeLabelX > -999 && lLeft < lastTimeLabelX + tw / 2 + 8)
+              if (!overlaps && lRight < width - 10 && lLeft > CHART_LEFT_MARGIN) {
+                ctx.globalAlpha = 0.75
+                ctx.fillStyle = config.axisStyle.xAxis.textColor
+                ctx.fillText(timeLbl, pt.x, labelY)
+                lastTimeLabelX = pt.x
+              }
+            }
+          }
           ctx.restore()
         }
 
         ctx.restore()
       }
-      if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false)
+      if (isSeasonal20YActive && config.timeframe === '1d') {
+        if (seasonalCandleData) {
+          drawSeasonalLine(seasonalCandleData as any, '#FFFFFF', false, undefined, null, false, true)
+        }
+      }
       if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false)
       if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#00E5FF', false)
-      if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true)
-      if (isSmartPerfActive) {
+      if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData as any, '#9370DB', false, undefined, null, false, true)
+      if (isSmartPerfActive || smartPerfData) {
         const intradayTfs = ['1m', '5m', '15m', '30m', '1h', '60m', '4h']
         const isIntradaySmartPerf = intradayTfs.includes(config.timeframe)
         drawSeasonalLine(smartPerfData as any, '#FF8500', false, undefined, smartPerfTriggerDate, false, !isIntradaySmartPerf)
@@ -18516,7 +19115,6 @@ export default function TradingViewChart({
           currentPanelY += ivPanelHeight
         }
       }
-
     }
 
     // Draw 30D IV panels (always independent of 1-year isAnyIVHVActive)
@@ -18720,10 +19318,13 @@ export default function TradingViewChart({
     isWeeklyActive,
     isMonthlyActive,
     isCustomActive,
+    isPctChanceActive,
+    pctChanceLevels,
     isSeasonalActive,
     seasonal20YData,
     seasonal15YData,
     seasonal10YData,
+    seasonalCandleData,
     seasonalElectionData,
     seasonalEventData,
     smartPerfData,
@@ -21031,50 +21632,92 @@ export default function TradingViewChart({
       const lastDataX = CHART_LEFT_MARGIN + lastDataPositionOnScreen * candleSpacing + candleSpacing / 2
       const lastDataTs = lastDataCandle.timestamp
 
-      // Determine bar interval in ms based on timeframe
       const stf = config.timeframe
       const sBarsPerDay =
         stf === '1m' ? 390 : stf === '5m' ? 78 : stf === '15m' ? 26 :
           stf === '30m' ? 13 : stf === '1h' || stf === '60m' ? 6.5 : stf === '4h' ? 1.625 : 1
       const sIsIntraday = sBarsPerDay > 1
-      // Use actual timeframe ms, not 24h/bpd
       const sTfMsMap: Record<string, number> = {
         '1m': 60_000, '5m': 300_000, '15m': 900_000,
         '30m': 1_800_000, '1h': 3_600_000, '60m': 3_600_000, '4h': 14_400_000,
       }
       const sBarMs = sIsIntraday ? (sTfMsMap[stf] ?? 3_600_000) : 24 * 60 * 60 * 1000
 
-      // For daily: project ~60 trading days; for intraday: project enough bars to fill screen
-      const maxFutureBars = sIsIntraday
-        ? Math.ceil((width - lastDataX) / candleSpacing) + 10
-        : 90
-
       ctx.save()
       ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
       ctx.textAlign = 'center'
 
-      // Walk forward using running ts that skips weekends so labels match trading bars
-      let sRunningTs = lastDataTs
-      for (let i = 1; i <= maxFutureBars; i++) {
-        sRunningTs += sBarMs
-        // Skip weekends
-        const sPstStr = new Date(sRunningTs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-        const sPst = new Date(sPstStr)
-        const sDow = sPst.getDay()
-        const skippedWeekend = sDow === 6 || sDow === 0
-        if (sDow === 6) sRunningTs += 2 * 86_400_000 // Sat → Mon
-        else if (sDow === 0) sRunningTs += 86_400_000  // Sun → Mon
+      if (sIsIntraday) {
+        // Two-tier system for intraday future labels:
+        // - Show "+1d", "+2d" ... day markers when crossing into a new trading day
+        // - Show hourly/time labels within each day at reasonable intervals
+        // Walk every bar using UTC 08:00-24:00 window (matches chart spacing exactly)
+        const maxFutureBars = Math.ceil((width - lastDataX) / candleSpacing) + 20
+        let sRunningTs = lastDataTs
+        let sBarCount = 0  // actual bar count on screen (for x position)
+        let sDayCount = 0  // how many trading days forward we've moved
+        let sLastDayStr = new Date(lastDataTs).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+        let sLastLabelX = lastDataX // track last label to avoid overlap with historical
 
-        // Only place labels at spacing intervals (same as historical)
-        if (i % labelConfig.spacing !== 0) continue
+        // For time labels within a day: place every N bars depending on timeframe
+        // Target ~3-5 time labels per visible day
+        const timeIntervalMs = stf === '1m' ? 30 * 60_000
+          : stf === '5m' ? 60 * 60_000
+          : stf === '15m' ? 2 * 60 * 60_000
+          : stf === '30m' ? 2 * 60 * 60_000
+          : 4 * 60 * 60_000  // 1h/4h
+        let sNextTimeLabelTs = lastDataTs + timeIntervalMs
 
-        const futureX = Math.round(lastDataX + i * candleSpacing)
-        if (futureX > width - 10) break
-        if (futureX <= lastDataX) continue
+        let sStep = 0
+        while (sBarCount < maxFutureBars) {
+          sStep++
+          if (sStep > maxFutureBars * 3) break // safety
+          sRunningTs += sBarMs
+          const d = new Date(sRunningTs)
+          const utcDow = d.getUTCDay()
+          if (utcDow === 6 || utcDow === 0) continue
+          const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes()
+          if (utcMins < 8 * 60 || utcMins >= 24 * 60) continue
+          sBarCount++
 
-        const labelText = formatDateLabel(sRunningTs, labelConfig.format)
-        addLabel(futureX, labelText, false)
+          const futureX = Math.round(lastDataX + sBarCount * candleSpacing)
+          if (futureX > width - 10) break
+
+          const dayStr = new Date(sRunningTs).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+          const isNewDay = dayStr !== sLastDayStr
+
+          if (isNewDay) {
+            sDayCount++
+            sLastDayStr = dayStr
+            // Place a day marker "+1d", "+2d" etc
+            addLabel(futureX, `+${sDayCount}d`, true)
+          } else if (sRunningTs >= sNextTimeLabelTs) {
+            // Place a time label within the day
+            const timeLabel = new Date(sRunningTs).toLocaleTimeString('en-US', {
+              timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true,
+            })
+            addLabel(futureX, timeLabel, true)
+            sNextTimeLabelTs = sRunningTs + timeIntervalMs
+          }
+        }
+      } else {
+        // Daily/weekly: walk forward trading days and label at spacing intervals
+        const maxFutureBars = 90
+        let sRunningTs = lastDataTs
+        for (let i = 1; i <= maxFutureBars; i++) {
+          sRunningTs += sBarMs
+          const d = new Date(sRunningTs)
+          const sDow = d.getUTCDay()
+          if (sDow === 6) { sRunningTs += 2 * 86_400_000; continue }
+          if (sDow === 0) { sRunningTs += 86_400_000; continue }
+          if (i % labelConfig.spacing !== 0) continue
+          const futureX = Math.round(lastDataX + i * candleSpacing)
+          if (futureX > width - 10) break
+          const labelText = formatDateLabel(sRunningTs, labelConfig.format)
+          addLabel(futureX, labelText, true)
+        }
       }
+
       ctx.restore()
     }
 
@@ -21599,13 +22242,15 @@ export default function TradingViewChart({
         }
         const barMs = tfMsMap[timeframe] ?? (24 * 60 * 60 * 1000)
         const isIntradayTf = barMs < 86_400_000
-        const isHourlyTf = barMs >= 3_600_000 && isIntradayTf
-        const utcWinStart = isHourlyTf ? 8 * 60 : 13 * 60 + 30
-        const utcWinEnd = isHourlyTf ? 24 * 60 : 20 * 60
+        // Chart data window: Polygon intraday bars span UTC 08:00–24:00 for ALL sub-daily timeframes
+        // (premarket 1AM–6:30AM PST + regular 6:30AM–1PM PST + afterhours 1PM–5PM PST)
+        // Must use the SAME window here so bar count matches the chart's x-spacing exactly.
+        const utcWinStart = isIntradayTf ? 8 * 60 : 0    // UTC 08:00 for all intraday
+        const utcWinEnd = isIntradayTf ? 24 * 60 : 24 * 60 // UTC 24:00 (midnight) for all intraday
 
         let walkTs = lastCandle.timestamp
         let found = 0
-        const maxSteps = periodsIntoFuture * 4
+        const maxSteps = periodsIntoFuture * 5 // 5x buffer covers weekends + any gaps
         for (let step = 0; step < maxSteps && found < periodsIntoFuture; step++) {
           walkTs += barMs
           const d = new Date(walkTs)
@@ -22315,6 +22960,8 @@ export default function TradingViewChart({
         const price = coords.price
         const timestamp = coords.timestamp
 
+
+
         // Detect if cursor is inside an IV/HV sub-panel — show actual % value instead of stock price
         // Mirror renderChart's priceChartHeight calculation (timeAxisHeight=35, no volumeAreaHeight reserved)
         const _timeAxisH = 35
@@ -22422,7 +23069,7 @@ export default function TradingViewChart({
           timeZone: 'America/Los_Angeles',
         })
 
-        setCrosshairInfo({
+        const nextCrosshairInfo = {
           price: ivCrosshairLabel
             ? ivCrosshairLabel
             : bsCrosshairLabel
@@ -22445,7 +23092,11 @@ export default function TradingViewChart({
               volume: closestCandle.volume,
             }
             : undefined,
-        })
+        }
+
+        // Update ref synchronously so renderOverlay always reads current values
+        crosshairInfoRef.current = nextCrosshairInfo
+        setCrosshairInfo(nextCrosshairInfo)
       }
 
       // Handle box zoom dragging
@@ -22525,10 +23176,6 @@ export default function TradingViewChart({
 
       const newScrollOffset = Math.max(0, Math.min(maxOffset, startScrollOffset - candlesMoved))
 
-      // If in historical GEX replay, mark that user has manually scrolled so auto-scroll stops
-      if (gexReplayTimestampRef.current !== null) {
-        userManualScrollRef.current = true
-      }
       setScrollOffset(newScrollOffset)
 
       // =====================
@@ -22748,6 +23395,7 @@ export default function TradingViewChart({
 
   const handleMouseLeave = useCallback(() => {
     // Hide crosshair info when mouse leaves chart area
+    crosshairInfoRef.current = { ...crosshairInfoRef.current, visible: false }
     setCrosshairInfo((prev) => ({ ...prev, visible: false }))
   }, [])
 
@@ -30670,7 +31318,7 @@ export default function TradingViewChart({
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonal</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const d10 = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe); setSeasonal10YData(d10); setIsSeasonal10YActive(true); if (maxSeasonalYears >= 15) { const d15 = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe); setSeasonal15YData(d15); setIsSeasonal15YActive(true); } if (maxSeasonalYears >= 20) { const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data, undefined, config.timeframe); setSeasonal20YData(dMax); setIsSeasonal20YActive(true); } setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isLoadingSeasonalProjection ? 'Loading...' : `Seasonality${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? ' ✓' : ''}`}</button>
-                            <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const proj = await calculateSeasonalityProjection(symbol, 20, data, cycle); setIsLoadingSeasonalProjection(false); if (!proj) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(proj); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election (N/A)' : `Election${isSeasonalElectionActive ? ' ✓' : ''}`}</button>
+                            <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const result = await calculateElectionCandleProjection(symbol, data, cycle); setIsLoadingSeasonalProjection(false); if (result === 'NOT_ENOUGH_DATA' || !result) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(result as any); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election (N/A)' : `Election${isSeasonalElectionActive ? ' ✓' : ''}`}</button>
                           </div>
                           {/* ── TECHNALYSIS ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Technalysis</div>
@@ -30765,12 +31413,12 @@ export default function TradingViewChart({
 
                 {/* Expected Range Button - Standalone */}
                 <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsExpectedRangeDropdownOpen(true) }}
+                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsExpectedRangeDropdownOpen(true); if (pctChanceAvailExpiries.size === 0) fetchOptionExpiries(symbol).then(setPctChanceAvailExpiries) }}
                   onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}>
                   <button
                     ref={expectedRangeButtonRef}
                     onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
-                    className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive ? 'active' : ''}`}
+                    className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
                       fontWeight: '700',
@@ -30781,20 +31429,24 @@ export default function TradingViewChart({
                       justifyContent: 'center',
                     }}
                   >
-                    {(isLoadingExpectedRange || isLoadingFutureExpiries) ? (
-                      <svg
-                        className="animate-spin"
-                        style={{ width: 18, height: 18, color: isLoadingFutureExpiries ? '#FF9900' : 'white' }}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                        <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                      </svg>
-                    ) : (
+                    {(isLoadingExpectedRange || isLoadingFutureExpiries || isLoadingPctChance) ? (
                       <>
                         <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
-                        {(isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? (
+                        <svg
+                          className="animate-spin"
+                          style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
+                          <path fill="url(#spinner-grad-er)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                          <defs><linearGradient id="spinner-grad-er" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                        </svg>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        {(isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? (
                           <span
                             onClick={(e) => {
                               e.stopPropagation()
@@ -30811,6 +31463,9 @@ export default function TradingViewChart({
                               const nextSD = false
                               isStdDevRangeActiveRef.current = nextSD
                               setIsStdDevRangeActive(nextSD)
+                              setIsPctChanceActive(false)
+                              setPctChanceLevels(null)
+                              setPctChanceCustomDate('')
                             }}
                             className="ml-1"
                             style={{
@@ -30966,6 +31621,137 @@ export default function TradingViewChart({
                           >
                             ATR Range
                           </button>
+                          <button
+                            onClick={() => {
+                              if (isPctChanceActive) {
+                                setIsPctChanceActive(false)
+                                setPctChanceLevels(null)
+                                setIsExpectedRangeDropdownOpen(false)
+                                return
+                              }
+                              // Set active immediately so chart reacts; fetch levels in background
+                              setIsPctChanceActive(true)
+                              setIsLoadingPctChance(true)
+                              setIsExpectedRangeDropdownOpen(false)
+                              calculatePctChanceLevels(symbol, pctChanceCustomDate || undefined).then((result) => {
+                                setIsLoadingPctChance(false)
+                                if (result) {
+                                  // Set ref directly so next render frame picks it up immediately
+                                  pctChanceLevelsRef.current = result
+                                  setPctChanceLevels(result)
+                                  requestAnimationFrame(() => renderChartRef.current())
+                                } else {
+                                  isPctChanceActiveRef.current = false
+                                  setIsPctChanceActive(false)
+                                }
+                              })
+                            }}
+                            className={`btn-3d-carved ${isPctChanceActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            {isLoadingPctChance ? (
+                              <>
+                                {'% Chance'}
+                                <svg width="14" height="14" viewBox="0 0 14 14" style={{ marginLeft: 4 }}>
+                                  <defs>
+                                    <linearGradient id="pctSpinnerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                      <stop offset="0%" stopColor="#FFD700" />
+                                      <stop offset="100%" stopColor="#FF8500" />
+                                    </linearGradient>
+                                  </defs>
+                                  <circle cx="7" cy="7" r="5" fill="none" stroke="url(#pctSpinnerGrad)" strokeWidth="2" strokeDasharray="20 12" strokeLinecap="round">
+                                    <animateTransform attributeName="transform" type="rotate" from="0 7 7" to="360 7 7" dur="0.8s" repeatCount="indefinite" />
+                                  </circle>
+                                </svg>
+                              </>
+                          ) : '% Chance'}
+                          </button>
+                          {/* % Chance expiry — custom calendar showing valid expiry dates */}
+                          {(() => {
+                            const today = new Date(); today.setHours(0,0,0,0)
+                            const yr = pctChanceCalMonth.getFullYear()
+                            const mo = pctChanceCalMonth.getMonth()
+                            const firstDay = new Date(yr, mo, 1).getDay() // 0=Sun
+                            const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                            const cells: (number | null)[] = []
+                            for (let i = 0; i < firstDay; i++) cells.push(null)
+                            for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+                            while (cells.length % 7 !== 0) cells.push(null)
+                            const pad = (n: number) => String(n).padStart(2, '0')
+                            const monthLabel = pctChanceCalMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                            return (
+                              <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
+                                {/* Header */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() - 1); setPctChanceCalMonth(d) }}
+                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>‹</button>
+                                  <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{monthLabel}</span>
+                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() + 1); setPctChanceCalMonth(d) }}
+                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>›</button>
+                                </div>
+                                {/* Day-of-week labels */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '2px' }}>
+                                  {['S','M','T','W','T','F','S'].map((d,i) => (
+                                    <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>
+                                  ))}
+                                </div>
+                                {/* Day cells */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+                                  {cells.map((day, i) => {
+                                    if (!day) return <div key={i} />
+                                    const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
+                                    const cellDate = new Date(yr, mo, day)
+                                    const isPast = cellDate < today
+                                    const isAvail = pctChanceAvailExpiries.size > 0 ? pctChanceAvailExpiries.has(iso) : !isPast
+                                    const isSelected = pctChanceCustomDate === iso
+                                    return (
+                                      <div key={i} onClick={() => {
+                                        if (!isAvail || isPast) return
+                                        setPctChanceCustomDate(iso)
+                                        if (isPctChanceActive) {
+                                          setIsLoadingPctChance(true)
+                                          calculatePctChanceLevels(symbol, iso).then(result => {
+                                            setIsLoadingPctChance(false)
+                                            if (result) { pctChanceLevelsRef.current = result; setPctChanceLevels(result); requestAnimationFrame(() => renderChartRef.current()) }
+                                          })
+                                        }
+                                      }} style={{
+                                        textAlign: 'center',
+                                        fontSize: '11px',
+                                        fontWeight: isAvail ? '700' : '400',
+                                        padding: '3px 0',
+                                        borderRadius: '3px',
+                                        cursor: isPast || !isAvail ? 'default' : 'pointer',
+                                        color: isPast ? '#333' : isSelected ? '#000' : isAvail ? '#fff' : '#3a3a3a',
+                                        background: isSelected ? '#ff8500' : isAvail && !isPast ? 'rgba(255,133,0,0.12)' : 'transparent',
+                                        border: isAvail && !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent',
+                                      }}>{day}</div>
+                                    )
+                                  })}
+                                </div>
+                                {pctChanceAvailExpiries.size === 0 && (
+                                  <div style={{ textAlign: 'center', fontSize: '10px', color: '#555', marginTop: '4px' }}>Loading expiries...</div>
+                                )}
+                                {pctChanceCustomDate && (
+                                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>{pctChanceCustomDate}</span>
+                                    <button onClick={() => { setPctChanceCustomDate('') }}
+                                      style={{ background: 'none', border: 'none', color: '#555', fontSize: '12px', cursor: 'pointer', padding: '0 2px' }}>✕ clear</button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                           <button
                             onClick={() => {
                               const next = !isStdDevRangeActiveRef.current
@@ -31138,34 +31924,33 @@ export default function TradingViewChart({
                             </div>
                           )}
 
-                          {/* Future Expiries Scroller */}
+                          {/* Future Expiries Date Picker */}
                           <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,133,0,0.2)', paddingTop: '12px' }}>
                             <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '700', marginBottom: '8px', letterSpacing: '0.5px' }}>
                               FUTURE EXPIRIES UP TO
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                              <button
-                                className="btn-3d-carved"
-                                onClick={() => {
-                                  const d = new Date(futureExpiryCutoffMonth)
-                                  d.setMonth(d.getMonth() - 1)
-                                  if (d > new Date()) setFutureExpiryCutoffMonth(d)
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '14px', fontWeight: '700', borderRadius: '4px', minWidth: '28px' }}
-                              >‹</button>
-                              <span style={{ color: '#ffffff', fontSize: '15.6px', fontWeight: '700', fontFamily: 'monospace', flex: 1, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                {futureExpiryCutoffMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                              </span>
-                              <button
-                                className="btn-3d-carved"
-                                onClick={() => {
-                                  const d = new Date(futureExpiryCutoffMonth)
-                                  d.setMonth(d.getMonth() + 1)
-                                  setFutureExpiryCutoffMonth(d)
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '14px', fontWeight: '700', borderRadius: '4px', minWidth: '28px' }}
-                              >›</button>
-                            </div>
+                            <input
+                              type="date"
+                              min={new Date().toISOString().slice(0, 10)}
+                              value={futureExpiryCutoffMonth.toISOString().slice(0, 10)}
+                              onChange={e => {
+                                const d = new Date(e.target.value + 'T00:00:00')
+                                if (!isNaN(d.getTime()) && d > new Date()) setFutureExpiryCutoffMonth(d)
+                              }}
+                              style={{
+                                width: '100%',
+                                background: '#111',
+                                border: '1px solid rgba(255,133,0,0.4)',
+                                borderRadius: '4px',
+                                color: '#fff',
+                                fontSize: '13px',
+                                fontWeight: '700',
+                                padding: '7px 10px',
+                                marginBottom: '8px',
+                                cursor: 'pointer',
+                                colorScheme: 'dark',
+                              }}
+                            />
                             <button
                               className={`btn-3d-carved ${isFutureExpiriesActive ? 'active' : ''}`}
                               onClick={() => {
@@ -31230,10 +32015,15 @@ export default function TradingViewChart({
                     }}
                   >
                     <span style={{ color: isSeasonalActive ? '#ff8500' : isEventSeasonalLoading ? '#facc15' : undefined }}>
-                      {isEventSeasonalLoading
-                        ? (isMobile ? '...' : 'Loading…')
-                        : (isMobile ? 'SEAS' : 'Seasonality')}
+                      {isMobile ? 'SEAS' : 'Seasonality'}
                     </span>
+                    {(isEventSeasonalLoading || isLoadingSeasonalProjection) && (
+                      <svg className="animate-spin" style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }} fill="none" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
+                        <path fill="url(#spinner-grad-seas)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        <defs><linearGradient id="spinner-grad-seas" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                      </svg>
+                    )}
                     {isSeasonalActive ? (
                       <span
                         onClick={(e) => {
@@ -31277,9 +32067,6 @@ export default function TradingViewChart({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     )}
-                    {isLoadingSeasonalProjection && (
-                      <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" style={{ flexShrink: 0 }} />
-                    )}
                   </button>
 
                   {/* Seasonal Dropdown */}
@@ -31307,7 +32094,7 @@ export default function TradingViewChart({
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {/* Single Seasonality toggle - loads all available year lines */}
+                          {/* Single Seasonality toggle — 1D only, draws 20Y OHLC candles */}
                           <button
                             onClick={async () => {
                               if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) {
@@ -31317,32 +32104,34 @@ export default function TradingViewChart({
                                 setSeasonal10YData(null)
                                 setSeasonal15YData(null)
                                 setSeasonal20YData(null)
+                                setSeasonalCandleData(null)
                                 if (!isSeasonalElectionActive) setIsSeasonalActive(false)
                               } else {
+                                if (config.timeframe !== '1d') {
+                                  setIsSeasonalDropdownOpen(false)
+                                  return
+                                }
                                 setIsLoadingSeasonalProjection(true)
                                 setIsSeasonalActive(true)
-                                const d10 = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe)
-                                setSeasonal10YData(d10)
-                                setIsSeasonal10YActive(true)
-                                if (maxSeasonalYears >= 15) {
-                                  const d15 = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe)
-                                  setSeasonal15YData(d15)
-                                  setIsSeasonal15YActive(true)
+                                setSeasonalCandleNoData(false)
+                                const result = await calculateSeasonalityCandleProjection(symbol, data)
+                                if (result === 'NOT_ENOUGH_DATA') {
+                                  setSeasonalCandleNoData(true)
+                                  setIsSeasonalActive(false)
+                                  setIsSeasonal20YActive(false)
+                                  setIsLoadingSeasonalProjection(false)
+                                  return
                                 }
-                                if (maxSeasonalYears >= 20) {
-                                  const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data, undefined, config.timeframe)
-                                  setSeasonal20YData(dMax)
-                                  setIsSeasonal20YActive(true)
-                                }
+                                setSeasonalCandleData(result)
+                                setIsSeasonal20YActive(true)
                                 setIsLoadingSeasonalProjection(false)
                               }
                               setIsSeasonalDropdownOpen(false)
                             }}
-                            className={`btn-3d-carved ${isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive ? 'active' : ''
-                              }`}
-                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                            className={`btn-3d-carved ${isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive ? 'active' : ''}`}
+                            style={{ padding: '10px 16px', fontWeight: '700', fontSize: '14px', textAlign: 'left', borderRadius: '4px', width: '100%', opacity: config.timeframe !== '1d' ? 0.4 : 1 }}
                           >
-                            {isLoadingSeasonalProjection ? 'Loading...' : 'Seasonality'}
+                            {isLoadingSeasonalProjection ? 'Loading...' : seasonalCandleNoData ? 'Not Enough Data' : config.timeframe !== '1d' ? 'Seasonality (1D only)' : 'Seasonality (20Y Avg)'}
                           </button>
                           <button
                             onClick={async () => {
@@ -31355,19 +32144,14 @@ export default function TradingViewChart({
                                   setElectionInsufficientData(false)
                                   setIsLoadingSeasonalProjection(true)
                                   const currentCycle = getCurrentElectionCycle()
-                                  const projection = await calculateSeasonalityProjection(
-                                    symbol,
-                                    20,
-                                    data,
-                                    currentCycle
-                                  )
+                                  const result = await calculateElectionCandleProjection(symbol, data, currentCycle)
                                   setIsLoadingSeasonalProjection(false)
-                                  if (!projection) {
+                                  if (result === 'NOT_ENOUGH_DATA' || !result) {
                                     setElectionInsufficientData(true)
                                     setIsSeasonalElectionActive(false)
                                     return
                                   }
-                                  setSeasonalElectionData(projection)
+                                  setSeasonalElectionData(result as any)
                                 }
                                 setIsSeasonalActive(true)
                               } else {
@@ -31416,6 +32200,9 @@ export default function TradingViewChart({
                             }}
                           >
                             <span>📊 Smart Performance</span>
+                            <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>
+                              {smartPerformanceSignals.length > 0 ? `(${smartPerformanceSignals.length})` : ''}
+                            </span>
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                             </svg>
@@ -31444,7 +32231,7 @@ export default function TradingViewChart({
                           >
                             <span>📅 Smart Events</span>
                             <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>
-                              {smartEventSignals.length > 0 ? `${smartEventSignals.length} active` : ''}
+                              {smartEventSignals.length > 0 ? `(${smartEventSignals.length})` : ''}
                             </span>
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -31742,11 +32529,8 @@ export default function TradingViewChart({
                         overflowY: 'auto',
                       }}
                     >
-                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '800', marginBottom: '4px', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '800', marginBottom: '10px', letterSpacing: '1px', textTransform: 'uppercase' }}>
                         Active Events (±30 days)
-                      </div>
-                      <div style={{ color: '#555', fontSize: '10px', marginBottom: '10px' }}>
-                        Shows how {symbol} performed seasonally into & 30 days after each event
                       </div>
                       {smartEventSignals.length === 0 ? (
                         <div style={{ color: '#666', fontSize: '12px', padding: '8px 0' }}>No events in range</div>
@@ -31768,7 +32552,7 @@ export default function TradingViewChart({
                               style={{ padding: '9px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%', display: 'flex', flexDirection: 'column', gap: '2px' }}
                             >
                               <span style={{ fontWeight: '700', color: activeSmartSignal === sig.key ? '#ff8500' : '#fff' }}>{sig.label}</span>
-                              <span style={{ fontSize: '10px', color: '#888' }}>{sig.description}</span>
+                              <span style={{ fontSize: '10px', color: '#fff' }}>{sig.description}</span>
                             </button>
                           ))}
                         </div>
@@ -31801,15 +32585,19 @@ export default function TradingViewChart({
                     }}
                   >
                     {(isGexMapLoading || isGexMap45dLoading || isDexMapLoading || isDexMap45dLoading) ? (
-                      <svg
-                        className="animate-spin"
-                        style={{ width: 18, height: 18, color: 'white' }}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                        <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                      </svg>
+                      <>
+                        <span style={{ color: (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? '#ff8500' : undefined }}>Gamma Exposure</span>
+                        <svg
+                          className="animate-spin"
+                          style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle cx="12" cy="12" r="10" stroke="rgba(255,160,0,0.25)" strokeWidth="3" />
+                          <path fill="url(#spinner-grad-gex)" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                          <defs><linearGradient id="spinner-grad-gex" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FFD700"/><stop offset="100%" stopColor="#FF8500"/></linearGradient></defs>
+                        </svg>
+                      </>
                     ) : (
                       <>
                         <span style={{ color: (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? '#ff8500' : undefined }}>Gamma Exposure</span>
@@ -31895,7 +32683,7 @@ export default function TradingViewChart({
                                 <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                               </svg>
                             ) : null}
-                            <span style={{ flex: 1 }}>{isGexMap45dLoading ? 'Loading…' : 'GEX MAP 45D'}</span>
+                            <span style={{ flex: 1 }}>{isGexMap45dLoading ? 'Loading…' : 'GEXPIRY MAP'}</span>
                             {isGexMap45dActive && !isGexMap45dLoading && (
                               <span onClick={(e) => { e.stopPropagation(); setIsGexMap45dActive(false); setGexMap45dData(null) }}
                                 style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
@@ -31931,7 +32719,7 @@ export default function TradingViewChart({
                                 <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                               </svg>
                             ) : null}
-                            <span style={{ flex: 1 }}>{isDexMap45dLoading ? 'Loading…' : 'DEX MAP 45D'}</span>
+                            <span style={{ flex: 1 }}>{isDexMap45dLoading ? 'Loading…' : 'DEXPIRY MAP'}</span>
                             {isDexMap45dActive && !isDexMap45dLoading && (
                               <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }}
                                 style={{ color: '#ff8500', fontSize: '20px', fontWeight: '700', lineHeight: '1', padding: '0 2px', cursor: 'pointer' }}>×</span>
@@ -34480,7 +35268,7 @@ export default function TradingViewChart({
                         <button onClick={() => setCurrentDrawingTool(isActive ? 'select' : tool)}
                           style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: bright, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = bright; (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{icon}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}</div>
                       </div>
@@ -34496,9 +35284,9 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: '#FCD34D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#FCD34D' : '#78450A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#FCD34D' : '#78450A'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #FCD34D', borderRadius: '5px', padding: '3px 9px', color: '#FCD34D', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{on ? 'Lock: ON' : 'Lock: OFF'}</div>
                       </div>
@@ -34547,9 +35335,9 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: '#4ADE80', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: vis ? '#4ADE80' : '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = vis ? '#4ADE80' : '#166534'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{vis ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6" /></svg>}</button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4ADE80', borderRadius: '5px', padding: '3px 9px', color: '#4ADE80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{vis ? 'Drawings: On' : 'Drawings: Off'}</div>
                       </div>
@@ -34560,9 +35348,9 @@ export default function TradingViewChart({
                     onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                     onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                   >
-                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#F87171', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#7F1D1D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#7F1D1D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                     ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
                     <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F87171', borderRadius: '5px', padding: '3px 9px', color: '#F87171', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Clear All</div>
                   </div>

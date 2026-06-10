@@ -1930,155 +1930,155 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'trendline' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'trendline' ? '#000' : '#e0e0e0',
-              border: currentTool === 'trendline' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'trendline' ? '#FF8500' : '#3d2200',
+              color: '#FF8500',
+              border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'trendline' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'trendline' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
             }}
             title="Trendline"
           >
-            <TbLine size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Trend</span>
+            <TbLine size={14} color={currentTool === 'trendline' ? '#000' : '#FF8500'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'trendline' ? '#000' : '#FF8500' }}>Trend</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('horizontal'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'horizontal' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'horizontal' ? '#000' : '#e0e0e0',
-              border: currentTool === 'horizontal' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'horizontal' ? '#FF8500' : '#3d2200',
+              color: '#FF8500',
+              border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'horizontal' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'horizontal' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
             }}
             title="Horizontal Line"
           >
-            <TbMinus size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>H-Line</span>
+            <TbMinus size={14} color={currentTool === 'horizontal' ? '#000' : '#FF8500'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'horizontal' ? '#000' : '#FF8500' }}>H-Line</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('vertical'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'vertical' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'vertical' ? '#000' : '#e0e0e0',
-              border: currentTool === 'vertical' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'vertical' ? '#B06EFF' : '#1e0d33',
+              color: '#B06EFF',
+              border: '1px solid #B06EFF',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'vertical' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'vertical' ? '0 0 12px rgba(176,110,255,0.6)' : 'none',
             }}
             title="Vertical Line"
           >
-            <TbArrowsVertical size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>V-Line</span>
+            <TbArrowsVertical size={14} color={currentTool === 'vertical' ? '#000' : '#B06EFF'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'vertical' ? '#000' : '#B06EFF' }}>V-Line</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('ray'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'ray' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'ray' ? '#000' : '#e0e0e0',
-              border: currentTool === 'ray' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'ray' ? '#FF8500' : '#3d2200',
+              color: '#FF8500',
+              border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'ray' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'ray' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
             }}
             title="Ray"
           >
-            <TbArrowUpRight size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Ray</span>
+            <TbArrowUpRight size={14} color={currentTool === 'ray' ? '#000' : '#FF8500'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'ray' ? '#000' : '#FF8500' }}>Ray</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('rectangle'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'rectangle' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'rectangle' ? '#000' : '#e0e0e0',
-              border: currentTool === 'rectangle' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'rectangle' ? '#4A9EFF' : '#0d2040',
+              color: '#4A9EFF',
+              border: '1px solid #4A9EFF',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'rectangle' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'rectangle' ? '0 0 12px rgba(74,158,255,0.6)' : 'none',
             }}
             title="Rectangle"
           >
-            <TbSquare size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Box</span>
+            <TbSquare size={14} color={currentTool === 'rectangle' ? '#000' : '#4A9EFF'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'rectangle' ? '#000' : '#4A9EFF' }}>Box</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('text'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'text' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'text' ? '#000' : '#e0e0e0',
-              border: currentTool === 'text' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'text' ? '#FFD700' : '#332900',
+              color: '#FFD700',
+              border: '1px solid #FFD700',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'text' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'text' ? '0 0 12px rgba(255,215,0,0.6)' : 'none',
             }}
             title="Text"
           >
-            <TbTextSize size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Text</span>
+            <TbTextSize size={14} color={currentTool === 'text' ? '#000' : '#FFD700'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'text' ? '#000' : '#FFD700' }}>Text</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('parallelChannel'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'parallelChannel' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: currentTool === 'parallelChannel' ? '#000' : '#e0e0e0',
-              border: currentTool === 'parallelChannel' ? '1px solid #FF8500' : '1px solid rgba(255,255,255,0.15)',
+              background: currentTool === 'parallelChannel' ? '#FF8500' : '#3d2200',
+              color: '#FF8500',
+              border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'parallelChannel' ? '0 0 10px rgba(255,133,0,0.4)' : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'parallelChannel' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
             }}
             title="Parallel Channel"
           >
-            <TbLayout size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Channel</span>
+            <TbLayout size={14} color={currentTool === 'parallelChannel' ? '#000' : '#FF8500'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'parallelChannel' ? '#000' : '#FF8500' }}>Channel</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('buyZone'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'buyZone' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : 'linear-gradient(180deg, #0d1f13 0%, #081208 100%)',
-              color: currentTool === 'buyZone' ? '#000' : '#22c55e',
-              border: currentTool === 'buyZone' ? '1px solid #22c55e' : '1px solid rgba(34,197,94,0.25)',
+              background: currentTool === 'buyZone' ? '#22c55e' : '#0d2614',
+              color: '#22c55e',
+              border: '1px solid #22c55e',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'buyZone' ? '0 0 10px rgba(34,197,94,0.4)' : 'inset 0 1px 0 rgba(34,197,94,0.08), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'buyZone' ? '0 0 12px rgba(34,197,94,0.6)' : 'none',
             }}
             title="Buy Zone"
           >
-            <FiTrendingUp size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Buy</span>
+            <FiTrendingUp size={14} color={currentTool === 'buyZone' ? '#000' : '#22c55e'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'buyZone' ? '#000' : '#22c55e' }}>Buy</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('sellZone'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'sellZone' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : 'linear-gradient(180deg, #1f0d0d 0%, #120808 100%)',
-              color: currentTool === 'sellZone' ? '#000' : '#ef4444',
-              border: currentTool === 'sellZone' ? '1px solid #ef4444' : '1px solid rgba(239,68,68,0.25)',
+              background: currentTool === 'sellZone' ? '#ef4444' : '#2a0d0d',
+              color: '#ef4444',
+              border: '1px solid #ef4444',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'sellZone' ? '0 0 10px rgba(239,68,68,0.4)' : 'inset 0 1px 0 rgba(239,68,68,0.08), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: currentTool === 'sellZone' ? '0 0 12px rgba(239,68,68,0.6)' : 'none',
             }}
             title="Sell Zone"
           >
-            <FiTrendingDown size={14} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace' }}>Sell</span>
+            <FiTrendingDown size={14} color={currentTool === 'sellZone' ? '#000' : '#ef4444'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'sellZone' ? '#000' : '#ef4444' }}>Sell</span>
           </button>
 
           <button
             onClick={() => { if (drawings.length > 0) setDrawings(drawings.slice(0, -1)) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-              color: drawings.length > 0 ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.15)',
-              border: drawings.length > 0 ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.05)',
+              background: drawings.length > 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
+              color: drawings.length > 0 ? '#ffffff' : 'rgba(255,255,255,0.3)',
+              border: drawings.length > 0 ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: '5px', cursor: drawings.length > 0 ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: 'none',
             }}
             title="Undo last drawing"
           >
@@ -2099,9 +2099,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             onClick={clearDrawings}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: 'linear-gradient(180deg, #1f0808 0%, #120505 100%)',
+              background: '#2a0509',
               color: '#DC143C',
-              border: '1px solid rgba(220,20,60,0.35)',
+              border: '1px solid #DC143C',
               borderRadius: '5px',
               cursor: 'pointer',
               display: 'flex',
@@ -2109,7 +2109,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               gap: '3px',
               justifyContent: 'center',
               flexDirection: 'column' as const,
-              boxShadow: 'inset 0 1px 0 rgba(220,20,60,0.1), 0 2px 4px rgba(0,0,0,0.8)',
+              boxShadow: 'none',
             }}
             title="Clear all drawings"
           >

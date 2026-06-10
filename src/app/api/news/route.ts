@@ -759,3 +759,63 @@ function calculateUrgency(article: NewsArticle): number {
 
   return Math.min(1, urgency)
 }
+
+// Exported helper — call this directly instead of doing a loopback HTTP fetch
+export async function fetchNewsArticles(limit: number = 100): Promise<any[]> {
+  try {
+    const params = new URLSearchParams({
+      apikey: POLYGON_API_KEY,
+      limit: String(Math.min(limit, 1000)),
+      order: 'desc',
+      sort: 'published_utc',
+    })
+    const timeAgo = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    params.append('published_utc.gte', timeAgo.toISOString())
+
+    const url = `https://api.polygon.io/v2/reference/news?${params.toString()}`
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Bloomberg-Terminal/1.0' },
+    })
+
+    const polygonArticles: any[] = []
+    if (response.ok) {
+      const data: NewsResponse = await response.json()
+      const blacklistedPublishers = [
+        'motley fool', 'fool', 'the motley fool', 'globenewswire', 'globe newswire',
+        'pr newswire', 'prnewswire', 'business wire', 'businesswire', 'accesswire',
+        'news direct', 'newsdirect', 'einpresswire', 'ein presswire', 'globe wire',
+        'marketwired', 'investing.com', 'investing com',
+      ]
+      data.results
+        .map((article) => ({
+          ...article,
+          sentiment: analyzeSentiment(article.title, article.description),
+          sentiment_score: calculateSentimentScore(article.title, article.description),
+          relevance_score: calculateRelevanceScore(article, null),
+          time_ago: getTimeAgo(article.published_utc),
+          category: categorizeNews(article),
+          urgency: calculateUrgency(article),
+        }))
+        .filter((article) => {
+          const publisher = article.publisher?.name?.toLowerCase() || ''
+          return !blacklistedPublishers.some((pub) => publisher.includes(pub))
+        })
+        .forEach((article) => polygonArticles.push(article))
+    }
+
+    let rssArticles: any[] = []
+    try {
+      rssArticles = await fetchAllRSS()
+    } catch (_) {}
+
+    const combined = [...polygonArticles, ...rssArticles]
+    combined.sort((a, b) => {
+      if (a.urgency !== b.urgency) return b.urgency - a.urgency
+      return new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime()
+    })
+    return combined.slice(0, limit)
+  } catch (error) {
+    console.error('fetchNewsArticles error:', error)
+    return []
+  }
+}
