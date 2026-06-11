@@ -1479,7 +1479,7 @@ export default function OptionsFlowPage() {
 
   if (showAlgoFlow) {
     return (
-      <div style={{ height: 'calc(100% + 60px)', marginTop: '-60px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'fixed', top: 119, left: 0, right: 0, bottom: 0, zIndex: 10001, display: 'flex', flexDirection: 'column', background: '#000' }}>
         <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
       </div>
     )
