@@ -175,7 +175,10 @@ export default function TickerScroller() {
               ? '1px solid #a89888'
               : '1px solid rgba(255, 165, 0, 0.2)',
           overflow: 'hidden',
-          position: 'relative',
+          position: 'fixed',
+          top: '90px',
+          left: 0,
+          right: 0,
           height: '29px',
           zIndex: 10000,
           display: 'flex',

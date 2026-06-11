@@ -31,10 +31,10 @@ export default function RootLayout({
                 <ClientSessionProvider>
                     <MarketRegimeProvider>
                         <AuthGuard>
-                            <div className="terminal-app" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
+                            <div className="terminal-app" style={{ display: 'flex', flexDirection: 'column', overflowX: 'clip', width: '100%', maxWidth: '100vw' }}>
                                 <Background />
                                 <ConditionalNavigation />
-                                <main className="main-content" style={{ flex: 1, overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
+                                <main className="main-content" style={{ flex: 1, overflowX: 'clip', width: '100%', maxWidth: '100vw' }}>
                                     {children}
                                 </main>
                             </div>

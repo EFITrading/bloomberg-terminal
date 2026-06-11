@@ -5767,7 +5767,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         ref={captureRef}
         className={`bg-black flex flex-col ${isFlowTrackingOpen ? 'md:flex hidden' : 'flex'}`}
         style={{
-          minHeight: showFlowTrackingInline ? 'auto' : '100vh',
+          height: showFlowTrackingInline ? 'auto' : (isMobileView ? 'calc(100vh - 56px)' : 'calc(100vh - 119px)'),
+          minHeight: showFlowTrackingInline ? 'auto' : undefined,
+          overflow: showFlowTrackingInline ? undefined : 'hidden',
 
           width: isSidebarPanel ? '100%' : isMobileView ? '100%' : '74%',
 
@@ -5783,15 +5785,17 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           className="bg-black border-b border-gray-700 flex-shrink-0"
           style={{
-            position: 'relative',
-
-            zIndex: 1001,
+            position: 'fixed',
+            top: isMobileView ? '56px' : '119px',
+            left: 0,
+            right: 0,
+            zIndex: 999,
 
             width: '100%',
 
             overflow: 'visible',
 
-            marginTop: isSidebarPanel ? '0' : '-52px',
+            marginTop: 0,
           }}
         >
           {/* Mobile Layout - 2 Rows */}
@@ -7197,6 +7201,9 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
 
+        {/* Shim: reserves space for the fixed control bar (nav+ticker+bar height) */}
+        <div style={{ height: isMobileView ? '100px' : '52px', flexShrink: 0 }} aria-hidden="true" />
+
         {streamError && (
           <div className="bg-red-900/20 border-l-4 border-red-500 px-6 py-4 mx-8 my-4 rounded-r-lg">
             <div className="flex items-center gap-3">
@@ -7639,13 +7646,15 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div
               className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto"
               style={{
-                height: 'calc(100vh - 160px)',
+                height: isMobileView ? 'calc(100vh - 156px)' : 'calc(100vh - 171px)',
+                overflowY: 'auto',
+                overflowX: 'auto',
                 paddingBottom: '100px',
                 scrollBehavior: 'smooth',
               }}
             >
               <table className="w-full options-flow-table" style={{ marginBottom: '80px' }}>
-                <thead className="col-thead sticky top-0 z-[1]">
+                <thead className="col-thead sticky top-0 z-[100]">
                   <tr>
                     {/* TIME */}
                     <th

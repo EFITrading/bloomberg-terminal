@@ -980,10 +980,13 @@ export default function OptionsFlowPage() {
             // Phase 1 excludes ETFs and MAG7 — server skips them entirely
             const sseUrl = `/api/stream-options-flow?ticker=ALL_TICKERS&offset=${offset}&limit=${BATCH}&exclude=${encodeURIComponent(ETF_COMMA + ',' + MAG7_COMMA)}`
 
+            const _chunkStart = Date.now()
+            const completedTickers: string[] = []
+
             const es = new EventSource(sseUrl)
             const timeout = setTimeout(
               () => {
-                console.warn(`[ALL-CHUNK offset=${offset}] TIMED OUT after 5 min — resolving with ${trades.length} trades`)
+                console.warn(`[SCAN] Chunk offset=${offset} TIMED OUT after 5min — ${trades.length} trades from ${completedTickers.length} tickers. Completed: ${completedTickers.join(', ') || 'none'}`)
                 es.close()
                 resolve({ trades, total, summary, market_info })
               },
@@ -998,7 +1001,7 @@ export default function OptionsFlowPage() {
                     const incoming: OptionsFlowData[] = d.trades || []
                     trades.push(...incoming)
                     scannedCount++
-
+                    if (d.ticker) completedTickers.push(d.ticker)
                     break
                   }
                   case 'complete':
@@ -1006,30 +1009,29 @@ export default function OptionsFlowPage() {
                     total = d.totalSymbols || 0
                     summary = d.summary || null
                     market_info = d.market_info || null
-
+                    console.log(`[SCAN] Chunk offset=${offset} done in ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades from ${completedTickers.length} tickers`)
                     es.close()
                     resolve({ trades, total, summary, market_info })
                     break
                   case 'error':
-                    console.error(`[ALL-CHUNK offset=${offset}] ERROR event:`, d.error || d)
+                    console.error(`[SCAN] Chunk offset=${offset} ERROR after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s:`, d.error || d)
                     clearTimeout(timeout)
                     es.close()
                     resolve({ trades, total, summary, market_info })
                     break
                   case 'close':
-
                     clearTimeout(timeout)
                     es.close()
                     resolve({ trades, total, summary, market_info })
                     break
                 }
               } catch (parseErr) {
-                console.warn(`[ALL-CHUNK offset=${offset}] parse error:`, parseErr)
+                console.warn(`[SCAN] Chunk offset=${offset} parse error:`, parseErr)
               }
             }
 
             es.onerror = (err) => {
-              console.error(`[ALL-CHUNK offset=${offset}] SSE onerror — resolved with ${trades.length} trades`, err)
+              console.error(`[SCAN] Chunk offset=${offset} SSE connection error after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades so far`, err)
               clearTimeout(timeout)
               es.close()
               resolve({ trades, total, summary, market_info })
@@ -1048,21 +1050,36 @@ export default function OptionsFlowPage() {
             const trades: OptionsFlowData[] = []
             const url = `/api/stream-options-flow?ticker=${tickerList}`
 
+            const _start = Date.now()
+            const _tickersDone: string[] = []
+
             const es = new EventSource(url)
             const timeout = setTimeout(() => {
-              console.warn(`[${label}] TIMED OUT — resolving with ${trades.length} trades`)
+              console.warn(`[SCAN] ${label} TIMED OUT after 5min — ${trades.length} trades. Completed: ${_tickersDone.join(', ') || 'none'}`)
               es.close(); resolve(trades)
             }, 5 * 60 * 1000)
             es.onmessage = (event) => {
               try {
                 const d = JSON.parse(event.data)
-                if (d.type === 'ticker_complete' && d.trades?.length) trades.push(...d.trades)
-                if (d.type === 'complete') { clearTimeout(timeout); es.close(); resolve(trades) }
-                if (d.type === 'error') { clearTimeout(timeout); es.close(); resolve(trades) }
+                if (d.type === 'ticker_complete') {
+                  if (d.trades?.length) trades.push(...d.trades)
+                  if (d.ticker) _tickersDone.push(d.ticker)
+                }
+                if (d.type === 'complete') {
+                  console.log(`[SCAN] ${label} done in ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades from: ${_tickersDone.join(', ') || 'none'}`)
+                  clearTimeout(timeout); es.close(); resolve(trades)
+                }
+                if (d.type === 'error') {
+                  console.error(`[SCAN] ${label} ERROR after ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades so far`)
+                  clearTimeout(timeout); es.close(); resolve(trades)
+                }
                 if (d.type === 'close') { clearTimeout(timeout); es.close(); resolve(trades) }
               } catch { /* ignore parse errors */ }
             }
-            es.onerror = () => { clearTimeout(timeout); es.close(); resolve(trades) }
+            es.onerror = () => {
+              console.error(`[SCAN] ${label} SSE connection error after ${((Date.now() - _start) / 1000).toFixed(1)}s`)
+              clearTimeout(timeout); es.close(); resolve(trades)
+            }
           })
 
         try {
@@ -1110,6 +1127,8 @@ export default function OptionsFlowPage() {
           setLastUpdate(new Date().toLocaleString())
 
 
+          console.log(`[SCAN] Phase 1 done — ${phase1Trades.length} trades`)
+
           // ── PHASE 2: ETFs ─────────────────────────────────────────────────
           setStreamingStatus('Phase 2/3 — Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
           const phase2Raw = await openCommaSSE(ETF_COMMA, 'ETF-PHASE')
@@ -1129,6 +1148,8 @@ export default function OptionsFlowPage() {
           })
           setLastUpdate(new Date().toLocaleString())
 
+          console.log(`[SCAN] Phase 2 done — ${phase2Raw.length} trades`)
+
           // ── PHASE 3: MAG7 ─────────────────────────────────────────────────
           setStreamingStatus('Phase 3/3 — Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
           const phase3Raw = await openCommaSSE(MAG7_COMMA, 'MAG7-PHASE')
@@ -1146,6 +1167,9 @@ export default function OptionsFlowPage() {
 
             return [...prev, ...newMAG7]
           })
+
+          console.log(`[SCAN] Phase 3 done — ${phase3Raw.length} trades`)
+          console.log(`[SCAN] All phases complete — total trades in table: ${withOI1.length + withOI2.length + withOI3.length}`)
 
           setIsStreamComplete(true)
           setLoading(false)
@@ -1427,7 +1451,7 @@ export default function OptionsFlowPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="bg-black text-white">
       {/* Main Content */}
       <div className="p-0">
         <style jsx>{`

@@ -89,9 +89,10 @@ export default function Navigation() {
           background: isBlindMe ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
           borderBottom: isBlindMe ? '1px solid #a89888' : '1px solid rgba(255, 133, 0, 0.3)',
           boxShadow: isBlindMe ? '0 2px 8px rgba(80,60,40,0.15), inset 0 1px 0 rgba(255,253,250,0.5)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
-          position: 'sticky',
+          position: 'fixed',
           top: 0,
-          width: '100%',
+          left: 0,
+          right: 0,
           overflow: 'visible',
           zIndex: 1000,
         }}
@@ -681,9 +682,13 @@ export default function Navigation() {
           </div>
         </div>
       </nav>
+      {/* Shim: reserves space for the fixed nav so content isn't hidden behind it */}
+      <div style={{ height: isMobile ? '56px' : '90px', flexShrink: 0 }} aria-hidden="true" />
 
       {/* Mobile overlay — extracted to NavigationMobileMenu.tsx */}
       <TickerScroller />
+      {/* Shim: reserves space for the fixed ticker scroller (desktop only, 29px) */}
+      {!isMobile && <div style={{ height: '29px', flexShrink: 0 }} aria-hidden="true" />}
     </>
   )
 }
