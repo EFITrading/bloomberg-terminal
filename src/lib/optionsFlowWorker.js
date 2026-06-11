@@ -8,8 +8,8 @@ const https = require('https');
 // TIME_WAIT for 60s and consumed all OS file descriptors.
 const keepAliveAgent = new https.Agent({
        keepAlive: true,
-       maxSockets: 10,
-       maxFreeSockets: 10,
+       maxSockets: 20,
+       maxFreeSockets: 20,
        timeout: 30000,
 });
 
@@ -33,9 +33,10 @@ if (parentPort) {
               // Simple function to make Polygon API calls
               function makePolygonRequest(url) {
                      return new Promise((resolve, reject) => {
-                            https.get(url, { agent: keepAliveAgent }, (res) => {
+                            const req = https.get(url, { agent: keepAliveAgent }, (res) => {
                                    // Check HTTP status code BEFORE parsing
                                    if (res.statusCode !== 200) {
+                                          res.resume(); // drain response
                                           reject(new Error(`API returned status ${res.statusCode} for ${url.substring(0, 100)}`));
                                           return;
                                    }
@@ -58,6 +59,10 @@ if (parentPort) {
                                           }
                                    });
                             }).on('error', reject);
+                            // Per-request timeout: 30s to allow Polygon to return all trades
+                            req.setTimeout(30000, () => {
+                                   req.destroy(new Error(`Request timeout after 30s: ${url.substring(0, 100)}`));
+                            });
                      });
               }
 

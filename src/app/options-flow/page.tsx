@@ -666,6 +666,8 @@ export default function OptionsFlowPage() {
   const pendingTradesRef = useRef<OptionsFlowData[]>([])
   const seenTradeIdsRef = useRef<Set<string>>(new Set())
   const rafFlushRef = useRef<number | null>(null)
+  const cancelRef = useRef<boolean>(false)
+  const activeSSEsRef = useRef<Set<{ es: EventSource; abort: () => void }>>(new Set())
   const flushPendingTrades = () => {
     if (pendingTradesRef.current.length === 0) return
     const batch = pendingTradesRef.current.splice(0)
@@ -719,6 +721,8 @@ export default function OptionsFlowPage() {
     setLoading(true)
     setStreamError('')
     setIsStreamComplete(false) // Reset from any previous scan
+    cancelRef.current = false  // Reset cancel flag for new scan
+    activeSSEsRef.current.clear() // Clear any stale SSE refs
     // Reset streaming buffers for new scan
     pendingTradesRef.current = []
     seenTradeIdsRef.current = new Set()
@@ -972,6 +976,10 @@ export default function OptionsFlowPage() {
           offset: number
         ): Promise<{ trades: OptionsFlowData[]; total: number; summary: any; market_info: any }> =>
           new Promise((resolve) => {
+            if (cancelRef.current) {
+              resolve({ trades: [], total: 0, summary: null, market_info: null })
+              return
+            }
             const trades: OptionsFlowData[] = []
             let total = 0
             let summary: any = null
@@ -984,11 +992,21 @@ export default function OptionsFlowPage() {
             const completedTickers: string[] = []
 
             const es = new EventSource(sseUrl)
+            let resolved = false
+            const doResolve = (result: { trades: OptionsFlowData[]; total: number; summary: any; market_info: any }) => {
+              if (resolved) return
+              resolved = true
+              clearTimeout(timeout)
+              activeSSEsRef.current.delete(entry)
+              es.close()
+              resolve(result)
+            }
+            const entry = { es, abort: () => { doResolve({ trades, total, summary, market_info }) } }
+            activeSSEsRef.current.add(entry)
             const timeout = setTimeout(
               () => {
                 console.warn(`[SCAN] Chunk offset=${offset} TIMED OUT after 5min — ${trades.length} trades from ${completedTickers.length} tickers. Completed: ${completedTickers.join(', ') || 'none'}`)
-                es.close()
-                resolve({ trades, total, summary, market_info })
+                doResolve({ trades, total, summary, market_info })
               },
               5 * 60 * 1000
             )
@@ -1005,24 +1023,18 @@ export default function OptionsFlowPage() {
                     break
                   }
                   case 'complete':
-                    clearTimeout(timeout)
                     total = d.totalSymbols || 0
                     summary = d.summary || null
                     market_info = d.market_info || null
                     console.log(`[SCAN] Chunk offset=${offset} done in ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades from ${completedTickers.length} tickers`)
-                    es.close()
-                    resolve({ trades, total, summary, market_info })
+                    doResolve({ trades, total, summary, market_info })
                     break
                   case 'error':
                     console.error(`[SCAN] Chunk offset=${offset} ERROR after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s:`, d.error || d)
-                    clearTimeout(timeout)
-                    es.close()
-                    resolve({ trades, total, summary, market_info })
+                    doResolve({ trades, total, summary, market_info })
                     break
                   case 'close':
-                    clearTimeout(timeout)
-                    es.close()
-                    resolve({ trades, total, summary, market_info })
+                    doResolve({ trades, total, summary, market_info })
                     break
                 }
               } catch (parseErr) {
@@ -1032,9 +1044,7 @@ export default function OptionsFlowPage() {
 
             es.onerror = (err) => {
               console.error(`[SCAN] Chunk offset=${offset} SSE connection error after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades so far`, err)
-              clearTimeout(timeout)
-              es.close()
-              resolve({ trades, total, summary, market_info })
+              doResolve({ trades, total, summary, market_info })
             }
           })
 
@@ -1047,6 +1057,7 @@ export default function OptionsFlowPage() {
         // Opens a comma-list SSE (non-chunked), resolves with trades, never rejects
         const openCommaSSE = (tickerList: string, label: string): Promise<OptionsFlowData[]> =>
           new Promise((resolve) => {
+            if (cancelRef.current) { resolve([]); return }
             const trades: OptionsFlowData[] = []
             const url = `/api/stream-options-flow?ticker=${tickerList}`
 
@@ -1054,9 +1065,20 @@ export default function OptionsFlowPage() {
             const _tickersDone: string[] = []
 
             const es = new EventSource(url)
+            let resolved = false
+            const doResolve = (result: OptionsFlowData[]) => {
+              if (resolved) return
+              resolved = true
+              clearTimeout(timeout)
+              activeSSEsRef.current.delete(entry)
+              es.close()
+              resolve(result)
+            }
+            const entry = { es, abort: () => { doResolve(trades) } }
+            activeSSEsRef.current.add(entry)
             const timeout = setTimeout(() => {
               console.warn(`[SCAN] ${label} TIMED OUT after 5min — ${trades.length} trades. Completed: ${_tickersDone.join(', ') || 'none'}`)
-              es.close(); resolve(trades)
+              doResolve(trades)
             }, 5 * 60 * 1000)
             es.onmessage = (event) => {
               try {
@@ -1067,18 +1089,18 @@ export default function OptionsFlowPage() {
                 }
                 if (d.type === 'complete') {
                   console.log(`[SCAN] ${label} done in ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades from: ${_tickersDone.join(', ') || 'none'}`)
-                  clearTimeout(timeout); es.close(); resolve(trades)
+                  doResolve(trades)
                 }
                 if (d.type === 'error') {
                   console.error(`[SCAN] ${label} ERROR after ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades so far`)
-                  clearTimeout(timeout); es.close(); resolve(trades)
+                  doResolve(trades)
                 }
-                if (d.type === 'close') { clearTimeout(timeout); es.close(); resolve(trades) }
+                if (d.type === 'close') { doResolve(trades) }
               } catch { /* ignore parse errors */ }
             }
             es.onerror = () => {
               console.error(`[SCAN] ${label} SSE connection error after ${((Date.now() - _start) / 1000).toFixed(1)}s`)
-              clearTimeout(timeout); es.close(); resolve(trades)
+              doResolve(trades)
             }
           })
 
@@ -1090,6 +1112,7 @@ export default function OptionsFlowPage() {
           // Discover total symbols first via a single probe chunk
           let probeTotal = 0
           const probeResult = await openSSE(0)
+          if (cancelRef.current) return
           probeTotal = probeResult.total || 0
 
 
@@ -1107,6 +1130,7 @@ export default function OptionsFlowPage() {
             }
             setStreamingStatus(`Phase 1/3 — Scanning tickers ${offset + 1}–${Math.min(offset + groupOffsets.length * BATCH, probeTotal)} of ${probeTotal}...`)
             const groupResults = await Promise.all(groupOffsets.map((off) => openSSE(off)))
+            if (cancelRef.current) return
             for (const r of groupResults) {
               phase1Raw.push(...r.trades)
               if (r.summary) setSummary(r.summary)
@@ -1121,21 +1145,22 @@ export default function OptionsFlowPage() {
           // Enrich phase 1 and show immediately
           setStreamingStatus(`Phase 1/3 done — enriching ${phase1Trades.length} trades...`)
           const enriched1 = await enrichTradeDataCombined(phase1Trades)
+          if (cancelRef.current) return
           setStreamingStatus('Phase 1/3 — Computing live OI...')
           const withOI1 = applyLiveOI(enriched1)
           setData(withOI1)
           setLastUpdate(new Date().toLocaleString())
 
 
-          console.log(`[SCAN] Phase 1 done — ${phase1Trades.length} trades`)
-
           // ── PHASE 2: ETFs ─────────────────────────────────────────────────
           setStreamingStatus('Phase 2/3 — Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
           const phase2Raw = await openCommaSSE(ETF_COMMA, 'ETF-PHASE')
+          if (cancelRef.current) return
 
 
           setStreamingStatus(`Phase 2/3 — Enriching ${phase2Raw.length} ETF trades...`)
           const enriched2 = await enrichTradeDataCombined(phase2Raw)
+          if (cancelRef.current) return
           setStreamingStatus('Phase 2/3 — Computing live OI for ETFs...')
           const withOI2 = applyLiveOI(enriched2)
 
@@ -1148,15 +1173,16 @@ export default function OptionsFlowPage() {
           })
           setLastUpdate(new Date().toLocaleString())
 
-          console.log(`[SCAN] Phase 2 done — ${phase2Raw.length} trades`)
 
           // ── PHASE 3: MAG7 ─────────────────────────────────────────────────
           setStreamingStatus('Phase 3/3 — Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
           const phase3Raw = await openCommaSSE(MAG7_COMMA, 'MAG7-PHASE')
+          if (cancelRef.current) return
 
 
           setStreamingStatus(`Phase 3/3 — Enriching ${phase3Raw.length} MAG7 trades...`)
           const enriched3 = await enrichTradeDataCombined(phase3Raw)
+          if (cancelRef.current) return
           setStreamingStatus('Phase 3/3 — Computing live OI for MAG7...')
           const withOI3 = applyLiveOI(enriched3)
 
@@ -1167,9 +1193,6 @@ export default function OptionsFlowPage() {
 
             return [...prev, ...newMAG7]
           })
-
-          console.log(`[SCAN] Phase 3 done — ${phase3Raw.length} trades`)
-          console.log(`[SCAN] All phases complete — total trades in table: ${withOI1.length + withOI2.length + withOI3.length}`)
 
           setIsStreamComplete(true)
           setLoading(false)
@@ -1425,6 +1448,18 @@ export default function OptionsFlowPage() {
     fetchOptionsFlowStreaming(tickerOverride)
   }
 
+  const handleCancel = () => {
+    cancelRef.current = true
+    let closed = 0
+    for (const entry of activeSSEsRef.current) {
+      try { entry.abort(); closed++ } catch { /* ignore */ }
+    }
+    activeSSEsRef.current.clear()
+    setLoading(false)
+    setStreamingStatus('')
+    setStreamingProgress(null)
+  }
+
   const handleClearData = () => {
     // Clear existing data and start fresh
     setData([])
@@ -1469,6 +1504,7 @@ export default function OptionsFlowPage() {
           loading={loading}
           onRefresh={handleRefresh}
           onClearData={handleClearData}
+          onCancel={handleCancel}
           onDataUpdate={(d) => setData(d as OptionsFlowData[])}
           selectedTicker={selectedTicker}
           onTickerChange={setSelectedTicker}

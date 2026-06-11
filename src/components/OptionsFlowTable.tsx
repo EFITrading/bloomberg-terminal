@@ -300,9 +300,10 @@ interface OptionsFlowTableProps {
   onHistoricalDaysChange?: (days: string) => void
 
   onAlgoFlowClick?: () => void
+  onCancel?: () => void
 }
 
-const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'WEEKLY_ONLY', 'MINI_ONLY']
+const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'MINI_ONLY']
 
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   data,
@@ -342,6 +343,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   onHistoricalDaysChange,
 
   onAlgoFlowClick,
+  onCancel,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade' | 'leap_grade'>(
     'trade_timestamp'
@@ -351,7 +353,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [filterType, setFilterType] = useState<string>('all')
 
-  const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put'])
+  const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>([])
   const [selectedOrderSides, setSelectedOrderSides] = useState<string[]>([])
 
   const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>([])
@@ -1093,12 +1095,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     localStorage.setItem('optionsflow_blacklist', JSON.stringify(blacklistedTickers))
   }, [blacklistedTickers])
 
-  // Ensure blacklist always has 10 slots (migrate old 5-slot saves)
+  // Ensure blacklist always has 21 slots (migrate old saves)
   useEffect(() => {
-    if (blacklistedTickers.length < 10) {
+    if (blacklistedTickers.length < 21) {
       setBlacklistedTickers((prev) => {
         const padded = [...prev]
-        while (padded.length < 10) padded.push('')
+        while (padded.length < 21) padded.push('')
         return padded
       })
     }
@@ -3503,7 +3505,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     // Apply filters - Option Type (checkbox)
 
-    if (selectedOptionTypes.length > 0 && selectedOptionTypes.length < 2) {
+    if (selectedOptionTypes.length > 0) {
       filtered = filtered.filter((trade) => selectedOptionTypes.includes(trade.type))
     }
 
@@ -3543,6 +3545,17 @@ Stock Reaction: ${scores.stockReaction}/15`
 
               case '1000000':
                 return trade.total_premium >= 1000000
+
+              case 'contract_lt_040': {
+                // price per share = total_premium / (trade_size * 100)
+                const pricePerShare = trade.trade_size > 0 ? trade.total_premium / (trade.trade_size * 100) : 0
+                return pricePerShare < 0.40
+              }
+
+              case 'contract_lt_5': {
+                const pricePerShare = trade.trade_size > 0 ? trade.total_premium / (trade.trade_size * 100) : 0
+                return pricePerShare < 5
+              }
 
               default:
                 return true
@@ -3599,6 +3612,21 @@ Stock Reaction: ${scores.stockReaction}/15`
             case 'EXCLUDE_ETF':
               return !etfSet.has(trade.underlying_ticker)
 
+            case 'OVERBLOWN_TICKERS': {
+              // Count trades per ticker across the full filtered set so far
+              const tradeCounts = new Map<string, number>()
+              for (const t of filtered) {
+                const tk = t.underlying_ticker
+                tradeCounts.set(tk, (tradeCounts.get(tk) ?? 0) + 1)
+              }
+              // Find top 3 most-repeated tickers
+              const topSpam = [...tradeCounts.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([tk]) => tk)
+              return !topSpam.includes(trade.underlying_ticker)
+            }
+
             case 'HIGHLIGHTS_ONLY':
               return meetsEfiCriteria(trade)
 
@@ -3620,13 +3648,32 @@ Stock Reaction: ${scores.stockReaction}/15`
         if (trade.trade_type === 'BLOCK' && !selectedUniqueFilters.includes('BLOCK_ONLY')) return false
         if (trade.trade_type === 'MULTI-LEG' && !selectedUniqueFilters.includes('MULTI_LEG_ONLY')) return false
         if (trade.trade_type === 'MINI' && !selectedUniqueFilters.includes('MINI_ONLY')) return false
-        if (!selectedUniqueFilters.includes('WEEKLY_ONLY')) {
-          const expiryDate = new Date(trade.expiry)
-          const today = new Date()
-          const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-          if (daysToExpiry <= 7) return false
-        }
         return true
+      })
+    }
+
+    // Weekly Expiry — opt-in: if WEEKLY_ONLY is selected, hide weeklies (≤7 days)
+    if (selectedUniqueFilters.includes('WEEKLY_ONLY')) {
+      filtered = filtered.filter((trade) => {
+        const expiryDate = new Date(trade.expiry)
+        const today = new Date()
+        const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        return daysToExpiry > 7
+      })
+    }
+
+    // Sector filters — opt-in: if any selected, show only matching tickers
+    const activeSectors = ['GROWTH_ONLY', 'VALUE_ONLY', 'DEFENSIVES_ONLY'].filter(f => selectedUniqueFilters.includes(f))
+    if (activeSectors.length > 0) {
+      const growthSet = new Set(['XLK', 'XLY', 'XLC', 'ARKK', 'ARKW', 'ARKQ', 'ARKG', 'ARKF', 'SKYY', 'CLOU', 'BOTZ', 'ROBO', 'SOXX', 'SMH', 'QQQ', 'TQQQ', 'AAPL', 'MSFT', 'NVDA', 'META', 'GOOGL', 'GOOG', 'AMZN', 'TSLA', 'AMD', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'SNOW', 'PLTR', 'NET', 'DDOG', 'ZS', 'CRWD', 'PANW', 'MU', 'AMAT', 'LRCX', 'KLAC', 'MRVL', 'QCOM', 'INTC', 'TXN', 'NFLX', 'SPOT', 'SHOP', 'SQ', 'PYPL', 'UBER', 'LYFT', 'ABNB', 'DASH', 'COIN', 'MSTR', 'ROKU', 'PINS', 'SNAP', 'RBLX', 'U', 'TTWO', 'EA', 'MTCH', 'ZM', 'DOCU', 'TWLO', 'MDB', 'GTLB', 'PATH', 'AI', 'GENI', 'APP', 'CELH', 'DXCM', 'ISRG', 'VEEV'])
+      const valueSet = new Set(['XLI', 'XLF', 'XLB', 'VTV', 'IVE', 'SPYV', 'RSP', 'DIA', 'JPM', 'BAC', 'WFC', 'C', 'GS', 'MS', 'BX', 'KKR', 'APO', 'V', 'MA', 'AXP', 'BLK', 'SCHW', 'CME', 'ICE', 'CB', 'PGR', 'TRV', 'MMC', 'AON', 'CAT', 'DE', 'HON', 'GE', 'RTX', 'LMT', 'NOC', 'BA', 'UNP', 'CSX', 'NSC', 'FDX', 'UPS', 'XOM', 'CVX', 'COP', 'OXY', 'SLB', 'HAL', 'MPC', 'VLO', 'PSX', 'FCX', 'NEM', 'AA', 'NUE', 'X', 'CLF', 'CF', 'MOS', 'ADM', 'BG', 'WMT', 'COST', 'TGT', 'HD', 'LOW'])
+      const defSet = new Set(['XLV', 'XLRE', 'XLP', 'XLU', 'IYR', 'VNQ', 'IBB', 'XBI', 'JNJ', 'UNH', 'PFE', 'MRK', 'ABBV', 'LLY', 'BMY', 'AMGN', 'GILD', 'BIIB', 'REGN', 'VRTX', 'MRNA', 'BNTX', 'CVS', 'CI', 'HUM', 'MCK', 'ABC', 'CAH', 'PG', 'KO', 'PEP', 'PM', 'MO', 'MDLZ', 'CL', 'KMB', 'CHD', 'GIS', 'K', 'CPB', 'CAG', 'HRL', 'TSN', 'WBA', 'AMT', 'CCI', 'SBAC', 'EQIX', 'PLD', 'SPG', 'ARE', 'EQR', 'AVB', 'NEE', 'DUK', 'SO', 'AEP', 'D', 'EXC', 'SRE', 'AWK', 'WM', 'RSG', 'T', 'VZ'])
+      filtered = filtered.filter((trade) => {
+        const tk = trade.underlying_ticker
+        if (activeSectors.includes('GROWTH_ONLY') && growthSet.has(tk)) return true
+        if (activeSectors.includes('VALUE_ONLY') && valueSet.has(tk)) return true
+        if (activeSectors.includes('DEFENSIVES_ONLY') && defSet.has(tk)) return true
+        return false
       })
     }
 
@@ -4792,20 +4839,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                           >
                             Order Side
                           </span>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             {[
-                              {
-                                label: 'BUY (A/AA)',
-                                value: 'buy',
-                                color: '#22d3ee',
-                                glow: 'rgba(34,211,238,0.25)',
-                              },
-                              {
-                                label: 'SELL (B/BB)',
-                                value: 'sell',
-                                color: '#f97316',
-                                glow: 'rgba(249,115,22,0.25)',
-                              },
+                              { label: 'BUY A', value: 'buy_a', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' },
+                              { label: 'BUY AA', value: 'buy_aa', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' },
+                              { label: 'SELL B', value: 'sell_b', color: '#f97316', glow: 'rgba(249,115,22,0.25)' },
+                              { label: 'SELL BB', value: 'sell_bb', color: '#f97316', glow: 'rgba(249,115,22,0.25)' },
                             ].map(({ label, value, color, glow }) => {
                               const active = selectedOrderSides.includes(value)
                               return (
@@ -4820,8 +4859,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '8px',
-                                    padding: '9px 12px',
+                                    gap: '6px',
+                                    padding: '9px 8px',
                                     borderRadius: '8px',
                                     border: `1px solid ${active ? color : 'rgba(255,255,255,0.08)'}`,
                                     background: active
@@ -4835,8 +4874,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 >
                                   <div
                                     style={{
-                                      width: '8px',
-                                      height: '8px',
+                                      width: '7px',
+                                      height: '7px',
                                       borderRadius: '50%',
                                       background: active ? color : '#374151',
                                       boxShadow: active ? `0 0 6px ${color}` : 'none',
@@ -4846,9 +4885,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   />
                                   <span
                                     style={{
-                                      fontSize: '13px',
+                                      fontSize: '12px',
                                       fontWeight: 800,
-                                      letterSpacing: '1px',
+                                      letterSpacing: '0.5px',
                                       color: active ? color : '#ffffff',
                                     }}
                                   >
@@ -4907,10 +4946,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                             { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#22d3ee' },
                             { label: 'Block Only', value: 'BLOCK_ONLY', color: '#22d3ee' },
                             { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
-                            { label: 'Weekly', value: 'WEEKLY_ONLY', color: '#f97316' },
                             { label: 'Mini Only', value: 'MINI_ONLY', color: '#84cc16' },
                           ].map(({ label, value, color }) => {
                             const active = selectedUniqueFilters.includes(value)
+                            // active = visible (no filter). !active = filtering this type out → glow
+                            const filtering = !active
                             return (
                               <button
                                 key={value}
@@ -4922,18 +4962,55 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 style={{
                                   padding: '7px 8px',
                                   borderRadius: '8px',
-                                  border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
-                                  background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
-                                  boxShadow: active ? `0 0 10px ${color}33` : 'none',
+                                  border: `1px solid ${filtering ? color : 'rgba(255,255,255,0.07)'}`,
+                                  background: filtering ? `${color}18` : 'rgba(255,255,255,0.02)',
+                                  boxShadow: filtering ? `0 0 10px ${color}33` : 'none',
                                   cursor: 'pointer',
                                   transition: 'all 0.15s ease',
                                   fontSize: '13px',
                                   fontWeight: 800,
                                   letterSpacing: '0.5px',
-                                  color: active ? color : '#ffffff',
+                                  color: filtering ? color : 'rgba(255,255,255,0.5)',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
+                                }}
+                              >
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {/* Sector filters — full-width single-column rows */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                          {[
+                            { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY', color: '#34d399' },
+                            { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY', color: '#fbbf24' },
+                            { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY', color: '#60a5fa' },
+                          ].map(({ label, value, color }) => {
+                            const sectorActive = selectedUniqueFilters.includes(value)
+                            return (
+                              <button
+                                key={value}
+                                onClick={() =>
+                                  setSelectedUniqueFilters((prev) =>
+                                    sectorActive ? prev.filter((f) => f !== value) : [...prev, value]
+                                  )
+                                }
+                                style={{
+                                  padding: '7px 8px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${sectorActive ? color : 'rgba(255,255,255,0.07)'}`,
+                                  background: sectorActive ? `${color}18` : 'rgba(255,255,255,0.02)',
+                                  boxShadow: sectorActive ? `0 0 10px ${color}33` : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  fontSize: '12px',
+                                  fontWeight: 800,
+                                  letterSpacing: '0.5px',
+                                  color: sectorActive ? color : 'rgba(255,255,255,0.5)',
+                                  width: '100%',
+                                  textAlign: 'center',
                                 }}
                               >
                                 {label}
@@ -5000,6 +5077,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                             { label: '= $99K', value: '99000' },
                             { label: '= $200K', value: '200000' },
                             { label: '= $1M', value: '1000000' },
+                            { label: 'Price < $0.40', value: 'contract_lt_040' },
+                            { label: 'Price < $5', value: 'contract_lt_5' },
                           ].map(({ label, value }) => {
                             const active = selectedPremiumFilters.includes(value)
                             return (
@@ -5174,7 +5253,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             {blacklistEnabled ? 'ON' : 'OFF'}
                           </button>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
                           {blacklistedTickers.map((ticker, index) => (
                             <input
                               key={index}
@@ -5188,13 +5267,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                               placeholder={`#${index + 1}`}
                               maxLength={6}
                               style={{
-                                padding: '9px 8px',
+                                padding: '7px 4px',
                                 textAlign: 'center',
                                 background: '#000',
                                 border: '1px solid rgba(239,68,68,0.3)',
                                 borderRadius: '8px',
                                 color: '#fca5a5',
-                                fontSize: '14px',
+                                fontSize: '12px',
                                 fontWeight: 800,
                                 letterSpacing: '1px',
                                 outline: 'none',
@@ -5253,6 +5332,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
                             { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
                             { label: 'Exclude ETFs', value: 'EXCLUDE_ETF' },
+                            { label: 'Overblown Tickers', value: 'OVERBLOWN_TICKERS' },
                           ].map(({ label, value }) => {
                             const active = selectedTickerFilters.includes(value)
                             return (
@@ -5277,6 +5357,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   cursor: 'pointer',
                                   transition: 'all 0.15s ease',
                                   width: '100%',
+                                  gridColumn: value === 'OVERBLOWN_TICKERS' ? '1 / -1' : undefined,
                                 }}
                               >
                                 <div
@@ -5409,6 +5490,42 @@ Stock Reaction: ${scores.stockReaction}/15`
                               }}
                             />
                           </div>
+                          {/* Weekly Expiry toggle */}
+                          <div>
+                            {(() => {
+                              const weeklyActive = selectedUniqueFilters.includes('WEEKLY_ONLY')
+                              return (
+                                <button
+                                  onClick={() =>
+                                    setSelectedUniqueFilters((prev) =>
+                                      weeklyActive ? prev.filter((f) => f !== 'WEEKLY_ONLY') : [...prev, 'WEEKLY_ONLY']
+                                    )
+                                  }
+                                  style={{
+                                    width: '100%',
+                                    padding: '9px 10px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${weeklyActive ? '#f97316' : 'rgba(255,255,255,0.07)'}`,
+                                    background: weeklyActive ? 'rgba(249,115,22,0.12)' : 'rgba(255,255,255,0.02)',
+                                    boxShadow: weeklyActive ? '0 0 10px rgba(249,115,22,0.3)' : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    fontSize: '13px',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.5px',
+                                    color: weeklyActive ? '#f97316' : 'rgba(255,255,255,0.5)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                  }}
+                                >
+                                  <span>Weekly Expiry</span>
+                                  {weeklyActive && <span style={{ fontSize: '11px', opacity: 0.7 }}>— hiding weeklies</span>}
+                                </button>
+                              )
+                            })()}
+                          </div>
                         </div>
                       </div>
                     </div>{/* end TICKER + OPTIONS EXPIRATION */}
@@ -5430,7 +5547,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setCustomMaxPremium('')
                     setExpirationStartDate('')
                     setExpirationEndDate('')
-                    setBlacklistedTickers(['', '', '', '', '', '', '', '', '', ''])
+                    setBlacklistedTickers(['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
                     setSelectedOrderSides([])
                   }}
                   style={{
@@ -6471,6 +6588,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   {useDropdowns ? (
                     <button
                       onClick={() => {
+                        if (loading) { onCancel?.(); return }
                         setInputTicker('ALL')
                         onTickerChange('ALL')
                         onRefresh?.('ALL')
@@ -6479,25 +6597,28 @@ Stock Reaction: ${scores.stockReaction}/15`
                       style={{
                         height: '31px',
                         padding: '0 13px',
-                        background: inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                        border: inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
+                        background: loading
+                          ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
+                          : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                        border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
                         borderRadius: '20px',
                         fontSize: '12px',
                         letterSpacing: '1.2px',
                         fontWeight: '700',
-                        boxShadow: inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+                        boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
                         outline: 'none',
-                        color: inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
+                        color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      SCAN ALL
+                      {loading ? '✕ CANCEL' : 'SCAN ALL'}
                     </button>
                   ) : (
                     <>
                       <button
                         onClick={() => {
+                          if (loading) { onCancel?.(); return }
                           setInputTicker('ALL')
                           onTickerChange('ALL')
                           onRefresh?.('ALL')
@@ -6506,20 +6627,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                         style={{
                           height: '31px',
                           padding: '0 13px',
-                          background: inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                          border: inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
+                          background: loading
+                            ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
+                            : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                          border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
                           borderRadius: '20px',
                           fontSize: '12px',
                           letterSpacing: '1.2px',
                           fontWeight: '700',
-                          boxShadow: inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+                          boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
                           outline: 'none',
-                          color: inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
+                          color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
                         }}
                       >
-                        SCAN ALL
+                        {loading ? '✕ CANCEL' : 'SCAN ALL'}
                       </button>
 
                       {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}
