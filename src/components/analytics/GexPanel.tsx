@@ -608,6 +608,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           showNetGamma={showNetGamma}
           showAttrax={showAITowers}
           expectedRange90={expectedRange90}
+          liveOIOverride={historicalOIMap}
         />
       </div>
     </div>
@@ -1986,6 +1987,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const [liveMode, setLiveMode] = useState(false) // Single live mode toggle for all metrics
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map())
   const [flowTradesData, setFlowTradesData] = useState<any[]>([]) // Store all trades with premiums
+  const [historicalOIMap, setHistoricalOIMap] = useState<Map<string, number> | null>(null) // OI rolled back to scrubber timestamp
   const [liveOILoading, setLiveOILoading] = useState(false)
   const [liveOIProgress, setLiveOIProgress] = useState(0)
   const [useBloombergTheme, setUseBloombergTheme] = useState(true) // Bloomberg Terminal theme - default ON
@@ -4448,45 +4450,46 @@ const GexPanel: React.FC<GexPanelProps> = ({
           expirations.includes(c.details?.expiration_date)
         )
 
-        // Build live OI map up to the historical timestamp (only for live mode)
+        // Build live OI map at the historical timestamp (only for live mode)
+        // Strategy: start from end-of-day (snapshot) OI and reverse trades that
+        // happened AFTER the selected timestamp. This gives the true OI at that moment.
+        // i.e. OI_at_T = EndOfDayOI − trades_after_T
         const liveOIAtTimestamp = new Map<string, number>()
+
+        const selectedTimeStrPST = new Date(historicalTimestamp).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
         if (liveMode && flowTradesData.length > 0) {
-          // Start with base OI from snapshot
+          // Seed with current (end-of-day) snapshot OI
           contracts.forEach((contract: any) => {
             const strike = contract.details?.strike_price
             const expiration = contract.details?.expiration_date
             const isCall = contract.details?.contract_type === 'call'
             if (!strike || !expiration) return
 
-            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`
+            // Normalize strike: parseFloat strips trailing .0 so keys match DealerGEXChart
+            const strikeNum = parseFloat(strike)
+            const contractKey = `${selectedTicker}_${strikeNum}_${isCall ? 'call' : 'put'}_${expiration}`
             liveOIAtTimestamp.set(contractKey, contract.open_interest || 0)
           })
 
-          // Apply trades that occurred at or before the historical timestamp
-          const sortedTrades = [...flowTradesData].sort(
-            (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
-          )
-
-          sortedTrades.forEach((trade) => {
+          // ── Roll back trades AFTER T to get OI at selected time ──────────────────
+          flowTradesData.forEach((trade: any) => {
             const tradeTime = new Date(trade.trade_timestamp).getTime()
-            if (tradeTime > historicalTimestamp) return // Skip future trades
-
+            if (tradeTime <= historicalTimestamp) return
             const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-            const currentOI = liveOIAtTimestamp.get(contractKey) || 0
-            const contracts = trade.trade_size || 0
-
-            // Aggressive opening (AA, A, BB) adds to OI, closing (B) subtracts
-            if (
-              trade.fill_style === 'AA' ||
-              trade.fill_style === 'A' ||
-              trade.fill_style === 'BB'
-            ) {
-              liveOIAtTimestamp.set(contractKey, currentOI + contracts)
+            const currentOI = liveOIAtTimestamp.get(contractKey) ?? 0
+            const tradeContracts = trade.trade_size || 0
+            if (trade.fill_style === 'AA' || trade.fill_style === 'A' || trade.fill_style === 'BB') {
+              liveOIAtTimestamp.set(contractKey, Math.max(0, currentOI - tradeContracts))
             } else if (trade.fill_style === 'B') {
-              liveOIAtTimestamp.set(contractKey, Math.max(0, currentOI - contracts))
+              liveOIAtTimestamp.set(contractKey, currentOI + tradeContracts)
             }
           })
         }
+
+        // Expose the rolled-back OI map so DealerGEXChart (expiry map) can also use it
+        const oiMapToSet = liveOIAtTimestamp.size > 0 ? new Map(liveOIAtTimestamp) : null
+        setHistoricalOIMap(oiMapToSet)
 
         // Recalculate GEX at historical price using Black-Scholes
         const newGEXData: typeof gexByStrikeByExpiration = {}
@@ -4603,6 +4606,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
         setGexByStrikeByExpiration(baseGexByStrikeByExpiration)
         setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration)
       }
+      setHistoricalOIMap(null) // Clear historical OI so expiry map goes back to live
     }
   }, [showHistoricalGEX, historicalTimestamp])
 
@@ -6482,10 +6486,10 @@ const GexPanel: React.FC<GexPanelProps> = ({
                               let day = parts.find((p) => p.type === 'day')!.value
                               const hour = parseInt(parts.find((p) => p.type === 'hour')!.value)
 
-                              // If it's before 6:30 AM PST, use previous day's data (since market hasn't opened yet)
+                              // If it's before 6:30 AM PT (= 9:30 AM ET, market not yet open), use previous day's data
                               if (
-                                hour < 9 ||
-                                (hour === 9 &&
+                                hour < 6 ||
+                                (hour === 6 &&
                                   parseInt(parts.find((p) => p.type === 'minute')!.value) < 30)
                               ) {
                                 const yesterday = new Date(`${year}-${month}-${day}`)

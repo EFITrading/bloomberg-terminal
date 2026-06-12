@@ -89,13 +89,25 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
     const fetchTimeline = async () => {
       setLoading(true)
       try {
-        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/5/minute/${date}/${date}?adjusted=true&sort=asc&limit=5000&apiKey=${apiKey}`
+        // Route through server-side API to keep API key off the client and avoid CORS
+        const url = `/api/price-bars?ticker=${encodeURIComponent(ticker)}&date=${date}&multiplier=5&timespan=minute`
 
         const response = await fetch(url)
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          console.warn(`[GEXTimeline] API error ${response.status} for ${ticker} on ${date}:`, errData.error || response.statusText)
+          if (isMarketOpen(date)) {
+            console.warn('⚠ No historical data available for', ticker, 'on', date)
+          }
+          setLoading(false)
+          return
+        }
+
         const data = await response.json()
 
         if (data.status === 'OK' && data.results && data.results.length > 0) {
+          console.log(`[GEXTimeline] Loaded ${data.results.length} bars for ${ticker} on ${date}`)
           const timeline: TimelineDataPoint[] = data.results.map((bar: any) => {
             const time = new Date(bar.t)
             return {
@@ -115,14 +127,12 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
           setSelectedIndex(timeline.length - 1)
           onTimeChange(null, currentPrice) // null = use current/live data
         } else {
-          // No data available - only warn if market should be open
           if (isMarketOpen(date)) {
-            console.warn('No historical data available for', ticker, 'on', date, '(trading day)')
+            console.warn('⚠ No historical data available for', ticker, 'on', date, '(trading day) — Polygon returned:', data.status, `resultsCount=${data.resultsCount ?? 0}`)
           }
-          // For weekends/holidays, silently set empty data
         }
       } catch (error) {
-        console.error('Failed to fetch timeline data:', error)
+        console.error('[GEXTimeline] Failed to fetch timeline data:', error)
       } finally {
         setLoading(false)
       }

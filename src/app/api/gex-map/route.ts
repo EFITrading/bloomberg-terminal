@@ -49,9 +49,10 @@ function calculateVanna(strike: number, spotPrice: number, T: number, impliedVol
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get('symbol') || 'SPY';
-    const mode = searchParams.get('mode') || 'normal'; // 'normal' | '45d'
+    const mode = searchParams.get('mode') || 'normal';
     const priceParam = searchParams.get('price')
     const historicalPrice = priceParam ? parseFloat(priceParam) : null
+    const tsParam = searchParams.get('ts')
 
     try {
         const host = request.nextUrl.host;
@@ -102,9 +103,8 @@ export async function GET(request: NextRequest) {
             if (datesRes.ok) {
                 const dates: { date: string }[] = await datesRes.json();
                 if (dates.length > 0) {
-                    const latestDay = new Date(dates[0].date).toISOString().split('T')[0];
-                    const tradingDateStr = today.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-                    if (latestDay === tradingDateStr) {
+                    // Use latest available data regardless of date (same as GexPanel)
+                    {
                         const d = new Date(dates[0].date);
                         const dateStr = d.toISOString().split('T')[0];
                         const gte = new Date(`${dateStr}T00:00:00.000Z`);
@@ -162,9 +162,7 @@ export async function GET(request: NextRequest) {
                     }
                 }
             }
-        } catch {
-            // DB unavailable — silently fall back to static OI from options chain
-        }
+        } catch { /* DB unavailable — fall back to static OI */ }
 
         // ── STEP 3: Dealer formula — EXACT same as GexPanel lines 3651-3661 ───────────
         //    contractKey: `${ticker}_${strike}_call/put_${expDate}` (GexPanel line 3555)

@@ -10910,15 +10910,16 @@ export default function TradingViewChart({
   }, [isGexMapActive, isGexMap45dActive, isDexMapActive, isDexMap45dActive])
 
   // Re-fetch all active GEX/DEX maps at a given spot price (null = live price)
-  const refreshActiveMapsWithPrice = useCallback(async (price: number | null) => {
+  const refreshActiveMapsWithPrice = useCallback(async (price: number | null, timestamp: number | null = null) => {
     const priceSuffix = price ? `&price=${price}` : ''
+    const tsSuffix = timestamp ? `&ts=${timestamp}` : ''
     const fetches: Promise<void>[] = []
     if (isGexMapActive) fetches.push(
-      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}${priceSuffix}`)
+      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}${priceSuffix}${tsSuffix}`)
         .then(r => r.json()).then(result => { if (result.success) setGexMapData(result) })
     )
     if (isGexMap45dActive) fetches.push(
-      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}&mode=45d${priceSuffix}`)
+      fetch(`/api/gex-map?symbol=${encodeURIComponent(symbol)}&mode=45d${priceSuffix}${tsSuffix}`)
         .then(r => r.json()).then(result => { if (result.success) setGexMap45dData(result) })
     )
     if (isDexMapActive) fetches.push(
@@ -10962,7 +10963,7 @@ export default function TradingViewChart({
     // Debounce GEX/DEX map re-fetch (only for manual scrubbing; play mode uses handleGexMapPlayStep)
     if (gexHistoricalFetchTimerRef.current) clearTimeout(gexHistoricalFetchTimerRef.current)
     gexHistoricalFetchTimerRef.current = setTimeout(() => {
-      refreshActiveMapsWithPrice(newPrice)
+      refreshActiveMapsWithPrice(newPrice, timestamp)
     }, 200)
   }, [refreshActiveMapsWithPrice])
 
@@ -10986,7 +10987,7 @@ export default function TradingViewChart({
     }
 
     // Directly await the GEX/DEX map re-fetch (no debounce — play mode blocks on this)
-    await refreshActiveMapsWithPrice(newPrice)
+    await refreshActiveMapsWithPrice(newPrice, timestamp)
   }, [refreshActiveMapsWithPrice])
 
   // Snap chart back to the latest bar and clear replay state

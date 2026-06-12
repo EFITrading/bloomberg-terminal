@@ -29,6 +29,9 @@ interface DealerGEXChartProps {
   analysisSuiteMode?: boolean
   svgHeight?: number
   style?: React.CSSProperties
+  /** When scrubbing the GEX timeline, GexPanel passes a rolled-back OI map here.
+   *  Keys: "{ticker}_{strike}_{call|put}_{expiry}"  Value: OI at that historical moment. */
+  liveOIOverride?: Map<string, number> | null
 }
 
 export default function DealerGEXChart({
@@ -47,6 +50,7 @@ export default function DealerGEXChart({
   analysisSuiteMode = false,
   svgHeight = 575,
   style,
+  liveOIOverride = null,
 }: DealerGEXChartProps) {
   const [selectedExpiration, setSelectedExpiration] = useState<string>(propExpiration || '')
   const [expirationDates, setExpirationDates] = useState<string[]>([])
@@ -298,6 +302,13 @@ export default function DealerGEXChart({
         setLoading(true)
         setError('')
 
+        // Helper: resolve OI — use historical rollback map if available, else snapshot value
+        const resolveOI = (snapshotOI: number, strike: number, type: 'call' | 'put', expiry: string): number => {
+          if (!liveOIOverride) return snapshotOI
+          const key = `${selectedTicker}_${strike}_${type}_${expiry}`
+          return liveOIOverride.has(key) ? liveOIOverride.get(key)! : snapshotOI
+        }
+
         // Handle "all-expirations" aggregation (all expiration dates)
         if (selectedExpiration === 'all-expirations') {
           const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`)
@@ -342,7 +353,7 @@ export default function DealerGEXChart({
                 Object.entries(expirationData.calls).forEach(
                   ([strike, callData]: [string, any]) => {
                     const strikeNum = parseFloat(strike)
-                    const openInterest = callData.open_interest || 0
+                    const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', exp)
                     const gamma = callData.greeks?.gamma || 0
                     const bid = callData.bid || 0
                     const ask = callData.ask || 0
@@ -369,7 +380,7 @@ export default function DealerGEXChart({
               if (expirationData.puts) {
                 Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
-                  const openInterest = putData.open_interest || 0
+                  const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', exp)
                   const gamma = putData.greeks?.gamma || 0
                   const bid = putData.bid || 0
                   const ask = putData.ask || 0
@@ -483,7 +494,7 @@ export default function DealerGEXChart({
                 Object.entries(expirationData.calls).forEach(
                   ([strike, callData]: [string, any]) => {
                     const strikeNum = parseFloat(strike)
-                    const openInterest = callData.open_interest || 0
+                    const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', exp)
                     const gamma = callData.greeks?.gamma || 0
                     const bid = callData.bid || 0
                     const ask = callData.ask || 0
@@ -510,7 +521,7 @@ export default function DealerGEXChart({
               if (expirationData.puts) {
                 Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
                   const strikeNum = parseFloat(strike)
-                  const openInterest = putData.open_interest || 0
+                  const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', exp)
                   const gamma = putData.greeks?.gamma || 0
                   const bid = putData.bid || 0
                   const ask = putData.ask || 0
@@ -607,7 +618,7 @@ export default function DealerGEXChart({
           if (expirationData.calls) {
             Object.entries(expirationData.calls).forEach(([strike, callData]: [string, any]) => {
               const strikeNum = parseFloat(strike)
-              const openInterest = callData.open_interest || 0
+              const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', selectedExpiration)
               const gamma = callData.greeks?.gamma || 0
               const bid = callData.bid || 0
               const ask = callData.ask || 0
@@ -628,7 +639,7 @@ export default function DealerGEXChart({
           if (expirationData.puts) {
             Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
               const strikeNum = parseFloat(strike)
-              const openInterest = putData.open_interest || 0
+              const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', selectedExpiration)
               const gamma = putData.greeks?.gamma || 0
               const bid = putData.bid || 0
               const ask = putData.ask || 0
@@ -691,7 +702,7 @@ export default function DealerGEXChart({
     }
 
     fetchGEXData()
-  }, [selectedTicker, selectedExpiration, showNetGamma, showPositiveGamma, showNegativeGamma])
+  }, [selectedTicker, selectedExpiration, showNetGamma, showPositiveGamma, showNegativeGamma, liveOIOverride])
 
   // D3 Chart rendering
   useEffect(() => {

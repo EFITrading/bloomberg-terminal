@@ -2363,7 +2363,7 @@ h1 {
 /* Hero Visual Area */
 .hero-visual {
     position: relative;
-    height: 850px;
+    height: 700px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
     overflow: hidden;
