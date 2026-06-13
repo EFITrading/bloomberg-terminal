@@ -5,6 +5,7 @@ import {
   TbArrowBackUp,
   TbArrowUpRight,
   TbArrowsVertical,
+  TbBrush,
   TbLayout,
   TbLine,
   TbMinus,
@@ -31,6 +32,8 @@ interface LWChartDrawingToolsProps {
   screenToPrice?: (y: number) => number
   timeToScreen?: (index: number) => number
   screenToTime?: (x: number) => number
+  indexToTimestamp?: (index: number) => number  // bar index → Unix ms
+  chartTimeframe?: string  // e.g. '1m','5m','15m','30m','1h','4h','1D','1W'
   onMouseMove?: (e: React.MouseEvent<HTMLElement>) => void
   toolbarPosition?: 'top' | 'left'
 }
@@ -48,6 +51,16 @@ type DrawingTool =
   | 'sellZone'
   | 'brush'
   | 'priceRange'
+  | 'fib'
+  | 'elliottWave'
+  | 'elliottWaveABC'
+  | 'path'
+
+interface FibLevel {
+  value: number
+  enabled: boolean
+  color: string
+}
 
 interface DrawingPoint {
   time: number // Data index
@@ -69,7 +82,44 @@ interface Drawing {
   opacity?: number
   backgroundOpacity?: number
   showMidline?: boolean // For parallel channel
+  // Fib fields
+  fibLevels?: FibLevel[]
+  fibShowPrices?: boolean
+  fibReverse?: boolean
+  fibUseOneColor?: boolean
+  fibBackground?: boolean
+  fibBackgroundOpacity?: number
+  fibTrendLineStyle?: 'solid' | 'dashed' | 'dotted'
+  // Elliott Wave
+  elliottType?: 'impulse' | 'corrective'
+  // Path
+  pathEndStyle?: 'none' | 'arrow' | 'circle'
+  // Zone
+  zoneShape?: 'flat' | 'diagonal' | 'curve'
+  zoneHeight?: number      // signed px: +ve = above anchor, -ve = below anchor
+  zoneDiagOffset?: number  // diagonal only: right-side vertical shift in px (whole rect tilts)
+  zoneCurveCtrlX?: number  // curve only: X offset of bezier control point from midX (px)
 }
+
+// ─── DEFAULT FIB LEVELS ──────────────────────────────────────────────────────
+const DEFAULT_FIB_LEVELS: FibLevel[] = [
+  { value: 0, enabled: true, color: '#22c55e' },
+  { value: 0.236, enabled: true, color: '#00d4ff' },
+  { value: 0.382, enabled: false, color: '#a855f7' },
+  { value: 0.5, enabled: false, color: '#ff8500' },
+  { value: 0.618, enabled: true, color: '#FF8500' },
+  { value: 0.786, enabled: false, color: '#ef4444' },
+  { value: 1, enabled: true, color: '#22c55e' },
+  { value: 1.272, enabled: true, color: '#00d4ff' },
+  { value: 1.414, enabled: true, color: '#a855f7' },
+  { value: 1.618, enabled: true, color: '#FF8500' },
+  { value: 2, enabled: true, color: '#ef4444' },
+  { value: 2.272, enabled: true, color: '#22c55e' },
+  { value: 2.414, enabled: true, color: '#00d4ff' },
+  { value: 2.618, enabled: true, color: '#a855f7' },
+  { value: 3.618, enabled: true, color: '#FF8500' },
+  { value: 4.236, enabled: true, color: '#ef4444' },
+]
 
 // ─── SOLID COLOR PALETTE ─────────────────────────────────────────────────────
 const SOLID_COLORS: string[][] = [
@@ -285,6 +335,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   screenToPrice,
   timeToScreen,
   screenToTime,
+  indexToTimestamp,
+  chartTimeframe,
   onMouseMove,
   toolbarPosition = 'top',
 }) => {
@@ -342,6 +394,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     })
   }, [])
   const [isBrushing, setIsBrushing] = useState(false)
+  const [brushSize, setBrushSize] = useState(4)
+  const lastBrushScreenPosRef = useRef<{ x: number; y: number } | null>(null)
   const dragAnimationFrameRef = useRef<number | null>(null)
   const [justCompletedDrawing, setJustCompletedDrawing] = useState(false)
   const pendingUpdateRef = useRef<(() => void) | null>(null)
@@ -350,6 +404,19 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   const pendingMousePositionRef = useRef<{ x: number; y: number } | null>(null)
   const isProcessingDragRef = useRef(false)
   const isDraggingRef = useRef(false)
+  const propertiesPanelRef = useRef<HTMLDivElement>(null)
+
+  // Close properties panel on click outside
+  useEffect(() => {
+    if (!propertiesEditorVisible) return
+    const handler = (e: MouseEvent) => {
+      if (propertiesPanelRef.current && !propertiesPanelRef.current.contains(e.target as Node)) {
+        setPropertiesEditorVisible(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [propertiesEditorVisible])
 
   // Batch drawing updates to reduce re-renders
   useEffect(() => {
@@ -559,7 +626,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         if (editingDrawing === drawing.id) {
           ctx.fillStyle = '#3b82f6'
           ctx.beginPath()
-          ctx.arc(width / 2, screenY, 6, 0, Math.PI * 2)
+          ctx.arc(startPoint.x, screenY, 6, 0, Math.PI * 2)
           ctx.fill()
         }
       } else if (drawing.type === 'vertical' && drawing.points.length === 1) {
@@ -571,6 +638,41 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         ctx.moveTo(screenX, 0)
         ctx.lineTo(screenX, height)
         ctx.stroke()
+
+        // Date/time label at the bottom (x-axis)
+        const ts = indexToTimestamp ? indexToTimestamp(p.time) : p.time  // ms
+        // p.time is now stored as Unix ms directly; indexToTimestamp is a fallback for legacy
+        const d = new Date(p.time || ts)
+        // Show time only on sub-daily timeframes
+        const dailyOrAbove = ['1D', '1d', '1W', '1w', '1M', '1m_monthly', 'W', 'D', 'daily', 'weekly', 'monthly']
+        const isIntraday = chartTimeframe
+          ? !dailyOrAbove.some(tf => chartTimeframe.toUpperCase() === tf.toUpperCase() || chartTimeframe === tf)
+          : (d.getUTCHours() * 60 + d.getUTCMinutes()) !== 0
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const dateStr = `${d.getUTCDate()} ${months[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+        const label = isIntraday ? `${dateStr}  ${timeStr}` : dateStr
+        ctx.save()
+        ctx.font = 'bold 25px monospace'
+        const labelW = ctx.measureText(label).width + 16
+        const labelH = 28
+        const lx = screenX - labelW / 2
+        const ly = height - labelH - 18
+
+        // Badge background — black like the chart x-axis
+        ctx.fillStyle = '#000000'
+        ctx.globalAlpha = 1
+        ctx.beginPath()
+        ctx.roundRect(lx, ly, labelW, labelH, 3)
+        ctx.fill()
+        // Badge text — solid orange
+        ctx.fillStyle = '#ff7800'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(label, screenX, ly + labelH / 2)
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'alphabetic'
+        ctx.restore()
 
         // Show control point if editing
         if (editingDrawing === drawing.id) {
@@ -612,40 +714,151 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
         drawing.points.length === 2
       ) {
+        const isBuy = drawing.type === 'buyZone'
         const [p1, p2] = drawing.points
         const screen1 = toScreenCoords(p1)
         const screen2 = toScreenCoords(p2)
-
-        // Draw horizontal rectangle spanning the width between p1.time and p2.time
         const x1 = Math.min(screen1.x, screen2.x)
         const x2 = Math.max(screen1.x, screen2.x)
-        const y = screen1.y
-        const defaultHeight = 40 // Default height of zone
-        const rectY = y - defaultHeight / 2
+        const cy = screen1.y
+        const zh = drawing.zoneHeight ?? 50   // signed: +ve above, -ve below
+        const shape = drawing.zoneShape ?? 'flat'
+        const diagOff = drawing.zoneDiagOffset ?? 0  // right-side Y shift (whole rect)
+        const midX = (x1 + x2) / 2
 
-        // Fill zone
-        const zoneColor = drawing.type === 'buyZone' ? '#22c55e' : '#ef4444'
-        ctx.globalAlpha = 1.0
-        ctx.fillStyle = zoneColor
-        ctx.fillRect(x1, rectY, x2 - x1, defaultHeight)
-        ctx.globalAlpha = opacity
+        // Left-side top/bottom
+        const topL = zh >= 0 ? cy - zh : cy
+        const botL = zh >= 0 ? cy : cy - zh  // cy + |zh| when zh<0
+        // Right-side (diagonal only): shift entire right side by diagOff
+        const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+        const botR = botL + (shape === 'diagonal' ? diagOff : 0)
 
-        // Draw border
-        ctx.strokeStyle = zoneColor
-        ctx.lineWidth = 4
-        ctx.strokeRect(x1, rectY, x2 - x1, defaultHeight)
+        const zoneColor = isBuy ? '#00ff88' : '#ff3366'
 
-        // Show control points if editing (left and right edges)
-        if (editingDrawing === drawing.id) {
-          ctx.fillStyle = '#3b82f6'
-          // Left edge control point
+        if (shape === 'curve') {
+          // ── CURVE: single glowing bezier line, 3 free control points ──
+          const ctrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
+          const ctrlY = cy - zh
+          const sx0 = screen1.x, sy0 = screen1.y
+          const sx1 = screen2.x, sy1 = screen2.y
+          const alpha = drawing.opacity ?? 1
+
+          ctx.save()
+          ctx.lineCap = 'round'
+          ctx.strokeStyle = zoneColor
+
+          // Outer soft glow
+          ctx.globalAlpha = 0.18 * alpha
+          ctx.lineWidth = 18
+          ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.quadraticCurveTo(ctrlX, ctrlY, sx1, sy1); ctx.stroke()
+
+          // Mid glow
+          ctx.globalAlpha = 0.40 * alpha
+          ctx.lineWidth = 8
+          ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.quadraticCurveTo(ctrlX, ctrlY, sx1, sy1); ctx.stroke()
+
+          // Inner glow
+          ctx.globalAlpha = 0.65 * alpha
+          ctx.lineWidth = 3
+          ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.quadraticCurveTo(ctrlX, ctrlY, sx1, sy1); ctx.stroke()
+
+          // Core line — full brightness
+          ctx.globalAlpha = alpha
+          ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.quadraticCurveTo(ctrlX, ctrlY, sx1, sy1); ctx.stroke()
+
+          // Label at right endpoint
+          ctx.font = 'bold 11px monospace'
+          ctx.fillStyle = zoneColor
+          ctx.globalAlpha = 0.9 * alpha
+          ctx.fillText(isBuy ? '▲ BUY ZONE' : '▼ SELL ZONE', sx1 + 10, sy1)
+          ctx.restore()
+
+          // Control handles when editing
+          if (editingDrawing === drawing.id) {
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5
+            ctx.fillStyle = '#3b82f6'
+            ctx.beginPath(); ctx.arc(sx0, sy0, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+            ctx.beginPath(); ctx.arc(sx1, sy1, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+            ctx.beginPath(); ctx.arc(ctrlX, ctrlY, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+          }
+        } else {
+          // ── FLAT / DIAGONAL: filled zone band ──
+          const fillColor1 = isBuy ? 'rgba(0,255,136,0.20)' : 'rgba(255,51,102,0.20)'
+          const fillColor2 = isBuy ? 'rgba(0,255,136,0.03)' : 'rgba(255,51,102,0.03)'
+
+          ctx.globalAlpha = drawing.opacity ?? 1
+          ctx.save()
+
           ctx.beginPath()
-          ctx.arc(x1, y, 8, 0, Math.PI * 2)
-          ctx.fill()
-          // Right edge control point
-          ctx.beginPath()
-          ctx.arc(x2, y, 8, 0, Math.PI * 2)
-          ctx.fill()
+          if (shape === 'diagonal') {
+            ctx.moveTo(x1, topL); ctx.lineTo(x2, topR)
+            ctx.lineTo(x2, botR); ctx.lineTo(x1, botL)
+            ctx.closePath()
+          } else {
+            ctx.rect(x1, topL, x2 - x1, botL - topL)
+          }
+
+          // Gradient fill
+          const gradTop = Math.min(topL, topR) - 1
+          const gradBot = Math.max(botL, botR) + 1
+          const grad = ctx.createLinearGradient(0, gradTop, 0, gradBot)
+          grad.addColorStop(0, fillColor1); grad.addColorStop(1, fillColor2)
+          ctx.fillStyle = grad; ctx.fill()
+
+          // Multi-stroke glow
+          ctx.strokeStyle = zoneColor
+          ctx.lineWidth = 4; ctx.globalAlpha = 0.12; ctx.stroke()
+          ctx.lineWidth = 2; ctx.globalAlpha = 0.35; ctx.stroke()
+          ctx.lineWidth = 1.5; ctx.globalAlpha = drawing.opacity ?? 1; ctx.stroke()
+
+          // Label — right side, tilted for diagonal
+          ctx.font = 'bold 11px monospace'
+          ctx.fillStyle = zoneColor
+          ctx.globalAlpha = 0.9
+          ctx.textAlign = 'right'
+          if (shape === 'diagonal') {
+            const angle = Math.atan2(topR - topL, x2 - x1)
+            ctx.save()
+            ctx.translate(x2 - 8, topR + 4)
+            ctx.rotate(angle)
+            ctx.fillText(isBuy ? '▲ BUY ZONE' : '▼ SELL ZONE', 0, 12)
+            ctx.restore()
+          } else {
+            ctx.fillText(isBuy ? '▲ BUY ZONE' : '▼ SELL ZONE', x2 - 8, Math.min(topL, topR) + 16)
+          }
+          ctx.textAlign = 'left'
+
+          ctx.restore()
+          ctx.globalAlpha = 1
+
+          // Control handles when editing
+          if (editingDrawing === drawing.id) {
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5
+            const la0Y = shape === 'diagonal' ? botL : cy
+            const la1Y = shape === 'diagonal' ? botR : cy
+            ctx.fillStyle = '#3b82f6'
+            ctx.beginPath(); ctx.arc(x1, la0Y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+            ctx.beginPath(); ctx.arc(x2, la1Y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+
+            if (shape === 'diagonal') {
+              const lcY = (topL + botL) / 2
+              ctx.fillStyle = '#facc15'
+              ctx.setLineDash([4, 3])
+              ctx.strokeStyle = '#facc1555'; ctx.lineWidth = 1
+              ctx.beginPath(); ctx.moveTo(x1, topL); ctx.lineTo(x1, botL); ctx.stroke()
+              ctx.setLineDash([]); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5
+              ctx.beginPath(); ctx.arc(x1, lcY, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+            } else {
+              const farY = zh >= 0 ? topL : botL
+              ctx.fillStyle = '#facc15'
+              ctx.setLineDash([4, 3])
+              ctx.strokeStyle = '#facc1555'; ctx.lineWidth = 1
+              ctx.beginPath(); ctx.moveTo(midX, cy); ctx.lineTo(midX, farY); ctx.stroke()
+              ctx.setLineDash([]); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5
+              ctx.beginPath(); ctx.arc(midX, farY, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+            }
+          }
         }
       } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
         const [p1, p2] = drawing.points
@@ -713,22 +926,198 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           ctx.arc(x, y2, 8, 0, Math.PI * 2)
           ctx.fill()
         }
-      } else if (drawing.type === 'brush' && drawing.points.length > 1) {
-        // Draw brush stroke as connected path
+      } else if (drawing.type === 'fib' && drawing.points.length === 2) {
+        const [p1raw, p2raw] = drawing.points
+        const p1 = drawing.fibReverse ? p2raw : p1raw
+        const p2 = drawing.fibReverse ? p1raw : p2raw
+        const screen1 = toScreenCoords(p1)
+        const screen2 = toScreenCoords(p2)
+        const levels: FibLevel[] = drawing.fibLevels ?? DEFAULT_FIB_LEVELS
+        const oneColor = drawing.fibUseOneColor ? drawing.color : null
+        const priceRange = p2.price - p1.price
+
+        // Trend line
+        const trendStyle = drawing.fibTrendLineStyle ?? 'dashed'
+        ctx.strokeStyle = drawing.color
+        ctx.lineWidth = drawing.lineWidth || 2
+        if (trendStyle === 'dashed') ctx.setLineDash([8, 4])
+        else if (trendStyle === 'dotted') ctx.setLineDash([2, 3])
+        else ctx.setLineDash([])
+        ctx.globalAlpha = opacity
+        ctx.beginPath()
+        ctx.moveTo(screen1.x, screen1.y)
+        ctx.lineTo(screen2.x, screen2.y)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Endpoint dots
+        ctx.fillStyle = drawing.color
+        ctx.beginPath()
+        ctx.arc(screen1.x, screen1.y, 5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.beginPath()
+        ctx.arc(screen2.x, screen2.y, 5, 0, Math.PI * 2)
+        ctx.fill()
+
+        // Background fill between adjacent levels
+        if (drawing.fibBackground) {
+          const bgOp = drawing.fibBackgroundOpacity ?? 0.08
+          const sortedEnabled = levels.filter(l => l.enabled).map(l => l.value).sort((a, b) => a - b)
+          for (let i = 0; i < sortedEnabled.length - 1; i++) {
+            const yA = priceToScreen ? priceToScreen(p1.price + sortedEnabled[i] * priceRange) : 0
+            const yB = priceToScreen ? priceToScreen(p1.price + sortedEnabled[i + 1] * priceRange) : 0
+            ctx.globalAlpha = bgOp
+            ctx.fillStyle = oneColor ?? levels.find(l => l.value === sortedEnabled[i])?.color ?? drawing.color
+            ctx.fillRect(0, Math.min(yA, yB), width, Math.abs(yB - yA))
+            ctx.globalAlpha = opacity
+          }
+        }
+
+        // Level lines + labels — drawn between the x extents of the two endpoints
+        ctx.lineWidth = 1
+        const xLeft = Math.min(screen1.x, screen2.x)
+        const xRight = Math.max(screen1.x, screen2.x)
+        levels.filter(l => l.enabled).forEach(level => {
+          const levelPrice = p1.price + level.value * priceRange
+          const screenY = priceToScreen ? priceToScreen(levelPrice) : 0
+          const levelColor = oneColor ?? level.color
+          ctx.strokeStyle = levelColor
+          ctx.globalAlpha = opacity
+          ctx.setLineDash([])
+          ctx.beginPath()
+          ctx.moveTo(xLeft, screenY)
+          ctx.lineTo(xRight, screenY)
+          ctx.stroke()
+          ctx.fillStyle = levelColor
+          ctx.font = 'bold 11px monospace'
+          ctx.textBaseline = 'bottom'
+          const label = `${level.value} (${levelPrice.toFixed(2)})`
+          ctx.fillText(label, xLeft + 4, screenY - 2)
+          ctx.textBaseline = 'alphabetic'
+        })
+
+        if (editingDrawing === drawing.id) {
+          ctx.fillStyle = '#3b82f6'
+          ctx.setLineDash([])
+            ;[screen1, screen2].forEach(pt => {
+              ctx.beginPath()
+              ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2)
+              ctx.fill()
+            })
+        }
+      } else if ((drawing.type === 'elliottWave' || drawing.type === 'elliottWaveABC') && drawing.points.length >= 2) {
+        // Labels: impulse = 0,1,2,3,4,5  ABC corrective = 0,A,B,C
+        const waveLabels = drawing.type === 'elliottWaveABC' ? ['0', 'A', 'B', 'C'] : ['0', '1', '2', '3', '4', '5']
+        const pts = drawing.points.map(p => toScreenCoords(p))
+        ctx.strokeStyle = drawing.color
+        ctx.lineWidth = drawing.lineWidth || 2
+        ctx.setLineDash([])
+        ctx.globalAlpha = opacity
+        ctx.beginPath()
+        ctx.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+        ctx.stroke()
+        pts.forEach((pt, i) => {
+          if (i >= waveLabels.length) return
+          // Solid black circle background with white text
+          ctx.fillStyle = '#000000'
+          ctx.beginPath()
+          ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 10px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(waveLabels[i], pt.x, pt.y)
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'alphabetic'
+          ctx.lineWidth = drawing.lineWidth || 2
+          ctx.strokeStyle = drawing.color
+        })
+        if (editingDrawing === drawing.id) {
+          ctx.fillStyle = '#3b82f6'
+          pts.forEach(pt => {
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2)
+            ctx.fill()
+          })
+        }
+      } else if (drawing.type === 'path' && drawing.points.length >= 2) {
         ctx.strokeStyle = drawing.color
         ctx.lineWidth = drawing.lineWidth || 3
+        ctx.globalAlpha = opacity
+        if (drawing.lineStyle === 'dashed') ctx.setLineDash([10, 5])
+        else if (drawing.lineStyle === 'dotted') ctx.setLineDash([2, 3])
+        else ctx.setLineDash([])
+        const pts = drawing.points.map(p => toScreenCoords(p))
+        ctx.beginPath()
+        ctx.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        const endStyle = drawing.pathEndStyle ?? 'none'
+        const r = Math.max(3, (drawing.lineWidth || 3) * 1.5)
+        ctx.fillStyle = drawing.color
+
+        if (endStyle === 'circle') {
+          pts.forEach(pt => {
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2)
+            ctx.fill()
+          })
+        } else if (endStyle === 'arrow') {
+          // Draw arrowhead at the last segment end (last point)
+          for (let i = 0; i < pts.length - 1; i++) {
+            const from = pts[i]
+            const to = pts[i + 1]
+            const angle = Math.atan2(to.y - from.y, to.x - from.x)
+            const aLen = Math.max(8, (drawing.lineWidth || 2) * 4)
+            const aWidth = Math.PI / 6
+            ctx.beginPath()
+            ctx.moveTo(to.x, to.y)
+            ctx.lineTo(to.x - aLen * Math.cos(angle - aWidth), to.y - aLen * Math.sin(angle - aWidth))
+            ctx.lineTo(to.x - aLen * Math.cos(angle + aWidth), to.y - aLen * Math.sin(angle + aWidth))
+            ctx.closePath()
+            ctx.fill()
+          }
+        } else {
+          // none: small dot only at each vertex for visibility
+          pts.forEach(pt => {
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2)
+            ctx.fill()
+          })
+        }
+
+        if (editingDrawing === drawing.id) {
+          ctx.fillStyle = '#3b82f6'
+          pts.forEach(pt => {
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2)
+            ctx.fill()
+          })
+        }
+      } else if (drawing.type === 'brush' && drawing.points.length > 1) {
+        ctx.strokeStyle = drawing.color
+        ctx.lineWidth = drawing.lineWidth || 4
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
 
+        const pts = drawing.points.map(p => toScreenCoords(p))
         ctx.beginPath()
-        const firstPoint = toScreenCoords(drawing.points[0])
-        ctx.moveTo(firstPoint.x, firstPoint.y)
-
-        for (let i = 1; i < drawing.points.length; i++) {
-          const point = toScreenCoords(drawing.points[i])
-          ctx.lineTo(point.x, point.y)
+        ctx.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length - 1; i++) {
+          const midX = (pts[i].x + pts[i + 1].x) / 2
+          const midY = (pts[i].y + pts[i + 1].y) / 2
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY)
         }
-
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y)
         ctx.stroke()
       } else if (drawing.type === 'text' && drawing.points.length === 1 && drawing.text) {
         const p = drawing.points[0]
@@ -863,24 +1252,30 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         currentPoints.length === 1 &&
         previewPoint
       ) {
+        const isBuy = currentTool === 'buyZone'
         const p1 = currentPoints[0]
         const p2 = previewPoint
         const screen1 = toScreenCoords(p1)
         const screen2 = toScreenCoords(p2)
         const x1 = Math.min(screen1.x, screen2.x)
         const x2 = Math.max(screen1.x, screen2.x)
-        const defaultHeight = 40
-        const rectY = screen1.y - defaultHeight / 2
-
-        const zoneColor = currentTool === 'buyZone' ? '#22c55e' : '#ef4444'
-        ctx.globalAlpha = 1.0
-        ctx.fillStyle = zoneColor
-        ctx.fillRect(x1, rectY, x2 - x1, defaultHeight)
-        ctx.globalAlpha = 1.0
+        const cy = screen1.y
+        const zh = 50  // default preview height
+        const zoneColor = isBuy ? '#00ff88' : '#ff3366'
+        const fillColor = isBuy ? 'rgba(0,255,136,0.15)' : 'rgba(255,51,102,0.15)'
+        ctx.globalAlpha = 0.85
+        ctx.fillStyle = fillColor
+        ctx.fillRect(x1, cy - zh, x2 - x1, zh)
+        ctx.globalAlpha = 1
         ctx.strokeStyle = zoneColor
-        ctx.lineWidth = 4
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([6, 3])
+        ctx.strokeRect(x1, cy - zh, x2 - x1, zh)
         ctx.setLineDash([])
-        ctx.strokeRect(x1, rectY, x2 - x1, defaultHeight)
+        ctx.font = 'bold 11px monospace'
+        ctx.fillStyle = zoneColor
+        ctx.fillText(isBuy ? '▲ BUY ZONE' : '▼ SELL ZONE', x1 + 8, cy - zh + 16)
+        ctx.globalAlpha = 1
       } else if (currentTool === 'priceRange' && currentPoints.length === 1 && previewPoint) {
         const p1 = currentPoints[0]
         const p2 = previewPoint
@@ -916,21 +1311,23 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
         ctx.setLineDash([])
       } else if (currentTool === 'brush' && currentPoints.length > 0) {
-        // Draw brush preview while drawing
+        // Draw brush preview while drawing - smooth bezier
         ctx.strokeStyle = color
-        ctx.lineWidth = 3
+        ctx.lineWidth = brushSize
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
 
+        const pts = currentPoints.map(p => toScreenCoords(p))
         ctx.beginPath()
-        const firstPoint = toScreenCoords(currentPoints[0])
-        ctx.moveTo(firstPoint.x, firstPoint.y)
-
-        for (let i = 1; i < currentPoints.length; i++) {
-          const point = toScreenCoords(currentPoints[i])
-          ctx.lineTo(point.x, point.y)
+        ctx.moveTo(pts[0].x, pts[0].y)
+        for (let i = 1; i < pts.length - 1; i++) {
+          const midX = (pts[i].x + pts[i + 1].x) / 2
+          const midY = (pts[i].y + pts[i + 1].y) / 2
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY)
         }
-
+        if (pts.length > 1) {
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y)
+        }
         ctx.stroke()
         ctx.setLineDash([])
       } else if (currentTool === 'parallelChannel' && previewPoint) {
@@ -979,6 +1376,71 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           ctx.beginPath()
           ctx.arc(screen2.x, screen2.y, 6, 0, Math.PI * 2)
           ctx.fill()
+        }
+      } else if (currentTool === 'fib' && currentPoints.length === 1 && previewPoint) {
+        const p1 = currentPoints[0]
+        const p2 = previewPoint
+        const screen1 = toScreenCoords(p1)
+        const screen2 = toScreenCoords(p2)
+        const priceRange = p2.price - p1.price
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2
+        ctx.setLineDash([8, 4])
+        ctx.beginPath()
+        ctx.moveTo(screen1.x, screen1.y)
+        ctx.lineTo(screen2.x, screen2.y)
+        ctx.stroke()
+        ctx.setLineDash([])
+        DEFAULT_FIB_LEVELS.filter(l => l.enabled).forEach(level => {
+          const levelPrice = p1.price + level.value * priceRange
+          const screenY = priceToScreen ? priceToScreen(levelPrice) : 0
+          ctx.strokeStyle = level.color
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(0, screenY)
+          ctx.lineTo(width, screenY)
+          ctx.stroke()
+          ctx.fillStyle = level.color
+          ctx.font = 'bold 11px monospace'
+          ctx.textBaseline = 'bottom'
+          ctx.fillText(`${level.value}`, 4, screenY - 2)
+          ctx.textBaseline = 'alphabetic'
+        })
+      } else if ((currentTool === 'elliottWave' || currentTool === 'elliottWaveABC' || currentTool === 'path') && currentPoints.length >= 1 && previewPoint) {
+        const allPts = [...currentPoints, previewPoint].map(p => toScreenCoords(p))
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 3])
+        ctx.beginPath()
+        ctx.moveTo(allPts[0].x, allPts[0].y)
+        for (let i = 1; i < allPts.length; i++) ctx.lineTo(allPts[i].x, allPts[i].y)
+        ctx.stroke()
+        ctx.setLineDash([])
+        // Draw labels for placed points
+        if (currentTool === 'elliottWave' || currentTool === 'elliottWaveABC') {
+          const labels = currentTool === 'elliottWaveABC' ? ['0', 'A', 'B', 'C'] : ['0', '1', '2', '3', '4', '5']
+          currentPoints.forEach((p, i) => {
+            if (i >= labels.length) return
+            const pt = toScreenCoords(p)
+            ctx.fillStyle = '#000'
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = '#ffffff'
+            ctx.lineWidth = 1.5
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.fillStyle = '#ffffff'
+            ctx.font = 'bold 10px sans-serif'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(labels[i], pt.x, pt.y)
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'alphabetic'
+            ctx.strokeStyle = color
+            ctx.lineWidth = 2
+          })
         }
       }
 
@@ -1065,14 +1527,17 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const newPoints = [...currentPoints, point]
 
       if (newPoints.length === 2) {
-        // Complete the zone with default green/red color
-        const zoneColor = currentTool === 'buyZone' ? '#22c55e' : '#ef4444'
+        const isBuy = currentTool === 'buyZone'
+        const zoneColor = isBuy ? '#00ff88' : '#ff3366'
         const newDrawing: Drawing = {
           id: Date.now().toString(),
           type: currentTool,
           points: newPoints,
           color: zoneColor,
-          lineWidth: 4,
+          lineWidth: 2,
+          zoneHeight: 50,
+          zoneShape: 'flat',
+          zoneDiagOffset: 0,
         }
         setDrawings([...drawings, newDrawing])
         setCurrentPoints([])
@@ -1153,6 +1618,83 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         setCurrentPoints(newPoints)
         setPreviewPoint(null)
       }
+    } else if (currentTool === 'fib') {
+      const newPoints = [...currentPoints, point]
+      if (newPoints.length === 2) {
+        const newDrawing: Drawing = {
+          id: Date.now().toString(),
+          type: 'fib',
+          points: newPoints,
+          color,
+          lineWidth: 2,
+          fibLevels: DEFAULT_FIB_LEVELS.map(l => ({ ...l })),
+          fibShowPrices: false,
+          fibReverse: false,
+          fibUseOneColor: false,
+          fibBackground: false,
+          fibBackgroundOpacity: 0.08,
+          fibTrendLineStyle: 'dashed',
+        }
+        setDrawings([...drawings, newDrawing])
+        setCurrentPoints([])
+        setPreviewPoint(null)
+        setEditingDrawing(null)
+        setJustCompletedDrawing(true)
+        setTimeout(() => setJustCompletedDrawing(false), 100)
+        if (!isToolLocked) setCurrentTool('select')
+      } else {
+        setCurrentPoints(newPoints)
+        setPreviewPoint(null)
+      }
+    } else if (currentTool === 'elliottWaveABC') {
+      const newPoints = [...currentPoints, point]
+      // ABC corrective: 4 points (labels 0,A,B,C)
+      if (newPoints.length === 4) {
+        const newDrawing: Drawing = {
+          id: Date.now().toString(),
+          type: 'elliottWaveABC',
+          points: newPoints,
+          color,
+          lineWidth: 2,
+        }
+        setDrawings([...drawings, newDrawing])
+        setCurrentPoints([])
+        setPreviewPoint(null)
+        setEditingDrawing(null)
+        setJustCompletedDrawing(true)
+        setTimeout(() => setJustCompletedDrawing(false), 100)
+        if (!isToolLocked) setCurrentTool('select')
+      } else {
+        setCurrentPoints(newPoints)
+        setPreviewPoint(null)
+      }
+    } else if (currentTool === 'elliottWave') {
+      const newPoints = [...currentPoints, point]
+      // Impulse: 6 points (labels 0,1,2,3,4,5)
+      if (newPoints.length === 6) {
+        const newDrawing: Drawing = {
+          id: Date.now().toString(),
+          type: 'elliottWave',
+          points: newPoints,
+          color,
+          lineWidth: 2,
+          elliottType: 'impulse',
+        }
+        setDrawings([...drawings, newDrawing])
+        setCurrentPoints([])
+        setPreviewPoint(null)
+        setEditingDrawing(null)
+        setJustCompletedDrawing(true)
+        setTimeout(() => setJustCompletedDrawing(false), 100)
+        if (!isToolLocked) setCurrentTool('select')
+      } else {
+        setCurrentPoints(newPoints)
+        setPreviewPoint(null)
+      }
+    } else if (currentTool === 'path') {
+      // Path: keep adding points; double-click completes
+      setCurrentPoints([...currentPoints, point])
+      setPreviewPoint(null)
     }
   }
 
@@ -1169,13 +1711,21 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
     // Handle brush tool - add points while mouse is down
     if (isBrushing && currentTool === 'brush') {
+      // Minimum distance threshold to avoid noisy/jagged strokes
+      const last = lastBrushScreenPosRef.current
+      if (last) {
+        const dist = Math.hypot(x - last.x, y - last.y)
+        if (dist < 3) return // skip if movement is too small
+      }
+      lastBrushScreenPosRef.current = { x, y }
       e.stopPropagation()
       e.preventDefault()
       const point: DrawingPoint = {
         time: screenToTime(x),
         price: screenToPrice(y),
       }
-      setCurrentPoints([...currentPoints, point])
+      // Use functional update to avoid stale closure bug
+      setCurrentPoints(prev => [...prev, point])
       return
     }
 
@@ -1324,21 +1874,42 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             ) {
               const p1 = drawing.points[0]
               const p2 = drawing.points[1]
+              const s1 = toScreenCoords(p1)
+              const cy = s1.y
+              const shape = drawing.zoneShape ?? 'flat'
+              const zh = drawing.zoneHeight ?? 50
 
-              let newP1 = { ...p1 }
-              let newP2 = { ...p2 }
-
-              if (draggedControlPoint === 0) {
-                // Dragging left edge - move the left side freely
-                newP1 = { time: newDataPoint.time, price: p1.price }
-                newP2 = { time: p2.time, price: p2.price }
-              } else if (draggedControlPoint === 1) {
-                // Dragging right edge - move the right side freely
-                newP1 = { time: p1.time, price: p1.price }
-                newP2 = { time: newDataPoint.time, price: p2.price }
+              if (shape === 'curve') {
+                // Curve: all 3 points fully free
+                if (draggedControlPoint === 0) {
+                  return { ...drawing, points: [newDataPoint, p2] }
+                } else if (draggedControlPoint === 1) {
+                  return { ...drawing, points: [p1, newDataPoint] }
+                } else if (draggedControlPoint === 2) {
+                  // Control point: update both Y (zoneHeight) and X (zoneCurveCtrlX)
+                  const mx = (toScreenCoords(p1).x + toScreenCoords(p2).x) / 2
+                  return { ...drawing, zoneHeight: cy - currentY, zoneCurveCtrlX: currentX - mx }
+                }
+                return drawing
               }
-
-              return { ...drawing, points: [newP1, newP2] }
+              if (draggedControlPoint === 0) {
+                // Left time anchor — x only
+                return { ...drawing, points: [{ time: newDataPoint.time, price: p1.price }, p2] }
+              } else if (draggedControlPoint === 1) {
+                // Right anchor — x always; for diagonal also sets tilt via y
+                if (shape === 'diagonal') {
+                  const botL = zh >= 0 ? cy : cy - zh
+                  return {
+                    ...drawing,
+                    points: [p1, { time: newDataPoint.time, price: p2.price }],
+                    zoneDiagOffset: currentY - botL,
+                  }
+                }
+                return { ...drawing, points: [p1, { time: newDataPoint.time, price: p2.price }] }
+              } else if (draggedControlPoint === 2) {
+                // Yellow height handle — signed, up or down from anchor
+                return { ...drawing, zoneHeight: cy - currentY }
+              }
             } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
               const newPoints = [...drawing.points]
 
@@ -1366,6 +1937,17 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 ...drawing,
                 points: [newDataPoint],
               }
+            } else if (drawing.type === 'fib' && drawing.points.length === 2) {
+              const newPoints = [...drawing.points]
+              newPoints[draggedControlPoint] = newDataPoint
+              return { ...drawing, points: newPoints }
+            } else if (
+              (drawing.type === 'elliottWave' || drawing.type === 'path') &&
+              draggedControlPoint < drawing.points.length
+            ) {
+              const newPoints = [...drawing.points]
+              newPoints[draggedControlPoint] = newDataPoint
+              return { ...drawing, points: newPoints }
             }
           }
           return drawing
@@ -1398,7 +1980,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               drawing.type === 'buyZone' ||
               drawing.type === 'sellZone' ||
               drawing.type === 'priceRange' ||
-              drawing.type === 'brush'
+              drawing.type === 'brush' ||
+              drawing.type === 'fib' ||
+              drawing.type === 'elliottWave' ||
+              drawing.type === 'elliottWaveABC' ||
+              drawing.type === 'path'
             ) {
               return {
                 ...drawing,
@@ -1437,8 +2023,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       }
 
       // For parallel channel, allow preview with 1 or 2 points
+      // For elliottWave / path, allow preview with any number of points >= 1
       if (currentTool === 'parallelChannel') {
         if (currentPoints.length !== 1 && currentPoints.length !== 2) return
+      } else if (currentTool === 'elliottWave' || currentTool === 'elliottWaveABC' || currentTool === 'path' || currentTool === 'fib') {
+        if (currentPoints.length < 1) return
       } else {
         // For other tools, only show preview with 1 point
         if (currentPoints.length !== 1) return
@@ -1520,19 +2109,56 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
       drawing.points.length === 2
     ) {
-      const screen1 = toScreenCoords(drawing.points[0])
-      const screen2 = toScreenCoords(drawing.points[1])
-      const x1 = Math.min(screen1.x, screen2.x)
-      const x2 = Math.max(screen1.x, screen2.x)
-      const y = screen1.y
+      const s1 = toScreenCoords(drawing.points[0])
+      const s2 = toScreenCoords(drawing.points[1])
+      const x1 = Math.min(s1.x, s2.x)
+      const x2 = Math.max(s1.x, s2.x)
+      const cy = s1.y
+      const zh = drawing.zoneHeight ?? 50
+      const shape = drawing.zoneShape ?? 'flat'
+      const diagOff = drawing.zoneDiagOffset ?? 0
+      const midX = (x1 + x2) / 2
+      const topL = zh >= 0 ? cy - zh : cy
+      const botL = zh >= 0 ? cy : cy - zh
+      const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+      const botR = botL + (shape === 'diagonal' ? diagOff : 0)
 
-      // Check left edge
-      const distLeft = Math.sqrt(Math.pow(x - x1, 2) + Math.pow(y - y, 2))
-      if (distLeft < threshold) return 0
-
-      // Check right edge
-      const distRight = Math.sqrt(Math.pow(x - x2, 2) + Math.pow(y - y, 2))
-      if (distRight < threshold) return 1
+      if (shape === 'curve') {
+        // 3 fully free points: p0=start, p1=end, p2=bezier ctrl
+        if (Math.hypot(x - s1.x, y - s1.y) < threshold) return 0
+        if (Math.hypot(x - s2.x, y - s2.y) < threshold) return 1
+        const ctrlX = (s1.x + s2.x) / 2 + (drawing.zoneCurveCtrlX ?? 0)
+        const ctrlY = s1.y - zh
+        if (Math.hypot(x - ctrlX, y - ctrlY) < threshold) return 2
+        return null
+      }
+      // cp0 = left anchor, cp1 = right anchor (diagonal: also controls tilt via y)
+      // For diagonal: anchors sit at bottom corners of the visible zone
+      const la0Y = shape === 'diagonal' ? botL : cy
+      const la1Y = shape === 'diagonal' ? botR : cy
+      if (Math.hypot(x - x1, y - la0Y) < threshold) return 0
+      if (Math.hypot(x - x2, y - la1Y) < threshold) return 1
+      if (shape === 'diagonal') {
+        // cp2 = left-center height handle only
+        const lcY = (topL + botL) / 2
+        if (Math.hypot(x - x1, y - lcY) < threshold) return 2
+      } else {
+        // cp2 = single height handle (far edge, center x)
+        const farY = zh >= 0 ? topL : botL
+        if (Math.hypot(x - midX, y - farY) < threshold) return 2
+      }
+    } else if (drawing.type === 'fib' && drawing.points.length === 2) {
+      // Two endpoint handles for fib
+      const s1 = toScreenCoords(drawing.points[0])
+      const s2 = toScreenCoords(drawing.points[1])
+      if (Math.hypot(x - s1.x, y - s1.y) < threshold) return 0
+      if (Math.hypot(x - s2.x, y - s2.y) < threshold) return 1
+    } else if ((drawing.type === 'elliottWave' || drawing.type === 'elliottWaveABC' || drawing.type === 'path') && drawing.points.length >= 2) {
+      // Each vertex is a control point
+      for (let i = 0; i < drawing.points.length; i++) {
+        const pt = toScreenCoords(drawing.points[i])
+        if (Math.hypot(x - pt.x, y - pt.y) < threshold) return i
+      }
     }
 
     return null
@@ -1653,12 +2279,88 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       const screen2 = toScreenCoords(p2)
       const x1 = Math.min(screen1.x, screen2.x)
       const x2 = Math.max(screen1.x, screen2.x)
-      const y = screen1.y
-      const defaultHeight = 40
-      const rectY = y - defaultHeight / 2
-
-      // Check if point is within the zone rectangle
-      return x >= x1 && x <= x2 && y >= rectY && y <= rectY + defaultHeight
+      const cy = screen1.y
+      const zh = drawing.zoneHeight ?? 50
+      const diagOff = drawing.zoneDiagOffset ?? 0
+      const shape = drawing.zoneShape ?? 'flat'
+      const topL = zh >= 0 ? cy - zh : cy
+      const botL = zh >= 0 ? cy : cy - zh
+      const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+      const botR = botL + (shape === 'diagonal' ? diagOff : 0)
+      if (shape === 'curve') {
+        // Sample along bezier and check proximity
+        const midX = (screen1.x + screen2.x) / 2
+        const ctrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
+        const ctrlY = cy - zh
+        const sx0 = screen1.x, sy0 = screen1.y
+        const sx1 = screen2.x, sy1 = screen2.y
+        for (let t = 0; t <= 1; t += 0.04) {
+          const bx = (1 - t) * (1 - t) * sx0 + 2 * (1 - t) * t * ctrlX + t * t * sx1
+          const by = (1 - t) * (1 - t) * sy0 + 2 * (1 - t) * t * ctrlY + t * t * sy1
+          if (Math.hypot(x - bx, y - by) < threshold * 2) return true
+        }
+        return false
+      }
+      return x >= x1 && x <= x2 && y >= Math.min(topL, topR) - 4 && y <= Math.max(botL, botR) + 4
+    } else if (drawing.type === 'fib' && drawing.points.length === 2) {
+      // Hit: near either endpoint OR near any enabled level line
+      const [p1raw, p2raw] = drawing.points
+      const screen1 = toScreenCoords(p1raw)
+      const screen2 = toScreenCoords(p2raw)
+      if (Math.hypot(x - screen1.x, y - screen1.y) < threshold * 2) return true
+      if (Math.hypot(x - screen2.x, y - screen2.y) < threshold * 2) return true
+      const levels: FibLevel[] = drawing.fibLevels ?? DEFAULT_FIB_LEVELS
+      const priceRange = p2raw.price - p1raw.price
+      for (const level of levels.filter(l => l.enabled)) {
+        const levelPrice = p1raw.price + level.value * priceRange
+        const screenY = priceToScreen ? priceToScreen(levelPrice) : 0
+        if (Math.abs(y - screenY) < threshold) return true
+      }
+      return false
+    } else if ((drawing.type === 'elliottWave' || drawing.type === 'elliottWaveABC') && drawing.points.length >= 2) {
+      const pts = drawing.points.map(p => toScreenCoords(p))
+      for (let i = 0; i < pts.length - 1; i++) {
+        const ax = pts[i].x, ay = pts[i].y
+        const bx = pts[i + 1].x, by = pts[i + 1].y
+        const abx = bx - ax, aby = by - ay
+        const lenSq = abx * abx + aby * aby
+        if (lenSq === 0) { if (Math.hypot(x - ax, y - ay) <= threshold) return true; continue }
+        const t = Math.max(0, Math.min(1, ((x - ax) * abx + (y - ay) * aby) / lenSq))
+        if (Math.hypot(x - ax - t * abx, y - ay - t * aby) <= threshold) return true
+      }
+      return false
+    } else if (drawing.type === 'path' && drawing.points.length >= 2) {
+      const pts = drawing.points.map(p => toScreenCoords(p))
+      const hitR = Math.max(threshold, (drawing.lineWidth || 2) / 2 + 6)
+      for (let i = 0; i < pts.length - 1; i++) {
+        const ax = pts[i].x, ay = pts[i].y
+        const bx = pts[i + 1].x, by = pts[i + 1].y
+        const abx = bx - ax, aby = by - ay
+        const lenSq = abx * abx + aby * aby
+        if (lenSq === 0) { if (Math.hypot(x - ax, y - ay) <= hitR) return true; continue }
+        const t = Math.max(0, Math.min(1, ((x - ax) * abx + (y - ay) * aby) / lenSq))
+        if (Math.hypot(x - ax - t * abx, y - ay - t * aby) <= hitR) return true
+      }
+      return false
+    } else if (drawing.type === 'brush' && drawing.points.length > 1) {
+      // Check if cursor is near any segment of the brush polyline
+      const pts = drawing.points.map(p => toScreenCoords(p))
+      const hitRadius = Math.max(threshold, (drawing.lineWidth || 4) / 2 + 6)
+      for (let i = 0; i < pts.length - 1; i++) {
+        const ax = pts[i].x, ay = pts[i].y
+        const bx = pts[i + 1].x, by = pts[i + 1].y
+        const abx = bx - ax, aby = by - ay
+        const lenSq = abx * abx + aby * aby
+        if (lenSq === 0) {
+          if (Math.hypot(x - ax, y - ay) <= hitRadius) return true
+          continue
+        }
+        const t = Math.max(0, Math.min(1, ((x - ax) * abx + (y - ay) * aby) / lenSq))
+        const nearX = ax + t * abx
+        const nearY = ay + t * aby
+        if (Math.hypot(x - nearX, y - nearY) <= hitRadius) return true
+      }
+      return false
     }
     return false
   }
@@ -1675,7 +2377,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     if (currentTool === 'brush' && screenToPrice && screenToTime) {
       e.stopPropagation()
       e.preventDefault()
+      // Capture pointer so pointerUp fires even if cursor leaves the element
+      e.currentTarget.setPointerCapture(e.pointerId)
       setIsBrushing(true)
+      lastBrushScreenPosRef.current = { x, y }
       const point: DrawingPoint = {
         time: screenToTime(x),
         price: screenToPrice(y),
@@ -1753,22 +2458,28 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   }
 
   const handleCanvasMouseUp = () => {
-    // Finish brush stroke
-    if (isBrushing && currentTool === 'brush' && currentPoints.length > 1) {
-      const newDrawing: Drawing = {
-        id: Date.now().toString(),
-        type: 'brush',
-        points: currentPoints,
-        color: color,
-        lineWidth: 3,
-      }
-      setDrawings([...drawings, newDrawing])
-      setCurrentPoints([])
+    // Finish brush stroke - always reset brush state regardless of point count
+    if (isBrushing) {
       setIsBrushing(false)
-      setEditingDrawing(null)
-      setJustCompletedDrawing(true)
-      setTimeout(() => setJustCompletedDrawing(false), 100)
-      if (!isToolLocked) setCurrentTool('select')
+      lastBrushScreenPosRef.current = null
+      if (currentTool === 'brush' && currentPoints.length > 1) {
+        const newDrawing: Drawing = {
+          id: Date.now().toString(),
+          type: 'brush',
+          points: currentPoints,
+          color: color,
+          lineWidth: brushSize,
+        }
+        setDrawings([...drawings, newDrawing])
+        setCurrentPoints([])
+        setEditingDrawing(null)
+        setJustCompletedDrawing(true)
+        setTimeout(() => setJustCompletedDrawing(false), 100)
+        if (!isToolLocked) setCurrentTool('select')
+      } else {
+        // Click with no movement or too few points — discard, keep tool active
+        setCurrentPoints([])
+      }
       return
     }
 
@@ -1795,6 +2506,30 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+
+    // Complete path drawing on double-click
+    if (currentTool === 'path' && currentPoints.length >= 2 && screenToPrice && screenToTime) {
+      e.stopPropagation()
+      e.preventDefault()
+      // Remove the last point added by the click that fired just before dblclick
+      const finalPoints = currentPoints.slice(0, -1)
+      if (finalPoints.length >= 2) {
+        const newDrawing: Drawing = {
+          id: Date.now().toString(),
+          type: 'path',
+          points: finalPoints,
+          color,
+          lineWidth: 3,
+        }
+        setDrawings([...drawings, newDrawing])
+      }
+      setCurrentPoints([])
+      setPreviewPoint(null)
+      setJustCompletedDrawing(true)
+      setTimeout(() => setJustCompletedDrawing(false), 100)
+      if (!isToolLocked) setCurrentTool('select')
+      return
+    }
 
     // Check if double-clicking on any drawing
     let clickedOnDrawing = false
@@ -2042,32 +2777,155 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             onClick={() => { setCurrentTool('buyZone'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'buyZone' ? '#22c55e' : '#0d2614',
-              color: '#22c55e',
-              border: '1px solid #22c55e',
+              background: currentTool === 'buyZone' ? '#00ff88' : '#001a0e',
+              color: '#00ff88',
+              border: '1px solid #00ff88',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'buyZone' ? '0 0 12px rgba(34,197,94,0.6)' : 'none',
+              boxShadow: currentTool === 'buyZone' ? '0 0 14px rgba(0,255,136,0.7)' : '0 0 4px rgba(0,255,136,0.15)',
             }}
             title="Buy Zone"
           >
-            <FiTrendingUp size={14} color={currentTool === 'buyZone' ? '#000' : '#22c55e'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'buyZone' ? '#000' : '#22c55e' }}>Buy</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="5" width="12" height="7" fill={currentTool === 'buyZone' ? 'rgba(0,0,0,0.3)' : 'rgba(0,255,136,0.2)'} stroke={currentTool === 'buyZone' ? '#000' : '#00ff88'} strokeWidth="1.2" />
+              <polyline points="4,8 7,4 10,8" stroke={currentTool === 'buyZone' ? '#000' : '#00ff88'} strokeWidth="1.5" fill="none" />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'buyZone' ? '#000' : '#00ff88' }}>Buy</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('sellZone'); setCurrentPoints([]) }}
             style={{
               width: '42px', height: '42px', padding: 0,
-              background: currentTool === 'sellZone' ? '#ef4444' : '#2a0d0d',
-              color: '#ef4444',
-              border: '1px solid #ef4444',
+              background: currentTool === 'sellZone' ? '#ff3366' : '#1a0008',
+              color: '#ff3366',
+              border: '1px solid #ff3366',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
-              boxShadow: currentTool === 'sellZone' ? '0 0 12px rgba(239,68,68,0.6)' : 'none',
+              boxShadow: currentTool === 'sellZone' ? '0 0 14px rgba(255,51,102,0.7)' : '0 0 4px rgba(255,51,102,0.15)',
             }}
             title="Sell Zone"
           >
-            <FiTrendingDown size={14} color={currentTool === 'sellZone' ? '#000' : '#ef4444'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'sellZone' ? '#000' : '#ef4444' }}>Sell</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1" y="2" width="12" height="7" fill={currentTool === 'sellZone' ? 'rgba(0,0,0,0.3)' : 'rgba(255,51,102,0.2)'} stroke={currentTool === 'sellZone' ? '#000' : '#ff3366'} strokeWidth="1.2" />
+              <polyline points="4,6 7,10 10,6" stroke={currentTool === 'sellZone' ? '#000' : '#ff3366'} strokeWidth="1.5" fill="none" />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'sellZone' ? '#000' : '#ff3366' }}>Sell</span>
+          </button>
+
+          {/* Brush Tool */}
+          <button
+            onClick={() => { setCurrentTool('brush'); setCurrentPoints([]); setColor('#ffffff') }}
+            style={{
+              width: '42px', height: '42px', padding: 0,
+              background: currentTool === 'brush' ? '#a855f7' : '#1e0a33',
+              color: '#a855f7',
+              border: '1px solid #a855f7',
+              borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
+              boxShadow: currentTool === 'brush' ? '0 0 12px rgba(168,85,247,0.6)' : 'none',
+            }}
+            title="Freehand Brush"
+          >
+            <TbBrush size={14} color={currentTool === 'brush' ? '#000' : '#a855f7'} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'brush' ? '#000' : '#a855f7' }}>Brush</span>
+          </button>
+
+          {/* Brush size slider - only shown when brush is active */}
+          {currentTool === 'brush' && (
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: '2px', padding: '2px 4px', background: '#1e0a33',
+              border: '1px solid #a855f7', borderRadius: '5px', minWidth: '42px',
+            }}>
+              <span style={{ fontSize: '7px', fontWeight: '700', color: '#a855f7', fontFamily: 'monospace', letterSpacing: '0.5px' }}>SIZE</span>
+              <input
+                type="range"
+                min={1}
+                max={24}
+                value={brushSize}
+                onChange={e => setBrushSize(Number(e.target.value))}
+                style={{ width: '36px', accentColor: '#a855f7', cursor: 'pointer' }}
+                title={`Brush size: ${brushSize}px`}
+              />
+              <span style={{ fontSize: '8px', fontWeight: '700', color: '#c084fc', fontFamily: 'monospace' }}>{brushSize}px</span>
+            </div>
+          )}
+
+          {/* Fibonacci Retracement */}
+          <button
+            onClick={() => { setCurrentTool('fib'); setCurrentPoints([]) }}
+            style={{
+              width: '42px', height: '42px', padding: 0,
+              background: currentTool === 'fib' ? '#facc15' : '#1c1800',
+              border: '1px solid #facc15',
+              borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
+              boxShadow: currentTool === 'fib' ? '0 0 12px rgba(250,204,21,0.6)' : 'none',
+            }}
+            title="Fibonacci Retracement (2 clicks)"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <line x1="2" y1="2" x2="12" y2="12" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1.5" strokeDasharray="2 1.5" />
+              <line x1="2" y1="5" x2="12" y2="5" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
+              <line x1="2" y1="8" x2="12" y2="8" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
+              <line x1="2" y1="11" x2="12" y2="11" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'fib' ? '#000' : '#facc15' }}>Fib</span>
+          </button>
+
+          {/* Elliott Wave Impulse (012345) */}
+          <button
+            onClick={() => { setCurrentTool('elliottWave'); setCurrentPoints([]) }}
+            style={{
+              width: '42px', height: '42px', padding: 0,
+              background: currentTool === 'elliottWave' ? '#38bdf8' : '#001520',
+              border: '1px solid #38bdf8',
+              borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
+              boxShadow: currentTool === 'elliottWave' ? '0 0 12px rgba(56,189,248,0.6)' : 'none',
+            }}
+            title="Elliott Wave Impulse: 6 clicks = 0,1,2,3,4,5"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <polyline points="1,12 3,4 6,10 9,3 12,8" stroke={currentTool === 'elliottWave' ? '#000' : '#38bdf8'} strokeWidth="1.5" fill="none" />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'elliottWave' ? '#000' : '#38bdf8' }}>12345</span>
+          </button>
+
+          {/* Elliott Wave ABC Corrective */}
+          <button
+            onClick={() => { setCurrentTool('elliottWaveABC'); setCurrentPoints([]) }}
+            style={{
+              width: '42px', height: '42px', padding: 0,
+              background: currentTool === 'elliottWaveABC' ? '#818cf8' : '#0d0b20',
+              border: '1px solid #818cf8',
+              borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
+              boxShadow: currentTool === 'elliottWaveABC' ? '0 0 12px rgba(129,140,248,0.6)' : 'none',
+            }}
+            title="Elliott Wave ABC Corrective: 4 clicks = 0,A,B,C"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <polyline points="1,12 5,4 9,10 13,5" stroke={currentTool === 'elliottWaveABC' ? '#000' : '#818cf8'} strokeWidth="1.5" fill="none" />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'elliottWaveABC' ? '#000' : '#818cf8' }}>ABC</span>
+          </button>
+
+          {/* Path Tool */}
+          <button
+            onClick={() => { setCurrentTool('path'); setCurrentPoints([]); setColor('#ffffff') }}
+            style={{
+              width: '42px', height: '42px', padding: 0,
+              background: currentTool === 'path' ? '#fb923c' : '#1a0d00',
+              border: '1px solid #fb923c',
+              borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
+              boxShadow: currentTool === 'path' ? '0 0 12px rgba(251,146,60,0.6)' : 'none',
+            }}
+            title="Path / Polyline (click points, double-click to finish)"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <polyline points="1,12 4,5 8,9 12,2" stroke={currentTool === 'path' ? '#000' : '#fb923c'} strokeWidth="1.5" fill="none" />
+              <circle cx="1" cy="12" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
+              <circle cx="4" cy="5" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
+              <circle cx="8" cy="9" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
+              <circle cx="12" cy="2" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
+            </svg>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'path' ? '#000' : '#fb923c' }}>Path</span>
           </button>
 
           <button
@@ -2126,6 +2984,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         onPointerDown={handleCanvasMouseDown}
         onPointerMove={handleCanvasMouseMove}
         onPointerUp={handleCanvasMouseUp}
+        onPointerCancel={() => {
+          // Cancel brushing if pointer is lost (e.g. stylus lifted, touch cancelled)
+          if (isBrushing) {
+            setIsBrushing(false)
+            setCurrentPoints([])
+            lastBrushScreenPosRef.current = null
+          }
+        }}
         style={{
           position: 'absolute',
           top: 0,
@@ -2410,57 +3276,72 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
                   drawing.points.length === 2
                 ) {
+                  const isBuy = drawing.type === 'buyZone'
                   const screen1 = toScreenCoords(drawing.points[0])
                   const screen2 = toScreenCoords(drawing.points[1])
                   const x1 = Math.min(screen1.x, screen2.x)
                   const x2 = Math.max(screen1.x, screen2.x)
-                  const defaultHeight = 40
-                  const rectY = screen1.y - defaultHeight / 2
+                  const cy = screen1.y
+                  const zh = drawing.zoneHeight ?? 50
+                  const diagOff = drawing.zoneDiagOffset ?? 0
+                  const shape = drawing.zoneShape ?? 'flat'
+                  const topL = zh >= 0 ? cy - zh : cy
+                  const botL = zh >= 0 ? cy : cy - zh
+                  const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+                  const botR = botL + (shape === 'diagonal' ? diagOff : 0)
+                  const hitTop = Math.min(topL, topR) - 10
+                  const hitBot = Math.max(botL, botR) + 10
+                  const midX = (screen1.x + screen2.x) / 2
+                  const ctrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
+                  const ctrlY = cy - zh
+
+                  const hitHandlers = {
+                    onClick: (e: React.MouseEvent) => { e.stopPropagation(); enableDrawingEdit(drawing.id) },
+                    onMouseDown: (e: React.MouseEvent) => {
+                      e.stopPropagation(); e.preventDefault()
+                      const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
+                      if (svgRect && !justCompletedDrawing) {
+                        const mx = e.clientX - svgRect.left
+                        const my = e.clientY - svgRect.top
+                        setEditingDrawing(drawing.id); setSelectedDrawing(drawing.id)
+                        setDraggedDrawing(drawing.id); setDragOffset({ x: mx, y: my })
+                        setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
+                        setOriginalDrawingPoints([...drawing.points]); setIsDragging(true)
+                      }
+                    },
+                    onDoubleClick: (e: React.MouseEvent) => {
+                      e.stopPropagation(); e.preventDefault()
+                      setIsDragging(false); setDraggedDrawing(null)
+                      setEditingPropertiesId(drawing.id); setPropertiesEditorVisible(true)
+                    },
+                  }
+
+                  if (shape === 'curve') {
+                    return (
+                      <path
+                        key={drawing.id}
+                        d={`M${screen1.x},${screen1.y} Q${ctrlX},${ctrlY} ${screen2.x},${screen2.y}`}
+                        stroke="transparent"
+                        strokeWidth="20"
+                        fill="none"
+                        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                        {...hitHandlers}
+                      />
+                    )
+                  }
+
                   return (
                     <rect
                       key={drawing.id}
                       x={x1}
-                      y={rectY}
+                      y={hitTop}
                       width={x2 - x1}
-                      height={defaultHeight}
+                      height={hitBot - hitTop}
                       fill="transparent"
                       stroke="transparent"
-                      strokeWidth="20"
+                      strokeWidth="1"
                       style={{ pointerEvents: 'all', cursor: 'pointer' }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        enableDrawingEdit(drawing.id)
-                      }}
-                      onMouseDown={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                        if (rect && !justCompletedDrawing) {
-                          setEditingDrawing(drawing.id)
-                          setSelectedDrawing(drawing.id)
-                          setDraggedDrawing(drawing.id)
-                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                          setDragStartDataPoint({
-                            time: screenToTime ? screenToTime(e.clientX - rect.left) : 0,
-                            price: screenToPrice ? screenToPrice(e.clientY - rect.top) : 0,
-                          })
-                          setOriginalDrawingPoints([...drawing.points])
-                          setIsDragging(true)
-                        }
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-
-                        setIsDragging(false)
-                        setDraggedDrawing(null)
-
-                        setEditingPropertiesId(drawing.id)
-                        setPropertiesEditorVisible(true)
-                        if (window.getSelection) {
-                          window.getSelection()?.removeAllRanges()
-                        }
-                      }}
+                      {...hitHandlers}
                     />
                   )
                 } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
@@ -2699,12 +3580,19 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       onMouseDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                        if (rect && !justCompletedDrawing) {
+                        const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                        if (svgRect && !justCompletedDrawing) {
+                          const mx = e.clientX - svgRect.left
+                          const my = e.clientY - svgRect.top
                           setEditingDrawing(drawing.id)
                           setSelectedDrawing(drawing.id)
                           setDraggedDrawing(drawing.id)
-                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setDragOffset({ x: mx, y: my })
+                          setDragStartDataPoint({
+                            time: screenToTime ? screenToTime(mx) : 0,
+                            price: screenToPrice ? screenToPrice(my) : 0,
+                          })
+                          setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
                         }
                       }}
@@ -2720,6 +3608,127 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         }
                       }}
                     />
+                  )
+                } else if (drawing.type === 'fib' && drawing.points.length === 2) {
+                  const s1 = toScreenCoords(drawing.points[0])
+                  const s2 = toScreenCoords(drawing.points[1])
+                  const xLeft = Math.min(s1.x, s2.x)
+                  const xRight = Math.max(s1.x, s2.x)
+                  const levels: FibLevel[] = drawing.fibLevels ?? DEFAULT_FIB_LEVELS
+                  const p1raw = drawing.fibReverse ? drawing.points[1] : drawing.points[0]
+                  const p2raw = drawing.fibReverse ? drawing.points[0] : drawing.points[1]
+                  const priceRange = p2raw.price - p1raw.price
+                  const svgHandlers = {
+                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
+                      if (svgRect && !justCompletedDrawing) {
+                        const mx = e.clientX - svgRect.left
+                        const my = e.clientY - svgRect.top
+                        setEditingDrawing(drawing.id)
+                        setSelectedDrawing(drawing.id)
+                        setDraggedDrawing(drawing.id)
+                        setDragOffset({ x: mx, y: my })
+                        setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
+                        setOriginalDrawingPoints([...drawing.points])
+                        setIsDragging(true)
+                      }
+                    },
+                    onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      setIsDragging(false)
+                      setDraggedDrawing(null)
+                      setEditingPropertiesId(drawing.id)
+                      setPropertiesEditorVisible(true)
+                    },
+                    onClick: (e: React.MouseEvent<SVGElement>) => { e.stopPropagation(); enableDrawingEdit(drawing.id) },
+                  }
+                  return (
+                    <g key={drawing.id} style={{ cursor: 'pointer' }}>
+                      {/* Invisible wide band across full fib x range for easy grab */}
+                      <rect x={xLeft} y={Math.min(s1.y, s2.y) - 10} width={xRight - xLeft} height={Math.abs(s2.y - s1.y) + 20}
+                        fill="transparent" stroke="none" style={{ pointerEvents: 'all' }} {...svgHandlers} />
+                      {/* Transparent hit lines for each level */}
+                      {levels.filter(l => l.enabled).map((level, idx) => {
+                        const levelPrice = p1raw.price + level.value * priceRange
+                        const sy = priceToScreen ? priceToScreen(levelPrice) : 0
+                        return <line key={idx} x1={xLeft} y1={sy} x2={xRight} y2={sy} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }} {...svgHandlers} />
+                      })}
+                    </g>
+                  )
+                } else if ((drawing.type === 'elliottWave' || drawing.type === 'elliottWaveABC') && drawing.points.length >= 2) {
+                  const pts = drawing.points.map(p => toScreenCoords(p))
+                  const svgHandlers = {
+                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
+                      if (svgRect && !justCompletedDrawing) {
+                        const mx = e.clientX - svgRect.left
+                        const my = e.clientY - svgRect.top
+                        setEditingDrawing(drawing.id)
+                        setSelectedDrawing(drawing.id)
+                        setDraggedDrawing(drawing.id)
+                        setDragOffset({ x: mx, y: my })
+                        setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
+                        setOriginalDrawingPoints([...drawing.points])
+                        setIsDragging(true)
+                      }
+                    },
+                    onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      setIsDragging(false)
+                      setDraggedDrawing(null)
+                      setEditingPropertiesId(drawing.id)
+                      setPropertiesEditorVisible(true)
+                    },
+                    onClick: (e: React.MouseEvent<SVGElement>) => { e.stopPropagation(); enableDrawingEdit(drawing.id) },
+                  }
+                  let pathData = `M ${pts[0].x} ${pts[0].y}`
+                  for (let i = 1; i < pts.length; i++) pathData += ` L ${pts[i].x} ${pts[i].y}`
+                  return (
+                    <path key={drawing.id} d={pathData} stroke="transparent" strokeWidth="20" fill="none"
+                      strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                      {...svgHandlers} />
+                  )
+                } else if (drawing.type === 'path' && drawing.points.length >= 2) {
+                  const pts = drawing.points.map(p => toScreenCoords(p))
+                  const svgHandlers = {
+                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
+                      if (svgRect && !justCompletedDrawing) {
+                        const mx = e.clientX - svgRect.left
+                        const my = e.clientY - svgRect.top
+                        setEditingDrawing(drawing.id)
+                        setSelectedDrawing(drawing.id)
+                        setDraggedDrawing(drawing.id)
+                        setDragOffset({ x: mx, y: my })
+                        setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
+                        setOriginalDrawingPoints([...drawing.points])
+                        setIsDragging(true)
+                      }
+                    },
+                    onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      setIsDragging(false)
+                      setDraggedDrawing(null)
+                      setEditingPropertiesId(drawing.id)
+                      setPropertiesEditorVisible(true)
+                    },
+                    onClick: (e: React.MouseEvent<SVGElement>) => { e.stopPropagation(); enableDrawingEdit(drawing.id) },
+                  }
+                  let pathData = `M ${pts[0].x} ${pts[0].y}`
+                  for (let i = 1; i < pts.length; i++) pathData += ` L ${pts[i].x} ${pts[i].y}`
+                  return (
+                    <path key={drawing.id} d={pathData} stroke="transparent" strokeWidth="20" fill="none"
+                      strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                      {...svgHandlers} />
                   )
                 }
                 return null
@@ -2916,7 +3925,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   } else if (drawing.type === 'ray' && drawing.points.length === 1) {
                     const p = drawing.points[0]
                     const screenY = priceToScreen ? priceToScreen(p.price) : 0
-                    const screenX = timeToScreen ? timeToScreen(p.time) : 0
+                    const screenX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
                     return (
                       <circle
                         key={`control-${drawing.id}`}
@@ -2940,11 +3949,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       />
                     )
                   } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
-                    const y = priceToScreen ? priceToScreen(drawing.points[0].price) : 0
+                    const p = drawing.points[0]
+                    const y = priceToScreen ? priceToScreen(p.price) : 0
+                    const startX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
                     return (
                       <circle
                         key={`control-${drawing.id}`}
-                        cx={width / 2}
+                        cx={startX}
                         cy={y}
                         r="8"
                         fill="#3b82f6"
@@ -2969,7 +3980,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       <circle
                         key={`control-${drawing.id}`}
                         cx={x}
-                        cy={height / 2}
+                        cy={16}
                         r="8"
                         fill="#3b82f6"
                         stroke="#fff"
@@ -3018,42 +4029,71 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   ) {
                     const screen1 = toScreenCoords(drawing.points[0])
                     const screen2 = toScreenCoords(drawing.points[1])
-                    const defaultHeight = 40
-                    const y = screen1.y
+                    const x1 = Math.min(screen1.x, screen2.x)
+                    const x2 = Math.max(screen1.x, screen2.x)
+                    const cy = screen1.y
+                    const zh = drawing.zoneHeight ?? 50
+                    const shape = drawing.zoneShape ?? 'flat'
+                    const diagOff = drawing.zoneDiagOffset ?? 0
+                    const midX = (x1 + x2) / 2
+                    const topL = zh >= 0 ? cy - zh : cy
+                    const botL = zh >= 0 ? cy : cy - zh
+                    const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+                    const botR = botL + (shape === 'diagonal' ? diagOff : 0)
+                    const isDiag = shape === 'diagonal'
+                    const farY = zh >= 0 ? topL : botL
+                    const lcY = (topL + botL) / 2
+                    const rcY = (topR + botR) / 2
                     return (
                       <g key={`control-${drawing.id}`}>
-                        {/* Left edge control point */}
-                        <circle
-                          cx={screen1.x}
-                          cy={y}
-                          r="8"
-                          fill="#3b82f6"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(0)
-                            setIsDragging(true)
-                          }}
-                        />
-                        {/* Right edge control point */}
-                        <circle
-                          cx={screen2.x}
-                          cy={y}
-                          r="8"
-                          fill="#3b82f6"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(1)
-                            setIsDragging(true)
-                          }}
-                        />
+                        {shape === 'curve' ? (
+                          // Curve: 3 freely draggable blue circles
+                          (() => {
+                            const cCtrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
+                            const cCtrlY = cy - zh
+                            return (
+                              <>
+                                <circle cx={screen1.x} cy={screen1.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                  style={{ pointerEvents: 'all', cursor: 'move' }}
+                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                                <circle cx={screen2.x} cy={screen2.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                  style={{ pointerEvents: 'all', cursor: 'move' }}
+                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                                <circle cx={cCtrlX} cy={cCtrlY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                  style={{ pointerEvents: 'all', cursor: 'move' }}
+                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                              </>
+                            )
+                          })()
+                        ) : (
+                          <>
+                            {/* Blue: time anchors — bottom corners for diagonal so they sit ON the zone */}
+                            <circle cx={x1} cy={isDiag ? botL : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                              style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                            <circle cx={x2} cy={isDiag ? botR : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                              style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                            {isDiag ? (
+                              <>
+                                {/* Left side spine */}
+                                <line x1={x1} y1={topL} x2={x1} y2={botL} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
+                                {/* Yellow: left-center height handle */}
+                                <circle cx={x1} cy={lcY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
+                                  style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                              </>
+                            ) : (
+                              <>
+                                {/* Yellow: single height handle — can go up or down from anchor */}
+                                <line x1={midX} y1={cy} x2={midX} y2={farY} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
+                                <circle cx={midX} cy={farY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
+                                  style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                              </>
+                            )}
+                          </>
+                        )}
                       </g>
                     )
                   } else if (
@@ -3296,6 +4336,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
           return (
             <div
+              ref={propertiesPanelRef}
               style={{
                 position: 'absolute',
                 top: '50%',
@@ -3423,13 +4464,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   />
                 </div>
 
-                {/* Line Width (for lines) */}
+                {/* Line Width (for lines, path and brush) */}
                 {(drawing.type === 'trendline' ||
                   drawing.type === 'horizontal' ||
                   drawing.type === 'vertical' ||
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
-                  drawing.type === 'parallelChannel') && (
+                  drawing.type === 'parallelChannel' ||
+                  drawing.type === 'path' ||
+                  drawing.type === 'brush') && (
                     <div>
                       <label
                         style={{
@@ -3442,13 +4485,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           textTransform: 'uppercase',
                         }}
                       >
-                        Line Width:{' '}
+                        {drawing.type === 'brush' ? 'Brush Size' : 'Line Width'}:{' '}
                         <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 4}px</span>
                       </label>
                       <input
                         type="range"
                         min="1"
-                        max="10"
+                        max={drawing.type === 'brush' ? 24 : 10}
                         value={drawing.lineWidth || 4}
                         onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
                         style={{
@@ -3459,18 +4502,21 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           outline: 'none',
                           appearance: 'none',
                           cursor: 'pointer',
+                          accentColor: drawing.type === 'brush' ? '#a855f7' : '#ff7800',
                         }}
                       />
                     </div>
                   )}
 
-                {/* Line Style (for lines) */}
+                {/* Line Style (for lines, path and brush) */}
                 {(drawing.type === 'trendline' ||
                   drawing.type === 'horizontal' ||
                   drawing.type === 'vertical' ||
                   drawing.type === 'ray' ||
                   drawing.type === 'rectangle' ||
-                  drawing.type === 'parallelChannel') && (
+                  drawing.type === 'parallelChannel' ||
+                  drawing.type === 'path' ||
+                  drawing.type === 'brush') && (
                     <div>
                       <label
                         style={{
@@ -3491,7 +4537,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         style={{
                           width: '100%',
                           padding: '10px 12px',
-                          background: 'linear-gradient(145deg, #0a0a0a, #1a1a1a)',
+                          background: '#0a0a0a',
                           color: '#ffffff',
                           border: '1px solid rgba(255, 120, 0, 0.2)',
                           borderRadius: '3px',
@@ -3501,11 +4547,12 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           boxShadow:
                             'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
                           outline: 'none',
+                          colorScheme: 'dark',
                         }}
                       >
-                        <option value="solid">Solid</option>
-                        <option value="dashed">Dashed</option>
-                        <option value="dotted">Dotted</option>
+                        <option value="solid" style={{ background: '#0a0a0a', color: '#fff' }}>Solid</option>
+                        <option value="dashed" style={{ background: '#0a0a0a', color: '#fff' }}>Dashed</option>
+                        <option value="dotted" style={{ background: '#0a0a0a', color: '#fff' }}>Dotted</option>
                       </select>
                     </div>
                   )}
@@ -3753,6 +4800,205 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                     </button>
                   </>
                 )}
+
+                {/* Zone shape + height */}
+                {(drawing.type === 'buyZone' || drawing.type === 'sellZone') && (() => {
+                  const isBuy = drawing.type === 'buyZone'
+                  const accent = isBuy ? '#00ff88' : '#ff3366'
+                  const accentBg = isBuy ? 'rgba(0,255,136,0.12)' : 'rgba(255,51,102,0.12)'
+                  return (
+                    <>
+                      <div>
+                        <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Zone Shape</label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {(['flat', 'diagonal', 'curve'] as const).map(s => (
+                            <button key={s} onClick={() => updateDrawingProperty('zoneShape', s)}
+                              style={{ flex: 1, padding: '8px 4px', background: (drawing.zoneShape ?? 'flat') === s ? accent : accentBg, color: (drawing.zoneShape ?? 'flat') === s ? '#000' : accent, border: `1px solid ${accent}`, borderRadius: '3px', cursor: 'pointer', fontSize: '11px', fontWeight: '700', textTransform: 'capitalize' }}>
+                              {s === 'flat' && <svg width="36" height="18" viewBox="0 0 36 18" fill="none" style={{ display: 'block', margin: '0 auto 2px' }}><rect x="2" y="4" width="32" height="10" stroke={(drawing.zoneShape ?? 'flat') === 'flat' ? '#000' : accent} strokeWidth="1.5" fill="none" /></svg>}
+                              {s === 'diagonal' && <svg width="36" height="18" viewBox="0 0 36 18" fill="none" style={{ display: 'block', margin: '0 auto 2px' }}><polygon points="2,14 34,8 34,2 2,8" stroke={(drawing.zoneShape ?? 'flat') === 'diagonal' ? '#000' : accent} strokeWidth="1.5" fill="none" /></svg>}
+                              {s === 'curve' && <svg width="36" height="18" viewBox="0 0 36 18" fill="none" style={{ display: 'block', margin: '0 auto 2px' }}><path d="M2,14 Q18,2 34,14 Q18,20 2,14" stroke={(drawing.zoneShape ?? 'flat') === 'curve' ? '#000' : accent} strokeWidth="1.5" fill="none" /></svg>}
+                              {s.charAt(0).toUpperCase() + s.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                          Zone Height: <span style={{ color: accent }}>{Math.round(drawing.zoneHeight ?? 50)}px</span>
+                        </label>
+                        <input type="range" min="10" max="300" value={drawing.zoneHeight ?? 50}
+                          onChange={e => updateDrawingProperty('zoneHeight', parseInt(e.target.value))}
+                          style={{ width: '100%', height: '6px', borderRadius: '3px', background: 'linear-gradient(90deg, #1a1a1a, #333)', outline: 'none', appearance: 'none', cursor: 'pointer', accentColor: accent }} />
+                      </div>
+                    </>
+                  )
+                })()}
+
+                {/* Path: End Style */}
+                {drawing.type === 'path' && (
+                  <div>
+                    <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>End Style</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {(['none', 'circle', 'arrow'] as const).map(style => (
+                        <button
+                          key={style}
+                          onClick={() => updateDrawingProperty('pathEndStyle', style)}
+                          style={{
+                            flex: 1, padding: '8px 4px',
+                            background: (drawing.pathEndStyle ?? 'none') === style ? '#fb923c' : 'rgba(251,146,60,0.1)',
+                            color: (drawing.pathEndStyle ?? 'none') === style ? '#000' : '#fb923c',
+                            border: '1px solid #fb923c',
+                            borderRadius: '3px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                          }}
+                        >
+                          {style === 'none' && (
+                            <svg width="22" height="14" viewBox="0 0 22 14" fill="none">
+                              <line x1="2" y1="7" x2="20" y2="7" stroke={(drawing.pathEndStyle ?? 'none') === 'none' ? '#000' : '#fb923c'} strokeWidth="2" />
+                            </svg>
+                          )}
+                          {style === 'circle' && (
+                            <svg width="22" height="14" viewBox="0 0 22 14" fill="none">
+                              <line x1="2" y1="7" x2="18" y2="7" stroke={(drawing.pathEndStyle ?? 'none') === 'circle' ? '#000' : '#fb923c'} strokeWidth="2" />
+                              <circle cx="19" cy="7" r="3" fill={(drawing.pathEndStyle ?? 'none') === 'circle' ? '#000' : '#fb923c'} />
+                            </svg>
+                          )}
+                          {style === 'arrow' && (
+                            <svg width="22" height="14" viewBox="0 0 22 14" fill="none">
+                              <line x1="2" y1="7" x2="16" y2="7" stroke={(drawing.pathEndStyle ?? 'none') === 'arrow' ? '#000' : '#fb923c'} strokeWidth="2" />
+                              <polygon points="16,3 22,7 16,11" fill={(drawing.pathEndStyle ?? 'none') === 'arrow' ? '#000' : '#fb923c'} />
+                            </svg>
+                          )}
+                          {style.charAt(0).toUpperCase() + style.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Elliott Wave type toggle */}
+                {drawing.type === 'elliottWave' && (
+                  <div>
+                    <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Wave Type</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {(['impulse', 'corrective'] as const).map(t => (
+                        <button
+                          key={t}
+                          onClick={() => updateDrawingProperty('elliottType', t)}
+                          style={{
+                            flex: 1, padding: '8px', background: drawing.elliottType === t ? '#38bdf8' : 'rgba(56,189,248,0.1)',
+                            color: drawing.elliottType === t ? '#000' : '#38bdf8', border: '1px solid #38bdf8',
+                            borderRadius: '3px', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                          }}
+                        >
+                          {t === 'impulse' ? '1-2-3-4-5' : 'A-B-C'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Fib properties */}
+                {drawing.type === 'fib' && (
+                  <>
+                    <div>
+                      <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Trend Line Style</label>
+                      <select
+                        value={drawing.fibTrendLineStyle || 'dashed'}
+                        onChange={e => updateDrawingProperty('fibTrendLineStyle', e.target.value)}
+                        style={{ width: '100%', padding: '8px', background: '#0a0a0a', color: '#fff', border: '1px solid rgba(250,204,21,0.3)', borderRadius: '3px', cursor: 'pointer', fontSize: '14px', colorScheme: 'dark' as const }}
+                      >
+                        <option value="solid" style={{ background: '#0a0a0a', color: '#fff' }}>Solid</option>
+                        <option value="dashed" style={{ background: '#0a0a0a', color: '#fff' }}>Dashed</option>
+                        <option value="dotted" style={{ background: '#0a0a0a', color: '#fff' }}>Dotted</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {[
+                        { key: 'fibUseOneColor', label: 'Use One Color' },
+                        { key: 'fibBackground', label: 'Background Fill' },
+                        { key: 'fibShowPrices', label: 'Show Prices' },
+                        { key: 'fibReverse', label: 'Reverse Direction' },
+                      ].map(({ key, label }) => (
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: '#fff', fontSize: '14px' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!((drawing as any)[key])}
+                            onChange={e => updateDrawingProperty(key, e.target.checked)}
+                            style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#facc15' }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <div>
+                      <label style={{ color: '#fff', fontSize: '14px', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Fib Levels</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', maxHeight: '300px', overflowY: 'auto' }}>
+                        {(drawing.fibLevels ?? DEFAULT_FIB_LEVELS).map((level, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: '3px' }}>
+                            <input
+                              type="checkbox"
+                              checked={level.enabled}
+                              onChange={e => {
+                                const newLevels = (drawing.fibLevels ?? DEFAULT_FIB_LEVELS).map((l, i) => i === idx ? { ...l, enabled: e.target.checked } : l)
+                                updateDrawingProperty('fibLevels', newLevels)
+                              }}
+                              style={{ cursor: 'pointer', accentColor: '#facc15', flexShrink: 0 }}
+                            />
+                            <span style={{ color: level.enabled ? '#fff' : '#666', fontSize: '13px', flex: 1, fontFamily: 'monospace' }}>{level.value}</span>
+                            <input
+                              type="color"
+                              value={level.color}
+                              onChange={e => {
+                                const newLevels = (drawing.fibLevels ?? DEFAULT_FIB_LEVELS).map((l, i) => i === idx ? { ...l, color: e.target.value } : l)
+                                updateDrawingProperty('fibLevels', newLevels)
+                              }}
+                              style={{ width: '22px', height: '22px', padding: 0, border: 'none', borderRadius: '3px', cursor: 'pointer', background: 'none' }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Delete Button */}
+                {/* Opacity (for brush and other drawings) */}
+                <div>
+                  <label
+                    style={{
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontWeight: '600',
+                      letterSpacing: '0.5px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Opacity:{' '}
+                    <span style={{ color: drawing.type === 'brush' ? '#a855f7' : '#ff7800' }}>
+                      {Math.round((drawing.opacity ?? 1) * 100)}%
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={Math.round((drawing.opacity ?? 1) * 100)}
+                    onChange={(e) => updateDrawingProperty('opacity', parseInt(e.target.value) / 100)}
+                    style={{
+                      width: '100%',
+                      height: '6px',
+                      borderRadius: '3px',
+                      background: 'linear-gradient(90deg, #1a1a1a, #333)',
+                      outline: 'none',
+                      appearance: 'none',
+                      cursor: 'pointer',
+                      accentColor: drawing.type === 'brush' ? '#a855f7' : '#ff7800',
+                    }}
+                  />
+                </div>
 
                 {/* Delete Button */}
                 <button

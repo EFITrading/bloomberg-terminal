@@ -75,13 +75,13 @@ function parseRSSXML(xml: string, sourceName: string): any[] {
     .map((item, i) => {
       const title = cleanText(
         item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ??
-          item.match(/<title>([\s\S]*?)<\/title>/)?.[1] ??
-          ''
+        item.match(/<title>([\s\S]*?)<\/title>/)?.[1] ??
+        ''
       )
       const desc = cleanText(
         item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/)?.[1] ??
-          item.match(/<description>([\s\S]*?)<\/description>/)?.[1] ??
-          '',
+        item.match(/<description>([\s\S]*?)<\/description>/)?.[1] ??
+        '',
         300
       )
       // Decode HTML entities in URL (e.g. &amp; → &)
@@ -117,14 +117,14 @@ function parseAtomXML(xml: string, sourceName: string): any[] {
     .map((entry, i) => {
       const title = cleanText(
         entry.match(/<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] ??
-          entry.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ??
-          ''
+        entry.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ??
+        ''
       )
       const desc = cleanText(
         entry.match(/<summary[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/summary>/)?.[1] ??
-          entry.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ??
-          entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] ??
-          '',
+        entry.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ??
+        entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] ??
+        '',
         300
       )
       const rawLink =
@@ -806,7 +806,7 @@ export async function fetchNewsArticles(limit: number = 100): Promise<any[]> {
     let rssArticles: any[] = []
     try {
       rssArticles = await fetchAllRSS()
-    } catch (_) {}
+    } catch (_) { }
 
     const combined = [...polygonArticles, ...rssArticles]
     combined.sort((a, b) => {

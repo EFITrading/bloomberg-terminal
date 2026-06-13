@@ -6747,6 +6747,10 @@ export default function TradingViewChart({
     | 'buySellZone'
     | 'priceRange'
     | 'brush'
+    | 'fib'
+    | 'elliottWave'
+    | 'elliottWaveABC'
+    | 'path'
   >('select')
   const [isDrawingToolLocked, setIsDrawingToolLocked] = useState(false)
 
@@ -35258,6 +35262,10 @@ export default function TradingViewChart({
                     { tool: 'sellZone' as const, title: 'Sell Zone', dim: '#991B1B', bright: '#F87171', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="6" width="16" height="12" /><line x1="9" y1="12" x2="15" y2="12" /></svg> },
                     { tool: 'brush' as const, title: 'Brush', dim: '#831843', bright: '#F472B6', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" /><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7" /></svg> },
                     { tool: 'text' as const, title: 'Text Note', dim: '#78500A', bright: '#FDE68A', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" /></svg> },
+                    { tool: 'fib' as const, title: 'Fib Retracement', dim: '#78600A', bright: '#FCD34D', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="4" x2="21" y2="20" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2" /><line x1="3" y1="8" x2="21" y2="8" stroke="currentColor" strokeWidth="1.5" /><line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="1.5" /><line x1="3" y1="16" x2="21" y2="16" stroke="currentColor" strokeWidth="1.5" /><line x1="3" y1="20" x2="21" y2="20" stroke="currentColor" strokeWidth="1.5" /></svg> },
+                    { tool: 'elliottWave' as const, title: 'Elliott Wave 12345', dim: '#0C4A6E', bright: '#38BEF8', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 6,8 10,16 15,5 19,12" /></svg> },
+                    { tool: 'elliottWaveABC' as const, title: 'Elliott Wave ABC', dim: '#2e1065', bright: '#a78bfa', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 8,6 15,16 22,5" /></svg> },
+                    { tool: 'path' as const, title: 'Path', dim: '#7C2D12', bright: '#FB923C', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 7,9 13,15 20,4" /><circle cx="2" cy="20" r="2" fill="currentColor" /><circle cx="7" cy="9" r="2" fill="currentColor" /><circle cx="13" cy="15" r="2" fill="currentColor" /><circle cx="20" cy="4" r="2" fill="currentColor" /></svg> },
                   ]).map(({ tool, title, dim, bright, icon }) => {
                     const isActive = currentDrawingTool === tool
                     const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
@@ -35266,7 +35274,7 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setCurrentDrawingTool(isActive ? 'select' : tool)}
+                        <button onClick={() => setCurrentDrawingTool((isActive ? 'select' : tool) as any)}
                           style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: bright, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
@@ -36017,20 +36025,43 @@ export default function TradingViewChart({
                       onMouseMove={(e) =>
                         handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
                       }
-                      timeToScreen={(index) => {
+                      timeToScreen={(tsMs) => {
+                        // tsMs is a Unix timestamp in ms; find the closest bar and compute screen X
                         const candleWidth = (dimensions.width - 100) / visibleCandleCount
                         const startIndex = Math.max(0, Math.floor(scrollOffset))
-                        const relativeIndex = index - startIndex
+                        // Binary-search for closest bar by timestamp
+                        let lo = 0, hi = data.length - 1, best = startIndex
+                        while (lo <= hi) {
+                          const mid = (lo + hi) >> 1
+                          if (data[mid].timestamp === tsMs) { best = mid; break }
+                          else if (data[mid].timestamp < tsMs) { best = mid; lo = mid + 1 }
+                          else hi = mid - 1
+                        }
+                        // Extrapolate future bars using average interval
+                        if (tsMs > (data[data.length - 1]?.timestamp ?? 0) && data.length > 1) {
+                          const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
+                          const extraBars = (tsMs - data[data.length - 1].timestamp) / avgInterval
+                          best = data.length - 1 + extraBars
+                        }
+                        const relativeIndex = best - startIndex
                         return CHART_LEFT_MARGIN + relativeIndex * candleWidth
                       }}
                       screenToTime={(x) => {
+                        // Returns Unix timestamp in ms for the bar at screen X
                         const candleWidth = (dimensions.width - 100) / visibleCandleCount
                         const startIndex = Math.max(0, Math.floor(scrollOffset))
                         const relativeX = x - CHART_LEFT_MARGIN
-                        const relativeIndex = Math.floor(relativeX / candleWidth)
-                        // Allow future indices beyond data.length for drawing tools
-                        return Math.max(0, startIndex + relativeIndex)
+                        const barIndex = Math.max(0, startIndex + Math.floor(relativeX / candleWidth))
+                        if (barIndex < data.length) return data[barIndex].timestamp
+                        // Extrapolate future timestamps
+                        if (data.length > 1) {
+                          const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
+                          return data[data.length - 1].timestamp + (barIndex - (data.length - 1)) * avgInterval
+                        }
+                        return data[data.length - 1]?.timestamp ?? Date.now()
                       }}
+                      indexToTimestamp={(index) => data[index]?.timestamp ?? 0}
+                      chartTimeframe={config.timeframe}
                     />
                   )}
 
