@@ -4527,12 +4527,14 @@ export function TradePopupChart({
     startY: 0,
     startOffset: 0,
     startMultiplier: 1,
+    startCenterPrice: null as number | null,
     lastX: 0,
     lastTime: 0,
     velocity: 0,
   })
   const inertiaRef = React.useRef<number | null>(null)
   const yScaleRef = React.useRef({ multiplier: 1, centerPrice: null as number | null })
+  const pricePerPixelRef = React.useRef(0)
   const crosshairRef = React.useRef({ x: -1, y: -1, visible: false })
 
   // Sync when fallbackCandles prop changes (peer symbol swap)
@@ -4632,10 +4634,10 @@ export function TradePopupChart({
     const naturalLo = Math.min(...lows)
     const naturalRange = naturalHi - naturalLo || Math.abs(naturalHi) * 0.01 || 1
 
-    // Y-scale override (from Y-axis drag)
+    // Y-scale override (from Y-axis drag / pan)
     const ys = yScaleRef.current
     let hi: number, lo: number, range: number
-    if (ys.centerPrice !== null && ys.multiplier !== 1) {
+    if (ys.centerPrice !== null) {
       range = naturalRange / ys.multiplier
       lo = ys.centerPrice - range / 2
       hi = ys.centerPrice + range / 2
@@ -4644,6 +4646,8 @@ export function TradePopupChart({
       lo = naturalLo
       range = naturalRange
     }
+    // Store price-per-pixel for Y-pan calculations
+    pricePerPixelRef.current = range / CANDLE_H
 
     const toY = (v: number) => PAD_T + CANDLE_H - ((v - lo) / range) * CANDLE_H
     const barW = chartW / visible.length
@@ -4934,11 +4938,24 @@ export function TradePopupChart({
         startY: e.clientY,
         startOffset: stateRef.current.offset,
         startMultiplier: yScaleRef.current.multiplier,
+        startCenterPrice: null,
         lastX: e.clientX,
         lastTime: performance.now(),
         velocity: 0,
       }
     } else {
+      // Capture current visible center price for Y-pan
+      if (yScaleRef.current.centerPrice === null) {
+        const total = candles.length
+        const { offset, barsVisible } = stateRef.current
+        const start = Math.max(0, total - barsVisible - offset)
+        const vis = candles.slice(start, start + barsVisible)
+        if (vis.length > 0) {
+          const vhi = Math.max(...vis.map((c: any) => c.high ?? c.close))
+          const vlo = Math.min(...vis.map((c: any) => c.low ?? c.close))
+          yScaleRef.current.centerPrice = (vhi + vlo) / 2
+        }
+      }
       dragRef.current = {
         active: true,
         mode: 'pan',
@@ -4946,6 +4963,7 @@ export function TradePopupChart({
         startY: e.clientY,
         startOffset: stateRef.current.offset,
         startMultiplier: 1,
+        startCenterPrice: yScaleRef.current.centerPrice,
         lastX: e.clientX,
         lastTime: performance.now(),
         velocity: 0,
@@ -4998,6 +5016,7 @@ export function TradePopupChart({
       }
       dragRef.current.lastX = e.clientX
       dragRef.current.lastTime = now
+      // X-axis pan
       const dragBars = (e.clientX - dragRef.current.startX) / barPx
       stateRef.current.offset = Math.max(
         0,
@@ -5006,6 +5025,12 @@ export function TradePopupChart({
           dragRef.current.startOffset + dragBars
         )
       )
+      // Y-axis pan — drag up shows higher prices, drag down shows lower prices
+      const dy = e.clientY - dragRef.current.startY
+      const priceShift = dy * pricePerPixelRef.current
+      if (dragRef.current.startCenterPrice !== null && dragRef.current.startCenterPrice !== undefined) {
+        yScaleRef.current.centerPrice = dragRef.current.startCenterPrice - priceShift
+      }
       drawRef.current()
     }
 
@@ -5046,14 +5071,12 @@ export function TradePopupChart({
     }
   }, [candles])
 
-  // Double-click Y-axis → reset price scale to auto-fit
+  // Double-click Y-axis or chart → reset price scale to auto-fit
   const onDoubleClick = (e: React.MouseEvent) => {
     const canvas = canvasRef.current
     if (!canvas) return
-    if (e.nativeEvent.offsetX > canvas.offsetWidth - 62) {
-      yScaleRef.current = { multiplier: 1, centerPrice: null }
-      drawRef.current()
-    }
+    yScaleRef.current = { multiplier: 1, centerPrice: null }
+    drawRef.current()
   }
 
   return (
@@ -10004,6 +10027,7 @@ export default function TradingViewChart({
   const [smartPerformanceSignals, setSmartPerformanceSignals] = useState<SmartSignal[]>([])
   const [smartEventSignals, setSmartEventSignals] = useState<SmartSignal[]>([])
   const [activeSmartSignal, setActiveSmartSignal] = useState<string | null>(null)
+  const spyReturn1MRef = useRef<number | null>(null)
   const [smartPerfData, setSmartPerfData] = useState<Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }> | null>(null)
   const [smartPerfTriggerDate, setSmartPerfTriggerDate] = useState<Date | null>(null)
   const [isSmartPerfActive, setIsSmartPerfActive] = useState(false)
@@ -10034,17 +10058,68 @@ export default function TradingViewChart({
     // Monthly moves
     if (pct1M >= 8 && pct1M < 13) signals.push({ key: 'perf-up8-12m', label: `📊 Up ${pct1M.toFixed(1)}% (1M)`, description: 'Stock up 8–12% in last month' })
     if (pct1M <= -8 && pct1M > -13) signals.push({ key: 'perf-dn8-12m', label: `📊 Down ${Math.abs(pct1M).toFixed(1)}% (1M)`, description: 'Stock down 8–12% in last month' })
-    if (pct1M >= 20 && pct1M < 26) signals.push({ key: 'perf-up20-25m', label: `🚀 Up ${pct1M.toFixed(1)}% (1M)`, description: 'Stock up 20–25% in last month' })
-    if (pct1M <= -20 && pct1M > -26) signals.push({ key: 'perf-dn20-25m', label: `💥 Down ${Math.abs(pct1M).toFixed(1)}% (1M)`, description: 'Stock down 20–25% in last month' })
     // Annual moves
     if (pct1Y >= 8 && pct1Y < 13) signals.push({ key: 'perf-up8-12y', label: `📈 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 8–12% in last year' })
     if (pct1Y <= -8 && pct1Y > -13) signals.push({ key: 'perf-dn8-12y', label: `📉 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 8–12% in last year' })
-    if (pct1Y >= 20 && pct1Y < 26) signals.push({ key: 'perf-up20-25y', label: `🚀 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 20–25% in last year' })
-    if (pct1Y <= -20 && pct1Y > -26) signals.push({ key: 'perf-dn20-25y', label: `💥 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 20–25% in last year' })
-    if (pct1Y >= 30) signals.push({ key: 'perf-up30y', label: `🔥 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 30%+ in last year' })
-    if (pct1Y <= -30) signals.push({ key: 'perf-dn30y', label: `💀 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 30%+ in last year' })
+
+    // ── Reclaimed ATH after being below for 1+ year ──
+    // Current price is within 0.5% of ATH, and 252 bars ago price was >5% below ATH
+    if (Math.abs(distFromATH) < 0.5 && chartData.length >= 252) {
+      const price1YAgo = chartData[chartData.length - 252].close
+      const dist1YAgoFromATH = ((price1YAgo - ath) / ath) * 100
+      if (dist1YAgoFromATH < -5) {
+        signals.push({ key: 'perf-reclaim-ath', label: '🔁 Reclaimed ATH After 1Y+', description: `Back at ATH after being ${Math.abs(dist1YAgoFromATH).toFixed(1)}% below a year ago` })
+      }
+    }
+
+    // ── First 52-Week High after 1+ year ──
+    // At 52w high now, but 252 bars ago was more than 10% below current 52w high
+    if (Math.abs(distFrom52H) < 1 && chartData.length >= 252) {
+      const prices504 = chartData.slice(-504).map(d => d.close)
+      const high2Y = Math.max(...prices504)
+      const prevYearHigh = chartData.length >= 504 ? Math.max(...chartData.slice(-504, -252).map(d => d.close)) : high2Y
+      if (current > prevYearHigh * 1.01) {
+        signals.push({ key: 'perf-first-52wh', label: '🆕 First 52W High After 1Y+', description: `Breaking out above prior year\'s high of $${prevYearHigh.toFixed(2)}` })
+      }
+    }
+
+    // ── New high after >20% drawdown ──
+    // Find the deepest trough in the last 2 years, check if drawdown from ATH exceeded 20%,
+    // and price has now recovered to within 1% of ATH
+    if (chartData.length >= 252 && Math.abs(distFromATH) < 1) {
+      const lookback = chartData.slice(-504)
+      const troughPrice = Math.min(...lookback.map(d => d.low ?? d.close))
+      const drawdownFromATH = ((troughPrice - ath) / ath) * 100
+      if (drawdownFromATH <= -20) {
+        signals.push({ key: 'perf-recovery-20pct', label: `🔥 New High After ${Math.abs(drawdownFromATH).toFixed(0)}% Drawdown`, description: `Recovered to ATH after dropping to $${troughPrice.toFixed(2)}` })
+      }
+    }
+
+    // ── Relative strength greater than SPY for 1 month ──
+    if (chartData.length >= 21 && config.symbol !== 'SPY') {
+      const spyReturn1M = spyReturn1MRef.current
+      if (spyReturn1M !== null && pct1M > spyReturn1M) {
+        signals.push({ key: 'perf-rs-spy', label: `💪 Outperforming SPY (1M)`, description: `Stock +${pct1M.toFixed(1)}% vs SPY ${spyReturn1M >= 0 ? '+' : ''}${spyReturn1M.toFixed(1)}% past month` })
+      }
+    }
+
+    // ── Multi-Year Base Resolution (3–5 year breakout) ──
+    // Price is within 1% of ATH but spent 3+ years (756+ bars) below ATH before now
+    if (Math.abs(distFromATH) < 1 && chartData.length >= 756) {
+      // Find how many consecutive bars from the end were below 99% of ATH before today
+      const athThreshold = ath * 0.99
+      let barsBelow = 0
+      for (let i = chartData.length - 2; i >= 0; i--) {
+        if (chartData[i].close < athThreshold) { barsBelow++ } else { break }
+      }
+      const yearsBelow = barsBelow / 252
+      if (yearsBelow >= 3) {
+        signals.push({ key: 'perf-base-breakout', label: `🏗 Multi-Year Base Breakout (${yearsBelow.toFixed(1)}Y)`, description: `Breaking out after ${yearsBelow.toFixed(1)} years below ATH of $${ath.toFixed(2)}` })
+      }
+    }
+
     setSmartPerformanceSignals(signals)
-  }, [])
+  }, [config.symbol])
 
   // Detect time-based event signals (holidays + options events within ±30 days)
   const detectEventSignals = useCallback(() => {
@@ -10150,6 +10225,22 @@ export default function TradingViewChart({
         nextUrl = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
       }
     } catch { return null }
+
+    // Fetch SPY bars in parallel if needed for RS signal
+    let spyBars: any[] = []
+    if (signalKey === 'perf-rs-spy') {
+      try {
+        let nextUrl: string | null = `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+        while (nextUrl) {
+          const resp: Response = await fetch(nextUrl)
+          if (!resp.ok) break
+          const json: any = await resp.json()
+          if (!json.results?.length) break
+          spyBars = spyBars.concat(json.results)
+          nextUrl = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
+        }
+      } catch { /* proceed without SPY */ }
+    }
     if (dailyBars.length < 50) return null
 
     // Find historical trigger indices — each bar where the same condition was true
@@ -10201,19 +10292,87 @@ export default function TradingViewChart({
       for (let i = 252; i < dailyBars.length; i++) {
         if (Math.abs((dailyBars[i].c - roll52Low[i]) / roll52Low[i]) < 0.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
       }
+    } else if (signalKey === 'perf-reclaim-ath') {
+      // Reclaimed ATH after being 1+ year (252 bars) below it
+      let runningATH = -Infinity; let lastTrig = -999
+      for (let i = 0; i < dailyBars.length; i++) {
+        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
+        if (i >= 252) {
+          const price1YAgo = dailyBars[i - 252].c
+          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.005
+          const wasBelow1YAgo = ((price1YAgo - runningATH) / runningATH) * 100 < -5
+          if (isAtATH && wasBelow1YAgo && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+        }
+      }
+    } else if (signalKey === 'perf-first-52wh') {
+      // At 52w high AND current price is above prior year's (252–504 bars back) highest close
+      const roll52High = new Float64Array(dailyBars.length)
+      const winQ: number[] = []
+      for (let i = 0; i < dailyBars.length; i++) {
+        while (winQ.length && winQ[0] < i - 251) winQ.shift()
+        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c <= dailyBars[i].c) winQ.pop()
+        winQ.push(i)
+        roll52High[i] = dailyBars[winQ[0]].c
+      }
+      let lastTrig = -999
+      for (let i = 504; i < dailyBars.length; i++) {
+        const at52wh = Math.abs((dailyBars[i].c - roll52High[i]) / roll52High[i]) < 0.01
+        const priorYearHigh = Math.max(...dailyBars.slice(i - 504, i - 252).map((b: any) => b.c))
+        if (at52wh && dailyBars[i].c > priorYearHigh * 1.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+      }
+    } else if (signalKey === 'perf-recovery-20pct') {
+      // Near ATH (within 1%) AND deepest trough in prior 504 bars was ≥20% below ATH
+      let runningATH = -Infinity; let lastTrig = -999
+      for (let i = 0; i < dailyBars.length; i++) {
+        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
+        if (i >= 252) {
+          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.01
+          if (isAtATH) {
+            const lookbackBars = dailyBars.slice(Math.max(0, i - 504), i)
+            const trough = Math.min(...lookbackBars.map((b: any) => b.l ?? b.c))
+            const drawdown = ((trough - runningATH) / runningATH) * 100
+            if (drawdown <= -20 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+          }
+        }
+      }
+    } else if (signalKey === 'perf-rs-spy') {
+      // Stock's 21-day return > SPY's 21-day return on that same day
+      // Align SPY bars by timestamp to stock bars
+      const spyByTs: Record<number, number> = {}
+      for (const bar of spyBars) spyByTs[bar.t] = bar.c
+      let lastTrig = -999
+      for (let i = 21; i < dailyBars.length; i++) {
+        const stockPct = (dailyBars[i].c - dailyBars[i - 21].c) / dailyBars[i - 21].c * 100
+        const spyClose = spyByTs[dailyBars[i].t]
+        const spyPrev = spyByTs[dailyBars[i - 21].t]
+        if (!spyClose || !spyPrev) continue
+        const spyPct = (spyClose - spyPrev) / spyPrev * 100
+        if (stockPct > spyPct && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+      }
+    } else if (signalKey === 'perf-base-breakout') {
+      // New ATH (within 1%) AND spent ≥756 consecutive bars (3 years) below ATH before this
+      let runningATH = -Infinity; let lastTrig = -999
+      for (let i = 0; i < dailyBars.length; i++) {
+        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
+        if (i >= 756) {
+          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.01
+          if (isAtATH) {
+            const athThreshold = runningATH * 0.99
+            let barsBelow = 0
+            for (let j = i - 1; j >= 0; j--) {
+              if (dailyBars[j].c < athThreshold) barsBelow++; else break
+            }
+            if (barsBelow >= 756 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
+          }
+        }
+      }
     } else {
       // Monthly / yearly move signals — find bars where rolling window return is in range
       let window = 21, minPct = 0, maxPct = 10000, isUp = true
       if (signalKey === 'perf-up8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = true }
       else if (signalKey === 'perf-dn8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = false }
-      else if (signalKey === 'perf-up20-25m') { window = 21; minPct = 20; maxPct = 26; isUp = true }
-      else if (signalKey === 'perf-dn20-25m') { window = 21; minPct = 20; maxPct = 26; isUp = false }
       else if (signalKey === 'perf-up8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = true }
       else if (signalKey === 'perf-dn8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = false }
-      else if (signalKey === 'perf-up20-25y') { window = 252; minPct = 20; maxPct = 26; isUp = true }
-      else if (signalKey === 'perf-dn20-25y') { window = 252; minPct = 20; maxPct = 26; isUp = false }
-      else if (signalKey === 'perf-up30y') { window = 252; minPct = 30; maxPct = 10000; isUp = true }
-      else if (signalKey === 'perf-dn30y') { window = 252; minPct = 30; maxPct = 10000; isUp = false }
       let lastTrig = -999
       for (let i = window; i < dailyBars.length; i++) {
         const pct = (dailyBars[i].c - dailyBars[i - window].c) / dailyBars[i - window].c * 100
@@ -14647,6 +14806,24 @@ export default function TradingViewChart({
   // Data state - SIMPLE
   const [data, setData] = useState<ChartDataPoint[]>([])
   // Smart detection — runs after data is available
+  // Fetch SPY 1M return for relative-strength signal
+  useEffect(() => {
+    if (!config.symbol || config.symbol === 'SPY') { spyReturn1MRef.current = null; return }
+    const end = new Date().toISOString().split('T')[0]
+    const start = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    fetch(`/api/bulk-chart-data`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: ['SPY'], timeframe: '1d', startDate: start, endDate: end }) })
+      .then(r => r.json())
+      .then(d => {
+        const prices: any[] = d.data?.['SPY'] || []
+        if (prices.length >= 21) {
+          const last = prices[prices.length - 1].close
+          const prev = prices[prices.length - 21].close
+          spyReturn1MRef.current = ((last - prev) / prev) * 100
+        }
+      })
+      .catch(() => { spyReturn1MRef.current = null })
+  }, [config.symbol])
+
   useEffect(() => { if (data && data.length > 0) { detectSmartSignals(data); detectEventSignals() } }, [data, symbol, detectSmartSignals, detectEventSignals])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

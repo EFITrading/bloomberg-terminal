@@ -1963,9 +1963,9 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const { isMobilePanel } = useGexPanelMobile()
   const [showGEX, setShowGEX] = useState(true)
   const [showDealer, setShowDealer] = useState(true)
-  const [duoMode, setDuoMode] = useState(!isMobilePanel)
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX')
   const [showFlowGEX, setShowFlowGEX] = useState(false)
+  const [showGexMap, setShowGexMap] = useState(false)
   const [showHistoricalGEX, setShowHistoricalGEX] = useState(true) // Historical GEX Timeline - always on
   const [historicalTimestamp, setHistoricalTimestamp] = useState<number | null>(null) // Selected historical timestamp
   const [historicalPrice, setHistoricalPrice] = useState<number>(0) // Price at selected timestamp
@@ -2025,7 +2025,45 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
   // Calculate number of active tables and update parent container width
-  const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length
+  const activeTableCount = [showGEX, showDealer, showFlowGEX, showGexMap].filter(Boolean).length
+  // Duo mode is automatic: always active when exactly 2 tables are showing (no OI) on desktop
+  const duoMode = !isMobilePanel && activeTableCount === 2
+
+  // DEBUG: log strike column actual rendered dimensions when OI is on
+  useEffect(() => {
+    if (!showOI) return
+    setTimeout(() => {
+      const allContainers = document.querySelectorAll('.table-scroll-container')
+      console.log('[STRIKE DEBUG] --- found', allContainers.length, 'table-scroll-containers ---')
+      allContainers.forEach((container, ci) => {
+        const table = container.querySelector('table') as HTMLElement
+        if (!table) return
+        const tableCS = window.getComputedStyle(table)
+        console.log(`[STRIKE DEBUG] container[${ci}] table — tableLayout: ${tableCS.tableLayout} | width: ${tableCS.width} | offsetWidth: ${table.offsetWidth}`)
+        const ths = container.querySelectorAll('thead th')
+        ths.forEach((th, i) => {
+          const el = th as HTMLElement
+          const cs = window.getComputedStyle(el)
+          console.log(`  th[${i}] offsetWidth:${el.offsetWidth} computed:${cs.width} paddingL:${cs.paddingLeft} paddingR:${cs.paddingRight} styleWidth:${el.style.width} styleMinW:${el.style.minWidth} styleMaxW:${el.style.maxWidth}`)
+        })
+        const firstTds = container.querySelectorAll('tbody tr:first-child td')
+        firstTds.forEach((td, i) => {
+          const el = td as HTMLElement
+          const cs = window.getComputedStyle(el)
+          console.log(`  td[${i}] offsetWidth:${el.offsetWidth} computed:${cs.width} paddingL:${cs.paddingLeft} paddingR:${cs.paddingRight} styleWidth:${el.style.width}`)
+        })
+      })
+      // Check if EFICharting sidebar CSS is overriding
+      const sidebarPanel = document.querySelector('[data-sidebar-panel]')
+      if (sidebarPanel) {
+        const tables = sidebarPanel.querySelectorAll('table')
+        tables.forEach((t, i) => {
+          const cs = window.getComputedStyle(t)
+          console.log(`[STRIKE DEBUG] sidebar table[${i}] tableLayout: ${cs.tableLayout}`)
+        })
+      }
+    }, 800)
+  }, [showOI, duoMode, activeTableCount])
 
   // Dynamic strike column width based on data
   const strikeColWidth = useMemo(() => {
@@ -2072,7 +2110,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
         sidebarPanel.style.width = 'calc(100vw - 4.0625rem)'
       }
     }
-  }, [activeTableCount, showOI, duoMode])
+  }, [activeTableCount, showOI])
 
   // -- Flow Live OI cache (from OptionsFlow page, stored in DB) ----------------
   // Same PST-aware trading date logic as options-flow/page.tsx.
@@ -5205,7 +5243,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
   return (
     <div
-      className={`${analysisSuiteMode ? '' : 'min-h-screen '}bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white`}
+      className={`${analysisSuiteMode ? '' : 'h-full '}bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white`}
+      style={analysisSuiteMode ? undefined : { display: 'flex', flexDirection: 'column' }}
     >
       <style>{`
         /* Custom scrollbar styling - Hidden */
@@ -5302,8 +5341,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: analysisSuiteMode ? 'auto' : '100vh',
-          overflow: 'hidden',
+          height: analysisSuiteMode ? 'auto' : '100%',
+          overflow: showOI ? 'auto' : 'hidden',
         }}
       >
         <div
@@ -5313,7 +5352,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
             flexDirection: 'column',
             flex: analysisSuiteMode ? '0 0 auto' : 1,
             minHeight: 0,
-            overflow: analysisSuiteMode ? 'visible' : 'hidden',
+            overflow: analysisSuiteMode ? 'visible' : showOI ? 'visible' : 'hidden',
           }}
         >
           {/* Bloomberg Terminal Header */}
@@ -5971,36 +6010,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
                           {/* Display Toggle Checkboxes */}
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-6">
-                              {/* DUO Button - Desktop Only */}
-                              <button
-                                onClick={() => {
-                                  const newDuoMode = !duoMode
-                                  setDuoMode(newDuoMode)
-                                  if (newDuoMode) {
-                                    setShowGEX(true)
-                                    setShowDealer(true)
-                                  } else {
-                                    setShowGEX(false)
-                                    setShowDealer(false)
-                                  }
-                                }}
-                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
-                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'
-                                  }`}
-                                style={
-                                  analysisSuiteMode
-                                    ? { padding: '10px 24px', fontSize: '18px' }
-                                    : {}
-                                }
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
-                                <span
-                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}
-                                >
-                                  DUO
-                                </span>
-                              </button>
 
                               {/* NORMAL (GEX) Checkbox */}
                               <div
@@ -6106,7 +6115,59 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                 </label>
                               </div>
 
-                              {/* OI Checkbox */}
+                              {/* GEX MAP Checkbox */}
+                              <div
+                                className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGexMap
+                                  ? 'bg-gradient-to-b from-violet-500/25 via-black to-violet-900/30 border border-violet-400/70 shadow-[0_0_15px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-violet-500/40 hover:shadow-[0_0_10px_rgba(139,92,246,0.2)]'
+                                  }`}
+                                style={analysisSuiteMode ? { padding: '10px 18px', fontSize: '18px' } : {}}
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                <input
+                                  id="gexmap-checkbox-desktop"
+                                  type="checkbox"
+                                  checked={showGexMap}
+                                  onChange={(e) => {
+                                    setShowGexMap(e.target.checked)
+                                    if (e.target.checked) setShowFlowGEX(false)
+                                  }}
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-violet-500 border-violet-500/60 focus:ring-violet-500 accent-violet-500"
+                                />
+                                <label
+                                  htmlFor="gexmap-checkbox-desktop"
+                                  className={`relative z-10 ${analysisSuiteMode ? 'text-sm' : 'text-xs'} font-bold uppercase tracking-wider cursor-pointer transition-all ${showGexMap ? 'text-violet-300 drop-shadow-[0_0_8px_rgba(167,139,250,0.6)]' : 'text-violet-400'}`}
+                                >
+                                  GEX MAP
+                                </label>
+                              </div>
+
+                              {/* ODTE-Trio Button */}
+                              {!analysisSuiteMode && (
+                                <div
+                                  className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden cursor-pointer ${showODTRIO
+                                      ? 'bg-gradient-to-b from-cyan-500/25 via-black to-cyan-900/30 border border-cyan-400/70 shadow-[0_0_15px_rgba(6,182,212,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-cyan-500/40 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                                    }`}
+                                  onClick={() => {
+                                    const newState = !showODTRIO
+                                    setShowODTRIO(newState)
+                                    if (newState) fetchODTRIOData()
+                                  }}
+                                  title="ODTE Trio: SPX, QQQ, SPY"
+                                >
+                                  <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                  <span
+                                    className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showODTRIO
+                                        ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]'
+                                        : 'text-cyan-400'
+                                      }`}
+                                  >
+                                    ODTE-Trio
+                                  </span>
+                                </div>
+                              )}
+
                               {!analysisSuiteMode && (
                                 <div
                                   className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
@@ -6261,30 +6322,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
                             </div>
                           </div>
                         </div>
-
-                        {/* ODTRIO Button */}
-                        {!analysisSuiteMode && (
-                          <button
-                            onClick={() => {
-                              const newState = !showODTRIO
-                              setShowODTRIO(newState)
-                              if (newState) {
-                                fetchODTRIOData()
-                              }
-                            }}
-                            className="flex items-center justify-center px-4 py-2.5 font-black text-sm uppercase tracking-wider transition-all duration-200 border-2"
-                            style={{
-                              background: showODTRIO ? 'rgba(59,130,246,0.15)' : '#000000',
-                              borderColor: showODTRIO ? '#3b82f6' : '#444',
-                              color: '#3b82f6',
-                              fontWeight: '900',
-                              letterSpacing: '0.05em',
-                            }}
-                            title="ODTE Trio: SPX, QQQ, SPY"
-                          >
-                            ODTRIO
-                          </button>
-                        )}
 
                         {/* ODTRIO LIVE OI Button - Desktop version */}
                         {showODTRIO && (
@@ -6765,7 +6802,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                           textShadow: '0 0 8px rgba(0,0,0,1)',
                                         }}
                                       >
-                                        ? {tricoTicker} ?
+                                        {tricoTicker}
                                       </h3>
                                       <div
                                         className="w-1.5 h-1.5 rounded-full"
@@ -6784,7 +6821,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       maxHeight:
                                         isMobilePanel
                                           ? 'calc(103.5vh - 138px)'
-                                          : 'calc(71.74vh - 259.02px)',
+                                          : 'calc(100vh - 220px)',
                                       overflowX: 'auto',
                                     }}
                                   >
@@ -6805,39 +6842,43 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                           className={
                                             useBloombergTheme
                                               ? ''
-                                              : 'border-b border-gray-700 bg-black'
+                                              : 'border-b border-gray-700'
                                           }
+                                          style={{
+                                            background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #111 100%)',
+                                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.6)',
+                                          }}
                                         >
                                           <th
-                                            className={`px-2 py-3 text-center sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                            className={`px-2 py-3 text-center sticky left-0 z-30 border-r ${borderColor} shadow-xl`}
                                             style={{
                                               width: `${mobileStrikeWidth}px`,
                                               minWidth: `${mobileStrikeWidth}px`,
                                               maxWidth: `${mobileStrikeWidth}px`,
+                                              background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #111 100%)',
+                                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
                                             }}
                                           >
                                             <div
-                                              className={
-                                                useBloombergTheme
-                                                  ? 'bb-header text-orange-500 font-bold'
-                                                  : 'font-bold text-orange-500 uppercase'
-                                              }
-                                              style={{ fontSize: isMobile ? '0.405rem' : '1.35rem' }}
+                                              className="font-bold text-orange-400 uppercase tracking-widest drop-shadow-[0_0_6px_rgba(251,146,60,0.5)]"
+                                              style={{ fontSize: isMobile ? '0.405rem' : '1.05rem' }}
                                             >
                                               Strike
                                             </div>
                                           </th>
                                           {showNormalColumn && (
                                             <th
-                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                              className={`text-center border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                               style={{
                                                 width: `${mobileExpWidth}px`,
                                                 minWidth: `${mobileExpWidth}px`,
                                                 maxWidth: `${mobileExpWidth}px`,
+                                                background: 'linear-gradient(180deg, #0d1a2e 0%, #060e1a 50%, #0a1525 100%)',
+                                                boxShadow: 'inset 0 1px 0 rgba(96,165,250,0.15)',
                                               }}
                                             >
                                               <div
-                                                className="font-bold text-blue-400 uppercase whitespace-nowrap"
+                                                className="font-bold text-blue-300 uppercase whitespace-nowrap tracking-widest drop-shadow-[0_0_6px_rgba(96,165,250,0.5)]"
                                                 style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}
                                               >
                                                 Normal
@@ -6846,15 +6887,17 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                           )}
                                           {showDealerColumn && (
                                             <th
-                                              className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                              className={`text-center border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
                                               style={{
                                                 width: `${mobileExpWidth}px`,
                                                 minWidth: `${mobileExpWidth}px`,
                                                 maxWidth: `${mobileExpWidth}px`,
+                                                background: 'linear-gradient(180deg, #1a0d2e 0%, #0e061a 50%, #150a25 100%)',
+                                                boxShadow: 'inset 0 1px 0 rgba(167,139,250,0.15)',
                                               }}
                                             >
                                               <div
-                                                className="font-bold text-purple-400 uppercase whitespace-nowrap"
+                                                className="font-bold text-purple-300 uppercase whitespace-nowrap tracking-widest drop-shadow-[0_0_6px_rgba(167,139,250,0.5)]"
                                                 style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}
                                               >
                                                 Dealer
@@ -7132,7 +7175,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                   opacity="0.6"
                                                                   style={{ fontWeight: 'bold' }}
                                                                 >
-                                                                  ?
+                                                                  ↑
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7160,7 +7203,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                   strokeWidth="3"
                                                                   style={{ fontWeight: 'bold' }}
                                                                 >
-                                                                  ?
+                                                                  ↑
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7188,7 +7231,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                     fontWeight: 'bold',
                                                                   }}
                                                                 >
-                                                                  ?
+                                                                  ↑
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7308,7 +7351,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                   opacity="0.6"
                                                                   style={{ fontWeight: 'bold' }}
                                                                 >
-                                                                  ?
+                                                                  ↓
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7336,7 +7379,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                   strokeWidth="3"
                                                                   style={{ fontWeight: 'bold' }}
                                                                 >
-                                                                  ?
+                                                                  ↓
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7364,7 +7407,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                                     fontWeight: 'bold',
                                                                   }}
                                                                 >
-                                                                  ?
+                                                                  ↓
                                                                   <animateMotion
                                                                     dur="2.2s"
                                                                     begin={`${i * 0.7}s`}
@@ -7409,198 +7452,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                           </svg>
                                                         )}
 
-                                                        {/* Horizontal rope at golden zone + Spinning pulley wheel */}
-                                                        {!isMobile &&
-                                                          isGoldenZone &&
-                                                          (() => {
-                                                            const wheelColor =
-                                                              goldenRowIndex > currentPriceRowIndex
-                                                                ? '#ff0000'
-                                                                : '#00ff00'
-                                                            const wheelDuration = isTurboMode
-                                                              ? '0.5s'
-                                                              : '2s' // Faster spin in turbo mode
-                                                            return (
-                                                              <>
-                                                                {/* Spinning pulley wheel at golden zone */}
-                                                                <svg
-                                                                  style={{
-                                                                    position: 'absolute',
-                                                                    left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`,
-                                                                    top: '50%',
-                                                                    width: '60px',
-                                                                    height: '60px',
-                                                                    pointerEvents: 'none',
-                                                                    zIndex: 100,
-                                                                    overflow: 'visible',
-                                                                    transform: 'translateY(-50%)',
-                                                                  }}
-                                                                >
-                                                                  <defs>
-                                                                    <filter
-                                                                      id={`pulleyGlow-${row.strike}`}
-                                                                      x="-50%"
-                                                                      y="-50%"
-                                                                      width="200%"
-                                                                      height="200%"
-                                                                    >
-                                                                      <feGaussianBlur
-                                                                        stdDeviation="3"
-                                                                        result="coloredBlur"
-                                                                      />
-                                                                      <feMerge>
-                                                                        <feMergeNode in="coloredBlur" />
-                                                                        <feMergeNode in="SourceGraphic" />
-                                                                      </feMerge>
-                                                                    </filter>
-                                                                  </defs>
-
-                                                                  {/* Smoke animation - only in turbo mode */}
-                                                                  {isTurboMode && (
-                                                                    <>
-                                                                      {[...Array(5)].map((_, i) => (
-                                                                        <circle
-                                                                          key={i}
-                                                                          cx="30"
-                                                                          cy="30"
-                                                                          r="3"
-                                                                          fill="#888"
-                                                                          opacity="0"
-                                                                        >
-                                                                          <animate
-                                                                            attributeName="cy"
-                                                                            from="30"
-                                                                            to="0"
-                                                                            dur="2s"
-                                                                            begin={`${i * 0.4}s`}
-                                                                            repeatCount="indefinite"
-                                                                          />
-                                                                          <animate
-                                                                            attributeName="cx"
-                                                                            from="30"
-                                                                            to={
-                                                                              30 +
-                                                                              (Math.random() - 0.5) *
-                                                                              20
-                                                                            }
-                                                                            dur="2s"
-                                                                            begin={`${i * 0.4}s`}
-                                                                            repeatCount="indefinite"
-                                                                          />
-                                                                          <animate
-                                                                            attributeName="r"
-                                                                            from="2"
-                                                                            to="8"
-                                                                            dur="2s"
-                                                                            begin={`${i * 0.4}s`}
-                                                                            repeatCount="indefinite"
-                                                                          />
-                                                                          <animate
-                                                                            attributeName="opacity"
-                                                                            values="0;0.6;0.3;0"
-                                                                            dur="2s"
-                                                                            begin={`${i * 0.4}s`}
-                                                                            repeatCount="indefinite"
-                                                                          />
-                                                                        </circle>
-                                                                      ))}
-                                                                    </>
-                                                                  )}
-
-                                                                  <g transform="translate(30, 30)">
-                                                                    {/* Pulley shadow */}
-                                                                    <circle
-                                                                      cx="0"
-                                                                      cy="0"
-                                                                      r="22"
-                                                                      fill="#333"
-                                                                      opacity="0.5"
-                                                                      style={{ filter: 'blur(4px)' }}
-                                                                    />
-                                                                    {/* Pulley outer ring - golden color with conditional outline */}
-                                                                    <circle
-                                                                      cx="0"
-                                                                      cy="0"
-                                                                      r="20"
-                                                                      fill="#ffd700"
-                                                                      stroke={wheelColor}
-                                                                      strokeWidth="3"
-                                                                      style={{
-                                                                        filter: `url(#pulleyGlow-${row.strike})`,
-                                                                      }}
-                                                                    />
-                                                                    {/* Inner dark ring */}
-                                                                    <circle
-                                                                      cx="0"
-                                                                      cy="0"
-                                                                      r="15"
-                                                                      fill="#444"
-                                                                    />
-                                                                    {/* Spinning spokes - golden */}
-                                                                    <g>
-                                                                      <line
-                                                                        x1="0"
-                                                                        y1="-15"
-                                                                        x2="0"
-                                                                        y2="15"
-                                                                        stroke="#ffd700"
-                                                                        strokeWidth="3"
-                                                                      />
-                                                                      <line
-                                                                        x1="-15"
-                                                                        y1="0"
-                                                                        x2="15"
-                                                                        y2="0"
-                                                                        stroke="#ffd700"
-                                                                        strokeWidth="3"
-                                                                      />
-                                                                      <line
-                                                                        x1="-10.5"
-                                                                        y1="-10.5"
-                                                                        x2="10.5"
-                                                                        y2="10.5"
-                                                                        stroke="#ffd700"
-                                                                        strokeWidth="3"
-                                                                      />
-                                                                      <line
-                                                                        x1="-10.5"
-                                                                        y1="10.5"
-                                                                        x2="10.5"
-                                                                        y2="-10.5"
-                                                                        stroke="#ffd700"
-                                                                        strokeWidth="3"
-                                                                      />
-                                                                      <animateTransform
-                                                                        attributeName="transform"
-                                                                        type="rotate"
-                                                                        from="0"
-                                                                        to="360"
-                                                                        dur={wheelDuration}
-                                                                        repeatCount="indefinite"
-                                                                      />
-                                                                    </g>
-                                                                    {/* Center bolt - golden */}
-                                                                    <circle
-                                                                      cx="0"
-                                                                      cy="0"
-                                                                      r="5"
-                                                                      fill="#b8860b"
-                                                                      stroke="#ffd700"
-                                                                      strokeWidth="2"
-                                                                    />
-                                                                    {/* Metallic shine */}
-                                                                    <circle
-                                                                      cx="-5"
-                                                                      cy="-5"
-                                                                      r="8"
-                                                                      fill="#fff"
-                                                                      opacity="0.4"
-                                                                    />
-                                                                  </g>
-                                                                </svg>
-                                                              </>
-                                                            )
-                                                          })()}
                                                       </>
                                                     )}
                                                 </td>
@@ -7668,7 +7519,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                         (showGEX && showDealer) ||
                         (showGEX && showFlowGEX) ||
                         (showDealer && showFlowGEX) ||
-                        (showGEX && showDealer && showFlowGEX) ? (
+                        (showGEX && showDealer && showFlowGEX) ||
+                        showGexMap ? (
                         <div
                           className="flex overflow-x-auto"
                           style={{
@@ -7684,7 +7536,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                 minWidth: activeTableCount === 2 ? '1100px' : '1200px',
                               }}
                             >
-                              <OIGEXTab selectedTicker={selectedTicker} />
+                              <OIGEXTab selectedTicker={selectedTicker} activeTableCount={activeTableCount} />
                             </div>
                           )}
                           {(() => {
@@ -7758,18 +7610,19 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
                             // Duo/trio mode on desktop: limit expirations per table to fit side-by-side
                             if (duoMode && showGEX && showDealer && !isMobile) {
-                              // Duo mode (no flow map): 6 expirations
+                              // Duo mode (no flow map): 6 expirations, +5 more when OI is also active
+                              const duoExpCount = showOI ? 11 : 6
                               table1Expirations = expirations.slice(
                                 0,
-                                analysisSuiteMode ? 4 : 6 - tlOffset
+                                analysisSuiteMode ? 4 : duoExpCount - tlOffset
                               )
                               table2Expirations = expirations.slice(
                                 0,
-                                analysisSuiteMode ? 4 : 6 - tlOffset
+                                analysisSuiteMode ? 4 : duoExpCount - tlOffset
                               )
                               table3Expirations = expirations.slice(
                                 0,
-                                analysisSuiteMode ? 4 : 6 - tlOffset
+                                analysisSuiteMode ? 4 : duoExpCount - tlOffset
                               )
                             } else if (allThreeActive && !duoMode && !isMobile) {
                               // All three tables without duo mode: 8 expirations
@@ -7843,7 +7696,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       style={{
                                         maxHeight: isMobile
                                           ? 'calc(100.97vh - 278.94px)'
-                                          : 'calc(71.74vh - 259.02px)',
+                                          : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                       }}
@@ -7873,8 +7726,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                               style={{
                                                 width: `${mobileStrikeWidth}px`,
                                                 minWidth: `${mobileStrikeWidth}px`,
-                                                maxWidth: `${mobileStrikeWidth}px`,
                                                 ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
+                                                ...(!isMobile && showOI && duoMode ? { paddingLeft: '2px', paddingRight: '2px' } : {}),
                                               }}
                                             >
                                               <div
@@ -7947,8 +7800,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                     style={{
                                                       width: `${mobileStrikeWidth}px`,
                                                       minWidth: `${mobileStrikeWidth}px`,
-                                                      maxWidth: `${mobileStrikeWidth}px`,
                                                       ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
+                                                      ...(!isMobile && showOI && duoMode ? { paddingLeft: '2px', paddingRight: '2px' } : {}),
                                                     }}
                                                   >
                                                     <div
@@ -8052,7 +7905,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       style={{
                                         maxHeight: isMobile
                                           ? 'calc(100.97vh - 278.94px)'
-                                          : 'calc(71.74vh - 259.02px)',
+                                          : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                         overflowX: 'auto',
                                       }}
@@ -8082,8 +7935,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                               style={{
                                                 width: `${mobileStrikeWidth}px`,
                                                 minWidth: `${mobileStrikeWidth}px`,
-                                                maxWidth: `${mobileStrikeWidth}px`,
                                                 ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
+                                                ...(!isMobile && showOI && duoMode ? { paddingLeft: '2px', paddingRight: '2px' } : {}),
                                               }}
                                             >
                                               <div
@@ -8156,8 +8009,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                     style={{
                                                       width: `${mobileStrikeWidth}px`,
                                                       minWidth: `${mobileStrikeWidth}px`,
-                                                      maxWidth: `${mobileStrikeWidth}px`,
                                                       ...(isMobile ? { paddingLeft: '2.5px', paddingRight: '2.5px' } : {}),
+                                                      ...(!isMobile && showOI && duoMode ? { paddingLeft: '2px', paddingRight: '2px' } : {}),
                                                     }}
                                                   >
                                                     <div
@@ -8268,7 +8121,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       style={{
                                         maxHeight: isMobile
                                           ? 'calc(100.97vh - 278.94px)'
-                                          : 'calc(71.74vh - 259.02px)',
+                                          : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
                                         overflowX: 'auto',
                                         zoom: analysisSuiteMode ? 1.5 : undefined,
                                       }}
@@ -8421,6 +8274,173 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                     </div>
                                   </div>
                                 )}
+
+                                {/* GEX MAP TABLE */}
+                                {showGexMap && (() => {
+                                  // Compute maxAbsGEX and gold/purple zones from allGEXCalculatedData
+                                  let maxAbsGEX = 0
+                                  let goldStrike: number | null = null
+                                  let goldExp: string | null = null
+                                  let goldVal = -Infinity
+                                  let purpleStrike: number | null = null
+                                  let purpleExp: string | null = null
+                                  let purpleVal = Infinity
+
+                                  allGEXCalculatedData.forEach((row: any) => {
+                                    table1Expirations.forEach((exp) => {
+                                      const v = row[exp] as any
+                                      const net = (v?.call || 0) + (v?.put || 0)
+                                      const abs = Math.abs(net)
+                                      if (abs > maxAbsGEX) maxAbsGEX = abs
+                                      if (net > goldVal) { goldVal = net; goldStrike = row.strike; goldExp = exp }
+                                      if (net < purpleVal) { purpleVal = net; purpleStrike = row.strike; purpleExp = exp }
+                                    })
+                                  })
+
+                                  const getHeatmapCell = (netGEX: number, strike: number, exp: string) => {
+                                    const isGold = strike === goldStrike && exp === goldExp
+                                    const isPurple = strike === purpleStrike && exp === purpleExp
+                                    if (isGold) return { bg: 'rgba(255,220,0,1)', border: '2px solid #f59e0b' }
+                                    if (isPurple) return { bg: 'rgba(200,0,255,1)', border: '2px solid #a855f7' }
+                                    if (maxAbsGEX === 0 || netGEX === 0) return { bg: 'transparent', border: 'none' }
+                                    const normalizedMag = Math.min(1, Math.abs(netGEX) / maxAbsGEX)
+                                    const peakOpacity = 0.10 + Math.pow(normalizedMag, 1.5) * 0.85
+                                    if (netGEX > 0) {
+                                      const r = Math.round(0 + 60 * normalizedMag)
+                                      const g = Math.round(220 + 35 * normalizedMag)
+                                      const b = Math.round(40 + 30 * normalizedMag)
+                                      return { bg: `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`, border: 'none' }
+                                    } else {
+                                      const r = Math.round(220 + 35 * normalizedMag)
+                                      const g = Math.round(20 * normalizedMag)
+                                      const b = Math.round(20 * normalizedMag)
+                                      return { bg: `rgba(${r},${g},${b},${peakOpacity.toFixed(3)})`, border: 'none' }
+                                    }
+                                  }
+
+                                  return (
+                                    <div className="flex-shrink-0" style={getTableWidth()}>
+                                      {/* GEX MAP header */}
+                                      <div
+                                        className={`${useBloombergTheme
+                                          ? 'bg-gradient-to-r from-violet-950 via-black to-violet-950 border-violet-500/60 shadow-[0_0_15px_rgba(139,92,246,0.3)]'
+                                          : 'bg-black border-gray-700'
+                                          } border border-b-0 px-4 py-3 relative overflow-hidden`}
+                                      >
+                                        {useBloombergTheme && (
+                                          <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 via-transparent to-violet-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                                        )}
+                                        <div className="flex items-center justify-center gap-3 relative z-10">
+                                          {useBloombergTheme && (
+                                            <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse shadow-[0_0_8px_rgba(167,139,250,0.8)]"></div>
+                                          )}
+                                          <h3
+                                            className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-violet-400 drop-shadow-[0_0_10px_rgba(167,139,250,0.5)]' : 'text-white'}`}
+                                            style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(167,139,250,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}
+                                          >
+                                            GEX MAP
+                                          </h3>
+                                          {useBloombergTheme && (
+                                            <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse shadow-[0_0_8px_rgba(167,139,250,0.8)]"></div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {/* GEX MAP scroll container */}
+                                      <div
+                                        className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
+                                        style={{
+                                          maxHeight: isMobile
+                                            ? 'calc(100.97vh - 278.94px)'
+                                            : showOI ? '1260px' : 'calc((71.74vh - 259.02px) * 1.1)',
+                                          overflowX: 'auto',
+                                        }}
+                                      >
+                                        <table style={{ minWidth: `${mobileStrikeWidth + table1Expirations.length * mobileExpWidth}px`, width: '100%' }}>
+                                          <thead
+                                            className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`}
+                                            style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}
+                                          >
+                                            <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                                              <th
+                                                className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`}
+                                                style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px` }}
+                                              >
+                                                <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>
+                                                  Strike
+                                                </div>
+                                              </th>
+                                              {table1Expirations.map((exp) => (
+                                                <th
+                                                  key={exp}
+                                                  className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`}
+                                                  style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                                >
+                                                  <div className={`${duoMode && !allThreeActive ? 'text-[10px] md:text-xs' : 'text-xs md:text-sm'} font-bold text-white uppercase whitespace-nowrap`}>
+                                                    {formatDate(exp)}
+                                                  </div>
+                                                </th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {allCalculatedData
+                                              .filter((row: any) => {
+                                                const strikeRange = getStrikeRange(currentPrice)
+                                                return row.strike >= strikeRange.min && row.strike <= strikeRange.max
+                                              })
+                                              .map((row: any, idx: number) => {
+                                                const priceForRow = historicalTimestamp ? historicalPrice : currentPrice
+                                                const closestStrike = priceForRow > 0
+                                                  ? data.reduce((closest, current) =>
+                                                    Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
+                                                  ).strike
+                                                  : 0
+                                                const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike
+                                                return (
+                                                  <tr
+                                                    key={idx}
+                                                    className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`}`}
+                                                  >
+                                                    <td
+                                                      className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`}
+                                                      style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px` }}
+                                                    >
+                                                      <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                                        {row.strike.toFixed(1)}
+                                                      </div>
+                                                    </td>
+                                                    {table1Expirations.map((exp) => {
+                                                      const calcRow = allGEXCalculatedData.find((r: any) => r.strike === row.strike)
+                                                      const gexVal = calcRow?.[exp] as any
+                                                      const netGEX = (gexVal?.call || 0) + (gexVal?.put || 0)
+                                                      const cell = getHeatmapCell(netGEX, row.strike, exp)
+                                                      return (
+                                                        <td
+                                                          key={exp}
+                                                          className={`px-1 py-1 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                                          style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px`, padding: 0 }}
+                                                        >
+                                                          <div
+                                                            style={{
+                                                              background: cell.bg,
+                                                              border: cell.border,
+                                                              width: '100%',
+                                                              height: '32px',
+                                                              borderRadius: '3px',
+                                                            }}
+                                                          />
+                                                        </td>
+                                                      )
+                                                    })}
+                                                  </tr>
+                                                )
+                                              })}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )
+                                })()}
                               </>
                             )
                           })()}

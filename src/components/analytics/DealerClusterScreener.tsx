@@ -693,6 +693,7 @@ export default function DealerClusterScreener() {
   const [minPremium, setMinPremium] = useState(1_000_000)
   const toggleExpandedCard = (k: string) => setExpandedCards(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
   const { isMobile, mobileTower, setMobileTower } = useDealerClusterScreenerMobile()
+  const [focusedTower, setFocusedTower] = useState<'call' | 'put' | null>(null)
   const loadingQuoteRef = useRef(GEX_SCAN_QUOTES[Math.floor(Math.random() * GEX_SCAN_QUOTES.length)])
   // callback ref: observer attaches the moment the grid div mounts (after loading)
   const gridCallbackRef = useRef((node: HTMLDivElement | null) => {
@@ -701,8 +702,16 @@ export default function DealerClusterScreener() {
     obs.observe(node)
   }).current
   const [gridVisible, setGridVisible] = useState(false)
+  // Real expiration dates resolved from Polygon (keyed by filter type)
+  const [resolvedExpiries, setResolvedExpiries] = useState<Record<string, string | null>>({})
+  useEffect(() => {
+    fetch(`/api/gex-screener?action=expirations&t=${Date.now()}`)
+      .then(r => r.json())
+      .then(d => setResolvedExpiries(d))
+      .catch(() => { })
+  }, [])
 
-  // Compute expiry date labels based on today
+  // Compute expiry date labels — use real Polygon dates when available, calendar math as fallback
   const getExpiryOptions = () => {
     const today = new Date()
     const fmt = (d: Date) => {
@@ -711,53 +720,49 @@ export default function DealerClusterScreener() {
       const sfx = [11, 12, 13].includes(day) ? 'th' : day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th'
       return `${months[d.getMonth()]} ${day}${sfx} ${d.getFullYear()}`
     }
+    const fmtISO = (iso: string) => {
+      // Parse YYYY-MM-DD as local date to avoid timezone shifts
+      const [y, m, d] = iso.split('-').map(Number)
+      return fmt(new Date(y, m - 1, d))
+    }
     const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r }
 
-    // Next Friday (week expiry) — skip today if it's already Friday
-    const nextFri = new Date(today)
+    // Calendar fallbacks (used only when Polygon data not yet loaded)
     const dayOfWeek = today.getDay()
     const daysToFri = dayOfWeek === 5 ? 7 : (5 - dayOfWeek + 7) % 7 || 7
-    nextFri.setDate(today.getDate() + daysToFri)
-
-    // ~45 days default
+    const nextFri = addDays(today, daysToFri)
     const defaultExp = addDays(today, 45)
-
-    // Monthly OPEX: actual 3rd Friday of the next upcoming month
-    // (if current month's 3rd Friday has already passed, use next month)
     const computeMonthlyOPEX = (): Date => {
-      let yr = today.getFullYear()
-      let mm = today.getMonth()
+      let yr = today.getFullYear(); let mm = today.getMonth()
       for (let attempt = 0; attempt < 3; attempt++) {
-        const dow = new Date(yr, mm, 1).getDay()                // local day of 1st
-        const firstFriday = 1 + (5 - dow + 7) % 7              // day-of-month of 1st Friday
-        const opex = new Date(yr, mm, firstFriday + 14)         // 3rd Friday
+        const dow = new Date(yr, mm, 1).getDay()
+        const opex = new Date(yr, mm, 1 + (5 - dow + 7) % 7 + 14)
         if (opex > today) return opex
         mm++; if (mm > 11) { mm = 0; yr++ }
       }
-      return addDays(today, 30) // fallback
+      return addDays(today, 30)
     }
-    const monthExp = computeMonthlyOPEX()
-
-    // Quarterly OPEX: 3rd Friday of next Mar/Jun/Sep/Dec
-    const qMonths = [2, 5, 8, 11] // 0-indexed
-    let qDate = new Date(today)
-    for (let m = today.getMonth(); m <= today.getMonth() + 9; m++) {
-      const mm = m % 12
-      if (qMonths.includes(mm)) {
-        const yr = today.getFullYear() + Math.floor((today.getMonth() + (m - today.getMonth())) / 12)
-        const dow = new Date(yr, mm, 1).getDay()
-        const firstFriday = 1 + (5 - dow + 7) % 7
-        qDate = new Date(yr, mm, firstFriday + 14)
-        if (qDate > today) break
+    const computeQuarterlyOPEX = (): Date => {
+      const qMonths = [2, 5, 8, 11]; let qDate = addDays(today, 90)
+      for (let m = today.getMonth(); m <= today.getMonth() + 9; m++) {
+        const mm = m % 12
+        if (qMonths.includes(mm)) {
+          const yr = today.getFullYear() + Math.floor((today.getMonth() + (m - today.getMonth())) / 12)
+          const dow = new Date(yr, mm, 1).getDay()
+          qDate = new Date(yr, mm, 1 + (5 - dow + 7) % 7 + 14)
+          if (qDate > today) break
+        }
       }
+      return qDate
     }
 
-    return [
-      { value: 'Default', label: '45D', sub: fmt(defaultExp) },
-      { value: 'Week', label: 'WEEK', sub: fmt(nextFri) },
-      { value: 'Month', label: 'MONTH', sub: fmt(monthExp) },
-      { value: 'Quad', label: 'QUARTERLY', sub: fmt(qDate) },
+    const opts = [
+      { value: 'Default', label: '45D', sub: resolvedExpiries['Default'] ? fmtISO(resolvedExpiries['Default']!) : fmt(defaultExp) },
+      { value: 'Week', label: 'WEEK', sub: resolvedExpiries['Week'] ? fmtISO(resolvedExpiries['Week']!) : fmt(nextFri) },
+      { value: 'Month', label: 'MONTH', sub: resolvedExpiries['Month'] ? fmtISO(resolvedExpiries['Month']!) : fmt(computeMonthlyOPEX()) },
+      { value: 'Quad', label: 'QUARTERLY', sub: resolvedExpiries['Quad'] ? fmtISO(resolvedExpiries['Quad']!) : fmt(computeQuarterlyOPEX()) },
     ]
+    return opts
   }
   const expiryOptions = getExpiryOptions()
   const selectedExpLabel = expiryOptions.find(o => o.value === expirationFilter)
@@ -899,48 +904,12 @@ export default function DealerClusterScreener() {
   const hasData = positiveItems.length > 0 || negativeItems.length > 0
 
   return (
-    <div style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 0, overflow: 'hidden', fontFamily: '"Bloomberg", "Roboto Mono", "IBM Plex Mono", monospace' }}>
-
-      {/* ════════════════════════════════════════════════════════
-           HEADER — solid black, subtle glass shine strip
-          ════════════════════════════════════════════════════════ */}
-      <div
-        style={{
-          display: isMobile ? 'none' : undefined,
-          background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 60%)',
-          borderBottom: '1px solid rgba(255,255,255,0.09)',
-          padding: '0 24px',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {/* gloss shine strip */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 40%, rgba(255,255,255,0.18) 60%, transparent 100%)' }} />
-
-        {/* main title row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: isMobile ? 8 : 12, paddingBottom: isMobile ? 8 : 14 }}>
-          <div style={{ flex: 1 }} />
-
-          {/* Stat pills when data loaded */}
-          {hasData && !isAnyLoading && !isMobile && (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, background: 'rgba(255,68,68,0.06)', border: '1px solid rgba(255,68,68,0.14)', borderRadius: 4, padding: isMobile ? '4px 8px' : '5px 12px' }}>
-                <span style={{ fontSize: isMobile ? 8 : 10, color: 'rgba(255,68,68,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>CALL TOWERS</span>
-                <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 900, color: '#ff4444' }}>{positiveItems.length}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, background: 'rgba(0,210,100,0.06)', border: '1px solid rgba(0,210,100,0.14)', borderRadius: 4, padding: isMobile ? '4px 8px' : '5px 12px' }}>
-                <span style={{ fontSize: isMobile ? 8 : 10, color: 'rgba(0,210,100,0.6)', letterSpacing: '0.14em', fontWeight: 700 }}>PUT TOWERS</span>
-                <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 900, color: '#00d264' }}>{negativeItems.length}</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+    <div style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 0, overflow: 'hidden', fontFamily: '"Bloomberg", "Roboto Mono", "IBM Plex Mono", monospace', display: 'flex', flexDirection: 'column', height: isMobile ? undefined : '100%', minHeight: 0 }}>
 
       {/* ════════════════════════════════════════════════════════
            TOOLBAR
           ════════════════════════════════════════════════════════ */}
-      <div style={{ background: '#050505', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: isMobile ? '8px 10px' : '10px 24px', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12 }}>
+      <div style={{ background: '#050505', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: isMobile ? '8px 10px' : '10px 24px', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, flexShrink: 0 }}>
         <button
           onClick={handleScan}
           disabled={isAnyLoading}
@@ -987,12 +956,6 @@ export default function DealerClusterScreener() {
             ))}
           </select>
         </div>
-
-        {selectedExpLabel && !isMobile && (
-          <span style={{ fontSize: 15, color: '#fff', letterSpacing: '0.1em', fontWeight: 600 }}>
-            SCANNING THRU {selectedExpLabel.sub}
-          </span>
-        )}
 
         {/* Mobile: single tower toggle */}
         {isMobile && hasData && (
@@ -1072,10 +1035,10 @@ export default function DealerClusterScreener() {
       {/* ════════════════════════════════════════════════════════
            TWO-COLUMN GRID
           ════════════════════════════════════════════════════════ */}
-      {!isAnyLoading && <div ref={gridCallbackRef} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 0 }}>
+      {!isAnyLoading && <div ref={gridCallbackRef} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : focusedTower ? '1fr' : '1fr 1fr', gap: 0, flex: isMobile ? undefined : 1, minHeight: 0 }}>
 
         {/* ── POSITIVE / CALL TOWER column ── */}
-        <div style={{ borderRight: '1px solid rgba(255,255,255,0.05)', display: isMobile && mobileTower !== 'call' ? 'none' : undefined }}>
+        <div style={{ flexDirection: 'column', overflow: 'hidden', borderRight: focusedTower === 'call' ? 'none' : '1px solid rgba(255,255,255,0.05)', ...(isMobile ? { display: mobileTower !== 'call' ? 'none' : undefined } : { display: focusedTower === 'put' ? 'none' : 'flex' }) }}>
           {/* Column header — desktop only */}
           {!isMobile && (
             <div style={{
@@ -1085,10 +1048,14 @@ export default function DealerClusterScreener() {
               display: 'flex',
               alignItems: 'center',
               gap: 10,
+              flexShrink: 0,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#ff4444', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▲ CALL TOWER</span>
-              <div style={{ width: 1, height: 14, background: 'rgba(255,68,68,0.2)' }} />
-              <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS LONG GAMMA · POSITIVE GEX</span>
+              <button
+                onClick={() => setFocusedTower(f => f === 'call' ? null : 'call')}
+                style={{ background: 'none', border: '1px solid rgba(255,68,68,0.3)', borderRadius: 3, color: '#ff4444', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
+                title={focusedTower === 'call' ? 'Back to split view' : 'Expand full width'}
+              >{focusedTower === 'call' ? '−' : '+'}</button>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#ff4444', letterSpacing: '0.22em', textTransform: 'uppercase' }}>POSITIVE CLUSTER</span>
               <div style={{ flex: 1 }} />
               <span style={{ fontSize: 18, fontWeight: 900, color: '#ff4444', background: 'rgba(255,68,68,0.08)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
                 {positiveItems.length}
@@ -1097,7 +1064,7 @@ export default function DealerClusterScreener() {
           )}
 
           {/* Column body */}
-          <div style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px' }}>
+          <div className="cluster-tower-scroll" style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px', overflowY: 'auto', flex: isMobile ? undefined : 1, minHeight: 0 }}>
             {!hasData && !isAnyLoading && (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em' }}>
                 RUN SCAN TO POPULATE
@@ -1110,7 +1077,7 @@ export default function DealerClusterScreener() {
         </div>
 
         {/* ── NEGATIVE / PUT TOWER column ── */}
-        <div style={{ display: isMobile && mobileTower !== 'put' ? 'none' : undefined }}>
+        <div style={{ flexDirection: 'column', overflow: 'hidden', ...(isMobile ? { display: mobileTower !== 'put' ? 'none' : undefined } : { display: focusedTower === 'call' ? 'none' : 'flex' }) }}>
           {/* Column header — desktop only */}
           {!isMobile && (
             <div style={{
@@ -1120,10 +1087,14 @@ export default function DealerClusterScreener() {
               display: 'flex',
               alignItems: 'center',
               gap: 10,
+              flexShrink: 0,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#00d264', letterSpacing: '0.22em', textTransform: 'uppercase' }}>▼ PUT TOWER</span>
-              <div style={{ width: 1, height: 14, background: 'rgba(0,210,100,0.2)' }} />
-              <span style={{ fontSize: 13, color: '#fff', letterSpacing: '0.14em', fontWeight: 600 }}>DEALERS SHORT GAMMA · NEGATIVE GEX</span>
+              <button
+                onClick={() => setFocusedTower(f => f === 'put' ? null : 'put')}
+                style={{ background: 'none', border: '1px solid rgba(0,210,100,0.3)', borderRadius: 3, color: '#00d264', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900, cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
+                title={focusedTower === 'put' ? 'Back to split view' : 'Expand full width'}
+              >{focusedTower === 'put' ? '−' : '+'}</button>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#00d264', letterSpacing: '0.22em', textTransform: 'uppercase' }}>NEGATIVE CLUSTER</span>
               <div style={{ flex: 1 }} />
               <span style={{ fontSize: 18, fontWeight: 900, color: '#00d264', background: 'rgba(0,210,100,0.08)', border: '1px solid rgba(0,210,100,0.2)', borderRadius: 3, padding: '2px 10px', letterSpacing: '0.04em' }}>
                 {negativeItems.length}
@@ -1132,7 +1103,7 @@ export default function DealerClusterScreener() {
           )}
 
           {/* Column body */}
-          <div style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px' }}>
+          <div className="cluster-tower-scroll" style={{ padding: isMobile ? '8px 0 24px' : '12px 16px 24px', overflowY: 'auto', flex: isMobile ? undefined : 1, minHeight: 0 }}>
             {!hasData && !isAnyLoading && (
               <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.12)', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em' }}>
                 RUN SCAN TO POPULATE

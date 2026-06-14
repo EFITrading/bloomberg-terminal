@@ -3,23 +3,19 @@ import { NextRequest, NextResponse } from 'next/server'
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 
 // Filtered symbols — 1,253 tickers with market cap >= $5B (generated 2026-02-26)
+// Filtered symbols — 944 tickers with market cap >= $5B and price >= $25 (updated 2026-06-14)
 const TOP_SCREENER_SYMBOLS = [
   'A',
   'AA',
-  'AAL',
   'AAON',
   'AAPL',
   'ABBV',
   'ABCB',
-  'ABEV',
   'ABNB',
   'ABT',
   'ABVX',
   'ACA',
   'ACGL',
-  'ACHR',
-  'ACI',
-  'ACLX',
   'ACM',
   'ACN',
   'ACT',
@@ -29,21 +25,16 @@ const TOP_SCREENER_SYMBOLS = [
   'ADM',
   'ADP',
   'ADSK',
-  'ADT',
   'AEE',
-  'AEG',
   'AEIS',
   'AEM',
   'AEP',
   'AER',
-  'AES',
   'AFG',
   'AFL',
   'AFRM',
-  'AG',
   'AGCO',
   'AGI',
-  'AGNC',
   'AGX',
   'AHR',
   'AIG',
@@ -51,7 +42,6 @@ const TOP_SCREENER_SYMBOLS = [
   'AIZ',
   'AJG',
   'AKAM',
-  'AL',
   'ALAB',
   'ALB',
   'ALC',
@@ -65,7 +55,6 @@ const TOP_SCREENER_SYMBOLS = [
   'ALSN',
   'ALNY',
   'ALV',
-  'AM',
   'AMAT',
   'AMCR',
   'AMD',
@@ -77,7 +66,6 @@ const TOP_SCREENER_SYMBOLS = [
   'AMP',
   'AMRZ',
   'AMT',
-  'AMTM',
   'AMZN',
   'AMX',
   'AN',
@@ -93,9 +81,7 @@ const TOP_SCREENER_SYMBOLS = [
   'APP',
   'APPF',
   'APTV',
-  'AQN',
   'AR',
-  'ARCC',
   'ARE',
   'ARES',
   'ARGX',
@@ -118,13 +104,10 @@ const TOP_SCREENER_SYMBOLS = [
   'AU',
   'AUB',
   'AUGO',
-  'AUR',
-  'AVAL',
   'AVAV',
   'AVB',
   'AVGO',
   'AVT',
-  'AVTR',
   'AVY',
   'AWI',
   'AWK',
@@ -145,14 +128,9 @@ const TOP_SCREENER_SYMBOLS = [
   'BALL',
   'BAM',
   'BAP',
-  'BAX',
-  'BBD',
-  'BBDO',
   'BBIO',
-  'BBVA',
   'BBY',
   'BC',
-  'BCE',
   'BCH',
   'BCO',
   'BCPC',
@@ -160,7 +138,6 @@ const TOP_SCREENER_SYMBOLS = [
   'BDC',
   'BDX',
   'BE',
-  'BEKE',
   'BEN',
   'BEP',
   'BEPC',
@@ -168,17 +145,14 @@ const TOP_SCREENER_SYMBOLS = [
   'BHP',
   'BIDU',
   'BIIB',
-  'BILI',
   'BIO',
   'BIP',
   'BIPC',
   'BIRK',
   'BJ',
-  'BK',
   'BKH',
   'BKNG',
   'BKR',
-  'BLCO',
   'BLD',
   'BLDR',
   'BLK',
@@ -186,7 +160,6 @@ const TOP_SCREENER_SYMBOLS = [
   'BMA',
   'BMO',
   'BMRN',
-  'BMNR',
   'BMY',
   'BN',
   'BNS',
@@ -204,12 +177,10 @@ const TOP_SCREENER_SYMBOLS = [
   'BROS',
   'BRX',
   'BSAC',
-  'BSBR',
   'BSX',
   'BSY',
   'BTI',
   'BTSG',
-  'BTG',
   'BUD',
   'BURL',
   'BVN',
@@ -218,14 +189,11 @@ const TOP_SCREENER_SYMBOLS = [
   'BX',
   'BXP',
   'BYD',
-  'BZ',
   'C',
   'CACI',
   'CACC',
   'CAE',
-  'CAG',
   'CAH',
-  'CAI',
   'CAMT',
   'CARR',
   'CART',
@@ -240,7 +208,6 @@ const TOP_SCREENER_SYMBOLS = [
   'CCJ',
   'CCK',
   'CCL',
-  'CDE',
   'CDNS',
   'CDW',
   'CE',
@@ -260,30 +227,23 @@ const TOP_SCREENER_SYMBOLS = [
   'CHRW',
   'CHT',
   'CHTR',
-  'CHWY',
-  'CHYM',
   'CI',
   'CIB',
   'CIEN',
-  'CIFR',
-  'CIG',
   'CIGI',
   'CINF',
   'CL',
-  'CLF',
   'CLH',
   'CLS',
   'CLX',
   'CM',
   'CMC',
-  'CMCSA',
   'CME',
   'CMG',
   'CMI',
   'CMS',
   'CNA',
   'CNC',
-  'CNH',
   'CNI',
   'CNM',
   'CNP',
@@ -295,7 +255,6 @@ const TOP_SCREENER_SYMBOLS = [
   'COIN',
   'COKE',
   'COLB',
-  'COMP',
   'COO',
   'COP',
   'COR',
@@ -304,8 +263,6 @@ const TOP_SCREENER_SYMBOLS = [
   'CP',
   'CPA',
   'CPAY',
-  'CPB',
-  'CPNG',
   'CPRT',
   'CPT',
   'CQP',
@@ -315,7 +272,6 @@ const TOP_SCREENER_SYMBOLS = [
   'CRCL',
   'CRDO',
   'CRH',
-  'CRK',
   'CRL',
   'CRM',
   'CRS',
@@ -323,26 +279,21 @@ const TOP_SCREENER_SYMBOLS = [
   'CRUS',
   'CRWD',
   'CRWV',
-  'CSAN',
   'CSCO',
   'CSGP',
   'CSL',
   'CSX',
   'CTAS',
   'CTSH',
-  'CTRA',
   'CTRE',
   'CTVA',
   'CUBE',
-  'CUK',
   'CVE',
   'CVNA',
   'CVS',
   'CVX',
   'CW',
-  'CWAN',
   'CWST',
-  'CX',
   'CYTK',
   'D',
   'DAL',
@@ -369,7 +320,6 @@ const TOP_SCREENER_SYMBOLS = [
   'DLB',
   'DLR',
   'DLTR',
-  'DOC',
   'DOCN',
   'DOCU',
   'DOV',
@@ -392,7 +342,6 @@ const TOP_SCREENER_SYMBOLS = [
   'EA',
   'EAT',
   'EBAY',
-  'EC',
   'ECG',
   'ECL',
   'ED',
@@ -404,9 +353,7 @@ const TOP_SCREENER_SYMBOLS = [
   'EHC',
   'EIX',
   'EL',
-  'ELAN',
   'ELF',
-  'ELPC',
   'ELS',
   'ELV',
   'EMA',
@@ -414,7 +361,6 @@ const TOP_SCREENER_SYMBOLS = [
   'EMN',
   'EMR',
   'ENB',
-  'ENIC',
   'ENLT',
   'ENPH',
   'ENS',
@@ -429,8 +375,6 @@ const TOP_SCREENER_SYMBOLS = [
   'EQNR',
   'EQR',
   'EQT',
-  'EQX',
-  'ERIC',
   'ERIE',
   'ES',
   'ESAB',
@@ -440,7 +384,6 @@ const TOP_SCREENER_SYMBOLS = [
   'ESNT',
   'ESS',
   'ESTC',
-  'ET',
   'ETN',
   'ETR',
   'ETSY',
@@ -455,7 +398,6 @@ const TOP_SCREENER_SYMBOLS = [
   'EXPD',
   'EXPE',
   'EXR',
-  'F',
   'FAF',
   'FANG',
   'FAST',
@@ -470,21 +412,17 @@ const TOP_SCREENER_SYMBOLS = [
   'FFIV',
   'FHN',
   'FICO',
-  'FIG',
   'FIGR',
   'FIS',
   'FITB',
   'FIVE',
   'FIX',
   'FLEX',
-  'FLG',
   'FLR',
   'FLS',
   'FLUT',
-  'FMS',
   'FMX',
   'FN',
-  'FNB',
   'FND',
   'FNF',
   'FNV',
@@ -493,7 +431,6 @@ const TOP_SCREENER_SYMBOLS = [
   'FOXA',
   'FR',
   'FRHC',
-  'FRMI',
   'FRO',
   'FRT',
   'FSLR',
@@ -508,7 +445,6 @@ const TOP_SCREENER_SYMBOLS = [
   'FWONA',
   'FWONK',
   'G',
-  'GAP',
   'GATX',
   'GBCI',
   'GD',
@@ -516,13 +452,11 @@ const TOP_SCREENER_SYMBOLS = [
   'GDS',
   'GE',
   'GEHC',
-  'GEN',
   'GEV',
   'GFI',
   'GFL',
   'GFS',
   'GGAL',
-  'GGB',
   'GGG',
   'GH',
   'GIB',
@@ -536,7 +470,6 @@ const TOP_SCREENER_SYMBOLS = [
   'GLW',
   'GM',
   'GMAB',
-  'GME',
   'GMED',
   'GNRC',
   'GNTX',
@@ -545,8 +478,6 @@ const TOP_SCREENER_SYMBOLS = [
   'GOOGL',
   'GPC',
   'GPN',
-  'GRAB',
-  'GRFS',
   'GRMN',
   'GS',
   'GSAT',
@@ -560,31 +491,23 @@ const TOP_SCREENER_SYMBOLS = [
   'HAL',
   'HALO',
   'HAS',
-  'HBAN',
   'HBM',
   'HCA',
   'HD',
-  'HDB',
   'HEI',
   'HIG',
   'HII',
-  'HL',
   'HLI',
-  'HLN',
   'HLT',
   'HMC',
-  'HMY',
   'HOMB',
   'HON',
   'HOOD',
   'HPE',
   'HPQ',
   'HQY',
-  'HR',
-  'HRL',
   'HSBC',
   'HSIC',
-  'HST',
   'HSY',
   'HTHT',
   'HUBB',
@@ -594,15 +517,12 @@ const TOP_SCREENER_SYMBOLS = [
   'HWC',
   'HWM',
   'HXL',
-  'IAG',
   'IBM',
   'IBKR',
   'IBN',
-  'IBRX',
   'IBP',
   'ICE',
   'ICLR',
-  'ICL',
   'IDA',
   'IDCC',
   'IDXX',
@@ -614,7 +534,6 @@ const TOP_SCREENER_SYMBOLS = [
   'ILMN',
   'IMVT',
   'INCY',
-  'INFY',
   'ING',
   'INGR',
   'INSM',
@@ -633,7 +552,6 @@ const TOP_SCREENER_SYMBOLS = [
   'ISRG',
   'IT',
   'ITT',
-  'ITUB',
   'ITW',
   'IVZ',
   'IX',
@@ -641,32 +559,25 @@ const TOP_SCREENER_SYMBOLS = [
   'JAZZ',
   'JBL',
   'JBHT',
-  'JBS',
   'JBTM',
   'JCI',
   'JD',
   'JEF',
   'JHG',
-  'JHX',
   'JKHY',
   'JLL',
   'JNJ',
-  'JOBY',
   'JPM',
   'JXN',
   'KB',
   'KBR',
   'KDP',
-  'KEP',
   'KEX',
-  'KEY',
   'KEYS',
   'KGC',
-  'KHC',
   'KIM',
   'KKR',
   'KLAC',
-  'KLAR',
   'KMB',
   'KMI',
   'KMX',
@@ -680,10 +591,7 @@ const TOP_SCREENER_SYMBOLS = [
   'KRMN',
   'KRYS',
   'KSPI',
-  'KT',
   'KTOS',
-  'KVUE',
-  'KVYO',
   'KYMR',
   'L',
   'LAD',
@@ -694,11 +602,9 @@ const TOP_SCREENER_SYMBOLS = [
   'LEA',
   'LECO',
   'LEN',
-  'LEVI',
   'LFUS',
   'LH',
   'LHX',
-  'LI',
   'LII',
   'LIN',
   'LINE',
@@ -715,20 +621,16 @@ const TOP_SCREENER_SYMBOLS = [
   'LOGI',
   'LOW',
   'LPLA',
-  'LPL',
   'LPX',
   'LRCX',
   'LSCC',
   'LTH',
   'LTM',
   'LULU',
-  'LUMN',
   'LUV',
   'LVS',
   'LW',
   'LYB',
-  'LYFT',
-  'LYG',
   'LYV',
   'M',
   'MA',
@@ -738,10 +640,7 @@ const TOP_SCREENER_SYMBOLS = [
   'MANH',
   'MAR',
   'MAS',
-  'MASI',
-  'MAT',
   'MATX',
-  'MBLY',
   'MCHP',
   'MCD',
   'MCK',
@@ -755,12 +654,10 @@ const TOP_SCREENER_SYMBOLS = [
   'META',
   'MET',
   'MFC',
-  'MFG',
   'MGA',
   'MGM',
   'MHK',
   'MIDD',
-  'MIR',
   'MIRM',
   'MKC',
   'MKL',
@@ -770,13 +667,11 @@ const TOP_SCREENER_SYMBOLS = [
   'MLM',
   'MMM',
   'MMYT',
-  'MNSO',
   'MNST',
   'MO',
   'MOD',
   'MOH',
   'MORN',
-  'MOS',
   'MP',
   'MPC',
   'MPLX',
@@ -805,11 +700,9 @@ const TOP_SCREENER_SYMBOLS = [
   'MTSI',
   'MTZ',
   'MU',
-  'MUFG',
   'MUSA',
   'NBIS',
   'NBIX',
-  'NCLH',
   'NDAQ',
   'NDSN',
   'NE',
@@ -817,22 +710,15 @@ const TOP_SCREENER_SYMBOLS = [
   'NEM',
   'NET',
   'NEU',
-  'NG',
   'NFLX',
   'NFG',
   'NGG',
-  'NGD',
   'NI',
   'NICE',
-  'NIO',
   'NJR',
   'NKE',
-  'NLY',
-  'NMR',
   'NNN',
   'NOC',
-  'NOK',
-  'NOV',
   'NOW',
   'NPO',
   'NRG',
@@ -843,7 +729,6 @@ const TOP_SCREENER_SYMBOLS = [
   'NTRA',
   'NTR',
   'NTRS',
-  'NU',
   'NUE',
   'NUVL',
   'NVDA',
@@ -852,16 +737,13 @@ const TOP_SCREENER_SYMBOLS = [
   'NVR',
   'NVS',
   'NVT',
-  'NWG',
   'NWS',
   'NWSA',
-  'NXE',
   'NXPI',
   'NXST',
   'NXT',
   'NYT',
   'O',
-  'OBDC',
   'OC',
   'ODFL',
   'OGE',
@@ -880,39 +762,29 @@ const TOP_SCREENER_SYMBOLS = [
   'ONC',
   'ONON',
   'ONTO',
-  'OPCH',
   'OR',
   'ORA',
   'ORCL',
   'ORI',
-  'ORLA',
   'ORLY',
   'OSK',
-  'OTEX',
-  'OTF',
   'OTIS',
   'OVV',
-  'OWL',
   'OXY',
   'OZK',
-  'PAA',
   'PAAS',
   'PAC',
   'PAG',
   'PANW',
-  'PATH',
   'PAYC',
   'PAYX',
   'PB',
   'PBA',
-  'PBR',
   'PCAR',
-  'PCG',
   'PCOR',
   'PCTY',
   'PCVX',
   'PDD',
-  'PDI',
   'PEG',
   'PEGA',
   'PEN',
@@ -924,9 +796,7 @@ const TOP_SCREENER_SYMBOLS = [
   'PGR',
   'PH',
   'PHG',
-  'PHI',
   'PHM',
-  'PINS',
   'PIPR',
   'PKG',
   'PKX',
@@ -941,7 +811,6 @@ const TOP_SCREENER_SYMBOLS = [
   'PNR',
   'PNW',
   'PODD',
-  'PONY',
   'POOL',
   'POR',
   'POST',
@@ -949,17 +818,12 @@ const TOP_SCREENER_SYMBOLS = [
   'PPC',
   'PPG',
   'PPL',
-  'PR',
   'PRAX',
   'PRI',
   'PRIM',
-  'PRMB',
   'PRU',
   'PSA',
-  'PSKY',
   'PSN',
-  'PSO',
-  'PSTG',
   'PSX',
   'PTC',
   'PTCT',
@@ -967,12 +831,10 @@ const TOP_SCREENER_SYMBOLS = [
   'PUK',
   'PWR',
   'PYPL',
-  'QBTS',
   'QCOM',
   'QGEN',
   'QRVO',
   'QSR',
-  'QXO',
   'R',
   'RACE',
   'RAL',
@@ -984,24 +846,18 @@ const TOP_SCREENER_SYMBOLS = [
   'RCL',
   'RDDT',
   'RDNT',
-  'RDY',
   'REG',
   'REGN',
   'RELX',
   'REXR',
-  'REYN',
   'REZI',
   'RF',
   'RGA',
-  'RGC',
   'RGEN',
   'RGLD',
-  'RGTI',
   'RIOT',
-  'RIVN',
   'RKLB',
   'RMBS',
-  'RNA',
   'ROAD',
   'ROIV',
   'ROKU',
@@ -1014,11 +870,9 @@ const TOP_SCREENER_SYMBOLS = [
   'RYAAY',
   'RYTM',
   'SAIA',
-  'SAIL',
   'SANM',
   'SATS',
   'SBAC',
-  'SBRA',
   'SBUX',
   'SEIC',
   'SFD',
@@ -1028,14 +882,11 @@ const TOP_SCREENER_SYMBOLS = [
   'SITM',
   'SLAB',
   'SMCI',
-  'SMMT',
   'SMTC',
   'SNDK',
   'SNEX',
   'SNPS',
   'SNY',
-  'SOFI',
-  'SRAD',
   'SSNC',
   'SSRM',
   'STLD',
@@ -1059,7 +910,6 @@ const TOP_SCREENER_SYMBOLS = [
   'TSEM',
   'TSLA',
   'TTAN',
-  'TTD',
   'TTEK',
   'TTMI',
   'TTWO',
@@ -1068,25 +918,19 @@ const TOP_SCREENER_SYMBOLS = [
   'TXRH',
   'UAL',
   'UBSI',
-  'UEC',
   'UFPI',
   'ULTA',
   'UMBF',
   'URBN',
   'UTHR',
-  'UUUU',
-  'VFS',
   'VIAV',
   'VICR',
-  'VLY',
   'VNOM',
-  'VOD',
   'VRSK',
   'VRSN',
   'VRTX',
   'VSAT',
   'VSEC',
-  'VTRS',
   'WBD',
   'WDAY',
   'WDC',
@@ -1099,7 +943,6 @@ const TOP_SCREENER_SYMBOLS = [
   'WWD',
   'WYNN',
   'XEL',
-  'XP',
   'Z',
   'ZBRA',
   'ZG',
@@ -1332,11 +1175,20 @@ async function getOptionsDataDirect(
 
 // Helper function to classify and filter expiration dates based on actual available data
 function filterExpirationsByType(expirationDates: string[], filter: string): string[] {
+  // Parse YYYY-MM-DD as LOCAL midnight (not UTC) so .getDay() returns the correct weekday.
+  // new Date("2026-06-18") parses as UTC midnight — on a UTC-5 server that's June 17 local,
+  // making .getDay() return Wednesday instead of Thursday. Local parse avoids this entirely.
+  const parseLocal = (dateStr: string): Date => {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+
   const today = new Date()
+  today.setHours(0, 0, 0, 0) // local midnight for fair >= comparison
 
   // Parse and sort expiration dates
   const validDates = expirationDates
-    .map((dateStr) => ({ dateStr, date: new Date(dateStr) }))
+    .map((dateStr) => ({ dateStr, date: parseLocal(dateStr) }))
     .filter((item) => item.date >= today) // Only future expirations
     .sort((a, b) => a.date.getTime() - b.date.getTime())
 
@@ -1345,19 +1197,33 @@ function filterExpirationsByType(expirationDates: string[], filter: string): str
   }
 
   switch (filter) {
-    case 'Week':
-      // Weekly options: Find ONLY the next weekly expiry (usually the closest Friday)
-      const nextWeekly = validDates[0]
+    case 'Week': {
+      // Find the end-of-week expiry: prefer Friday within the next 9 days.
+      // If no Friday exists (e.g. Juneteenth holiday), accept Thursday.
+      // This avoids picking mid-week daily expirations (Mon/Tue/Wed) that SPY lists.
+      const cutoff = new Date(today.getTime() + 9 * 86400000)
+      const weekWindow = validDates.filter((item) => item.date <= cutoff)
 
-      return [nextWeekly.dateStr]
+      // 1. Look for a Friday
+      const friday = weekWindow.find((item) => item.date.getDay() === 5)
+      if (friday) return [friday.dateStr]
+
+      // 2. No Friday found — look for Thursday (holiday week, e.g. Juneteenth on Friday)
+      const thursday = weekWindow.find((item) => item.date.getDay() === 4)
+      if (thursday) return [thursday.dateStr]
+
+      // 3. Fallback: closest available expiry
+      return weekWindow.length > 0 ? [weekWindow[0].dateStr] : []
+    }
 
     case 'Month':
-      // Monthly options: Find the monthly expiry (3rd Friday pattern) and include all weeklies up to it
+      // Monthly options: Find the monthly expiry (3rd week, 3rd Friday or Thursday if holiday)
+      // Accept Thu or Fri between day 15-21 — Polygon won't list a holiday date, so a pre-holiday
+      // Thursday replaces the 3rd Friday when it falls on a market holiday (e.g. Juneteenth).
       const monthlyExpiry = validDates.find((item) => {
         const dayOfMonth = item.date.getDate()
         const dayOfWeek = item.date.getDay()
-        // Monthly expiry is typically 3rd Friday (day 15-21, Friday = 5)
-        return dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21
+        return (dayOfWeek === 5 || dayOfWeek === 4) && dayOfMonth >= 15 && dayOfMonth <= 21
       })
 
       if (monthlyExpiry) {
@@ -1549,6 +1415,10 @@ async function calculateSymbolGEX(
       // Global peak of absolute net GEX among valid-sign strikes
       const globalPeak = Math.max(...validStrikes.map(absNet))
 
+      // Map from strike value → index in the FULL sorted strike list
+      // Used to enforce true adjacency — no opposite-sign strikes allowed between cluster members
+      const fullStrikeIndex = new Map(netStrikes.map((s: any, i: number) => [s.strike, i]))
+
       let bestCluster = null
       let bestCenterGEX = 0
 
@@ -1556,6 +1426,14 @@ async function calculateSymbolGEX(
         const left = validStrikes[i - 1]
         const center = validStrikes[i]
         const right = validStrikes[i + 1]
+
+        // ── Adjacency guard ──────────────────────────────────────────────────
+        // The three strikes must be truly consecutive in the full strike list.
+        // If a negative (opposite-sign) strike sits between any pair, skip it.
+        const lIdx = fullStrikeIndex.get(left.strike)!
+        const cIdx = fullStrikeIndex.get(center.strike)!
+        const rIdx = fullStrikeIndex.get(right.strike)!
+        if (cIdx !== lIdx + 1 || rIdx !== cIdx + 1) continue
 
         const leftAbs = absNet(left)
         const centerAbs = absNet(center)
@@ -1710,9 +1588,100 @@ async function processBatch(
   return processBatchParallel(symbols, baseUrl, expirationFilter, 15)
 }
 
+// In-memory cache so repeated page opens don't re-fetch Polygon (refreshes every 5 min)
+let _expiryCache: { data: Record<string, string | null>; ts: number } | null = null
+const EXPIRY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+// Fetch actual available expiration dates from Polygon for a reference ticker (SPY)
+// and resolve each filter type to its real thru-date.
+// Strategy: query SPY snapshot with order=desc&limit=1 per window.
+// The snapshot endpoint only returns contracts that have actual market data —
+// holiday dates (e.g. Juneteenth Jun 19) are absent, so the result is always
+// the last real tradeable expiry in that window.
+async function resolveExpirationDates(): Promise<Record<string, string | null>> {
+  if (_expiryCache && Date.now() - _expiryCache.ts < EXPIRY_CACHE_TTL) {
+    return _expiryCache.data
+  }
+  try {
+    const today = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const fmtISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    const todayStr = fmtISO(today)
+
+    // Helper: 3rd Friday of a given year/month (0-indexed month)
+    const thirdFriday = (year: number, month: number): Date => {
+      const dow = new Date(year, month, 1).getDay()
+      return new Date(year, month, 1 + (5 - dow + 7) % 7 + 14)
+    }
+
+    // WEEK: end-of-current-week Friday (or next Friday if today is Saturday)
+    // Formula gives 0 on Friday (window = today), 6 on Saturday (next Friday), etc.
+    const daysToFri = (5 - today.getDay() + 7) % 7 || (today.getDay() === 5 ? 0 : 7)
+    const weekEnd = fmtISO(new Date(today.getTime() + Math.max(0, daysToFri) * 86400000))
+
+    // MONTH: this month's OPEX, or next month's if already past (+2 day buffer for pre-holiday Thu)
+    let mDate = thirdFriday(today.getFullYear(), today.getMonth())
+    if (mDate <= today) mDate = thirdFriday(today.getFullYear(), today.getMonth() + 1)
+    const monthEnd = fmtISO(new Date(mDate.getTime() + 2 * 86400000))
+
+    // DEFAULT: 45 days out
+    const defaultEnd = fmtISO(new Date(today.getTime() + 45 * 86400000))
+
+    // QUAD: next quarterly OPEX (Mar/Jun/Sep/Dec 3rd Friday, +2 day buffer)
+    const qMonths = [2, 5, 8, 11]
+    let qDate = new Date(today)
+    for (let offset = 0; offset <= 12; offset++) {
+      const mm = (today.getMonth() + offset) % 12
+      const yr = today.getFullYear() + Math.floor((today.getMonth() + offset) / 12)
+      if (qMonths.includes(mm)) {
+        const q = thirdFriday(yr, mm)
+        if (q > today) { qDate = q; break }
+      }
+    }
+    const quadEnd = fmtISO(new Date(qDate.getTime() + 2 * 86400000))
+
+    // Single snapshot call per window: sort desc, limit 1 → last actual tradeable expiry
+    const query = async (lte: string): Promise<string | null> => {
+      const url = `https://api.polygon.io/v3/snapshot/options/SPY?expiration_date.gte=${todayStr}&expiration_date.lte=${lte}&sort=expiration_date&order=desc&limit=1&apikey=${POLYGON_KEY}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      if (!res.ok) return null
+      const json = await res.json()
+      return json.results?.[0]?.details?.expiration_date ?? null
+    }
+
+    const [weekDate, defaultDate, monthDate, quadDate] = await Promise.all([
+      query(weekEnd),
+      query(defaultEnd),
+      query(monthEnd),
+      query(quadEnd),
+    ])
+
+    const resolved: Record<string, string | null> = {
+      Week: weekDate,
+      Default: defaultDate,
+      Month: monthDate,
+      Quad: quadDate,
+    }
+    _expiryCache = { data: resolved, ts: Date.now() }
+    return resolved
+  } catch {
+    return {}
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
+    const action = searchParams.get('action')
+
+    // Lightweight endpoint: return actual available expiration dates per filter type
+    if (action === 'expirations') {
+      const resolved = await resolveExpirationDates()
+      return NextResponse.json(resolved, {
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
+
     const limit = Math.min(parseInt(searchParams.get('limit') || '1000'), 1000)
     const streaming = searchParams.get('stream') === 'true'
     const expirationFilter = searchParams.get('expirationFilter') || 'Default'
