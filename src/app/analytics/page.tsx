@@ -14,7 +14,6 @@ import MarketHeatmap from '@/components/analytics/MarketHeatmap'
 import RRGAnalytics from '@/components/analytics/RRGAnalytics'
 import DealerClusterScreener from '@/components/analytics/DealerClusterScreener'
 import ScreenersPanel from '@/components/analytics/ScreenersPanel'
-import PerformanceDashboard from '@/components/charts/PerformanceDashboard'
 import Footer from '@/components/terminal/Footer'
 
 import '../terminal.css'
@@ -26,7 +25,7 @@ export default function Analytics() {
   const [activePanel, setActivePanel] = useState<string>('rrg')
 
   const panelLabels: Record<string, string> = {
-    'rrg': 'RRG', 'performance': 'Performance', 'iv-rrg': 'IV RRG',
+    'rrg': 'RRG', 'iv-rrg': 'IV RRG',
     'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
     'market-cycle': 'Market Cycle',
@@ -76,12 +75,7 @@ export default function Analytics() {
             <RRGScreener />
           </div>
         )
-      case 'performance':
-        return (
-          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(100vh - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <PerformanceDashboard isVisible={true} />
-          </div>
-        )
+
       case 'heatmap':
         return (
           <div key={id} style={panelStyle}>
@@ -228,35 +222,6 @@ export default function Analytics() {
             strokeWidth="1.5"
             fill="none"
             opacity="0.4"
-          />
-        </svg>
-      ),
-      performance: (
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle
-            cx="12"
-            cy="12"
-            r="9"
-            stroke="#06b6d4"
-            strokeWidth="2"
-            fill="none"
-            opacity="0.3"
-          />
-          <path d="M12 12L12 6" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M12 12L17 15" stroke="#22d3ee" strokeWidth="3" strokeLinecap="round" />
-          <circle cx="12" cy="12" r="2" fill="#06b6d4" />
-          <path
-            d="M12 3L12 5 M21 12L19 12 M12 21L12 19 M3 12L5 12"
-            stroke="#06b6d4"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            opacity="0.5"
           />
         </svg>
       ),
@@ -579,7 +544,6 @@ export default function Analytics() {
           </div>
 
           <TabButton id="rrg" label="RRG" />
-          <TabButton id="performance" label="Performance" />
           <TabButton id="iv-rrg" label="IV RRG" />
           <TabButton id="rrg-screener" label="RRG Screener" />
           <TabButton id="leadership-scan" label="Leadership" />

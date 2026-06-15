@@ -200,6 +200,7 @@ export default function FlowTrackingPanel({
   comboTradeMap: comboTradeMapFromParent,
   dealerZoneCache: dealerZoneCacheFromParent,
   liveFlows: liveFlowsFromParent,
+  hideChart = false,
 }: {
   onClose?: () => void
   relativeStrengthData?: Map<string, number>
@@ -216,6 +217,7 @@ export default function FlowTrackingPanel({
     }
   >
   liveFlows?: OptionsFlowData[]
+  hideChart?: boolean
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
@@ -1650,7 +1652,7 @@ export default function FlowTrackingPanel({
             )}
           </div>
           {/* EFI Chart */}
-          <div ref={chartContainerRef} style={{ flex: isMobile ? '1 1 0' : '1 1 55%', minHeight: 0, ...(isMobile ? { marginTop: 'auto' } : {}), position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
+          {!hideChart && (<div ref={chartContainerRef} style={{ flex: isMobile ? '1 1 0' : '1 1 55%', minHeight: 0, ...(isMobile ? { marginTop: 'auto' } : {}), position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
             {/* Chart fills full 55% */}
             <div style={{ width: '100%', height: '100%' }}>
               <style>{`
@@ -1663,14 +1665,16 @@ export default function FlowTrackingPanel({
               <EFIChart
                 symbol={chartSymbol}
                 initialTimeframe="1d"
-                height={Math.max(200, chartContainerHeight - (isMobile ? 60 : 165))}
+                height={Math.max(200, chartContainerHeight - (isMobile ? 60 : 0))}
                 lwToolbarPosition="left"
+                lwNavyButtonTheme={true}
                 disableSidebarAutoScan={true}
                 hideDesktopSidebar={true}
                 onSymbolChange={(s) => setChartSymbol(s)}
               />
             </div>
           </div>
+          )}
         </div>
       )}
 

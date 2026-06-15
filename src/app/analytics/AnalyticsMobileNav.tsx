@@ -10,7 +10,6 @@ import { useState } from 'react'
 
 const MOBILE_TABS = [
     { id: 'rrg', label: 'RRG' },
-    { id: 'performance', label: 'Performance' },
     { id: 'iv-rrg', label: 'IV RRG' },
     { id: 'rrg-screener', label: 'RRG Screener' },
     { id: 'leadership-scan', label: 'Leadership' },

@@ -301,6 +301,7 @@ interface OptionsFlowTableProps {
 
   onAlgoFlowClick?: () => void
   onCancel?: () => void
+  hideCharts?: boolean
 }
 
 const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'MINI_ONLY']
@@ -344,6 +345,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   onAlgoFlowClick,
   onCancel,
+  hideCharts = false,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade' | 'leap_grade'>(
     'trade_timestamp'
@@ -5884,9 +5886,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         ref={captureRef}
         className={`bg-black flex flex-col ${isFlowTrackingOpen ? 'md:flex hidden' : 'flex'}`}
         style={{
-          height: showFlowTrackingInline ? 'auto' : (isMobileView ? 'calc(100vh - 56px)' : 'calc(100vh - 119px)'),
+          height: showFlowTrackingInline ? 'auto' : isSidebarPanel ? 'auto' : (isMobileView ? 'calc(100vh - 56px)' : 'calc(100vh - 119px)'),
           minHeight: showFlowTrackingInline ? 'auto' : undefined,
-          overflow: showFlowTrackingInline ? undefined : 'hidden',
+          overflow: showFlowTrackingInline ? undefined : isSidebarPanel ? 'visible' : 'hidden',
 
           width: isSidebarPanel ? '100%' : isMobileView ? '100%' : '74%',
 
@@ -5902,11 +5904,11 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           className="bg-black border-b border-gray-700 flex-shrink-0"
           style={{
-            position: 'fixed',
-            top: isMobileView ? '56px' : '119px',
+            position: isSidebarPanel ? 'sticky' : 'fixed',
+            top: isSidebarPanel ? 0 : (isMobileView ? '56px' : '119px'),
             left: 0,
             right: 0,
-            zIndex: 999,
+            zIndex: isSidebarPanel ? 10 : 999,
 
             width: '100%',
 
@@ -7325,7 +7327,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         </div>
 
         {/* Shim: reserves space for the fixed control bar (nav+ticker+bar height) */}
-        <div style={{ height: isMobileView ? '100px' : '52px', flexShrink: 0 }} aria-hidden="true" />
+        <div style={{ height: isSidebarPanel ? '0' : (isMobileView ? '100px' : '52px'), flexShrink: 0 }} aria-hidden="true" />
 
         {streamError && (
           <div className="bg-red-900/20 border-l-4 border-red-500 px-6 py-4 mx-8 my-4 rounded-r-lg">
@@ -9914,7 +9916,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                         {/* Stock Chart */}
 
-                        {flowTrackingFilters.showCharts &&
+                        {!hideCharts && flowTrackingFilters.showCharts &&
                           (() => {
                             const chartData = stockChartData[flowId] || []
 
@@ -10303,7 +10305,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                         {/* Options Premium Chart */}
 
-                        {flowTrackingFilters.showCharts &&
+                        {!hideCharts && flowTrackingFilters.showCharts &&
                           (() => {
                             const expiry = flow.expiry.replace(/-/g, '').slice(2)
 
@@ -10665,7 +10667,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           style={{
             width: '38%',
-            height: '100vh',
+            height: 'calc(100vh - 125px)',
             position: 'fixed',
             top: 125,
             right: 0,

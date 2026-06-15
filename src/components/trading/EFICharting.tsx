@@ -23,14 +23,18 @@ import {
   TbChartBar,
   TbChartCandle,
   TbChartDots,
+  TbChartHistogram,
   TbChartInfographic,
   TbChartLine,
   TbCheck,
+  TbCrown,
   TbCurrencyDollar,
+  TbDna,
   TbFilter,
   TbLine,
   TbLink,
   TbLock,
+  TbMagnet,
   TbMail,
   TbMinus,
   TbNews,
@@ -65,6 +69,7 @@ import {
   TimeframeAnalysis,
 } from '../../lib/industryAnalysisService'
 import { useEFIChartingMobile } from './useEFIChartingMobile'
+import { TradeModeButton } from './TradeModeButton'
 import {
   getDaysUntilExpiration,
   getExpirationDates,
@@ -85,12 +90,15 @@ import RSScreener from '../RSScreener'
 import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
+import DealerClusterScreener from '../analytics/DealerClusterScreener'
+import AlgoFlowScreener from '../AlgoFlowScreener'
 import GexPanel from '../analytics/GexPanel'
 import GEXTimelineScrubber from '../analytics/GEXTimelineScrubber'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import StraddleTownScreener from '../analytics/StraddleTownScreener'
 import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
+import PerformanceDashboard from '../charts/PerformanceDashboard'
 import GuideChatbot from '../chatbot/GuideChatbot'
 import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
@@ -4493,6 +4501,8 @@ interface TradingViewChartProps {
   onSymbolChange?: (symbol: string) => void
   onTimeframeChange?: (timeframe: string) => void
   lwToolbarPosition?: 'top' | 'left'
+  lwNavyButtonTheme?: boolean
+  showTradeModeButton?: boolean
   disableSidebarAutoScan?: boolean
   initialShowBuySell?: boolean
   hideDesktopSidebar?: boolean
@@ -6215,6 +6225,8 @@ export default function TradingViewChart({
   onSymbolChange,
   onTimeframeChange,
   lwToolbarPosition = 'top',
+  lwNavyButtonTheme = false,
+  showTradeModeButton = false,
   disableSidebarAutoScan = false,
   hideDesktopSidebar = false,
   initialShowBuySell = false,
@@ -6564,6 +6576,9 @@ export default function TradingViewChart({
 
   // Chat store for Guide AI panel
   const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore()
+
+  // Trade Mode layout toggle
+  const [tradeModeActive, setTradeModeActive] = useState(false)
 
   // Dropdown positioning state
   const [dropdownPositions, setDropdownPositions] = useState({
@@ -13888,7 +13903,7 @@ export default function TradingViewChart({
         panel.style.borderRadius = '0px'
       } else {
         // 1200px wide for breaking/feed/movers
-        panel.style.left = '80px'
+        panel.style.left = '84px'
         panel.style.width = '1200px'
         panel.style.maxWidth = '1200px'
         panel.style.borderRadius = '8px'
@@ -30667,7 +30682,7 @@ export default function TradingViewChart({
 
       <div className="w-full h-full flex relative" data-theme={selectedTheme}>
         <div
-          className="h-full flex flex-col rounded-lg overflow-y-auto transition-all duration-300"
+          className="h-full flex flex-col rounded-lg overflow-hidden transition-all duration-300"
           style={{
             backgroundColor: colors.background,
             width: (isMobile || hideDesktopSidebar)
@@ -34871,6 +34886,9 @@ export default function TradingViewChart({
                 {/* Enhanced Action Buttons */}
                 <div className="flex items-center space-x-4"></div>
 
+                {/* TRADE MODE Button — market overview only */}
+                {showTradeModeButton && <TradeModeButton isActive={tradeModeActive} onClick={() => setTradeModeActive(v => !v)} />}
+
                 {/* GUIDE AI Button - Matches toolbar button style */}
                 <button
                   onClick={() => setGuideAIOpen(!isGuideAIOpen)}
@@ -35318,13 +35336,15 @@ export default function TradingViewChart({
             , document.body)}
 
           {/* Chart Container with Sidebar */}
-          <div className="flex flex-1 bg-[#0a0a0a]" style={{ position: 'relative' }}>
+          <div className="flex flex-1 bg-[#0a0a0a]" style={{ position: 'relative', overflow: 'hidden' }}>
             {/* PAT right-side nav strip — rendered after chart canvas so it's a flex sibling on the right */}
             {!isMobile && !hideDesktopSidebar && (
               <div
                 style={{
                   width: 58,
                   flexShrink: 0,
+                  height: '100%',
+                  minHeight: 0,
                   background: 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
                   borderLeft: '1px solid #1e1e1e',
                   display: 'flex',
@@ -35335,6 +35355,10 @@ export default function TradingViewChart({
                   paddingBottom: 4,
                   zIndex: 10000,
                   order: 3,
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: '#333333 transparent',
                 }}
               >
                 {([
@@ -35541,7 +35565,6 @@ export default function TradingViewChart({
                     <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F87171', borderRadius: '5px', padding: '3px 9px', color: '#F87171', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Clear All</div>
                   </div>
                 </div>
-                <div style={{ flex: 1 }} />
                 {showPATPanel && (
                   <button
                     onClick={() => setShowPATPanel(false)}
@@ -35561,21 +35584,18 @@ export default function TradingViewChart({
             {/* Sidebar — visible on desktop, hidden on mobile (hamburger used instead) */}
             <div
               className="sidebar-container"
-              style={{ display: (isMobile || hideDesktopSidebar) ? 'none' : undefined }}
+              style={{ display: (isMobile || hideDesktopSidebar) ? 'none' : undefined, width: '84px', minWidth: '84px', height: '100%', minHeight: 0, flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin', scrollbarColor: '#333333 transparent' }}
             >
-              <div className="relative z-10 flex flex-col items-center h-full gap-4" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '12px', paddingBottom: '12px' }}>
+              <div className="relative z-10 flex flex-col items-center w-full gap-0" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '4px', paddingBottom: '4px' }}>
                 {/* Sidebar Buttons */}
                 {[
                   { id: 'gex', icon: TbBoxMultiple, label: 'GEX', accent: 'orange' },
-                  { id: 'watch', icon: TbChartLine, label: 'WATCH', accent: 'blue' },
-                  { id: 'markets', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
-                  { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
-
-                  { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
-                  { id: 'seasonality', icon: TbCalendar, label: 'SEASONALITY', accent: 'pink' },
                   { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
-                  { id: 'straddle', icon: TbArrowsVertical, label: 'STRADDLE', accent: 'violet' },
-                  { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' },
+                  { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
+                  { id: 'watch', icon: TbChartLine, label: 'WATCH', accent: 'blue' },
+                  { id: 'performance', icon: TbChartInfographic, label: 'LINEVIEW', accent: 'teal' },
+                  { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
+                  { id: 'seasonality', icon: TbCalendar, label: 'SEASONAL', accent: 'pink' },
                 ].map((item, index) => {
                   const IconComponent = item.icon
 
@@ -35608,12 +35628,9 @@ export default function TradingViewChart({
                   return (
                     <div
                       key={item.id}
-                      className="flex flex-col items-center w-full px-2"
+                      className="flex flex-col items-center w-full px-1"
                       style={{
-                        marginBottom:
-                          isMobile
-                            ? '0'
-                            : '0.5rem',
+                        marginBottom: '0',
                       }}
                     >
                       <button
@@ -35622,11 +35639,11 @@ export default function TradingViewChart({
                           padding:
                             isMobile
                               ? '0.38rem 0'
-                              : '0.95rem 0',
+                              : 'clamp(0.35rem, 0.9vh, 0.75rem) 0',
                           gap:
                             isMobile
                               ? '0.25rem'
-                              : '0.5rem',
+                              : 'clamp(0.15rem, 0.4vh, 0.35rem)',
                           background: isActive
                             ? `linear-gradient(135deg, 
                                 ${accentColors[item.accent]}18 0%, 
@@ -35742,8 +35759,9 @@ export default function TradingViewChart({
 
                         {/* Icon with dynamic color and glow */}
                         <span
-                          className="relative md:text-4xl text-2xl transition-all duration-500 group-hover:scale-115 group-hover:rotate-6"
+                          className="relative transition-all duration-500 group-hover:scale-115 group-hover:rotate-6"
                           style={{
+                            fontSize: 'clamp(1.2rem, 2.5vh, 2rem)',
                             color: isActive
                               ? accentColors[item.accent]
                               : `${accentColors[item.accent]}B3`,
@@ -35757,13 +35775,14 @@ export default function TradingViewChart({
                         </span>
                         {/* Label with premium typography */}
                         <span
-                          className="sidebar-label relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block"
+                          className="sidebar-label relative font-bold uppercase transition-all duration-500 hidden md:block"
                           style={{
+                            fontSize: 'clamp(7px, 1vh, 10px)',
                             color: '#FFFFFF',
                             opacity: 1,
                             fontFamily: 'system-ui, -apple-system, sans-serif',
                             fontWeight: isActive ? 700 : 600,
-                            letterSpacing: '0.12em',
+                            letterSpacing: '0.10em',
                             textShadow: isActive
                               ? `0 0 25px ${accentColors[item.accent]}70, 0 2px 6px rgba(0, 0, 0, 0.95), 0 0 10px ${accentColors[item.accent]}40`
                               : `0 2px 4px rgba(0, 0, 0, 0.9), 0 0 8px ${accentColors[item.accent]}30`,
@@ -35789,11 +35808,69 @@ export default function TradingViewChart({
                   )
                 })}
 
-                {/* Bottom spacer */}
-                <div className="flex-1"></div>
+                {/* TRADES separator */}
+                <div style={{ width: '100%', padding: '6px 8px 4px', flexShrink: 0 }}>
+                  <div style={{ height: '1px', background: 'rgba(255,102,0,0.6)', marginBottom: '6px' }} />
+                  <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', color: '#FF6600', letterSpacing: '0.18em', fontFamily: 'monospace', lineHeight: '1.1', textShadow: '0 0 12px rgba(255,102,0,0.7)' }}>TRADES</div>
+                </div>
+
+                {/* Trades buttons */}
+                {[
+                  { id: 'straddle', icon: TbArrowsVertical, label: 'STRADDLE', accent: 'violet' },
+                  { id: 'markets', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
+                  { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' },
+                  { id: 'cluster', icon: TbDna, label: 'CLUSTER', accent: 'purple' },
+                  { id: 'histvol', icon: TbChartHistogram, label: 'HIST VOL', accent: 'blue' },
+                  { id: 'leadership', icon: TbCrown, label: 'LEADERSHIP', accent: 'amber' },
+                  { id: 'attraction', icon: TbMagnet, label: 'ATTRACTION', accent: 'green' },
+                ].map((item) => {
+                  const IconComponent = item.icon
+                  const accentColors: { [key: string]: string } = {
+                    blue: '#3B82F6', emerald: '#10B981', amber: '#F59E0B', red: '#EF4444',
+                    violet: '#8B5CF6', cyan: '#06B6D4', purple: '#A855F7', orange: '#F97316',
+                    green: '#22C55E', indigo: '#6366F1', pink: '#EC4899', lime: '#84CC16',
+                    teal: '#14B8A6', rose: '#F43F5E', slate: '#94A3B8',
+                  }
+                  const isActive = activeSidebarPanel === item.id
+                  return (
+                    <div key={item.id} className="flex flex-col items-center w-full px-1" style={{ marginBottom: '0' }}>
+                      <button
+                        className="group relative w-full flex flex-col items-center justify-center transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
+                        style={{
+                          padding: 'clamp(0.35rem, 0.9vh, 0.75rem) 0', gap: 'clamp(0.15rem, 0.4vh, 0.35rem)',
+                          background: isActive
+                            ? `linear-gradient(135deg, ${accentColors[item.accent]}18 0%, rgba(15,15,15,0.98) 40%, rgba(10,10,10,0.98) 60%, ${accentColors[item.accent]}15 100%)`
+                            : `linear-gradient(135deg, rgba(20,20,20,0.85) 0%, rgba(15,15,15,0.9) 50%, rgba(10,10,10,0.95) 100%)`,
+                          boxShadow: isActive
+                            ? `0 0 40px ${accentColors[item.accent]}50, 0 0 80px ${accentColors[item.accent]}25, inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 2px rgba(0,0,0,0.8), 0 10px 40px rgba(0,0,0,0.9)`
+                            : `0 6px 20px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.1), inset 0 -1px 1px rgba(0,0,0,0.9)`,
+                          border: isActive ? `1px solid ${accentColors[item.accent]}90` : '1px solid rgba(50,50,50,0.6)',
+                          borderLeft: isActive ? `4px solid ${accentColors[item.accent]}` : `4px solid ${accentColors[item.accent]}30`,
+                          transform: isActive ? 'translateX(3px) scale(1.02)' : 'translateX(0)',
+                        }}
+                        onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = `linear-gradient(135deg, ${accentColors[item.accent]}12 0%, rgba(20,20,20,0.95) 40%, rgba(15,15,15,0.95) 60%, ${accentColors[item.accent]}10 100%)`; e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}70`; e.currentTarget.style.transform = 'translateX(2px) scale(1.01)' } }}
+                        onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = `linear-gradient(135deg, rgba(20,20,20,0.85) 0%, rgba(15,15,15,0.9) 50%, rgba(10,10,10,0.95) 100%)`; e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}30`; e.currentTarget.style.transform = 'translateX(0)' } }}
+                        onClick={() => handleSidebarClick(item.id)}
+                      >
+                        <div className="absolute inset-0 pointer-events-none rounded-lg" style={{ background: `linear-gradient(180deg, rgba(255,255,255,0.12) 0%, ${accentColors[item.accent]}08 20%, transparent 50%, transparent 80%, rgba(0,0,0,0.4) 100%)` }} />
+                        {isActive && (
+                          <>
+                            <div className="absolute top-0 left-0 right-0 h-1 opacity-90" style={{ background: `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]} 50%, transparent 100%)`, boxShadow: `0 0 15px ${accentColors[item.accent]}, 0 0 30px ${accentColors[item.accent]}70` }} />
+                            <div className="absolute inset-0 pointer-events-none rounded-lg" style={{ background: `radial-gradient(circle at 50% 0%, ${accentColors[item.accent]}12 0%, transparent 60%)` }} />
+                          </>
+                        )}
+                        <span className="relative transition-all duration-500 group-hover:scale-115 group-hover:rotate-6" style={{ fontSize: 'clamp(1.2rem, 2.5vh, 2rem)', color: isActive ? accentColors[item.accent] : `${accentColors[item.accent]}B3`, filter: isActive ? `drop-shadow(0 0 16px ${accentColors[item.accent]}A0) brightness(1.3)` : `drop-shadow(0 0 8px ${accentColors[item.accent]}60) brightness(1.1)`, transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                          <IconComponent strokeWidth={isActive ? 3 : 2.5} />
+                        </span>
+                        <span className="sidebar-label relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block" style={{ color: '#FFFFFF', opacity: 1, fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: isActive ? 700 : 600, letterSpacing: '0.12em', textShadow: isActive ? `0 0 25px ${accentColors[item.accent]}70, 0 2px 6px rgba(0,0,0,0.95)` : `0 2px 4px rgba(0,0,0,0.9)` }}>{item.label}</span>
+                        <div className="absolute bottom-0 left-0 right-0 h-px opacity-60" style={{ background: isActive ? `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}80 50%, transparent 100%)` : `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}30 50%, transparent 100%)` }} />
+                      </button>
+                    </div>
+                  )
+                })}
 
                 {/* Bottom branding - 3D carved */}
-                <div className="pb-3 flex flex-col items-center gap-2">
+                <div className="pb-2 pt-1 flex flex-col items-center gap-1">
                   <div
                     className="w-16 h-px rounded-full"
                     style={{
@@ -35814,8 +35891,57 @@ export default function TradingViewChart({
               </div>
             </div>
 
-            {/* Main Chart Area */}
-            <div ref={containerRef} className="relative flex-1" style={{ height: height, marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0 }}>
+            {/* Main Chart Area — wrapper keeps flex:1 so sidebars never move */}
+            <div style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%', overflow: 'hidden' }}>
+
+              {/* Trade Mode panels — absolute inside this wrapper */}
+              {tradeModeActive && (
+                <>
+                  {/* Row 1 Col 2 — ODTE-Trio */}
+                  <div style={{ position: 'absolute', left: '50%', top: 0, width: '30%', height: '60%', zIndex: 60, background: '#000', borderLeft: '1px solid #1a1a1a', borderBottom: '1px solid #1a1a1a', overflow: 'hidden' }}>
+                    <GexPanel tradeModeOnly={true} />
+                  </div>
+                  {/* Row 1 Col 3 — Tracking */}
+                  <div style={{ position: 'absolute', left: '80%', top: 0, width: '20%', height: '60%', zIndex: 60, background: '#000', borderLeft: '1px solid #1a1a1a', borderBottom: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
+                    <FlowTrackingPanel hideChart={true} />
+                  </div>
+                  {/* Row 2 Col 1 — AlgoFlow */}
+                  <div style={{ position: 'absolute', left: 0, top: '60%', width: '50%', height: '40%', zIndex: 60, background: '#000', borderTop: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
+                    <AlgoFlowScreener />
+                  </div>
+                  {/* Row 2 Col 2+3 — OptionsFlow */}
+                  <div style={{ position: 'absolute', left: '50%', top: '40%', width: '50%', height: '60%', zIndex: 60, background: '#000', borderTop: '1px solid #1a1a1a', borderLeft: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
+                    <OptionsFlowTable
+                      data={flowData}
+                      summary={flowSummary}
+                      marketInfo={flowMarketInfo}
+                      loading={flowLoading}
+                      onRefresh={() => {}}
+                      onClearData={() => setFlowData([])}
+                      onDataUpdate={setFlowData}
+                      selectedTicker={flowSelectedTicker}
+                      onTickerChange={setFlowSelectedTicker}
+                      streamingStatus={flowStreamingStatus}
+                      streamingProgress={flowStreamingProgress}
+                      streamError={flowStreamError}
+                      useDropdowns={true}
+                      hideFlowTracking={true}
+                      isSidebarPanel={true}
+                      hideCharts={true}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Main Chart Canvas — shrinks to 50%×60% in trade mode so axes stay visible */}
+              <div ref={containerRef} className="relative" style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: tradeModeActive ? '50%' : '100%',
+                height: tradeModeActive ? '60%' : '100%',
+                marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0,
+              }}>
 
               {/* ── Animated Backgrounds ── */}
               <style>{`
@@ -36199,6 +36325,7 @@ export default function TradingViewChart({
                       priceToScreen={priceToScreen}
                       screenToPrice={screenToPrice}
                       toolbarPosition={lwToolbarPosition}
+                      navyButtonTheme={lwNavyButtonTheme}
                       onMouseMove={(e) =>
                         handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
                       }
@@ -37231,6 +37358,9 @@ export default function TradingViewChart({
 
             {/* Property Editor removed - drawing tools were removed as requested */}
           </div>
+          {/* ── end Main Chart Canvas (containerRef) */}
+          </div>
+          {/* ── end chart wrapper (flex:1) */}
 
           {/* Sidebar Panels — portalled to document.body so no ancestor stacking context traps it below the canvas */}
           {typeof window !== 'undefined' &&
@@ -37241,10 +37371,11 @@ export default function TradingViewChart({
                 style={{
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
                   display: (activeSidebarPanel || showPATPanel) ? 'flex' : 'none',
-                  left: (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : ((isMobile || hideDesktopSidebar) ? '0px' : '80px'),
-                  right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : 'auto',
-                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
-                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
+                  left: (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : ((isMobile || hideDesktopSidebar) ? '0px' : '84px'),
+                  right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : (activeSidebarPanel === 'performance' && !isMobile && !hideDesktopSidebar) ? '48px' : 'auto',
+                  borderLeft: (!isMobile && !hideDesktopSidebar && !showPATPanel) ? '1px solid rgba(255,255,255,0.07)' : undefined,
+                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'auto' : activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
+                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'none' : activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
                   top: (isMobile || hideDesktopSidebar)
@@ -38047,6 +38178,11 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
+                  {activeSidebarPanel === 'performance' && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                      <PerformanceDashboard isVisible={true} />
+                    </div>
+                  )}
                   {activeSidebarPanel === 'chain' && (
                     <ChainPanel
                       symbol={config.symbol}
@@ -38131,6 +38267,62 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
+                  {/* Cluster panel */}
+                  {activeSidebarPanel === 'cluster' && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                          <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>DEALER CLUSTER</span>
+                        </div>
+                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                      </div>
+                      <DealerClusterScreener />
+                    </div>
+                  )}
+
+                  {/* Historical Volatility panel */}
+                  {activeSidebarPanel === 'histvol' && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                          <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>HISTORICAL VOLATILITY</span>
+                        </div>
+                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                      </div>
+                      <HVScreener />
+                    </div>
+                  )}
+
+                  {/* Leadership panel */}
+                  {activeSidebarPanel === 'leadership' && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                          <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>LEADERSHIP SCAN</span>
+                        </div>
+                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                      </div>
+                      <LeadershipScan />
+                    </div>
+                  )}
+
+                  {/* Attraction (RS Screener) panel */}
+                  {activeSidebarPanel === 'attraction' && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                          <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>ATTRACTION SCAN</span>
+                        </div>
+                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                      </div>
+                      <RSScreener />
+                    </div>
+                  )}
+
                   {activeSidebarPanel === 'seasonality' && (
                     <div className="h-full flex flex-col bg-black text-white">
                       {/* Header: desktop = CHART/SCREENER tabs + inline X; mobile = none (close is in Row 1) */}

@@ -36,6 +36,7 @@ interface LWChartDrawingToolsProps {
   chartTimeframe?: string  // e.g. '1m','5m','15m','30m','1h','4h','1D','1W'
   onMouseMove?: (e: React.MouseEvent<HTMLElement>) => void
   toolbarPosition?: 'top' | 'left'
+  navyButtonTheme?: boolean
 }
 
 type DrawingTool =
@@ -339,7 +340,25 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   chartTimeframe,
   onMouseMove,
   toolbarPosition = 'top',
+  navyButtonTheme = false,
 }) => {
+  // Navy theme helpers – used when navyButtonTheme=true (options-flow mini chart)
+  const navyBtnStyle = (isToolActive: boolean, accentColor: string): React.CSSProperties => {
+    if (!navyButtonTheme) return {}
+    return {
+      background: isToolActive
+        ? 'linear-gradient(160deg, #1a2f52 0%, #0f1f38 50%, #080f20 100%)'
+        : 'linear-gradient(160deg, #0d1b2e 0%, #060d1a 60%, #030912 100%)',
+      border: `1px solid ${isToolActive ? accentColor : 'rgba(45,80,150,0.5)'}`,
+      boxShadow: isToolActive
+        ? `0 0 14px rgba(60,110,200,0.4), inset 0 1px 0 rgba(100,160,255,0.15)`
+        : '0 2px 8px rgba(0,0,0,0.9), inset 0 1px 0 rgba(80,130,220,0.08)',
+    }
+  }
+  const navyIconColor = (isToolActive: boolean, accentColor: string): string => {
+    if (!navyButtonTheme) return isToolActive ? '#000' : accentColor
+    return accentColor
+  }
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLInputElement>(null)
   const [internalCurrentTool, setInternalCurrentTool] = useState<DrawingTool>('select')
@@ -2657,175 +2676,208 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             pointerEvents: 'auto',
           }}
         >
+          <style>{`
+            .lw-tool-btn {
+              width: clamp(30px, 3.5vh, 46px);
+              height: clamp(30px, 3.5vh, 46px);
+              padding: 0;
+              border-radius: 5px;
+              cursor: pointer;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              gap: 2px;
+              transition: all 0.15s ease;
+            }
+            .lw-tool-btn span {
+              font-size: clamp(5px, 0.65vh, 8px) !important;
+            }
+            .lw-tool-btn svg {
+              width: clamp(10px, 1.4vh, 16px) !important;
+              height: clamp(10px, 1.4vh, 16px) !important;
+            }
+          `}</style>
           {/* Tool Buttons */}
           <button
             onClick={() => {
               setCurrentTool('trendline')
               setCurrentPoints([])
             }}
+            className="lw-tool-btn"
             style={{
-              width: '42px', height: '42px', padding: 0,
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'trendline' ? '#FF8500' : '#3d2200',
               color: '#FF8500',
               border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'trendline' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'trendline', '#FF8500'),
             }}
             title="Trendline"
           >
-            <TbLine size={14} color={currentTool === 'trendline' ? '#000' : '#FF8500'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'trendline' ? '#000' : '#FF8500' }}>Trend</span>
+            <TbLine size={14} color={navyIconColor(currentTool === 'trendline', '#FF8500')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'trendline', '#FF8500') }}>Trend</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('horizontal'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'horizontal' ? '#FF8500' : '#3d2200',
               color: '#FF8500',
               border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'horizontal' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'horizontal', '#FF8500'),
             }}
             title="Horizontal Line"
           >
-            <TbMinus size={14} color={currentTool === 'horizontal' ? '#000' : '#FF8500'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'horizontal' ? '#000' : '#FF8500' }}>H-Line</span>
+            <TbMinus size={14} color={navyIconColor(currentTool === 'horizontal', '#FF8500')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'horizontal', '#FF8500') }}>H-Line</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('vertical'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'vertical' ? '#B06EFF' : '#1e0d33',
               color: '#B06EFF',
               border: '1px solid #B06EFF',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'vertical' ? '0 0 12px rgba(176,110,255,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'vertical', '#B06EFF'),
             }}
             title="Vertical Line"
           >
-            <TbArrowsVertical size={14} color={currentTool === 'vertical' ? '#000' : '#B06EFF'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'vertical' ? '#000' : '#B06EFF' }}>V-Line</span>
+            <TbArrowsVertical size={14} color={navyIconColor(currentTool === 'vertical', '#B06EFF')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'vertical', '#B06EFF') }}>V-Line</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('ray'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'ray' ? '#FF8500' : '#3d2200',
               color: '#FF8500',
               border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'ray' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'ray', '#FF8500'),
             }}
             title="Ray"
           >
-            <TbArrowUpRight size={14} color={currentTool === 'ray' ? '#000' : '#FF8500'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'ray' ? '#000' : '#FF8500' }}>Ray</span>
+            <TbArrowUpRight size={14} color={navyIconColor(currentTool === 'ray', '#FF8500')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'ray', '#FF8500') }}>Ray</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('rectangle'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'rectangle' ? '#4A9EFF' : '#0d2040',
               color: '#4A9EFF',
               border: '1px solid #4A9EFF',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'rectangle' ? '0 0 12px rgba(74,158,255,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'rectangle', '#4A9EFF'),
             }}
             title="Rectangle"
           >
-            <TbSquare size={14} color={currentTool === 'rectangle' ? '#000' : '#4A9EFF'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'rectangle' ? '#000' : '#4A9EFF' }}>Box</span>
+            <TbSquare size={14} color={navyIconColor(currentTool === 'rectangle', '#4A9EFF')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'rectangle', '#4A9EFF') }}>Box</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('text'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'text' ? '#FFD700' : '#332900',
               color: '#FFD700',
               border: '1px solid #FFD700',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'text' ? '0 0 12px rgba(255,215,0,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'text', '#FFD700'),
             }}
             title="Text"
           >
-            <TbTextSize size={14} color={currentTool === 'text' ? '#000' : '#FFD700'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'text' ? '#000' : '#FFD700' }}>Text</span>
+            <TbTextSize size={14} color={navyIconColor(currentTool === 'text', '#FFD700')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'text', '#FFD700') }}>Text</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('parallelChannel'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'parallelChannel' ? '#FF8500' : '#3d2200',
               color: '#FF8500',
               border: '1px solid #FF8500',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'parallelChannel' ? '0 0 12px rgba(255,133,0,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'parallelChannel', '#FF8500'),
             }}
             title="Parallel Channel"
           >
-            <TbLayout size={14} color={currentTool === 'parallelChannel' ? '#000' : '#FF8500'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'parallelChannel' ? '#000' : '#FF8500' }}>Channel</span>
+            <TbLayout size={14} color={navyIconColor(currentTool === 'parallelChannel', '#FF8500')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'parallelChannel', '#FF8500') }}>Channel</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('buyZone'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'buyZone' ? '#00ff88' : '#001a0e',
               color: '#00ff88',
               border: '1px solid #00ff88',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'buyZone' ? '0 0 14px rgba(0,255,136,0.7)' : '0 0 4px rgba(0,255,136,0.15)',
+              ...navyBtnStyle(currentTool === 'buyZone', '#00ff88'),
             }}
             title="Buy Zone"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="1" y="5" width="12" height="7" fill={currentTool === 'buyZone' ? 'rgba(0,0,0,0.3)' : 'rgba(0,255,136,0.2)'} stroke={currentTool === 'buyZone' ? '#000' : '#00ff88'} strokeWidth="1.2" />
-              <polyline points="4,8 7,4 10,8" stroke={currentTool === 'buyZone' ? '#000' : '#00ff88'} strokeWidth="1.5" fill="none" />
+              <rect x="1" y="5" width="12" height="7" fill={navyButtonTheme ? 'rgba(0,255,136,0.15)' : (currentTool === 'buyZone' ? 'rgba(0,0,0,0.3)' : 'rgba(0,255,136,0.2)')} stroke={navyIconColor(currentTool === 'buyZone', '#00ff88')} strokeWidth="1.2" />
+              <polyline points="4,8 7,4 10,8" stroke={navyIconColor(currentTool === 'buyZone', '#00ff88')} strokeWidth="1.5" fill="none" />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'buyZone' ? '#000' : '#00ff88' }}>Buy</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'buyZone', '#00ff88') }}>Buy</span>
           </button>
 
           <button
             onClick={() => { setCurrentTool('sellZone'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'sellZone' ? '#ff3366' : '#1a0008',
               color: '#ff3366',
               border: '1px solid #ff3366',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'sellZone' ? '0 0 14px rgba(255,51,102,0.7)' : '0 0 4px rgba(255,51,102,0.15)',
+              ...navyBtnStyle(currentTool === 'sellZone', '#ff3366'),
             }}
             title="Sell Zone"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="1" y="2" width="12" height="7" fill={currentTool === 'sellZone' ? 'rgba(0,0,0,0.3)' : 'rgba(255,51,102,0.2)'} stroke={currentTool === 'sellZone' ? '#000' : '#ff3366'} strokeWidth="1.2" />
-              <polyline points="4,6 7,10 10,6" stroke={currentTool === 'sellZone' ? '#000' : '#ff3366'} strokeWidth="1.5" fill="none" />
+              <rect x="1" y="2" width="12" height="7" fill={navyButtonTheme ? 'rgba(255,51,102,0.15)' : (currentTool === 'sellZone' ? 'rgba(0,0,0,0.3)' : 'rgba(255,51,102,0.2)')} stroke={navyIconColor(currentTool === 'sellZone', '#ff3366')} strokeWidth="1.2" />
+              <polyline points="4,6 7,10 10,6" stroke={navyIconColor(currentTool === 'sellZone', '#ff3366')} strokeWidth="1.5" fill="none" />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'sellZone' ? '#000' : '#ff3366' }}>Sell</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'sellZone', '#ff3366') }}>Sell</span>
           </button>
 
           {/* Brush Tool */}
           <button
             onClick={() => { setCurrentTool('brush'); setCurrentPoints([]); setColor('#ffffff') }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'brush' ? '#a855f7' : '#1e0a33',
               color: '#a855f7',
               border: '1px solid #a855f7',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'brush' ? '0 0 12px rgba(168,85,247,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'brush', '#a855f7'),
             }}
             title="Freehand Brush"
           >
-            <TbBrush size={14} color={currentTool === 'brush' ? '#000' : '#a855f7'} />
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'brush' ? '#000' : '#a855f7' }}>Brush</span>
+            <TbBrush size={14} color={navyIconColor(currentTool === 'brush', '#a855f7')} />
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'brush', '#a855f7') }}>Brush</span>
           </button>
 
           {/* Brush size slider - only shown when brush is active */}
@@ -2852,91 +2904,103 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           {/* Fibonacci Retracement */}
           <button
             onClick={() => { setCurrentTool('fib'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'fib' ? '#facc15' : '#1c1800',
               border: '1px solid #facc15',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'fib' ? '0 0 12px rgba(250,204,21,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'fib', '#facc15'),
             }}
             title="Fibonacci Retracement (2 clicks)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <line x1="2" y1="2" x2="12" y2="12" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1.5" strokeDasharray="2 1.5" />
-              <line x1="2" y1="5" x2="12" y2="5" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
-              <line x1="2" y1="8" x2="12" y2="8" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
-              <line x1="2" y1="11" x2="12" y2="11" stroke={currentTool === 'fib' ? '#000' : '#facc15'} strokeWidth="1" />
+              <line x1="2" y1="2" x2="12" y2="12" stroke={navyIconColor(currentTool === 'fib', '#facc15')} strokeWidth="1.5" strokeDasharray="2 1.5" />
+              <line x1="2" y1="5" x2="12" y2="5" stroke={navyIconColor(currentTool === 'fib', '#facc15')} strokeWidth="1" />
+              <line x1="2" y1="8" x2="12" y2="8" stroke={navyIconColor(currentTool === 'fib', '#facc15')} strokeWidth="1" />
+              <line x1="2" y1="11" x2="12" y2="11" stroke={navyIconColor(currentTool === 'fib', '#facc15')} strokeWidth="1" />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'fib' ? '#000' : '#facc15' }}>Fib</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'fib', '#facc15') }}>Fib</span>
           </button>
 
           {/* Elliott Wave Impulse (012345) */}
           <button
             onClick={() => { setCurrentTool('elliottWave'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'elliottWave' ? '#38bdf8' : '#001520',
               border: '1px solid #38bdf8',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'elliottWave' ? '0 0 12px rgba(56,189,248,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'elliottWave', '#38bdf8'),
             }}
             title="Elliott Wave Impulse: 6 clicks = 0,1,2,3,4,5"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <polyline points="1,12 3,4 6,10 9,3 12,8" stroke={currentTool === 'elliottWave' ? '#000' : '#38bdf8'} strokeWidth="1.5" fill="none" />
+              <polyline points="1,12 3,4 6,10 9,3 12,8" stroke={navyIconColor(currentTool === 'elliottWave', '#38bdf8')} strokeWidth="1.5" fill="none" />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'elliottWave' ? '#000' : '#38bdf8' }}>12345</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'elliottWave', '#38bdf8') }}>12345</span>
           </button>
 
           {/* Elliott Wave ABC Corrective */}
           <button
             onClick={() => { setCurrentTool('elliottWaveABC'); setCurrentPoints([]) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'elliottWaveABC' ? '#818cf8' : '#0d0b20',
               border: '1px solid #818cf8',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'elliottWaveABC' ? '0 0 12px rgba(129,140,248,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'elliottWaveABC', '#818cf8'),
             }}
             title="Elliott Wave ABC Corrective: 4 clicks = 0,A,B,C"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <polyline points="1,12 5,4 9,10 13,5" stroke={currentTool === 'elliottWaveABC' ? '#000' : '#818cf8'} strokeWidth="1.5" fill="none" />
+              <polyline points="1,12 5,4 9,10 13,5" stroke={navyIconColor(currentTool === 'elliottWaveABC', '#818cf8')} strokeWidth="1.5" fill="none" />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'elliottWaveABC' ? '#000' : '#818cf8' }}>ABC</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'elliottWaveABC', '#818cf8') }}>ABC</span>
           </button>
 
           {/* Path Tool */}
           <button
             onClick={() => { setCurrentTool('path'); setCurrentPoints([]); setColor('#ffffff') }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: currentTool === 'path' ? '#fb923c' : '#1a0d00',
               border: '1px solid #fb923c',
               borderRadius: '5px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: currentTool === 'path' ? '0 0 12px rgba(251,146,60,0.6)' : 'none',
+              ...navyBtnStyle(currentTool === 'path', '#fb923c'),
             }}
             title="Path / Polyline (click points, double-click to finish)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <polyline points="1,12 4,5 8,9 12,2" stroke={currentTool === 'path' ? '#000' : '#fb923c'} strokeWidth="1.5" fill="none" />
-              <circle cx="1" cy="12" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
-              <circle cx="4" cy="5" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
-              <circle cx="8" cy="9" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
-              <circle cx="12" cy="2" r="1.5" fill={currentTool === 'path' ? '#000' : '#fb923c'} />
+              <polyline points="1,12 4,5 8,9 12,2" stroke={navyIconColor(currentTool === 'path', '#fb923c')} strokeWidth="1.5" fill="none" />
+              <circle cx="1" cy="12" r="1.5" fill={navyIconColor(currentTool === 'path', '#fb923c')} />
+              <circle cx="4" cy="5" r="1.5" fill={navyIconColor(currentTool === 'path', '#fb923c')} />
+              <circle cx="8" cy="9" r="1.5" fill={navyIconColor(currentTool === 'path', '#fb923c')} />
+              <circle cx="12" cy="2" r="1.5" fill={navyIconColor(currentTool === 'path', '#fb923c')} />
             </svg>
-            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: currentTool === 'path' ? '#000' : '#fb923c' }}>Path</span>
+            <span style={{ fontSize: '7px', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: 'monospace', color: navyIconColor(currentTool === 'path', '#fb923c') }}>Path</span>
           </button>
 
           <button
             onClick={() => { if (drawings.length > 0) setDrawings(drawings.slice(0, -1)) }}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: drawings.length > 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
               color: drawings.length > 0 ? '#ffffff' : 'rgba(255,255,255,0.3)',
               border: drawings.length > 0 ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: '5px', cursor: drawings.length > 0 ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', transition: 'all 0.15s ease',
               boxShadow: 'none',
+              ...(navyButtonTheme ? {
+                background: drawings.length > 0
+                  ? 'linear-gradient(160deg, #0d1b2e 0%, #060d1a 60%, #030912 100%)'
+                  : 'linear-gradient(160deg, #060d18 0%, #030810 100%)',
+                border: drawings.length > 0 ? '1px solid rgba(45,80,150,0.5)' : '1px solid rgba(45,80,150,0.2)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.9), inset 0 1px 0 rgba(80,130,220,0.08)',
+                color: drawings.length > 0 ? '#a0b8e0' : 'rgba(100,140,200,0.3)',
+              } : {}),
             }}
             title="Undo last drawing"
           >
@@ -2955,8 +3019,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
           <button
             onClick={clearDrawings}
-            style={{
-              width: '42px', height: '42px', padding: 0,
+            className="lw-tool-btn" style={{
+              width: undefined, height: undefined, padding: 0,
               background: '#2a0509',
               color: '#DC143C',
               border: '1px solid #DC143C',
@@ -2968,6 +3032,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               justifyContent: 'center',
               flexDirection: 'column' as const,
               boxShadow: 'none',
+              ...navyBtnStyle(false, '#DC143C'),
             }}
             title="Clear all drawings"
           >

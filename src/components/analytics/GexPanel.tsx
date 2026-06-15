@@ -1832,6 +1832,8 @@ interface GexPanelProps {
   analysisSuiteMode?: boolean
   externalTicker?: string
   onGaugeMetrics?: (data: { compositeScore: number; siNorm: number }) => void
+  initialShowODTRIO?: boolean
+  tradeModeOnly?: boolean
 }
 
 const LIVE_QUOTES = TRADING_QUOTES
@@ -1842,6 +1844,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
   analysisSuiteMode = false,
   externalTicker,
   onGaugeMetrics,
+  initialShowODTRIO = false,
+  tradeModeOnly = false,
 }) => {
   const [data, setData] = useState<GEXData[]>([])
   const [loading, setLoading] = useState(false)
@@ -1991,7 +1995,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const [liveOILoading, setLiveOILoading] = useState(false)
   const [liveOIProgress, setLiveOIProgress] = useState(0)
   const [useBloombergTheme, setUseBloombergTheme] = useState(true) // Bloomberg Terminal theme - default ON
-  const [showODTRIO, setShowODTRIO] = useState(false) // ODTRIO mode for SPX, QQQ, SPY
+  const [showODTRIO, setShowODTRIO] = useState(initialShowODTRIO) // ODTRIO mode for SPX, QQQ, SPY
   const [showModeDropdown, setShowModeDropdown] = useState(false) // Custom mobile mode dropdown
   const modeButtonRef = React.useRef<HTMLButtonElement>(null)
   const [odtrioData, setOdtrioData] = useState<{
@@ -2021,6 +2025,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
     SPY: { data: [], loading: false },
   })
   const [activeTab, setActiveTab] = useState<'ATTRACTION' | 'DEALER_CLUSTER'>('ATTRACTION')
+
+  // tradeModeOnly auto-fetch is triggered in a useEffect placed after fetchODTRIOData is defined
 
   const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -3278,6 +3284,10 @@ const GexPanel: React.FC<GexPanelProps> = ({
       }
     }
   }
+
+  // Auto-fetch ODTE when tradeModeOnly mounts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (tradeModeOnly) { fetchODTRIOData() } }, [tradeModeOnly])
 
   // Fetch ODTRIO data with Live OI - Recalculate with live OI from filtered trades
   const fetchODTRIODataWithLiveOI = async (liveOIMap: Map<string, number>) => {
@@ -5241,12 +5251,25 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800'
   const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700'
 
+  // ── Trade Mode Only: render just the ODTE Trio table, no controls ────────
+  // tradeModeOnly: the real render handles it via CSS (.gex-trademode class)
+  // No early return needed — CSS hides tabs/controls and shows only ODTE tables
+
   return (
     <div
       className={`${analysisSuiteMode ? '' : 'h-full '}bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white`}
       style={analysisSuiteMode ? undefined : { display: 'flex', flexDirection: 'column' }}
     >
       <style>{`
+        /* Trade Mode: hide all GexPanel chrome except the ODTE trio tables */
+        .gex-trademode .gex-tabs-row,
+        .gex-trademode .gex-controls-row,
+        .gex-trademode .gex-gauge-section,
+        .gex-trademode .gex-chart-section,
+        .gex-trademode .gex-dealer-cluster-section {
+          display: none !important;
+        }
+        .gex-trademode .dealer-attraction-container { overflow: auto !important; }
         /* Custom scrollbar styling - Hidden */
         .overflow-x-auto::-webkit-scrollbar,
         .overflow-y-auto::-webkit-scrollbar,
@@ -5355,13 +5378,13 @@ const GexPanel: React.FC<GexPanelProps> = ({
             overflow: analysisSuiteMode ? 'visible' : showOI ? 'visible' : 'hidden',
           }}
         >
-          {/* Bloomberg Terminal Header */}
-          <div
-            className="bg-black border border-gray-600/40"
+          {/* Bloomberg Terminal Header - hidden in Trade Mode */}
+          {!tradeModeOnly && (<div
+            className="bg-black border border-gray-600/40 gex-tabs-row"
             style={{ flexShrink: 0, marginBottom: analysisSuiteMode ? '0' : undefined }}
           >
             {/* Control Panel */}
-            <div className="bg-black border-y border-gray-800">
+            <div className="bg-black border-y border-gray-800 gex-controls-row">
               <div className="px-4 md:px-8 pt-1 pb-3 md:py-6">
                 {/* Main Tabs */}
                 <div
@@ -6065,6 +6088,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                     if (isChecked) {
                                       setGexMode('Net Dealer')
                                       setShowFlowGEX(false)
+                                      setShowGexMap(false)
                                     }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-amber-500 border-amber-500/60 focus:ring-amber-500 accent-amber-500"
@@ -6103,7 +6127,10 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       `?? FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`
                                     )
                                     setShowFlowGEX(e.target.checked)
-                                    if (e.target.checked) setShowDealer(false)
+                                    if (e.target.checked) {
+                                      setShowDealer(false)
+                                      setShowGexMap(false)
+                                    }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-orange-500 border-orange-500/60 focus:ring-orange-500 accent-orange-500"
                                 />
@@ -6130,7 +6157,10 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                   checked={showGexMap}
                                   onChange={(e) => {
                                     setShowGexMap(e.target.checked)
-                                    if (e.target.checked) setShowFlowGEX(false)
+                                    if (e.target.checked) {
+                                      setShowFlowGEX(false)
+                                      setShowDealer(false)
+                                    }
                                   }}
                                   className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-violet-500 border-violet-500/60 focus:ring-violet-500 accent-violet-500"
                                 />
@@ -6146,8 +6176,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                               {!analysisSuiteMode && (
                                 <div
                                   className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden cursor-pointer ${showODTRIO
-                                      ? 'bg-gradient-to-b from-cyan-500/25 via-black to-cyan-900/30 border border-cyan-400/70 shadow-[0_0_15px_rgba(6,182,212,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-cyan-500/40 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                                    ? 'bg-gradient-to-b from-cyan-500/25 via-black to-cyan-900/30 border border-cyan-400/70 shadow-[0_0_15px_rgba(6,182,212,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-cyan-500/40 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)]'
                                     }`}
                                   onClick={() => {
                                     const newState = !showODTRIO
@@ -6159,8 +6189,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                   <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                   <span
                                     className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showODTRIO
-                                        ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]'
-                                        : 'text-cyan-400'
+                                      ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]'
+                                      : 'text-cyan-400'
                                       }`}
                                   >
                                     ODTE-Trio
@@ -6357,8 +6387,9 @@ const GexPanel: React.FC<GexPanelProps> = ({
               </div>
             </div>
           </div>
+          )}
 
-          {activeTab === 'DEALER_CLUSTER' ? (
+          {activeTab === 'DEALER_CLUSTER' && !tradeModeOnly ? (
             <div
               style={{
                 flex: 1,
@@ -7530,7 +7561,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                           {/* OI/GEX Charts - Show when OI checkbox is active */}
                           {showOI && (
                             <div
-                              className="flex-shrink-0"
+                              className="flex-shrink-0 gex-chart-section"
                               style={{
                                 width: activeTableCount === 2 ? '1100px' : '1200px',
                                 minWidth: activeTableCount === 2 ? '1100px' : '1200px',
@@ -7549,6 +7580,15 @@ const GexPanel: React.FC<GexPanelProps> = ({
                             } else if (showOI && activeTableCount === 2) {
                               // OI + 2 tables: each table gets 895px
                               tableWidths.push('895px', '895px')
+                            } else if (showOI && activeTableCount === 3) {
+                              // OI + 3 tables: each table gets 590px
+                              tableWidths.push('590px', '590px', '590px')
+                            } else if (showOI && activeTableCount === 4) {
+                              // OI + 4 tables: each table gets 440px
+                              tableWidths.push('440px', '440px', '440px', '440px')
+                            } else if (!showOI && activeTableCount === 1) {
+                              // 1 table only (e.g. GEX MAP standalone)
+                              tableWidths.push('887px')
                             } else if (!showOI && activeTableCount === 2 && duoMode) {
                               // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
                               tableWidths.push('540px', '540px')
@@ -7558,6 +7598,9 @@ const GexPanel: React.FC<GexPanelProps> = ({
                             } else if (!showOI && activeTableCount === 3) {
                               // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
                               tableWidths.push('887px', '887px', '886px')
+                            } else if (!showOI && activeTableCount === 4) {
+                              // 4 tables only: split 3549px between 4 tables (3549 - 3px gaps = 3546 / 4 = 886.5px each)
+                              tableWidths.push('887px', '887px', '886px', '886px')
                             }
 
                             // Mobile detection - needed for getTableWidth function
@@ -7566,7 +7609,9 @@ const GexPanel: React.FC<GexPanelProps> = ({
                             const getTableWidth = () => {
                               // On mobile, enforce equal widths so tables don't collapse when empty
                               if (isMobile) {
-                                if (activeTableCount === 3) {
+                                if (activeTableCount === 4) {
+                                  return { width: 'calc(25% - 2px)', minWidth: 'calc(25% - 2px)' }
+                                } else if (activeTableCount === 3) {
                                   return { width: 'calc(33.33% - 2px)', minWidth: 'calc(33.33% - 2px)' }
                                 } else if (activeTableCount === 2) {
                                   return { width: 'calc(50% - 1px)', minWidth: 'calc(50% - 1px)' }
@@ -8277,7 +8322,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
                                 {/* GEX MAP TABLE */}
                                 {showGexMap && (() => {
-                                  // Compute maxAbsGEX and gold/purple zones from allGEXCalculatedData
+                                  // Compute maxAbsGEX and gold/purple zones from allDealerCalculatedData (dealer formula)
                                   let maxAbsGEX = 0
                                   let goldStrike: number | null = null
                                   let goldExp: string | null = null
@@ -8286,7 +8331,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                   let purpleExp: string | null = null
                                   let purpleVal = Infinity
 
-                                  allGEXCalculatedData.forEach((row: any) => {
+                                  allDealerCalculatedData.forEach((row: any) => {
                                     table1Expirations.forEach((exp) => {
                                       const v = row[exp] as any
                                       const net = (v?.call || 0) + (v?.put || 0)
@@ -8410,7 +8455,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                                       </div>
                                                     </td>
                                                     {table1Expirations.map((exp) => {
-                                                      const calcRow = allGEXCalculatedData.find((r: any) => r.strike === row.strike)
+                                                      const calcRow = allDealerCalculatedData.find((r: any) => r.strike === row.strike)
                                                       const gexVal = calcRow?.[exp] as any
                                                       const netGEX = (gexVal?.call || 0) + (gexVal?.put || 0)
                                                       const cell = getHeatmapCell(netGEX, row.strike, exp)

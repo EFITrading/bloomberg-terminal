@@ -72,6 +72,7 @@ export default function MarketPage() {
           symbol={selectedSymbol}
           initialTimeframe={selectedTimeframe}
           height={chartHeight}
+          showTradeModeButton={true}
           onSymbolChange={handleSymbolChange}
           onTimeframeChange={handleTimeframeChange}
         />

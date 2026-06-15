@@ -370,6 +370,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   // Legend & date range state
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
+  const [showLegend, setShowLegend] = useState(true)
   const [useCustomDates, setUseCustomDates] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -900,7 +901,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
     const isSmall = dimensions.width < 450
-    const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
+    const margin = { top: isSmall ? 30 : 50, right: isSmall ? 110 : 140, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
     const chartWidth = dimensions.width - margin.left - margin.right
     const chartHeight = dimensions.height - margin.top - margin.bottom
 
@@ -979,10 +980,19 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.lineWidth = 2
     ctx.setLineDash([])
     ctx.beginPath()
-    // Vertical line (Y-axis)
+    // Vertical line (Y-axis left)
     ctx.moveTo(margin.left, margin.top)
     ctx.lineTo(margin.left, margin.top + chartHeight)
     // Horizontal line (X-axis)
+    ctx.lineTo(margin.left + chartWidth, margin.top + chartHeight)
+    ctx.stroke()
+
+    // Right Y-axis vertical line
+    ctx.strokeStyle = '#cc4400'
+    ctx.lineWidth = 2
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(margin.left + chartWidth, margin.top)
     ctx.lineTo(margin.left + chartWidth, margin.top + chartHeight)
     ctx.stroke()
 
@@ -1188,6 +1198,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           for (let i = 1; i < segmentPath.length; i++) {
             ctx.lineTo(segmentPath[i].x, segmentPath[i].y)
           }
+          // Extend to right edge to close the gap
+          ctx.lineTo(margin.left + chartWidth, lastY)
           ctx.stroke()
         }
 
@@ -1215,6 +1227,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           lastY = y
         })
 
+        // Extend to right edge to close the gap
+        if (lastX < margin.left + chartWidth) ctx.lineTo(margin.left + chartWidth, lastY)
         ctx.stroke()
       }
 
@@ -1247,30 +1261,51 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
     // Always draw canvas labels for visible series
     {
+      const labelFont = isSmall ? 'bold 20px monospace' : 'bold 23px monospace'
+      const labelFontHovered = isSmall ? 'bold 21px monospace' : 'bold 25px monospace'
       labelPositions.forEach((label) => {
+        const rightEdgeX = margin.left + chartWidth
+
+        // Draw thin connector tick
+        ctx.strokeStyle = label.color
+        ctx.globalAlpha = 0.4
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(rightEdgeX, label.y)
+        ctx.lineTo(rightEdgeX + 6, label.y)
+        ctx.stroke()
+        ctx.globalAlpha = 1
+
+        // Dot at right edge
         ctx.fillStyle = label.color
         ctx.beginPath()
-        ctx.arc(label.x, label.y, 3, 0, Math.PI * 2)
+        ctx.arc(rightEdgeX, label.y, 3, 0, Math.PI * 2)
         ctx.fill()
 
-        ctx.fillStyle = label.color
-        ctx.font = isSmall ? (label.isHovered ? 'bold 13px monospace' : 'bold 12px monospace') : (label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace')
+        // Symbol label with dark outline
+        ctx.font = label.isHovered ? labelFontHovered : labelFont
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
         ctx.imageSmoothingEnabled = false
-        ctx.fillText(label.symbol, label.x + 8, label.y)
+        ctx.shadowColor = 'rgba(0,0,0,0.95)'
+        ctx.shadowBlur = 4
+        ctx.fillStyle = label.color
+        ctx.fillText(label.symbol, rightEdgeX + 8, label.y)
 
-        const perfColor = label.performance >= 0 ? '#00ff88' : '#ff4444'
+        // Perf % label with dark outline
+        const perfColor = label.performance >= 0 ? '#00ff00' : '#ff0000'
         ctx.fillStyle = perfColor
-        ctx.font = isSmall ? (label.isHovered ? 'bold 13px monospace' : 'bold 12px monospace') : (label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace')
+        ctx.font = label.isHovered ? labelFontHovered : labelFont
         const perfText = isSmall ? `${label.performance.toFixed(1)}%` : `${label.performance.toFixed(2)}%`
         const symbolWidth = ctx.measureText(label.symbol).width
         const perfWidth = ctx.measureText(perfText).width
-        ctx.fillText(perfText, label.x + 12 + symbolWidth, label.y)
+        ctx.fillText(perfText, rightEdgeX + 12 + symbolWidth, label.y)
+        ctx.shadowBlur = 0
         ctx.imageSmoothingEnabled = true
 
         const totalWidth = symbolWidth + perfWidth + 20
-        storedLabelPositions.push({ symbol: label.symbol, x: label.x + 8, y: label.y - 10, width: totalWidth, height: 20 })
+        storedLabelPositions.push({ symbol: label.symbol, x: rightEdgeX + 8, y: label.y - 10, width: totalWidth, height: 20 })
       })
     }
 
@@ -1283,8 +1318,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
 
-    const numXLabels = isSmall ? 4 : 8
+    const numXLabels = isSmall ? 4 : 7
     const visiblePoints = endIdx - startIdx
+    const rightEdgeForXLabel = margin.left + chartWidth
 
     // For weekly view, find indices where market opens (6:30 AM PST) to mark day boundaries
     const dayBoundaries: number[] = []
@@ -1334,6 +1370,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       if (seriesData[0]?.data[dataIdx]) {
         const x = xScale(dataIdx, maxDataPoints)
+        // Skip if too close to right edge (final date drawn separately)
+        if (x > rightEdgeForXLabel - 60) continue
         const timestamp = seriesData[0].data[dataIdx].timestamp
         const date = new Date(timestamp)
 
@@ -1371,6 +1409,27 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
         ctx.fillText(label, x, margin.top + chartHeight + 10)
       }
+    }
+
+    // Always draw the final date at the right edge
+    const lastDataSeries = seriesData[0] || (isWaveMode ? waveData[0] : null)
+    const lastDataIdx = endIdx - 1
+    if (lastDataSeries?.data[lastDataIdx]) {
+      const timestamp = lastDataSeries.data[lastDataIdx].timestamp
+      const date = new Date(timestamp)
+      let lastLabel = ''
+      if (timeframe === '1D') {
+        lastLabel = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
+      } else if (timeframe === '1W') {
+        lastLabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
+      } else if (timeframe === '1M') {
+        lastLabel = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      } else {
+        lastLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      }
+      ctx.fillStyle = '#ffffff'
+      ctx.textAlign = 'right'
+      ctx.fillText(lastLabel, margin.left + chartWidth, margin.top + chartHeight + 10)
     }
 
     // Draw crosshair with labels
@@ -1534,7 +1593,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       const rect = canvas.getBoundingClientRect()
       const isSmall = dimensions.width < 450
-      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
+      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 110 : 140, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
       const legendX = dimensions.width - margin.right
       const mouseX = e.clientX - rect.left
       const mouseY = e.clientY - rect.top
@@ -1618,7 +1677,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       const rect = canvas.getBoundingClientRect()
       const isSmall = dimensions.width < 450
-      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 78 : 100, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
+      const margin = { top: isSmall ? 30 : 50, right: isSmall ? 110 : 140, bottom: isSmall ? 35 : 60, left: isSmall ? 42 : 70 }
       const chartWidth = dimensions.width - margin.left - margin.right
       const mouseX = e.clientX - rect.left
 
@@ -1693,33 +1752,35 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   // â”€â”€ Shared button/dropdown style helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const btnStyle = (active: boolean, open: boolean): React.CSSProperties => ({
-    height: '48px', padding: '0 23px', display: 'flex', alignItems: 'center', gap: '8px',
+    height: '45px', padding: '0 18px', display: 'flex', alignItems: 'center', gap: '6px',
     background: active || open
-      ? 'linear-gradient(180deg, #1c1c1c 0%, #111 100%)'
-      : 'linear-gradient(180deg, #141414 0%, #090909 100%)',
-    color: '#ffffff',
-    border: active || open ? '1px solid #383838' : '1px solid #1e1e1e',
-    borderRadius: '3px', fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
+      ? 'linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.20) 100%)'
+      : 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.15) 100%)',
+    color: active ? '#FF6600' : '#ffffff',
+    border: active || open ? '1px solid rgba(255,102,0,0.55)' : '1px solid rgba(255,255,255,0.10)',
+    borderRadius: '6px', fontSize: '15px', fontWeight: '700', fontFamily: 'monospace',
     cursor: 'pointer', textTransform: 'uppercase' as const, userSelect: 'none' as const,
-    letterSpacing: '1px', whiteSpace: 'nowrap' as const,
+    letterSpacing: '0.8px', whiteSpace: 'nowrap' as const,
+    backdropFilter: 'blur(12px)',
     boxShadow: active || open
-      ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.8)'
-      : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 5px rgba(0,0,0,0.7)',
-    transition: 'all 0.1s',
+      ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 0 1px rgba(255,102,0,0.15), 0 2px 8px rgba(0,0,0,0.5)'
+      : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 6px rgba(0,0,0,0.4)',
+    transition: 'all 0.15s',
   })
 
   const chevronStyle = (open: boolean): React.CSSProperties => ({
-    fontSize: '9px', color: '#ffffff', opacity: open ? 1 : 0.6,
+    fontSize: '10px', color: 'currentColor', opacity: open ? 1 : 0.5,
     transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s',
     display: 'inline-block',
   })
 
   const dropdownContainerStyle: React.CSSProperties = {
-    position: 'fixed', background: '#060606',
-    border: '1px solid #232323', borderTop: '2px solid #00d4ff',
-    borderRadius: '0 0 4px 4px', padding: '6px', zIndex: 999999,
+    position: 'fixed', background: 'rgba(6,6,8,0.98)',
+    border: '1px solid rgba(255,255,255,0.11)', borderTop: '2px solid #FF6600',
+    borderRadius: '0 0 8px 8px', padding: '6px', zIndex: 999999,
     minWidth: '260px', maxHeight: '480px', overflowY: 'auto',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.98), inset 0 0 0 1px rgba(255,255,255,0.02)',
+    backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.98)',
     top: dropdownPosition ? `${dropdownPosition.top}px` : 0,
     left: dropdownPosition ? `${dropdownPosition.left}px` : 0,
   }
@@ -1729,17 +1790,17 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       style={{
         padding: '8px 12px', cursor: 'pointer', color: '#ffffff',
         fontSize: '11px', fontWeight: '700', borderBottom: '1px solid #181818',
-        marginBottom: '4px', background: allSel ? 'rgba(0,212,255,0.06)' : 'transparent',
+        marginBottom: '4px', background: allSel ? 'rgba(255,102,0,0.08)' : 'transparent',
         userSelect: 'none', letterSpacing: '1px', display: 'flex', alignItems: 'center',
         gap: '10px', borderRadius: '2px', transition: 'background 0.1s',
       }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = allSel ? 'rgba(0,212,255,0.06)' : 'transparent' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = allSel ? 'rgba(255,102,0,0.08)' : 'transparent' }}
     >
       <span style={{
         width: '14px', height: '14px', borderRadius: '2px', flexShrink: 0,
-        border: allSel ? '2px solid #00d4ff' : '2px solid #333',
-        background: allSel ? '#00d4ff' : 'transparent',
+        border: allSel ? '2px solid #FF6600' : '2px solid #333',
+        background: allSel ? '#FF6600' : 'transparent',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         fontSize: '9px', color: '#000', fontWeight: '900',
       }}>{allSel ? 'âœ“' : ''}</span>
@@ -1772,8 +1833,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       >
         <span style={{
           width: '14px', height: '14px', borderRadius: '2px', flexShrink: 0,
-          border: isSelected ? '2px solid #00d4ff' : '2px solid #333',
-          background: isSelected ? '#00d4ff' : 'transparent',
+          border: isSelected ? '2px solid #FF6600' : '2px solid #333',
+          background: isSelected ? '#FF6600' : 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '9px', color: '#000', fontWeight: '900',
         }}>{isSelected ? 'âœ“' : ''}</span>
@@ -1836,137 +1897,76 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       }}
     >
       {/* â”€â”€ HEADER: 2-row professional bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <div className="perf-header" style={{ background: '#000000', borderBottom: '1px solid #1c1c1c', position: 'relative', zIndex: 1, overflow: 'visible' }}>
+      <div className="perf-header" style={{ background: 'rgba(5,5,7,0.96)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', position: 'relative', zIndex: 1, overflow: 'visible' }}>
 
         {/* â”€â”€ ROW 1: symbol selector toolbar â”€â”€ */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', height: '71px', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', height: '63px', gap: '4px', overflowX: 'auto', overflowY: 'visible' }}>
 
-          {/* Ticker search */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0', marginRight: '6px' }}>
-            <input
-              type="text"
-              value={tickerInput}
-              onChange={e => setTickerInput(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === 'Enter' && handleTickerSearch()}
-              placeholder="AAPL,TSLA,NVDA..."
-              style={{
-                height: '48px', width: '288px',
-                background: 'linear-gradient(180deg, #0e0e0e 0%, #080808 100%)',
-                color: '#ffffff', border: '1px solid #2a2a2a',
-                borderRight: 'none', borderRadius: '3px 0 0 3px',
-                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
-                padding: '0 12px', outline: 'none', letterSpacing: '1px',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-              }}
-            />
-            <button
-              onClick={handleTickerSearch}
-              style={{
-                height: '48px', padding: '0 21px',
-                background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%)',
-                color: '#ffffff', border: '1px solid #2a2a2a',
-                borderRadius: '0 3px 3px 0',
-                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
-                cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap', outline: 'none',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.7)',
-              }}
-            >ADD</button>
-          </div>
+          {/* Ticker input */}
+          <input
+            type="text"
+            value={tickerInput}
+            onChange={e => setTickerInput(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && handleTickerSearch()}
+            placeholder="AAPL,TSLA..."
+            style={{
+              height: '43px', width: '200px', flexShrink: 0,
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.3) 100%)',
+              color: '#ffffff', border: '1px solid rgba(255,255,255,0.09)',
+              borderRadius: '5px 0 0 5px', borderRight: 'none',
+              fontSize: '14px', fontWeight: '700', fontFamily: 'monospace',
+              padding: '0 10px', outline: 'none', letterSpacing: '0.6px',
+              backdropFilter: 'blur(14px)',
+            }}
+          />
+          <button onClick={handleTickerSearch} style={{ ...btnStyle(false, false), borderRadius: '0 5px 5px 0', borderLeft: 'none', flexShrink: 0 }}>ADD</button>
 
-          {/* Timeframe select */}
-          <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
-            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '1px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', flexShrink: 0 }}>
-            {(['1D', '1W', '1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '20Y', 'YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
-          </select>
-          {/* Date range */}
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
-          <span style={{ color: '#555', fontSize: '10px', flexShrink: 0 }}>{String.fromCharCode(0x2014)}</span>
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
-            style={{ height: '46px', padding: '0 8px', background: 'linear-gradient(180deg, #161616 0%, #0c0c0c 100%)', color: '#ffffff', border: '1px solid #2a2a2a', borderRadius: '3px', fontSize: '17px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', flexShrink: 0 }} />
-          {useCustomDates && (
-            <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
-              style={{ height: '46px', padding: '0 10px', background: 'linear-gradient(180deg, #1a0000 0%, #0e0000 100%)', color: '#ff4444', border: '1px solid #cc2222', borderRadius: '3px', fontSize: '16px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', flexShrink: 0 }}>
-              X
-            </button>
+          {/* BENCHMARK right next to ADD */}
+          <button id="perf-benchmark-btn"
+            onClick={e => { e.stopPropagation(); e.preventDefault(); setIsBenchmarkMode(!isBenchmarkMode); lastFetchKeyRef.current = ''; setOpenDropdown(null) }}
+            style={{ ...btnStyle(isBenchmarkMode, false), marginLeft: '2px', flexShrink: 0 }}>BENCHMARK</button>
+          {isBenchmarkMode && (
+            <input type="text" value={benchmarkInput}
+              onChange={e => setBenchmarkInput(e.target.value.toUpperCase())}
+              onBlur={() => { const t = benchmarkInput.trim().toUpperCase(); if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' } }}
+              onKeyDown={e => { if (e.key === 'Enter') { const t = benchmarkInput.trim().toUpperCase(); if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' } e.currentTarget.blur() } }}
+              style={{ width: '90px', height: '43px', padding: '0 8px', flexShrink: 0, background: 'linear-gradient(135deg, rgba(0,255,136,0.08) 0%, rgba(0,0,0,0.3) 100%)', color: '#00ff88', border: '1px solid rgba(0,204,85,0.45)', borderRadius: '5px', fontSize: '14px', fontWeight: '700', fontFamily: 'monospace', outline: 'none', letterSpacing: '0.8px', textTransform: 'uppercase' }}
+              placeholder="SPY" />
           )}
 
-          {/* START: swing-date presets */}
-          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #ff8800', borderRadius: '4px', padding: '0 8px', flexShrink: 0 }}>
-            <span style={{ color: '#ff8800', fontSize: '12px', fontWeight: '700', letterSpacing: '1.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>START:</span>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {dynamicSwingDates.map(sd => (
-                <button key={sd.label}
-                  title={sd.description}
-                  onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
-                  style={{
-                    height: '40px', padding: '0 14px', whiteSpace: 'nowrap', flexShrink: 0,
-                    background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
-                    color: '#ffffff',
-                    border: '1px solid #222',
-                    borderRadius: '3px', fontSize: '16px', fontWeight: '700',
-                    fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '0.5px',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 5px rgba(0,0,0,0.7)',
-                    transition: 'all 0.1s',
-                  }}>{sd.label}</button>
-              ))}
-            </div>
-          </div>
+          {/* Divider */}
+          <div style={{ width: '1px', height: '35px', background: 'rgba(255,255,255,0.09)', margin: '0 4px', flexShrink: 0 }} />
+
+          {/* Timeframe */}
+          <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
+            style={{ height: '43px', padding: '0 6px', flexShrink: 0, background: 'linear-gradient(180deg, #1a1a1a 0%, #050505 100%)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '5px', fontSize: '14px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '0.6px', colorScheme: 'dark', accentColor: '#ff6600' }}>
+            {(['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
+          </select>
+
+          {/* Date range */}
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{ height: '43px', padding: '0 6px', flexShrink: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(8,8,8,0.90) 100%)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.09)', borderRadius: '5px', fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', backdropFilter: 'blur(14px)' }} />
+          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', flexShrink: 0 }}>{String.fromCharCode(0x2014)}</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (e.target.value) setUseCustomDates(true) }}
+            style={{ height: '43px', padding: '0 6px', flexShrink: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(8,8,8,0.90) 100%)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.09)', borderRadius: '5px', fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', colorScheme: 'dark', backdropFilter: 'blur(14px)' }} />
+          {useCustomDates && (
+            <button onClick={() => { setUseCustomDates(false); setDateFrom(''); setDateTo(''); lastFetchKeyRef.current = '' }}
+              style={{ ...btnStyle(false, false), color: '#ff4444', border: '1px solid rgba(255,68,68,0.35)', flexShrink: 0 }}>X</button>
+          )}
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px', flexShrink: 0 }} />
-
-          {/* MAG7 */}
-          {(() => {
-            const key = 'mag7'
-            const isOpen = openDropdown === key
-            const someSelected = MAG7.some(s => selectedSymbols.includes(s.symbol))
-            const allSel = MAG7.every(s => selectedSymbols.includes(s.symbol))
-            return (
-              <div style={{ position: 'relative' }}>
-                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
-                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
-                  MAG 7 <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
-                </button>
-                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
-                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
-                    {dropdownSelectAll(allSel, () => { MAG7.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
-                    {MAG7.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
-                  </div>, document.body
-                )}
-              </div>
-            )
-          })()}
+          <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.09)', margin: '0 4px', flexShrink: 0 }} />
 
           {/* INDICES */}
           {(() => {
-            const key = 'indices'
-            const isOpen = openDropdown === key
+            const key = 'indices'; const isOpen = openDropdown === key
             const someSelected = INDICES.some(s => selectedSymbols.includes(s.symbol))
             const allSel = INDICES.every(s => selectedSymbols.includes(s.symbol))
             return (
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
                 <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
-                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
+                  style={btnStyle(someSelected, isOpen)}>
                   INDICES <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
                 {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
@@ -1979,64 +1979,29 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             )
           })()}
 
-          {/* INTERNATIONAL */}
+          {/* SECTORS — WAVES inside at top */}
           {(() => {
-            const key = 'international'
-            const isOpen = openDropdown === key
-            const someSelected = INTERNATIONAL.some(s => selectedSymbols.includes(s.symbol))
-            const allSel = INTERNATIONAL.every(s => selectedSymbols.includes(s.symbol))
-            return (
-              <div style={{ position: 'relative' }}>
-                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
-                  style={{ ...btnStyle(someSelected, isOpen), color: '#00d4ff', border: someSelected || isOpen ? '1px solid #00d4ff' : '1px solid #004455' }}>
-                  INTERNATIONAL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
-                </button>
-                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
-                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
-                    {dropdownSelectAll(allSel, () => { INTERNATIONAL.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
-                    {INTERNATIONAL.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
-                  </div>, document.body
-                )}
-              </div>
-            )
-          })()}
-
-          {/* Divider */}
-          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px' }} />
-
-          {/* SECTORS with holdings */}
-          {(() => {
-            const key = 'sectors'
-            const isOpen = openDropdown === key
+            const key = 'sectors'; const isOpen = openDropdown === key
             const someSelected = SECTORS.some(s => selectedSymbols.includes(s.symbol))
             const allSel = isAllSelected(SECTORS)
             return (
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
                 <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
                   onDoubleClick={e => { e.stopPropagation(); toggleCategory(SECTORS); setOpenDropdown(null) }}
-                  style={btnStyle(someSelected, isOpen)}>
+                  style={btnStyle(someSelected || isWaveMode, isOpen)}>
                   SECTORS <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
                 </button>
                 {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
                   <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={{ ...dropdownContainerStyle, minWidth: '320px' }}>
+                    {/* WAVES at top of sectors dropdown */}
+                    <div onClick={e => { e.stopPropagation(); setIsWaveMode(!isWaveMode); setOpenDropdown(null); setDropdownPosition(null) }}
+                      style={{ padding: '8px 12px', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '8px', background: isWaveMode ? 'rgba(255,102,0,0.12)' : 'transparent', borderRadius: '4px', marginBottom: '4px', border: isWaveMode ? '1px solid rgba(255,102,0,0.35)' : '1px solid rgba(255,255,255,0.06)', color: isWaveMode ? '#FF6600' : '#aaa', fontSize: '11px', fontWeight: '700', fontFamily: 'monospace', letterSpacing: '0.7px', transition: 'all 0.14s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isWaveMode ? 'rgba(255,102,0,0.18)' : 'rgba(255,255,255,0.06)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isWaveMode ? 'rgba(255,102,0,0.12)' : 'transparent' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="2,18 7,8 12,14 17,6 22,12" /></svg>
+                      WAVES {isWaveMode ? '— ON' : ''}
+                    </div>
                     {dropdownSelectAll(allSel, () => toggleCategory(SECTORS))}
                     {SECTORS.map(item => {
                       const holdings = SECTOR_HOLDINGS[item.symbol] || []
@@ -2050,22 +2015,13 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
           {/* INDUSTRIES with holdings */}
           {(() => {
-            const key = 'industries'
-            const isOpen = openDropdown === key
+            const key = 'industries'; const isOpen = openDropdown === key
             const someSelected = INDUSTRIES.some(s => selectedSymbols.includes(s.symbol))
             const allSel = isAllSelected(INDUSTRIES)
             return (
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
                 <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null); setExpandedHoldings(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
                   onDoubleClick={e => { e.stopPropagation(); toggleCategory(INDUSTRIES); setOpenDropdown(null) }}
                   style={btnStyle(someSelected, isOpen)}>
                   INDUSTRIES <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
@@ -2083,24 +2039,37 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             )
           })()}
 
+          {/* MAG7 */}
+          {(() => {
+            const key = 'mag7'; const isOpen = openDropdown === key
+            const someSelected = MAG7.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = MAG7.every(s => selectedSymbols.includes(s.symbol))
+            return (
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  MAG 7 <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => { MAG7.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
+                    {MAG7.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
+
           {/* SPECIAL */}
           {(() => {
-            const key = 'special'
-            const isOpen = openDropdown === key
+            const key = 'special'; const isOpen = openDropdown === key
             const someSelected = SPECIAL.some(s => selectedSymbols.includes(s.symbol))
             const allSel = isAllSelected(SPECIAL)
             return (
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
                 <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) }
-                    else {
-                      const r = buttonRefs.current[key]?.getBoundingClientRect()
-                      if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left })
-                      setOpenDropdown(key)
-                    }
-                  }}
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
                   onDoubleClick={e => { e.stopPropagation(); toggleCategory(SPECIAL); setOpenDropdown(null) }}
                   style={btnStyle(someSelected, isOpen)}>
                   SPECIAL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
@@ -2115,92 +2084,44 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             )
           })()}
 
-          {/* Divider */}
-          <div style={{ width: '1px', height: '40px', background: '#1c1c1c', margin: '0 4px' }} />
+          {/* INTERNATIONAL */}
+          {(() => {
+            const key = 'international'; const isOpen = openDropdown === key
+            const someSelected = INTERNATIONAL.some(s => selectedSymbols.includes(s.symbol))
+            const allSel = INTERNATIONAL.every(s => selectedSymbols.includes(s.symbol))
+            return (
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button ref={el => { buttonRefs.current[key] = el }} data-dropdown-button
+                  onClick={e => { e.stopPropagation(); if (isOpen) { setOpenDropdown(null); setDropdownPosition(null) } else { const r = buttonRefs.current[key]?.getBoundingClientRect(); if (r) setDropdownPosition({ top: r.bottom + 4, left: r.left }); setOpenDropdown(key) } }}
+                  style={btnStyle(someSelected, isOpen)}>
+                  INTERNATIONAL <span style={chevronStyle(isOpen)}>{String.fromCharCode(0x25BC)}</span>
+                </button>
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
+                  <div data-dropdown onClick={e => { e.stopPropagation(); e.preventDefault() }} style={dropdownContainerStyle}>
+                    {dropdownSelectAll(allSel, () => { INTERNATIONAL.forEach(s => { if (allSel) setSelectedSymbols(p => p.filter(x => x !== s.symbol)); else setSelectedSymbols(p => Array.from(new Set([...p, s.symbol]))) }) })}
+                    {INTERNATIONAL.map(item => dropdownItem(item, selectedSymbols.includes(item.symbol), () => toggleSymbol(item.symbol), false, null, null))}
+                  </div>, document.body
+                )}
+              </div>
+            )
+          })()}
 
-          {/* WAVES toggle */}
-          <button
-            id="perf-waves-btn"
-            onClick={e => { e.stopPropagation(); setIsWaveMode(!isWaveMode); setOpenDropdown(null) }}
-            style={btnStyle(isWaveMode, false)}>
-            WAVES
-          </button>
+          {/* Swing presets */}
+          <div style={{ width: '1px', height: '35px', background: 'rgba(255,255,255,0.09)', margin: '0 4px', flexShrink: 0 }} />
+          <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: '700', letterSpacing: '1px', whiteSpace: 'nowrap', fontFamily: 'monospace', lineHeight: '1.2', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: '6px' }}><span>TREND</span><span>SHIFT</span></span>
+          <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+            {dynamicSwingDates.map(sd => (
+              <button key={sd.label}
+                title={sd.description}
+                onClick={() => { setDateFrom(sd.date); setDateTo(''); setUseCustomDates(true); lastFetchKeyRef.current = '' }}
+                style={{ ...btnStyle(false, false), flexShrink: 0, padding: '0 9px', fontSize: '13px' }}>{sd.label}</button>
+            ))}
+          </div>
 
-          {/* BENCHMARK toggle */}
-          {console.log('[BENCHMARK-DBG] JSX: isBenchmarkMode=', isBenchmarkMode) as unknown as null}
-          <button
-            id="perf-benchmark-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              const next = !isBenchmarkMode
-              console.log('[BENCHMARK-DBG] CLICKED:', isBenchmarkMode, '->', next)
-              setIsBenchmarkMode(next)
-              lastFetchKeyRef.current = ''
-              setOpenDropdown(null)
-            }}
-            style={btnStyle(isBenchmarkMode, false)}>
-            BENCHMARK
-          </button>
-
-          {isBenchmarkMode && (
-            <input
-              type="text"
-              value={benchmarkInput}
-              onChange={(e) => setBenchmarkInput(e.target.value.toUpperCase())}
-              onBlur={() => {
-                const t = benchmarkInput.trim().toUpperCase()
-                if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const t = benchmarkInput.trim().toUpperCase()
-                  if (t && t !== benchmarkTicker) { setBenchmarkTicker(t); lastFetchKeyRef.current = '' }
-                  e.currentTarget.blur()
-                }
-              }}
-              style={{
-                width: '104px', height: '48px', padding: '0 10px',
-                background: '#001a10', color: '#00ff88',
-                border: '1px solid #00cc55', borderRadius: '3px',
-                fontSize: '17px', fontWeight: '700', fontFamily: 'monospace',
-                outline: 'none', letterSpacing: '1px', textTransform: 'uppercase',
-              }}
-              placeholder="SPY"
-            />
-          )}
-
-          {/* Spacer */}
-          <div style={{ flex: 1 }} />
-
-          {/* Selected count */}
-          {selectedSymbols.length > 0 && !isWaveMode && (
-            <div className="perf-selected-count" style={{
-              marginLeft: '8px', height: '48px', padding: '0 23px',
-              display: 'flex', alignItems: 'center',
-              background: 'linear-gradient(180deg, #001a10 0%, #00100a 100%)',
-              border: '1px solid #00cc55', borderRadius: '3px',
-              fontSize: '17px', fontWeight: '700', color: '#00ff88',
-              letterSpacing: '1px', fontFamily: 'monospace', whiteSpace: 'nowrap',
-              boxShadow: 'inset 0 1px 0 rgba(0,255,136,0.08)',
-            }}>
-              {selectedSymbols.length} SELECTED
-            </div>
-          )}
-
-          {/* Reset Zoom */}
-          {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
-            <button onClick={resetZoom} style={{
-              marginLeft: '8px', height: '48px', padding: '0 23px',
-              background: 'linear-gradient(180deg, #1a0000 0%, #100000 100%)',
-              color: '#ff4444', border: '1px solid #cc2222',
-              borderRadius: '3px', fontSize: '17px', fontWeight: '700',
-              fontFamily: 'monospace', cursor: 'pointer', letterSpacing: '1px',
-              textTransform: 'uppercase',
-              boxShadow: 'inset 0 1px 0 rgba(255,68,68,0.08)',
-              transition: 'all 0.12s',
-            }}>RESET ZOOM</button>
-          )}
+          {/* Legend toggle — far right */}
+          <div style={{ marginLeft: 'auto', flexShrink: 0 }}>
+            <button onClick={() => setShowLegend(v => !v)} style={btnStyle(showLegend, false)}>LEGEND</button>
+          </div>
         </div>
       </div>
 
@@ -2270,6 +2191,12 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            if (zoomRange.start !== 0 || zoomRange.end !== 1) {
+              resetZoom()
+            }
+          }}
           style={{
             position: 'absolute',
             top: 0,
@@ -2286,6 +2213,13 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }
+        }
+        .perf-header select option {
+          background: #0a0a0a;
+          color: #ffffff;
+        }
+        .perf-header select {
+          color-scheme: dark;
         }
       `}</style>
     </div>

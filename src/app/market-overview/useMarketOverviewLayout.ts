@@ -12,9 +12,9 @@ export function useMarketOverviewLayout() {
     function updateLayout() {
         const mobile = window.innerWidth <= 768
         setIsMobile(mobile)
-        // navHeight accounts for: top nav bar + ticker strip + chart toolbar + some bottom breathing room
-        const navHeight = mobile ? 138 : 180
-        setChartHeight(Math.max(400, window.innerHeight - navHeight))
+        const navHeight = mobile ? 138 : 170
+        const computed = Math.max(400, window.innerHeight - navHeight)
+        setChartHeight(computed)
     }
 
     const paddingTop = isMobile ? '60px' : '120px'
