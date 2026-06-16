@@ -35916,7 +35916,7 @@ export default function TradingViewChart({
                       summary={flowSummary}
                       marketInfo={flowMarketInfo}
                       loading={flowLoading}
-                      onRefresh={() => {}}
+                      onRefresh={() => { }}
                       onClearData={() => setFlowData([])}
                       onDataUpdate={setFlowData}
                       selectedTicker={flowSelectedTicker}
@@ -35943,8 +35943,8 @@ export default function TradingViewChart({
                 marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0,
               }}>
 
-              {/* ── Animated Backgrounds ── */}
-              <style>{`
+                {/* ── Animated Backgrounds ── */}
+                <style>{`
                 @keyframes star-twinkle {
                   0%,100% { opacity: 1; transform: scale(1); }
                   50% { opacity: 0.15; transform: scale(0.5); }
@@ -36000,262 +36000,305 @@ export default function TradingViewChart({
                 }
               `}</style>
 
-              {/* GEX/DEX Historical Timeline Scrubber — top of chart canvas */}
-              {showGexScrubber && (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) && !['SPX', 'VIX'].includes(symbol.toUpperCase()) && (
-                <div
-                  className="absolute z-40 left-0 right-0"
-                  style={{
-                    top: isMobile ? 4 : 8,
-                    padding: '0 8px',
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  <GEXTimelineScrubber
-                    key={`${symbol}-gex-scrubber`}
-                    ticker={symbol}
-                    date={(() => {
-                      const now = new Date()
-                      const fmt = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'America/Los_Angeles',
-                        year: 'numeric', month: '2-digit', day: '2-digit',
-                        hour: '2-digit', minute: '2-digit', hour12: false,
-                      })
-                      const parts = fmt.formatToParts(now)
-                      const hour = parseInt(parts.find(p => p.type === 'hour')!.value)
-                      const minute = parseInt(parts.find(p => p.type === 'minute')!.value)
-                      const today = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                      if (hour < 6 || (hour === 6 && minute < 30)) {
-                        today.setDate(today.getDate() - 1)
-                      }
-                      const dow = today.getDay()
-                      if (dow === 0) today.setDate(today.getDate() - 2)
-                      else if (dow === 6) today.setDate(today.getDate() - 1)
-                      return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-                    })()}
-                    currentPrice={currentPrice}
-                    onTimeChange={handleGexMapTimeChange}
-                    onPlayStep={handleGexMapPlayStep}
-                  />
-                </div>
-              )}
-
-              {/* Loading Overlay */}
-              {loading && (
-                <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
-                  <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
-                    <span className="text-white text-lg">
-                      Loading {config.timeframe} data for {symbol}...
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Error Message */}
-              {error && (
-                <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
-                  <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
-                    <span className="text-red-400">Error: {error}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Multichart View */}
-              {chartLayout !== '1x1' ? (
-                <MultiChartView
-                  layout={chartLayout}
-                  instances={chartInstances}
-                  activeChartId={activeChartId}
-                  onActiveChartChange={setActiveChartId}
-                  config={config}
-                  colors={colors}
-                  isSeasonalActive={isSeasonalActive}
-                  seasonal20YData={seasonal20YData}
-                  seasonal15YData={seasonal15YData}
-                  seasonal10YData={seasonal10YData}
-                  seasonalElectionData={seasonalElectionData}
-                  isSeasonal20YActive={isSeasonal20YActive}
-                  isSeasonal15YActive={isSeasonal15YActive}
-                  isSeasonal10YActive={isSeasonal10YActive}
-                  isSeasonalElectionActive={isSeasonalElectionActive}
-                  isExpectedRangeActive={isExpectedRangeActive}
-                  expectedRangeLevels={expectedRangeLevels}
-                  isWeeklyActive={isWeeklyActive}
-                  isMonthlyActive={isMonthlyActive}
-                  isExpansionLiquidationActive={isExpansionLiquidationActive}
-                  technalysisActive={technalysisActive}
-                  technalysisFeatures={technalysisFeatures}
-                  isFlowChartActive={isFlowChartActive}
-                  flowChartData={flowChartData}
-                  flowChartHeight={flowChartHeight}
-                  isIVRankActive={showIVRankIndicator}
-                  isIVPercentileActive={showIVPercentileIndicator}
-                  isHVActive={showHVIndicator}
-                  ivPanelHeight={ivPanelHeight}
-                  showIVPanel={showIVPanel}
-                  ivData={ivData}
-                  isIVLoading={isIVLoading}
-                  showCallIVLine={showCallIVLine}
-                  showPutIVLine={showPutIVLine}
-                  showNetIVLine={showNetIVLine}
-                  hvWindow={hvWindow}
-                  dimensions={dimensions}
-                  data={data}
-                  scrollOffset={scrollOffset}
-                  visibleCandleCount={visibleCandleCount}
-                  priceRange={priceRange}
-                  crosshair={crosshairPosition}
-                  symbol={symbol}
-                  isDragging={dragRef.current.active}
-                  isAutoScale={isAutoScale}
-                  manualPriceRange={manualPriceRange}
-                  setScrollOffset={setScrollOffset}
-                  setVisibleCandleCount={setVisibleCandleCount}
-                  setManualPriceRange={setManualPriceRange}
-                  setIsAutoScale={setIsAutoScale}
-                  setIsDragging={() => { }}
-                  handleTimeframeChange={handleTimeframeChange}
-                  handleMouseMove={handleMouseMove}
-                  drawings={drawings}
-                  activeTool={activeTool}
-                  renderExpectedRangeLines={renderExpectedRangeLines}
-                  detectExpansionLiquidation={detectExpansionLiquidation}
-                  invalidateTouchedZones={invalidateTouchedZones}
-                  renderExpansionLiquidationZone={renderExpansionLiquidationZone}
-                  renderTechnalysisIndicators={renderTechnalysisIndicators}
-                  handleUnifiedMouseDown={handleUnifiedMouseDown}
-                  handleCanvasMouseMove={handleCanvasMouseMove}
-                  handleMouseLeave={handleMouseLeave}
-                  isDraggingYAxis={isDraggingYAxisZoom}
-                  setIsDraggingYAxis={setIsDraggingYAxisZoom}
-                  perChartIndicators={perChartIndicators}
-                />
-              ) : (
-                <>
-                  {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
-
-                  {/* Main Chart Canvas */}
-                  <canvas
-                    ref={chartCanvasRef}
-                    className="absolute top-0 z-10"
+                {/* GEX/DEX Historical Timeline Scrubber — top of chart canvas */}
+                {showGexScrubber && (isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) && !['SPX', 'VIX'].includes(symbol.toUpperCase()) && (
+                  <div
+                    className="absolute z-40 left-0 right-0"
                     style={{
-                      height: chartHeight,
-                      left: 0,
-                      width: '100%',
+                      top: isMobile ? 4 : 8,
+                      padding: '0 8px',
+                      pointerEvents: 'auto',
                     }}
+                  >
+                    <GEXTimelineScrubber
+                      key={`${symbol}-gex-scrubber`}
+                      ticker={symbol}
+                      date={(() => {
+                        const now = new Date()
+                        const fmt = new Intl.DateTimeFormat('en-US', {
+                          timeZone: 'America/Los_Angeles',
+                          year: 'numeric', month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit', hour12: false,
+                        })
+                        const parts = fmt.formatToParts(now)
+                        const hour = parseInt(parts.find(p => p.type === 'hour')!.value)
+                        const minute = parseInt(parts.find(p => p.type === 'minute')!.value)
+                        const today = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                        if (hour < 6 || (hour === 6 && minute < 30)) {
+                          today.setDate(today.getDate() - 1)
+                        }
+                        const dow = today.getDay()
+                        if (dow === 0) today.setDate(today.getDate() - 2)
+                        else if (dow === 6) today.setDate(today.getDate() - 1)
+                        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+                      })()}
+                      currentPrice={currentPrice}
+                      onTimeChange={handleGexMapTimeChange}
+                      onPlayStep={handleGexMapPlayStep}
+                    />
+                  </div>
+                )}
+
+                {/* Loading Overlay */}
+                {loading && (
+                  <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
+                    <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
+                      <span className="text-white text-lg">
+                        Loading {config.timeframe} data for {symbol}...
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {error && (
+                  <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
+                    <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
+                      <span className="text-red-400">Error: {error}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Multichart View */}
+                {chartLayout !== '1x1' ? (
+                  <MultiChartView
+                    layout={chartLayout}
+                    instances={chartInstances}
+                    activeChartId={activeChartId}
+                    onActiveChartChange={setActiveChartId}
+                    config={config}
+                    colors={colors}
+                    isSeasonalActive={isSeasonalActive}
+                    seasonal20YData={seasonal20YData}
+                    seasonal15YData={seasonal15YData}
+                    seasonal10YData={seasonal10YData}
+                    seasonalElectionData={seasonalElectionData}
+                    isSeasonal20YActive={isSeasonal20YActive}
+                    isSeasonal15YActive={isSeasonal15YActive}
+                    isSeasonal10YActive={isSeasonal10YActive}
+                    isSeasonalElectionActive={isSeasonalElectionActive}
+                    isExpectedRangeActive={isExpectedRangeActive}
+                    expectedRangeLevels={expectedRangeLevels}
+                    isWeeklyActive={isWeeklyActive}
+                    isMonthlyActive={isMonthlyActive}
+                    isExpansionLiquidationActive={isExpansionLiquidationActive}
+                    technalysisActive={technalysisActive}
+                    technalysisFeatures={technalysisFeatures}
+                    isFlowChartActive={isFlowChartActive}
+                    flowChartData={flowChartData}
+                    flowChartHeight={flowChartHeight}
+                    isIVRankActive={showIVRankIndicator}
+                    isIVPercentileActive={showIVPercentileIndicator}
+                    isHVActive={showHVIndicator}
+                    ivPanelHeight={ivPanelHeight}
+                    showIVPanel={showIVPanel}
+                    ivData={ivData}
+                    isIVLoading={isIVLoading}
+                    showCallIVLine={showCallIVLine}
+                    showPutIVLine={showPutIVLine}
+                    showNetIVLine={showNetIVLine}
+                    hvWindow={hvWindow}
+                    dimensions={dimensions}
+                    data={data}
+                    scrollOffset={scrollOffset}
+                    visibleCandleCount={visibleCandleCount}
+                    priceRange={priceRange}
+                    crosshair={crosshairPosition}
+                    symbol={symbol}
+                    isDragging={dragRef.current.active}
+                    isAutoScale={isAutoScale}
+                    manualPriceRange={manualPriceRange}
+                    setScrollOffset={setScrollOffset}
+                    setVisibleCandleCount={setVisibleCandleCount}
+                    setManualPriceRange={setManualPriceRange}
+                    setIsAutoScale={setIsAutoScale}
+                    setIsDragging={() => { }}
+                    handleTimeframeChange={handleTimeframeChange}
+                    handleMouseMove={handleMouseMove}
+                    drawings={drawings}
+                    activeTool={activeTool}
+                    renderExpectedRangeLines={renderExpectedRangeLines}
+                    detectExpansionLiquidation={detectExpansionLiquidation}
+                    invalidateTouchedZones={invalidateTouchedZones}
+                    renderExpansionLiquidationZone={renderExpansionLiquidationZone}
+                    renderTechnalysisIndicators={renderTechnalysisIndicators}
+                    handleUnifiedMouseDown={handleUnifiedMouseDown}
+                    handleCanvasMouseMove={handleCanvasMouseMove}
+                    handleMouseLeave={handleMouseLeave}
+                    isDraggingYAxis={isDraggingYAxisZoom}
+                    setIsDraggingYAxis={setIsDraggingYAxisZoom}
+                    perChartIndicators={perChartIndicators}
                   />
+                ) : (
+                  <>
+                    {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
 
-                  {/* Crosshair and Interaction Overlay */}
-                  <canvas
-                    ref={overlayCanvasRef}
-                    className="absolute z-20"
-                    tabIndex={0}
-                    style={{
-                      cursor: activeTool
-                        ? 'crosshair'
-                        : dragRef.current.active
-                          ? 'grabbing'
-                          : 'crosshair',
-                      transition: 'cursor 0.1s ease',
-                      outline: 'none',
-                      touchAction: 'none',
-                      left: 0,
-                      top: 0,
-                      width: '100%',
-                      height: '100%',
-                    }}
-                    onMouseDown={handleUnifiedMouseDown}
-                    onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
-                      e.preventDefault()
-                      const x = e.nativeEvent.offsetX
-                      const y = e.nativeEvent.offsetY
+                    {/* Main Chart Canvas */}
+                    <canvas
+                      ref={chartCanvasRef}
+                      className="absolute top-0 z-10"
+                      style={{
+                        height: chartHeight,
+                        left: 0,
+                        width: '100%',
+                      }}
+                    />
 
-                      // Check if right-clicking on a drawing
-                      let hitDrawing = false
-                      for (const drawing of drawings) {
-                        const startPoint =
-                          drawing.startPoint ||
-                          (drawing.startX !== undefined && drawing.startY !== undefined
-                            ? { x: drawing.startX, y: drawing.startY }
-                            : null)
-                        const endPoint =
-                          drawing.endPoint ||
-                          (drawing.endX !== undefined && drawing.endY !== undefined
-                            ? { x: drawing.endX, y: drawing.endY }
-                            : null)
-
-                        if (
-                          startPoint &&
-                          endPoint &&
-                          isPointNearLine(x, y, startPoint, endPoint, 10)
-                        ) {
-                          setSelectedDrawing(drawing)
-                          hitDrawing = true
-                          break
-                        }
-                      }
-
-                      // Show chart context menu when not clicking a drawing
-                      if (!hitDrawing) {
-                        setChartContextMenu({ x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onMouseMove={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      handleProjectedLinesHover(e.clientX - rect.left, e.clientY - rect.top);
-                      (activeTool ? handleCanvasMouseMove : handleMouseMove)(e)
-                    }}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
-                      handleMouseUp(e)
-                      handleMouseLeave()
-                      if (hoveredOverlayRef.current !== null) {
-                        hoveredOverlayRef.current = null
-                        lastHoveredOverlay.current = null
-                        if (!hoverRafPending.current) {
-                          hoverRafPending.current = true
-                          requestAnimationFrame(() => {
-                            hoverRafPending.current = false
-                            renderChartRef.current()
-                          })
-                        }
-                      }
-                    }}
-                    // Touch Events for Mobile Support
-                    onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
-                      e.preventDefault()
-                      const touch = e.touches[0]
-                      if (!touch) return
-
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const mouseEvent = {
-                        currentTarget: e.currentTarget,
-                        button: 0,
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        ctrlKey: false,
-                        metaKey: false,
-                        preventDefault: () => e.preventDefault(),
-                      } as unknown as React.MouseEvent<HTMLCanvasElement>
-
-                      handleUnifiedMouseDown(mouseEvent)
-                    }}
-                    onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
-                      // Handle pinch-to-zoom gesture
-                      if (e.touches.length === 2) {
+                    {/* Crosshair and Interaction Overlay */}
+                    <canvas
+                      ref={overlayCanvasRef}
+                      className="absolute z-20"
+                      tabIndex={0}
+                      style={{
+                        cursor: activeTool
+                          ? 'crosshair'
+                          : dragRef.current.active
+                            ? 'grabbing'
+                            : 'crosshair',
+                        transition: 'cursor 0.1s ease',
+                        outline: 'none',
+                        touchAction: 'none',
+                        left: 0,
+                        top: 0,
+                        width: '100%',
+                        height: '100%',
+                      }}
+                      onMouseDown={handleUnifiedMouseDown}
+                      onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
                         e.preventDefault()
-                        const touch1 = e.touches[0]
-                        const touch2 = e.touches[1]
+                        const x = e.nativeEvent.offsetX
+                        const y = e.nativeEvent.offsetY
 
-                        // Calculate distance between two touches
-                        const dx = touch2.clientX - touch1.clientX
-                        const dy = touch2.clientY - touch1.clientY
-                        const distance = Math.sqrt(dx * dx + dy * dy)
+                        // Check if right-clicking on a drawing
+                        let hitDrawing = false
+                        for (const drawing of drawings) {
+                          const startPoint =
+                            drawing.startPoint ||
+                            (drawing.startX !== undefined && drawing.startY !== undefined
+                              ? { x: drawing.startX, y: drawing.startY }
+                              : null)
+                          const endPoint =
+                            drawing.endPoint ||
+                            (drawing.endX !== undefined && drawing.endY !== undefined
+                              ? { x: drawing.endX, y: drawing.endY }
+                              : null)
 
-                        if (lastTouchDistance !== null) {
-                          // Calculate zoom factor based on distance change
-                          const distanceChange = distance - lastTouchDistance
-                          const scaleFactor = distanceChange > 0 ? 0.95 : 1.05
+                          if (
+                            startPoint &&
+                            endPoint &&
+                            isPointNearLine(x, y, startPoint, endPoint, 10)
+                          ) {
+                            setSelectedDrawing(drawing)
+                            hitDrawing = true
+                            break
+                          }
+                        }
+
+                        // Show chart context menu when not clicking a drawing
+                        if (!hitDrawing) {
+                          setChartContextMenu({ x: e.clientX, y: e.clientY })
+                        }
+                      }}
+                      onMouseMove={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        handleProjectedLinesHover(e.clientX - rect.left, e.clientY - rect.top);
+                        (activeTool ? handleCanvasMouseMove : handleMouseMove)(e)
+                      }}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
+                        handleMouseUp(e)
+                        handleMouseLeave()
+                        if (hoveredOverlayRef.current !== null) {
+                          hoveredOverlayRef.current = null
+                          lastHoveredOverlay.current = null
+                          if (!hoverRafPending.current) {
+                            hoverRafPending.current = true
+                            requestAnimationFrame(() => {
+                              hoverRafPending.current = false
+                              renderChartRef.current()
+                            })
+                          }
+                        }
+                      }}
+                      // Touch Events for Mobile Support
+                      onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
+                        e.preventDefault()
+                        const touch = e.touches[0]
+                        if (!touch) return
+
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const mouseEvent = {
+                          currentTarget: e.currentTarget,
+                          button: 0,
+                          clientX: touch.clientX,
+                          clientY: touch.clientY,
+                          ctrlKey: false,
+                          metaKey: false,
+                          preventDefault: () => e.preventDefault(),
+                        } as unknown as React.MouseEvent<HTMLCanvasElement>
+
+                        handleUnifiedMouseDown(mouseEvent)
+                      }}
+                      onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
+                        // Handle pinch-to-zoom gesture
+                        if (e.touches.length === 2) {
+                          e.preventDefault()
+                          const touch1 = e.touches[0]
+                          const touch2 = e.touches[1]
+
+                          // Calculate distance between two touches
+                          const dx = touch2.clientX - touch1.clientX
+                          const dy = touch2.clientY - touch1.clientY
+                          const distance = Math.sqrt(dx * dx + dy * dy)
+
+                          if (lastTouchDistance !== null) {
+                            // Calculate zoom factor based on distance change
+                            const distanceChange = distance - lastTouchDistance
+                            const scaleFactor = distanceChange > 0 ? 0.95 : 1.05
+
+                            const newCount = Math.max(
+                              20,
+                              Math.min(300, Math.round(visibleCandleCount * scaleFactor))
+                            )
+                            setVisibleCandleCount(newCount)
+                          }
+
+                          setLastTouchDistance(distance)
+                          return
+                        }
+
+                        // Single touch - pan/draw
+                        setLastTouchDistance(null)
+                        e.preventDefault()
+                        const touch = e.touches[0]
+                        if (!touch) return
+
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const mouseEvent = {
+                          currentTarget: e.currentTarget,
+                          clientX: touch.clientX,
+                          clientY: touch.clientY,
+                        } as unknown as React.MouseEvent<HTMLCanvasElement>
+
+                        if (activeTool) {
+                          handleCanvasMouseMove(mouseEvent)
+                        } else {
+                          handleMouseMove(mouseEvent)
+                        }
+                      }}
+                      onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
+                        e.preventDefault()
+                        setLastTouchDistance(null)
+                        handleMouseUp(e as any)
+                      }}
+                      // Enhanced zoom support
+                      onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
+                        if (e.ctrlKey) {
+                          // Pinch-to-zoom gesture (Ctrl + wheel) - X-axis zoom
+                          e.preventDefault()
+                          const delta = e.deltaY
+                          const scaleFactor = delta > 0 ? 1.1 : 0.9
 
                           const newCount = Math.max(
                             20,
@@ -36263,512 +36306,807 @@ export default function TradingViewChart({
                           )
                           setVisibleCandleCount(newCount)
                         }
-
-                        setLastTouchDistance(distance)
-                        return
-                      }
-
-                      // Single touch - pan/draw
-                      setLastTouchDistance(null)
-                      e.preventDefault()
-                      const touch = e.touches[0]
-                      if (!touch) return
-
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const mouseEvent = {
-                        currentTarget: e.currentTarget,
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                      } as unknown as React.MouseEvent<HTMLCanvasElement>
-
-                      if (activeTool) {
-                        handleCanvasMouseMove(mouseEvent)
-                      } else {
-                        handleMouseMove(mouseEvent)
-                      }
-                    }}
-                    onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
-                      e.preventDefault()
-                      setLastTouchDistance(null)
-                      handleMouseUp(e as any)
-                    }}
-                    // Enhanced zoom support
-                    onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
-                      if (e.ctrlKey) {
-                        // Pinch-to-zoom gesture (Ctrl + wheel) - X-axis zoom
-                        e.preventDefault()
-                        const delta = e.deltaY
-                        const scaleFactor = delta > 0 ? 1.1 : 0.9
-
-                        const newCount = Math.max(
-                          20,
-                          Math.min(300, Math.round(visibleCandleCount * scaleFactor))
-                        )
-                        setVisibleCandleCount(newCount)
-                      }
-                    }}
-                    onDoubleClick={handleDoubleClick}
-                  />
-
-                  {/* Lightweight Charts Drawing Tools Overlay */}
-                  {isBackgroundVisible && (
-                    <LWChartDrawingTools
-                      width={dimensions.width}
-                      height={dimensions.height}
-                      isActive={true}
-                      onClose={() => setCurrentDrawingTool('select')}
-                      drawings={currentSymbolDrawings}
-                      setDrawings={updateDrawingsWithHistory}
-                      currentTool={(currentDrawingTool === 'buySellZone' ? 'select' : currentDrawingTool) as any}
-                      setCurrentTool={setCurrentDrawingTool}
-                      isToolLocked={isDrawingToolLocked}
-                      priceToScreen={priceToScreen}
-                      screenToPrice={screenToPrice}
-                      toolbarPosition={lwToolbarPosition}
-                      navyButtonTheme={lwNavyButtonTheme}
-                      onMouseMove={(e) =>
-                        handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
-                      }
-                      timeToScreen={(tsMs) => {
-                        // tsMs is a Unix timestamp in ms; find the closest bar and compute screen X
-                        const candleWidth = (dimensions.width - 100) / visibleCandleCount
-                        const startIndex = Math.max(0, Math.floor(scrollOffset))
-                        // Binary-search for closest bar by timestamp
-                        let lo = 0, hi = data.length - 1, best = startIndex
-                        while (lo <= hi) {
-                          const mid = (lo + hi) >> 1
-                          if (data[mid].timestamp === tsMs) { best = mid; break }
-                          else if (data[mid].timestamp < tsMs) { best = mid; lo = mid + 1 }
-                          else hi = mid - 1
-                        }
-                        // Extrapolate future bars using average interval
-                        if (tsMs > (data[data.length - 1]?.timestamp ?? 0) && data.length > 1) {
-                          const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
-                          const extraBars = (tsMs - data[data.length - 1].timestamp) / avgInterval
-                          best = data.length - 1 + extraBars
-                        }
-                        const relativeIndex = best - startIndex
-                        return CHART_LEFT_MARGIN + relativeIndex * candleWidth
                       }}
-                      screenToTime={(x) => {
-                        // Returns Unix timestamp in ms for the bar at screen X
-                        const candleWidth = (dimensions.width - 100) / visibleCandleCount
-                        const startIndex = Math.max(0, Math.floor(scrollOffset))
-                        const relativeX = x - CHART_LEFT_MARGIN
-                        const barIndex = Math.max(0, startIndex + Math.floor(relativeX / candleWidth))
-                        if (barIndex < data.length) return data[barIndex].timestamp
-                        // Extrapolate future timestamps
-                        if (data.length > 1) {
-                          const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
-                          return data[data.length - 1].timestamp + (barIndex - (data.length - 1)) * avgInterval
-                        }
-                        return data[data.length - 1]?.timestamp ?? Date.now()
-                      }}
-                      indexToTimestamp={(index) => data[index]?.timestamp ?? 0}
-                      chartTimeframe={config.timeframe}
+                      onDoubleClick={handleDoubleClick}
                     />
-                  )}
 
-                  {/* Flow Chart Resize Handle */}
-                  {isFlowChartActive && (
-                    <div
-                      onMouseDown={handleFlowChartDragStart}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
-                        height: '3px',
-                        cursor: 'ns-resize',
-                        backgroundColor: isDraggingFlowChart
-                          ? '#666666'
-                          : 'rgba(128, 128, 128, 0.3)',
-                        transition: isDraggingFlowChart ? 'none' : 'background-color 0.2s',
-                        zIndex: 1000,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#888888'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isDraggingFlowChart) {
-                          e.currentTarget.style.backgroundColor = 'rgba(128, 128, 128, 0.3)'
+                    {/* Lightweight Charts Drawing Tools Overlay */}
+                    {isBackgroundVisible && (
+                      <LWChartDrawingTools
+                        width={dimensions.width}
+                        height={dimensions.height}
+                        isActive={true}
+                        onClose={() => setCurrentDrawingTool('select')}
+                        drawings={currentSymbolDrawings}
+                        setDrawings={updateDrawingsWithHistory}
+                        currentTool={(currentDrawingTool === 'buySellZone' ? 'select' : currentDrawingTool) as any}
+                        setCurrentTool={setCurrentDrawingTool}
+                        isToolLocked={isDrawingToolLocked}
+                        priceToScreen={priceToScreen}
+                        screenToPrice={screenToPrice}
+                        toolbarPosition={lwToolbarPosition}
+                        navyButtonTheme={lwNavyButtonTheme}
+                        onMouseMove={(e) =>
+                          handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
                         }
-                      }}
-                    >
+                        timeToScreen={(tsMs) => {
+                          // tsMs is a Unix timestamp in ms; find the closest bar and compute screen X
+                          const candleWidth = (dimensions.width - 100) / visibleCandleCount
+                          const startIndex = Math.max(0, Math.floor(scrollOffset))
+                          // Binary-search for closest bar by timestamp
+                          let lo = 0, hi = data.length - 1, best = startIndex
+                          while (lo <= hi) {
+                            const mid = (lo + hi) >> 1
+                            if (data[mid].timestamp === tsMs) { best = mid; break }
+                            else if (data[mid].timestamp < tsMs) { best = mid; lo = mid + 1 }
+                            else hi = mid - 1
+                          }
+                          // Extrapolate future bars using average interval
+                          if (tsMs > (data[data.length - 1]?.timestamp ?? 0) && data.length > 1) {
+                            const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
+                            const extraBars = (tsMs - data[data.length - 1].timestamp) / avgInterval
+                            best = data.length - 1 + extraBars
+                          }
+                          const relativeIndex = best - startIndex
+                          return CHART_LEFT_MARGIN + relativeIndex * candleWidth
+                        }}
+                        screenToTime={(x) => {
+                          // Returns Unix timestamp in ms for the bar at screen X
+                          const candleWidth = (dimensions.width - 100) / visibleCandleCount
+                          const startIndex = Math.max(0, Math.floor(scrollOffset))
+                          const relativeX = x - CHART_LEFT_MARGIN
+                          const barIndex = Math.max(0, startIndex + Math.floor(relativeX / candleWidth))
+                          if (barIndex < data.length) return data[barIndex].timestamp
+                          // Extrapolate future timestamps
+                          if (data.length > 1) {
+                            const avgInterval = (data[data.length - 1].timestamp - data[0].timestamp) / (data.length - 1)
+                            return data[data.length - 1].timestamp + (barIndex - (data.length - 1)) * avgInterval
+                          }
+                          return data[data.length - 1]?.timestamp ?? Date.now()
+                        }}
+                        indexToTimestamp={(index) => data[index]?.timestamp ?? 0}
+                        chartTimeframe={config.timeframe}
+                      />
+                    )}
+
+                    {/* Flow Chart Resize Handle */}
+                    {isFlowChartActive && (
                       <div
+                        onMouseDown={handleFlowChartDragStart}
                         style={{
                           position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          width: '40px',
-                          height: '2px',
-                          backgroundColor: '#999999',
-                          borderRadius: '1px',
+                          left: 0,
+                          right: 0,
+                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
+                          height: '3px',
+                          cursor: 'ns-resize',
+                          backgroundColor: isDraggingFlowChart
+                            ? '#666666'
+                            : 'rgba(128, 128, 128, 0.3)',
+                          transition: isDraggingFlowChart ? 'none' : 'background-color 0.2s',
+                          zIndex: 1000,
                         }}
-                      />
-                    </div>
-                  )}
-
-                  {/* IV Panel Resize Handle - TradingView style drag to resize */}
-                  {activeIVPanelCount > 0 && (
-                    <div
-                      onMouseDown={handleIVPanelDragStart}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
-                        height: '4px',
-                        cursor: 'ns-resize',
-                        backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
-                        transition: isDraggingIVPanel ? 'none' : 'background-color 0.2s',
-                        zIndex: 1000,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#FF9500'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isDraggingIVPanel) {
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 149, 0, 0.3)'
-                        }
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          width: '40px',
-                          height: '2px',
-                          backgroundColor: '#FF9500',
-                          borderRadius: '1px',
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#888888'
                         }}
-                      />
-                    </div>
-                  )}
-
-                  {/* P/E Panel Resize Handle */}
-                  {showPEPanel && (
-                    <div
-                      onMouseDown={handlePEPanelDragStart}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 80 + 25}px`,
-                        height: '4px',
-                        cursor: 'ns-resize',
-                        backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
-                        transition: isDraggingPEPanel ? 'none' : 'background-color 0.2s',
-                        zIndex: 1000,
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#00E5FF' }}
-                      onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(0, 229, 255, 0.3)' }}
-                    >
-                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#00E5FF', borderRadius: '1px' }} />
-                    </div>
-                  )}
-
-                  {/* PEG Panel Resize Handle */}
-                  {showPEGPanel && (
-                    <div
-                      onMouseDown={handlePEGPanelDragStart}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        bottom: `${pegPanelHeight + 80 + 25}px`,
-                        height: '4px',
-                        cursor: 'ns-resize',
-                        backgroundColor: isDraggingPEGPanel ? '#a78bfa' : 'rgba(167, 139, 250, 0.3)',
-                        transition: isDraggingPEGPanel ? 'none' : 'background-color 0.2s',
-                        zIndex: 1000,
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#a78bfa' }}
-                      onMouseLeave={(e) => { if (!isDraggingPEGPanel) e.currentTarget.style.backgroundColor = 'rgba(167, 139, 250, 0.3)' }}
-                    >
-                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#a78bfa', borderRadius: '1px' }} />
-                    </div>
-                  )}
-
-                  {/* BuySell Panel Resize Handle */}
-                  {showBuySellIndicator && (<div
-                    onMouseDown={handleBuySellDragStart}
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      bottom: `${25 + buySellPanelHeight}px`,
-                      height: '4px',
-                      cursor: 'ns-resize',
-                      backgroundColor: isDraggingBuySellPanel
-                        ? '#ffffff'
-                        : 'rgba(255, 255, 255, 0.3)',
-                      transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
-                      zIndex: 1000,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#ffffff'
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isDraggingBuySellPanel) {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
-                      }
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: '40px',
-                        height: '2px',
-                        backgroundColor: '#ffffff',
-                        borderRadius: '1px',
-                      }}
-                    />
-                  </div>
-                  )}
-
-                  {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
-                  {isFlowChartActive && (
-                    <div
-                      className="absolute z-[1001]"
-                      style={{
-                        left: '60px',
-                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
-                        transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
-                      }}
-                    >
-                      {/* Glossy pill container */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: '5px',
-                          padding: '5px',
-                          borderRadius: '14px',
-                          background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
-                          backdropFilter: 'blur(16px)',
+                        onMouseLeave={(e) => {
+                          if (!isDraggingFlowChart) {
+                            e.currentTarget.style.backgroundColor = 'rgba(128, 128, 128, 0.3)'
+                          }
                         }}
                       >
-                        {/* Net Flow */}
-                        <button
-                          onClick={() => setFlowChartViewMode('net')}
-                          title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+                        <div
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '8px 16px',
-                            borderRadius: '9px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            letterSpacing: '0.4px',
-                            transition: 'all 0.15s ease',
-                            background: 'transparent',
-                            color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: '40px',
+                            height: '2px',
+                            backgroundColor: '#999999',
+                            borderRadius: '1px',
                           }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                            <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                          </svg>
-                          Net Flow
-                        </button>
-
-                        {/* Divider */}
-                        <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
-
-                        {/* Bull/Bear (was Simplified) */}
-                        <button
-                          onClick={() => setFlowChartViewMode('simplified')}
-                          title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '8px 16px',
-                            borderRadius: '9px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            letterSpacing: '0.4px',
-                            transition: 'all 0.15s ease',
-                            background: 'transparent',
-                            color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
-                          }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                            <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          Bull/Bear
-                        </button>
-
-                        {/* Divider */}
-                        <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
-
-                        {/* BUY/SELL+ (was Detailed) */}
-                        <button
-                          onClick={() => setFlowChartViewMode('detailed')}
-                          title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '8px 16px',
-                            borderRadius: '9px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            letterSpacing: '0.4px',
-                            transition: 'all 0.15s ease',
-                            background: 'transparent',
-                            color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
-                          }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                            <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                            <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                            <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : 'rgba(255,255,255,0.6)'} />
-                          </svg>
-                          BUY/SELL+
-                        </button>
+                        />
                       </div>
+                    )}
+
+                    {/* IV Panel Resize Handle - TradingView style drag to resize */}
+                    {activeIVPanelCount > 0 && (
+                      <div
+                        onMouseDown={handleIVPanelDragStart}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
+                          height: '4px',
+                          cursor: 'ns-resize',
+                          backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
+                          transition: isDraggingIVPanel ? 'none' : 'background-color 0.2s',
+                          zIndex: 1000,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#FF9500'
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isDraggingIVPanel) {
+                            e.currentTarget.style.backgroundColor = 'rgba(255, 149, 0, 0.3)'
+                          }
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: '40px',
+                            height: '2px',
+                            backgroundColor: '#FF9500',
+                            borderRadius: '1px',
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* P/E Panel Resize Handle */}
+                    {showPEPanel && (
+                      <div
+                        onMouseDown={handlePEPanelDragStart}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 80 + 25}px`,
+                          height: '4px',
+                          cursor: 'ns-resize',
+                          backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
+                          transition: isDraggingPEPanel ? 'none' : 'background-color 0.2s',
+                          zIndex: 1000,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#00E5FF' }}
+                        onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(0, 229, 255, 0.3)' }}
+                      >
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#00E5FF', borderRadius: '1px' }} />
+                      </div>
+                    )}
+
+                    {/* PEG Panel Resize Handle */}
+                    {showPEGPanel && (
+                      <div
+                        onMouseDown={handlePEGPanelDragStart}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: `${pegPanelHeight + 80 + 25}px`,
+                          height: '4px',
+                          cursor: 'ns-resize',
+                          backgroundColor: isDraggingPEGPanel ? '#a78bfa' : 'rgba(167, 139, 250, 0.3)',
+                          transition: isDraggingPEGPanel ? 'none' : 'background-color 0.2s',
+                          zIndex: 1000,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#a78bfa' }}
+                        onMouseLeave={(e) => { if (!isDraggingPEGPanel) e.currentTarget.style.backgroundColor = 'rgba(167, 139, 250, 0.3)' }}
+                      >
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#a78bfa', borderRadius: '1px' }} />
+                      </div>
+                    )}
+
+                    {/* BuySell Panel Resize Handle */}
+                    {showBuySellIndicator && (<div
+                      onMouseDown={handleBuySellDragStart}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: `${25 + buySellPanelHeight}px`,
+                        height: '4px',
+                        cursor: 'ns-resize',
+                        backgroundColor: isDraggingBuySellPanel
+                          ? '#ffffff'
+                          : 'rgba(255, 255, 255, 0.3)',
+                        transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
+                        zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#ffffff'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isDraggingBuySellPanel) {
+                          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
+                        }
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: '40px',
+                          height: '2px',
+                          backgroundColor: '#ffffff',
+                          borderRadius: '1px',
+                        }}
+                      />
                     </div>
-                  )}
+                    )}
 
-                  {/* ── IV/HV Panel Header Toolbars — one per active panel ────────────────── */}
-                  {(() => {
-                    const flowBase = isFlowChartActive ? flowChartHeight : 0
-                    const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
-                    // Build ordered list of active panels bottom→top same order as canvas draw
-                    const panels: Array<{
-                      key: 'iv' | 'ivRank' | 'ivPercentile' | 'hv'
-                      label: string
-                      accentColor: string
-                      onClose: () => void
-                    }> = []
-                    if (showIVPanel) panels.push({ key: 'iv', label: 'IMPLIED VOLATILITY', accentColor: netIVColor, onClose: () => setShowIVPanel(false) })
-                    if (showIVRankIndicator) panels.push({ key: 'ivRank', label: 'IV RANK', accentColor: ivRankColor, onClose: () => setShowIVRankIndicator(false) })
-                    if (showIVPercentileIndicator) panels.push({ key: 'ivPercentile', label: 'IV PERCENTILE', accentColor: ivPercentileColor, onClose: () => setShowIVPercentileIndicator(false) })
-                    if (showHVIndicator) panels.push({ key: 'hv', label: `HV (${hvWindow}D)`, accentColor: hvColor, onClose: () => setShowHVIndicator(false) })
+                    {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
+                    {isFlowChartActive && (
+                      <div
+                        className="absolute z-[1001]"
+                        style={{
+                          left: '60px',
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
+                          transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
+                        }}
+                      >
+                        {/* Glossy pill container */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '5px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
+                            backdropFilter: 'blur(16px)',
+                          }}
+                        >
+                          {/* Net Flow */}
+                          <button
+                            onClick={() => setFlowChartViewMode('net')}
+                            title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 16px',
+                              borderRadius: '9px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              letterSpacing: '0.4px',
+                              transition: 'all 0.15s ease',
+                              background: 'transparent',
+                              color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                              <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                            </svg>
+                            Net Flow
+                          </button>
 
-                    return panels.map((panel, idx) => {
-                      // bottom of this panel = flowBase + bsBase + 25(volume) + panels above * ivPanelHeight
-                      const panelsAbove = panels.length - 1 - idx // panels rendered after this one in canvas
-                      const bottomPx = flowBase + bsBase + 25 + panelsAbove * ivPanelHeight
-                      const isFullscreen = ivFullscreenPanel === panel.key
+                          {/* Divider */}
+                          <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
 
+                          {/* Bull/Bear (was Simplified) */}
+                          <button
+                            onClick={() => setFlowChartViewMode('simplified')}
+                            title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 16px',
+                              borderRadius: '9px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              letterSpacing: '0.4px',
+                              transition: 'all 0.15s ease',
+                              background: 'transparent',
+                              color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                              <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            Bull/Bear
+                          </button>
+
+                          {/* Divider */}
+                          <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
+
+                          {/* BUY/SELL+ (was Detailed) */}
+                          <button
+                            onClick={() => setFlowChartViewMode('detailed')}
+                            title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 16px',
+                              borderRadius: '9px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              letterSpacing: '0.4px',
+                              transition: 'all 0.15s ease',
+                              background: 'transparent',
+                              color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
+                              <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                              <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                              <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : 'rgba(255,255,255,0.6)'} />
+                            </svg>
+                            BUY/SELL+
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── IV/HV Panel Header Toolbars — one per active panel ────────────────── */}
+                    {(() => {
+                      const flowBase = isFlowChartActive ? flowChartHeight : 0
+                      const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
+                      // Build ordered list of active panels bottom→top same order as canvas draw
+                      const panels: Array<{
+                        key: 'iv' | 'ivRank' | 'ivPercentile' | 'hv'
+                        label: string
+                        accentColor: string
+                        onClose: () => void
+                      }> = []
+                      if (showIVPanel) panels.push({ key: 'iv', label: 'IMPLIED VOLATILITY', accentColor: netIVColor, onClose: () => setShowIVPanel(false) })
+                      if (showIVRankIndicator) panels.push({ key: 'ivRank', label: 'IV RANK', accentColor: ivRankColor, onClose: () => setShowIVRankIndicator(false) })
+                      if (showIVPercentileIndicator) panels.push({ key: 'ivPercentile', label: 'IV PERCENTILE', accentColor: ivPercentileColor, onClose: () => setShowIVPercentileIndicator(false) })
+                      if (showHVIndicator) panels.push({ key: 'hv', label: `HV (${hvWindow}D)`, accentColor: hvColor, onClose: () => setShowHVIndicator(false) })
+
+                      return panels.map((panel, idx) => {
+                        // bottom of this panel = flowBase + bsBase + 25(volume) + panels above * ivPanelHeight
+                        const panelsAbove = panels.length - 1 - idx // panels rendered after this one in canvas
+                        const bottomPx = flowBase + bsBase + 25 + panelsAbove * ivPanelHeight
+                        const isFullscreen = ivFullscreenPanel === panel.key
+
+                        return (
+                          <div
+                            key={panel.key}
+                            className="absolute z-[1001] flex items-center pointer-events-none"
+                            style={{
+                              left: 0,
+                              right: 0,
+                              bottom: `${bottomPx}px`,
+                              height: `${ivPanelHeight}px`,
+                            }}
+                          >
+                            {/* Header bar at top of this panel */}
+                            <div
+                              className="pointer-events-auto flex items-center gap-2 w-full"
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: '80px', // leave space for Y-axis column
+                                height: '32px',
+                                background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
+                                borderTop: `2px solid ${panel.accentColor}55`,
+                                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                paddingLeft: '50px',
+                                paddingRight: '6px',
+                              }}
+                            >
+                              {/* Panel name */}
+                              <span style={{ color: panel.accentColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                                {panel.label}
+                              </span>
+
+                              {/* IV sub-line toggles (only for IV panel) */}
+                              {panel.key === 'iv' && (
+                                <div className="flex items-center gap-1 ml-2">
+                                  {[
+                                    { label: 'Call IV', active: showCallIVLine, toggle: () => setShowCallIVLine(p => !p), activeColor: '#00FF00' },
+                                    { label: 'Put IV', active: showPutIVLine, toggle: () => setShowPutIVLine(p => !p), activeColor: '#FF0000' },
+                                    { label: 'Net IV', active: showNetIVLine, toggle: () => setShowNetIVLine(p => !p), activeColor: '#FF9500' },
+                                  ].map(({ label, active, toggle, activeColor }) => (
+                                    <button key={label} onClick={toggle}
+                                      style={{ padding: '2px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '3px', border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.3)'}`, background: '#000', color: active ? activeColor : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div style={{ flex: 1 }} />
+
+                              {/* RIGHT side: color picker | fullscreen | close */}
+                              {/* Color picker for IV sub-lines */}
+                              {panel.key === 'iv' && (
+                                <div className="flex items-center gap-1">
+                                  {[
+                                    { active: showCallIVLine, color: callIVColor, setColor: setCallIVColor, title: 'Call IV color' },
+                                    { active: showPutIVLine, color: putIVColor, setColor: setPutIVColor, title: 'Put IV color' },
+                                    { active: showNetIVLine, color: netIVColor, setColor: setNetIVColor, title: 'Net IV color' },
+                                  ].filter(l => l.active).map(({ color, setColor, title }) => (
+                                    <div key={title} title={title} style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                                      <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: color, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                                      <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                                        style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Single color picker for non-IV panels */}
+                              {panel.key !== 'iv' && (() => {
+                                const colorMap: Record<string, [string, (c: string) => void]> = {
+                                  ivRank: [ivRankColor, setIVRankColor],
+                                  ivPercentile: [ivPercentileColor, setIVPercentileColor],
+                                  hv: [hvColor, setHVColor],
+                                }
+                                const [col, setCol] = colorMap[panel.key]
+                                return (
+                                  <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: col, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                                    <input type="color" value={col} onChange={e => setCol(e.target.value)}
+                                      style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                                  </div>
+                                )
+                              })()}
+
+                              {/* Fullscreen button */}
+                              <button
+                                onClick={() => setIVFullscreenPanel(isFullscreen ? null : panel.key)}
+                                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+                              >
+                                {isFullscreen ? '⊡' : '⛶'}
+                              </button>
+
+                              {/* Close button */}
+                              <button
+                                onClick={panel.onClose}
+                                title={`Close ${panel.label}`}
+                                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
+
+                    {/* IV 30D Panel Header Toolbar */}
+                    {showIV30DPanel && (() => {
+                      const flowBase = isFlowChartActive ? flowChartHeight : 0
+                      const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
+                      // IV 30D panel sits directly above the 1yr IV panels
+                      const iv1yrCount = [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length
+                      const bottomPx = flowBase + bsBase + 25 + iv1yrCount * ivPanelHeight
+                      return (
+                        <div className="absolute z-[1001] flex items-center pointer-events-none"
+                          style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
+                          <div className="pointer-events-auto flex items-center gap-2 w-full"
+                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: `2px solid ${iv30DColor}55`, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                            <span style={{ color: iv30DColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                              IMPLIED VOLATILITY  <span style={{ opacity: 0.7, fontSize: '10px' }}>30D</span>
+                            </span>
+                            <div style={{ flex: 1 }} />
+                            {/* Color picker */}
+                            <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
+                              <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: iv30DColor, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
+                              <input type="color" value={iv30DColor} onChange={e => setIV30DColor(e.target.value)}
+                                style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                            </div>
+                            {/* Fullscreen */}
+                            <button onClick={() => setIV30DFullscreen(f => !f)} title={iv30DFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                              {iv30DFullscreen ? '⊡' : '⛶'}
+                            </button>
+                            {/* Close */}
+                            <button onClick={() => { setShowIV30DPanel(false); setIV30DData([]) }} title="Close IV 30D panel"
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* IV 30D fullscreen overlay */}
+                    {iv30DFullscreen && showIV30DPanel && iv30DData.length > 0 && (() => {
+                      const pts = iv30DData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV! }))
+                      const vals = pts.map(p => p.value)
+                      const minV = Math.min(...vals) * 0.9, maxV = Math.max(...vals) * 1.1
+                      const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
+                      const chartW = W - PL - PR, chartH = H - PT - PB
+                      const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                      const ySteps = 5
+                      return (
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setIV30DFullscreen(false)}>
+                          <div style={{ background: '#0a0a0a', border: `2px solid ${iv30DColor}55`, borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                            onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${iv30DColor}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                              <span style={{ color: iv30DColor, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>IMPLIED VOLATILITY · 30D</span>
+                              <button onClick={() => setIV30DFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                            </div>
+                            <div style={{ padding: '8px 16px 16px' }}>
+                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                                {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                  const v = minV + (i / ySteps) * (maxV - minV)
+                                  const y = toY(v)
+                                  return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text></g>)
+                                })}
+                                {pts.length > 1 && (
+                                  <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.value)}`).join(' ')}
+                                    fill="none" stroke={iv30DColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                                )}
+                                <g transform={`translate(${PL}, ${H - 10})`}>
+                                  <line x1="0" y1="-4" x2="14" y2="-4" stroke={iv30DColor} strokeWidth="2" />
+                                  <text x="18" y="0" fill={iv30DColor} fontSize="11" fontFamily="JetBrains Mono, monospace">Net IV (30D)</text>
+                                </g>
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* IV Panel fullscreen overlay */}
+                    {ivFullscreenPanel && isAnyIVHVActive && ivData.length > 0 && (() => {
+                      const panelLabels: Record<string, string> = { iv: 'IMPLIED VOLATILITY', ivRank: 'IV RANK', ivPercentile: 'IV PERCENTILE', hv: `HISTORICAL VOLATILITY (${hvWindow}D)` }
+                      const accentColors: Record<string, string> = { iv: netIVColor, ivRank: ivRankColor, ivPercentile: ivPercentileColor, hv: hvColor }
+                      const accent = accentColors[ivFullscreenPanel]
+                      const label = panelLabels[ivFullscreenPanel]
+                      // Gather series data
+                      type SeriesEntry = { date: string; value: number; color: string; name: string }
+                      const series: SeriesEntry[][] = []
+                      if (ivFullscreenPanel === 'iv') {
+                        if (showCallIVLine) series.push(ivData.filter(d => d.callIV !== null).map(d => ({ date: d.date, value: d.callIV!, color: callIVColor, name: 'Call IV' })))
+                        if (showPutIVLine) series.push(ivData.filter(d => d.putIV !== null).map(d => ({ date: d.date, value: d.putIV!, color: putIVColor, name: 'Put IV' })))
+                        if (showNetIVLine) series.push(ivData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV!, color: netIVColor, name: 'Net IV' })))
+                      } else {
+                        const keyMap: Record<string, keyof typeof ivData[0]> = { ivRank: 'ivRank', ivPercentile: 'ivPercentile', hv: 'hv' }
+                        const k = keyMap[ivFullscreenPanel]
+                        series.push(ivData.filter(d => (d as any)[k] !== null).map(d => ({ date: d.date, value: (d as any)[k]!, color: accent, name: label })))
+                      }
+                      const allVals = series.flat().map(p => p.value)
+                      const minV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 0 : Math.min(...allVals) * 0.9
+                      const maxV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 100 : Math.max(...allVals) * 1.1
+                      const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
+                      const chartW = W - PL - PR, chartH = H - PT - PB
+                      const toX = (i: number, n: number) => PL + (i / (n - 1)) * chartW
+                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                      const ySteps = 5
+                      return (
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setIVFullscreenPanel(null)}>
+                          <div style={{ background: '#0a0a0a', border: `2px solid ${accent}55`, borderRadius: '10px', padding: '0', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                            onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${accent}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                              <span style={{ color: accent, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>{label}</span>
+                              <button onClick={() => setIVFullscreenPanel(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                            </div>
+                            {/* SVG Chart */}
+                            <div style={{ padding: '8px 16px 16px' }}>
+                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                                {/* Y grid + labels */}
+                                {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                  const v = minV + (i / ySteps) * (maxV - minV)
+                                  const y = toY(v)
+                                  return (
+                                    <g key={i}>
+                                      <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+                                      <text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text>
+                                    </g>
+                                  )
+                                })}
+                                {/* Series lines */}
+                                {series.map((pts, si) => pts.length < 2 ? null : (
+                                  <polyline key={si}
+                                    points={pts.map((p, i) => `${toX(i, pts.length)},${toY(p.value)}`).join(' ')}
+                                    fill="none" stroke={pts[0].color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                                ))}
+                                {/* Legend */}
+                                {series.map((pts, si) => pts.length > 0 && (
+                                  <g key={si} transform={`translate(${PL + si * 100}, ${H - 10})`}>
+                                    <line x1="0" y1="-4" x2="14" y2="-4" stroke={pts[0].color} strokeWidth="2" />
+                                    <text x="18" y="0" fill={pts[0].color} fontSize="11" fontFamily="JetBrains Mono, monospace">{pts[0].name}</text>
+                                  </g>
+                                ))}
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* ── P/E Panel Header Toolbar ──────────────────────────────────────────── */}
+                    {showPEPanel && (() => {
+                      const peBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
+                      return (
+                        <div className="absolute z-[1001] pointer-events-none"
+                          style={{ left: 0, right: 0, bottom: `${peBotPx}px`, height: `${pePanelHeight}px` }}>
+                          <div className="pointer-events-auto flex items-center gap-2 w-full"
+                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(255,140,0,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                            <span style={{ color: '#FF8C00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                              P/E RATIO{peData?.current != null ? `  ${peData.current.toFixed(1)}x` : ''}
+                            </span>
+                            <div style={{ flex: 1 }} />
+                            <button onClick={() => setPeFullscreen(f => !f)} title={peFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                              {peFullscreen ? '⊡' : '⛶'}
+                            </button>
+                            <button onClick={() => setShowPEPanel(false)} title="Close P/E panel"
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* P/E fullscreen overlay */}
+                    {peFullscreen && showPEPanel && peData && peData.history.length > 0 && (() => {
+                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                      const chartW = W - PL - PR, chartH = H - PT - PB
+                      const pts = peData.history.slice().sort((a, b) => a.date.localeCompare(b.date))
+                      const vals = pts.map(p => p.pe)
+                      const minV = Math.min(...vals) * 0.97, maxV = Math.max(...vals) * 1.015
+                      const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                      const ySteps = 5
+                      return (
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setPeFullscreen(false)}>
+                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(255,140,0,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                            onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,140,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                              <span style={{ color: '#FF8C00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>P/E RATIO</span>
+                              <button onClick={() => setPeFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                            </div>
+                            <div style={{ padding: '8px 16px 16px' }}>
+                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                                {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                  const v = minV + (i / ySteps) * (maxV - minV)
+                                  const y = toY(v)
+                                  return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(1)}x</text></g>)
+                                })}
+                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.pe)}`).join(' ')} fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* ── PEG Panel Header Toolbar ───────────────────────────────────────────── */}
+                    {showPEGPanel && (() => {
+                      const pegBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0)
+                      return (
+                        <div className="absolute z-[1001] pointer-events-none"
+                          style={{ left: 0, right: 0, bottom: `${pegBotPx}px`, height: `${pegPanelHeight}px` }}>
+                          <div className="pointer-events-auto flex items-center gap-2 w-full"
+                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(167,139,250,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
+                            <span style={{ color: '#a78bfa', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                              PEG RATIO{pegData?.pegBasic != null ? `  ${pegData.pegBasic.toFixed(2)}` : ''}
+                            </span>
+                            <div style={{ flex: 1 }} />
+                            <button onClick={() => setPegFullscreen(f => !f)} title={pegFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
+                              {pegFullscreen ? '⊡' : '⛶'}
+                            </button>
+                            <button onClick={() => setShowPEGPanel(false)} title="Close PEG panel"
+                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* PEG fullscreen overlay */}
+                    {pegFullscreen && showPEGPanel && pegData && pegData.history.length > 0 && (() => {
+                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                      const chartW = W - PL - PR, chartH = H - PT - PB
+                      const pts = pegData.history.slice().sort((a, b) => a.date.localeCompare(b.date)).filter(p => p.peg !== null && (p.peg as number) <= 30) as { date: string; peg: number }[]
+                      const vals = pts.map(p => p.peg)
+                      const minV = Math.min(...vals) * 0.93, maxV = Math.max(...vals) * 1.04
+                      const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
+                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                      const ySteps = 5
+                      return (
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setPegFullscreen(false)}>
+                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(167,139,250,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                            onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(167,139,250,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                              <span style={{ color: '#a78bfa', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>PEG RATIO  (P/E ÷ EPS 3Y CAGR)</span>
+                              <button onClick={() => setPegFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                            </div>
+                            <div style={{ padding: '8px 16px 16px' }}>
+                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                                {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                  const v = minV + (i / ySteps) * (maxV - minV)
+                                  const y = toY(v)
+                                  return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(2)}</text></g>)
+                                })}
+                                {/* PEG=1 fair value line */}
+                                {minV <= 1 && maxV >= 1 && <line x1={PL} y1={toY(1)} x2={PL + chartW} y2={toY(1)} stroke="rgba(250,204,21,0.5)" strokeWidth="1.5" strokeDasharray="5,4" />}
+                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.peg)}`).join(' ')} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* ── BuySell Panel Header Toolbar ─────────────────────────────────────── */}
+                    {showBuySellIndicator && (() => {
+                      const bsBottomPx = 25 // sits just above the time axis
                       return (
                         <div
-                          key={panel.key}
-                          className="absolute z-[1001] flex items-center pointer-events-none"
-                          style={{
-                            left: 0,
-                            right: 0,
-                            bottom: `${bottomPx}px`,
-                            height: `${ivPanelHeight}px`,
-                          }}
+                          className="absolute z-[1001] pointer-events-none"
+                          style={{ left: 0, right: 0, bottom: `${bsBottomPx}px`, height: `${buySellPanelHeight}px` }}
                         >
-                          {/* Header bar at top of this panel */}
                           <div
                             className="pointer-events-auto flex items-center gap-2 w-full"
                             style={{
                               position: 'absolute',
                               top: 0,
                               left: 0,
-                              right: '80px', // leave space for Y-axis column
+                              right: '80px',
                               height: '32px',
                               background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
-                              borderTop: `2px solid ${panel.accentColor}55`,
+                              borderTop: '2px solid rgba(0,255,0,0.33)',
                               borderBottom: '1px solid rgba(255,255,255,0.08)',
                               paddingLeft: '50px',
                               paddingRight: '6px',
                             }}
                           >
-                            {/* Panel name */}
-                            <span style={{ color: panel.accentColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                              {panel.label}
+                            {/* Title */}
+                            <span style={{ color: '#00ff00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                              BUY/SELL PRESSURE
                             </span>
-
-                            {/* IV sub-line toggles (only for IV panel) */}
-                            {panel.key === 'iv' && (
-                              <div className="flex items-center gap-1 ml-2">
-                                {[
-                                  { label: 'Call IV', active: showCallIVLine, toggle: () => setShowCallIVLine(p => !p), activeColor: '#00FF00' },
-                                  { label: 'Put IV', active: showPutIVLine, toggle: () => setShowPutIVLine(p => !p), activeColor: '#FF0000' },
-                                  { label: 'Net IV', active: showNetIVLine, toggle: () => setShowNetIVLine(p => !p), activeColor: '#FF9500' },
-                                ].map(({ label, active, toggle, activeColor }) => (
-                                  <button key={label} onClick={toggle}
-                                    style={{ padding: '2px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '3px', border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.3)'}`, background: '#000', color: active ? activeColor : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
                             <div style={{ flex: 1 }} />
-
-                            {/* RIGHT side: color picker | fullscreen | close */}
-                            {/* Color picker for IV sub-lines */}
-                            {panel.key === 'iv' && (
-                              <div className="flex items-center gap-1">
-                                {[
-                                  { active: showCallIVLine, color: callIVColor, setColor: setCallIVColor, title: 'Call IV color' },
-                                  { active: showPutIVLine, color: putIVColor, setColor: setPutIVColor, title: 'Put IV color' },
-                                  { active: showNetIVLine, color: netIVColor, setColor: setNetIVColor, title: 'Net IV color' },
-                                ].filter(l => l.active).map(({ color, setColor, title }) => (
-                                  <div key={title} title={title} style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
-                                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: color, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
-                                    <input type="color" value={color} onChange={e => setColor(e.target.value)}
-                                      style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Single color picker for non-IV panels */}
-                            {panel.key !== 'iv' && (() => {
-                              const colorMap: Record<string, [string, (c: string) => void]> = {
-                                ivRank: [ivRankColor, setIVRankColor],
-                                ivPercentile: [ivPercentileColor, setIVPercentileColor],
-                                hv: [hvColor, setHVColor],
-                              }
-                              const [col, setCol] = colorMap[panel.key]
-                              return (
-                                <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
-                                  <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: col, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
-                                  <input type="color" value={col} onChange={e => setCol(e.target.value)}
-                                    style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
-                                </div>
-                              )
-                            })()}
-
                             {/* Fullscreen button */}
                             <button
-                              onClick={() => setIVFullscreenPanel(isFullscreen ? null : panel.key)}
-                              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                              onClick={() => setBuySellFullscreen(f => !f)}
+                              title={buySellFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
                               style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
                               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
                               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
                             >
-                              {isFullscreen ? '⊡' : '⛶'}
+                              {buySellFullscreen ? '⊡' : '⛶'}
                             </button>
-
                             {/* Close button */}
                             <button
-                              onClick={panel.onClose}
-                              title={`Close ${panel.label}`}
+                              onClick={() => setShowBuySellIndicator(false)}
+                              title="Close Buy/Sell Pressure panel"
                               style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
                               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
                               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
@@ -36778,587 +37116,249 @@ export default function TradingViewChart({
                           </div>
                         </div>
                       )
-                    })
-                  })()}
+                    })()}
 
-                  {/* IV 30D Panel Header Toolbar */}
-                  {showIV30DPanel && (() => {
-                    const flowBase = isFlowChartActive ? flowChartHeight : 0
-                    const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
-                    // IV 30D panel sits directly above the 1yr IV panels
-                    const iv1yrCount = [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length
-                    const bottomPx = flowBase + bsBase + 25 + iv1yrCount * ivPanelHeight
-                    return (
-                      <div className="absolute z-[1001] flex items-center pointer-events-none"
-                        style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
-                        <div className="pointer-events-auto flex items-center gap-2 w-full"
-                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: `2px solid ${iv30DColor}55`, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                          <span style={{ color: iv30DColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                            IMPLIED VOLATILITY  <span style={{ opacity: 0.7, fontSize: '10px' }}>30D</span>
-                          </span>
-                          <div style={{ flex: 1 }} />
-                          {/* Color picker */}
-                          <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>
-                            <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: iv30DColor, border: '2px solid rgba(255,255,255,0.3)', cursor: 'pointer' }} />
-                            <input type="color" value={iv30DColor} onChange={e => setIV30DColor(e.target.value)}
-                              style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
-                          </div>
-                          {/* Fullscreen */}
-                          <button onClick={() => setIV30DFullscreen(f => !f)} title={iv30DFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
-                            {iv30DFullscreen ? '⊡' : '⛶'}
-                          </button>
-                          {/* Close */}
-                          <button onClick={() => { setShowIV30DPanel(false); setIV30DData([]) }} title="Close IV 30D panel"
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* IV 30D fullscreen overlay */}
-                  {iv30DFullscreen && showIV30DPanel && iv30DData.length > 0 && (() => {
-                    const pts = iv30DData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV! }))
-                    const vals = pts.map(p => p.value)
-                    const minV = Math.min(...vals) * 0.9, maxV = Math.max(...vals) * 1.1
-                    const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
-                    const chartW = W - PL - PR, chartH = H - PT - PB
-                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
-                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                    const ySteps = 5
-                    return (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => setIV30DFullscreen(false)}>
-                        <div style={{ background: '#0a0a0a', border: `2px solid ${iv30DColor}55`, borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                          onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${iv30DColor}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                            <span style={{ color: iv30DColor, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>IMPLIED VOLATILITY · 30D</span>
-                            <button onClick={() => setIV30DFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                          </div>
-                          <div style={{ padding: '8px 16px 16px' }}>
-                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                              {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                const v = minV + (i / ySteps) * (maxV - minV)
-                                const y = toY(v)
-                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text></g>)
-                              })}
-                              {pts.length > 1 && (
-                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.value)}`).join(' ')}
-                                  fill="none" stroke={iv30DColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                              )}
-                              <g transform={`translate(${PL}, ${H - 10})`}>
-                                <line x1="0" y1="-4" x2="14" y2="-4" stroke={iv30DColor} strokeWidth="2" />
-                                <text x="18" y="0" fill={iv30DColor} fontSize="11" fontFamily="JetBrains Mono, monospace">Net IV (30D)</text>
-                              </g>
-                            </svg>
+                    {/* BuySell fullscreen overlay */}
+                    {buySellFullscreen && showBuySellIndicator && buySellData.length > 0 && (() => {
+                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
+                      const chartW = W - PL - PR, chartH = H - PT - PB
+                      const validData = buySellData.filter(d => d.smoothed !== undefined)
+                      const vals = validData.map(d => d.smoothed)
+                      const rawMin = Math.min(...vals)
+                      const rawMax = Math.max(...vals)
+                      const pad = (rawMax - rawMin) * 0.15 || 10
+                      const minV = rawMin - pad, maxV = rawMax + pad
+                      const toX = (i: number) => PL + (i / (validData.length - 1)) * chartW
+                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
+                      const ySteps = 5
+                      return (
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setBuySellFullscreen(false)}>
+                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(0,255,0,0.33)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
+                            onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(0,255,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
+                              <span style={{ color: '#00ff00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>BUY/SELL PRESSURE</span>
+                              <button onClick={() => setBuySellFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
+                            </div>
+                            <div style={{ padding: '8px 16px 16px' }}>
+                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
+                                {Array.from({ length: ySteps + 1 }, (_, i) => {
+                                  const v = minV + (i / ySteps) * (maxV - minV)
+                                  const y = toY(v)
+                                  return (
+                                    <g key={i}>
+                                      <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+                                      <text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{Math.round(v)}</text>
+                                    </g>
+                                  )
+                                })}
+                                {/* zero line */}
+                                {minV < 0 && maxV > 0 && (
+                                  <line x1={PL} y1={toY(0)} x2={PL + chartW} y2={toY(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,4" />
+                                )}
+                                <polyline
+                                  points={validData.map((d, i) => `${toX(i)},${toY(d.smoothed)}`).join(' ')}
+                                  fill="none" stroke="#00cc00" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+                                />
+                              </svg>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )
-                  })()}
+                      )
+                    })()}
 
-                  {/* IV Panel fullscreen overlay */}
-                  {ivFullscreenPanel && isAnyIVHVActive && ivData.length > 0 && (() => {
-                    const panelLabels: Record<string, string> = { iv: 'IMPLIED VOLATILITY', ivRank: 'IV RANK', ivPercentile: 'IV PERCENTILE', hv: `HISTORICAL VOLATILITY (${hvWindow}D)` }
-                    const accentColors: Record<string, string> = { iv: netIVColor, ivRank: ivRankColor, ivPercentile: ivPercentileColor, hv: hvColor }
-                    const accent = accentColors[ivFullscreenPanel]
-                    const label = panelLabels[ivFullscreenPanel]
-                    // Gather series data
-                    type SeriesEntry = { date: string; value: number; color: string; name: string }
-                    const series: SeriesEntry[][] = []
-                    if (ivFullscreenPanel === 'iv') {
-                      if (showCallIVLine) series.push(ivData.filter(d => d.callIV !== null).map(d => ({ date: d.date, value: d.callIV!, color: callIVColor, name: 'Call IV' })))
-                      if (showPutIVLine) series.push(ivData.filter(d => d.putIV !== null).map(d => ({ date: d.date, value: d.putIV!, color: putIVColor, name: 'Put IV' })))
-                      if (showNetIVLine) series.push(ivData.filter(d => d.netIV !== null).map(d => ({ date: d.date, value: d.netIV!, color: netIVColor, name: 'Net IV' })))
-                    } else {
-                      const keyMap: Record<string, keyof typeof ivData[0]> = { ivRank: 'ivRank', ivPercentile: 'ivPercentile', hv: 'hv' }
-                      const k = keyMap[ivFullscreenPanel]
-                      series.push(ivData.filter(d => (d as any)[k] !== null).map(d => ({ date: d.date, value: (d as any)[k]!, color: accent, name: label })))
-                    }
-                    const allVals = series.flat().map(p => p.value)
-                    const minV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 0 : Math.min(...allVals) * 0.9
-                    const maxV = ivFullscreenPanel === 'ivRank' || ivFullscreenPanel === 'ivPercentile' ? 100 : Math.max(...allVals) * 1.1
-                    const W = 900, H = 420, PL = 50, PR = 80, PT = 40, PB = 40
-                    const chartW = W - PL - PR, chartH = H - PT - PB
-                    const toX = (i: number, n: number) => PL + (i / (n - 1)) * chartW
-                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                    const ySteps = 5
-                    return (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => setIVFullscreenPanel(null)}>
-                        <div style={{ background: '#0a0a0a', border: `2px solid ${accent}55`, borderRadius: '10px', padding: '0', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                          onClick={e => e.stopPropagation()}>
-                          {/* Header */}
-                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${accent}33`, background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                            <span style={{ color: accent, fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>{label}</span>
-                            <button onClick={() => setIVFullscreenPanel(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                          </div>
-                          {/* SVG Chart */}
-                          <div style={{ padding: '8px 16px 16px' }}>
-                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                              {/* Y grid + labels */}
-                              {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                const v = minV + (i / ySteps) * (maxV - minV)
-                                const y = toY(v)
-                                return (
-                                  <g key={i}>
-                                    <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
-                                    <text x={PL + chartW + 8} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}%</text>
-                                  </g>
-                                )
-                              })}
-                              {/* Series lines */}
-                              {series.map((pts, si) => pts.length < 2 ? null : (
-                                <polyline key={si}
-                                  points={pts.map((p, i) => `${toX(i, pts.length)},${toY(p.value)}`).join(' ')}
-                                  fill="none" stroke={pts[0].color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                              ))}
-                              {/* Legend */}
-                              {series.map((pts, si) => pts.length > 0 && (
-                                <g key={si} transform={`translate(${PL + si * 100}, ${H - 10})`}>
-                                  <line x1="0" y1="-4" x2="14" y2="-4" stroke={pts[0].color} strokeWidth="2" />
-                                  <text x="18" y="0" fill={pts[0].color} fontSize="11" fontFamily="JetBrains Mono, monospace">{pts[0].name}</text>
-                                </g>
-                              ))}
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* ── P/E Panel Header Toolbar ──────────────────────────────────────────── */}
-                  {showPEPanel && (() => {
-                    const peBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
-                    return (
-                      <div className="absolute z-[1001] pointer-events-none"
-                        style={{ left: 0, right: 0, bottom: `${peBotPx}px`, height: `${pePanelHeight}px` }}>
-                        <div className="pointer-events-auto flex items-center gap-2 w-full"
-                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(255,140,0,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                          <span style={{ color: '#FF8C00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                            P/E RATIO{peData?.current != null ? `  ${peData.current.toFixed(1)}x` : ''}
-                          </span>
-                          <div style={{ flex: 1 }} />
-                          <button onClick={() => setPeFullscreen(f => !f)} title={peFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
-                            {peFullscreen ? '⊡' : '⛶'}
-                          </button>
-                          <button onClick={() => setShowPEPanel(false)} title="Close P/E panel"
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* P/E fullscreen overlay */}
-                  {peFullscreen && showPEPanel && peData && peData.history.length > 0 && (() => {
-                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                    const chartW = W - PL - PR, chartH = H - PT - PB
-                    const pts = peData.history.slice().sort((a, b) => a.date.localeCompare(b.date))
-                    const vals = pts.map(p => p.pe)
-                    const minV = Math.min(...vals) * 0.97, maxV = Math.max(...vals) * 1.015
-                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
-                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                    const ySteps = 5
-                    return (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => setPeFullscreen(false)}>
-                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(255,140,0,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                          onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,140,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                            <span style={{ color: '#FF8C00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>P/E RATIO</span>
-                            <button onClick={() => setPeFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                          </div>
-                          <div style={{ padding: '8px 16px 16px' }}>
-                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                              {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                const v = minV + (i / ySteps) * (maxV - minV)
-                                const y = toY(v)
-                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(1)}x</text></g>)
-                              })}
-                              <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.pe)}`).join(' ')} fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* ── PEG Panel Header Toolbar ───────────────────────────────────────────── */}
-                  {showPEGPanel && (() => {
-                    const pegBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0)
-                    return (
-                      <div className="absolute z-[1001] pointer-events-none"
-                        style={{ left: 0, right: 0, bottom: `${pegBotPx}px`, height: `${pegPanelHeight}px` }}>
-                        <div className="pointer-events-auto flex items-center gap-2 w-full"
-                          style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(167,139,250,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                          <span style={{ color: '#a78bfa', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                            PEG RATIO{pegData?.pegBasic != null ? `  ${pegData.pegBasic.toFixed(2)}` : ''}
-                          </span>
-                          <div style={{ flex: 1 }} />
-                          <button onClick={() => setPegFullscreen(f => !f)} title={pegFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
-                            {pegFullscreen ? '⊡' : '⛶'}
-                          </button>
-                          <button onClick={() => setShowPEGPanel(false)} title="Close PEG panel"
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* PEG fullscreen overlay */}
-                  {pegFullscreen && showPEGPanel && pegData && pegData.history.length > 0 && (() => {
-                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                    const chartW = W - PL - PR, chartH = H - PT - PB
-                    const pts = pegData.history.slice().sort((a, b) => a.date.localeCompare(b.date)).filter(p => p.peg !== null && (p.peg as number) <= 30) as { date: string; peg: number }[]
-                    const vals = pts.map(p => p.peg)
-                    const minV = Math.min(...vals) * 0.93, maxV = Math.max(...vals) * 1.04
-                    const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
-                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                    const ySteps = 5
-                    return (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => setPegFullscreen(false)}>
-                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(167,139,250,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                          onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(167,139,250,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                            <span style={{ color: '#a78bfa', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>PEG RATIO  (P/E ÷ EPS 3Y CAGR)</span>
-                            <button onClick={() => setPegFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                          </div>
-                          <div style={{ padding: '8px 16px 16px' }}>
-                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                              {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                const v = minV + (i / ySteps) * (maxV - minV)
-                                const y = toY(v)
-                                return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(2)}</text></g>)
-                              })}
-                              {/* PEG=1 fair value line */}
-                              {minV <= 1 && maxV >= 1 && <line x1={PL} y1={toY(1)} x2={PL + chartW} y2={toY(1)} stroke="rgba(250,204,21,0.5)" strokeWidth="1.5" strokeDasharray="5,4" />}
-                              <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.peg)}`).join(' ')} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* ── BuySell Panel Header Toolbar ─────────────────────────────────────── */}
-                  {showBuySellIndicator && (() => {
-                    const bsBottomPx = 25 // sits just above the time axis
-                    return (
+                    {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
+                    {isFlowChartActive && (
                       <div
-                        className="absolute z-[1001] pointer-events-none"
-                        style={{ left: 0, right: 0, bottom: `${bsBottomPx}px`, height: `${buySellPanelHeight}px` }}
-                      >
-                        <div
-                          className="pointer-events-auto flex items-center gap-2 w-full"
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: '80px',
-                            height: '32px',
-                            background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
-                            borderTop: '2px solid rgba(0,255,0,0.33)',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                            paddingLeft: '50px',
-                            paddingRight: '6px',
-                          }}
-                        >
-                          {/* Title */}
-                          <span style={{ color: '#00ff00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                            BUY/SELL PRESSURE
-                          </span>
-                          <div style={{ flex: 1 }} />
-                          {/* Fullscreen button */}
-                          <button
-                            onClick={() => setBuySellFullscreen(f => !f)}
-                            title={buySellFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
-                          >
-                            {buySellFullscreen ? '⊡' : '⛶'}
-                          </button>
-                          {/* Close button */}
-                          <button
-                            onClick={() => setShowBuySellIndicator(false)}
-                            title="Close Buy/Sell Pressure panel"
-                            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* BuySell fullscreen overlay */}
-                  {buySellFullscreen && showBuySellIndicator && buySellData.length > 0 && (() => {
-                    const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                    const chartW = W - PL - PR, chartH = H - PT - PB
-                    const validData = buySellData.filter(d => d.smoothed !== undefined)
-                    const vals = validData.map(d => d.smoothed)
-                    const rawMin = Math.min(...vals)
-                    const rawMax = Math.max(...vals)
-                    const pad = (rawMax - rawMin) * 0.15 || 10
-                    const minV = rawMin - pad, maxV = rawMax + pad
-                    const toX = (i: number) => PL + (i / (validData.length - 1)) * chartW
-                    const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                    const ySteps = 5
-                    return (
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => setBuySellFullscreen(false)}>
-                        <div style={{ background: '#0a0a0a', border: '2px solid rgba(0,255,0,0.33)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                          onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(0,255,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                            <span style={{ color: '#00ff00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>BUY/SELL PRESSURE</span>
-                            <button onClick={() => setBuySellFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                          </div>
-                          <div style={{ padding: '8px 16px 16px' }}>
-                            <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                              {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                const v = minV + (i / ySteps) * (maxV - minV)
-                                const y = toY(v)
-                                return (
-                                  <g key={i}>
-                                    <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
-                                    <text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{Math.round(v)}</text>
-                                  </g>
-                                )
-                              })}
-                              {/* zero line */}
-                              {minV < 0 && maxV > 0 && (
-                                <line x1={PL} y1={toY(0)} x2={PL + chartW} y2={toY(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,4" />
-                              )}
-                              <polyline
-                                points={validData.map((d, i) => `${toX(i)},${toY(d.smoothed)}`).join(' ')}
-                                fill="none" stroke="#00cc00" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-                              />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
-                  {isFlowChartActive && (
-                    <div
-                      className="absolute z-[1001]"
-                      style={{
-                        right: '90px',
-                        bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
-                        transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
-                      }}
-                    >
-                      <div
+                        className="absolute z-[1001]"
                         style={{
-                          display: 'flex',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: '2px',
-                          padding: '4px',
-                          borderRadius: '14px',
-                          background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
-                          backdropFilter: 'blur(16px)',
+                          right: '90px',
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
+                          transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         }}
                       >
-                        {/* Settings button */}
-                        <button
-                          onClick={() => setShowFlowSettings(v => !v)}
-                          title="Line color settings"
-                          style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
-                            cursor: 'pointer', background: showFlowSettings ? 'rgba(255,136,0,0.15)' : 'transparent',
-                            color: showFlowSettings ? '#FF8800' : '#ffffff', transition: 'all 0.15s ease',
-                          }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-                            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
-                        {/* Maximize / restore button */}
-                        <button
-                          onClick={() => {
-                            const canvasH = containerRef.current?.clientHeight ?? 600
-                            const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0)
-                            const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
-                            if (flowChartMaximized) {
-                              setFlowChartHeight(150)
-                              setFlowChartMaximized(false)
-                            } else {
-                              setFlowChartHeight(maxH)
-                              setFlowChartMaximized(true)
-                            }
-                          }}
-                          title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
-                          style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
-                            cursor: 'pointer', background: 'transparent',
-                            color: '#ffffff', transition: 'all 0.15s ease',
-                          }}
-                        >
-                          {flowChartMaximized ? (
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                              <path d="M3 6h4V2M11 8H7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          ) : (
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                              <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </button>
-                        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
-                        {/* Close X */}
-                        <button
-                          onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false) }}
-                          title="Close IntraFlow panel"
-                          style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            width: '34px', height: '34px', borderRadius: '9px', border: 'none',
-                            cursor: 'pointer', background: 'transparent',
-                            color: 'rgba(255,80,80,0.8)', transition: 'all 0.15s ease',
-                          }}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                      </div>
-                      {/* Settings popup */}
-                      {showFlowSettings && (
                         <div
                           style={{
-                            position: 'absolute', bottom: '48px', right: 0,
-                            background: 'linear-gradient(180deg, rgba(18,18,18,0.99) 0%, rgba(6,6,6,1) 100%)',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: '12px', padding: '14px 16px',
-                            boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
-                            minWidth: '200px', backdropFilter: 'blur(20px)',
-                            zIndex: 1002,
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: '2px',
+                            padding: '4px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
+                            backdropFilter: 'blur(16px)',
                           }}
                         >
-                          <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>Line Colors</div>
-                          {([
-                            { label: 'Bullish Calls', key: 'callsPlus' },
-                            { label: 'Bearish Calls', key: 'callsMinus' },
-                            { label: 'Bullish Puts', key: 'putsPlus' },
-                            { label: 'Bearish Puts', key: 'putsMinus' },
-                            { label: 'Bull Total', key: 'bullishTotal' },
-                            { label: 'Bear Total', key: 'bearishTotal' },
-                          ] as { label: string; key: keyof typeof flowLineColors }[]).map(({ label, key }) => (
-                            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>{label}</span>
-                              <input
-                                type="color"
-                                value={flowLineColors[key]}
-                                onChange={(e) => setFlowLineColors(prev => ({ ...prev, [key]: e.target.value }))}
-                                style={{ width: '32px', height: '18px', borderRadius: '3px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
-                              />
-                            </div>
-                          ))}
+                          {/* Settings button */}
+                          <button
+                            onClick={() => setShowFlowSettings(v => !v)}
+                            title="Line color settings"
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              cursor: 'pointer', background: showFlowSettings ? 'rgba(255,136,0,0.15)' : 'transparent',
+                              color: showFlowSettings ? '#FF8800' : '#ffffff', transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+                              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                          </button>
+                          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
+                          {/* Maximize / restore button */}
+                          <button
+                            onClick={() => {
+                              const canvasH = containerRef.current?.clientHeight ?? 600
+                              const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0)
+                              const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
+                              if (flowChartMaximized) {
+                                setFlowChartHeight(150)
+                                setFlowChartMaximized(false)
+                              } else {
+                                setFlowChartHeight(maxH)
+                                setFlowChartMaximized(true)
+                              }
+                            }}
+                            title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              cursor: 'pointer', background: 'transparent',
+                              color: '#ffffff', transition: 'all 0.15s ease',
+                            }}
+                          >
+                            {flowChartMaximized ? (
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M3 6h4V2M11 8H7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </button>
+                          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
+                          {/* Close X */}
+                          <button
+                            onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false) }}
+                            title="Close IntraFlow panel"
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              cursor: 'pointer', background: 'transparent',
+                              color: 'rgba(255,80,80,0.8)', transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            </svg>
+                          </button>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Text Input Modal for Drawing Tools */}
-            {showTextInput && textInputPosition && (
-              <div
-                className="absolute z-[10000] bg-[#1e222d] border border-[#2a2e39] rounded-lg p-4 shadow-xl"
-                style={{
-                  left: (textInputPosition?.x || 0) + 10,
-                  top: (textInputPosition?.y || 0) - 10,
-                  minWidth: '200px',
-                }}
-              >
-                <div className="mb-3">
-                  <label className="block text-white text-sm font-medium mb-2">
-                    {activeTool === 'text'
-                      ? 'Add Text'
-                      : activeTool === 'note'
-                        ? 'Add Note'
-                        : activeTool === 'callout'
-                          ? 'Add Callout'
-                          : activeTool === 'price_label'
-                            ? 'Price Label'
-                            : 'Add Text'}
-                  </label>
-                  <input
-                    type="text"
-                    value={drawingText}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setDrawingText(e.target.value)
-                    }
-                    onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
-                      e.key === 'Enter' && handleTextSubmit()
-                    }
-                    className="w-full px-3 py-2 bg-[#131722] border border-[#3a3e47] rounded text-white text-sm focus:outline-none focus:border-[#2962ff]"
-                    placeholder="Enter text..."
-                    autoFocus
-                  />
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleTextSubmit}
-                    className="px-3 py-1 bg-[#2962ff] text-white rounded text-sm hover:bg-[#1e4db7] transition-colors"
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowTextInput(false)
-                      setDrawingText('')
-                      setTextInputPosition(null)
-                      setActiveTool(null)
-                    }}
-                    className="px-3 py-1 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                        {/* Settings popup */}
+                        {showFlowSettings && (
+                          <div
+                            style={{
+                              position: 'absolute', bottom: '48px', right: 0,
+                              background: 'linear-gradient(180deg, rgba(18,18,18,0.99) 0%, rgba(6,6,6,1) 100%)',
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              borderRadius: '12px', padding: '14px 16px',
+                              boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                              minWidth: '200px', backdropFilter: 'blur(20px)',
+                              zIndex: 1002,
+                            }}
+                          >
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>Line Colors</div>
+                            {([
+                              { label: 'Bullish Calls', key: 'callsPlus' },
+                              { label: 'Bearish Calls', key: 'callsMinus' },
+                              { label: 'Bullish Puts', key: 'putsPlus' },
+                              { label: 'Bearish Puts', key: 'putsMinus' },
+                              { label: 'Bull Total', key: 'bullishTotal' },
+                              { label: 'Bear Total', key: 'bearishTotal' },
+                            ] as { label: string; key: keyof typeof flowLineColors }[]).map(({ label, key }) => (
+                              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>{label}</span>
+                                <input
+                                  type="color"
+                                  value={flowLineColors[key]}
+                                  onChange={(e) => setFlowLineColors(prev => ({ ...prev, [key]: e.target.value }))}
+                                  style={{ width: '32px', height: '18px', borderRadius: '3px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
-            )}
 
-            {/* Property Editor removed - drawing tools were removed as requested */}
-          </div>
-          {/* ── end Main Chart Canvas (containerRef) */}
+              {/* Text Input Modal for Drawing Tools */}
+              {showTextInput && textInputPosition && (
+                <div
+                  className="absolute z-[10000] bg-[#1e222d] border border-[#2a2e39] rounded-lg p-4 shadow-xl"
+                  style={{
+                    left: (textInputPosition?.x || 0) + 10,
+                    top: (textInputPosition?.y || 0) - 10,
+                    minWidth: '200px',
+                  }}
+                >
+                  <div className="mb-3">
+                    <label className="block text-white text-sm font-medium mb-2">
+                      {activeTool === 'text'
+                        ? 'Add Text'
+                        : activeTool === 'note'
+                          ? 'Add Note'
+                          : activeTool === 'callout'
+                            ? 'Add Callout'
+                            : activeTool === 'price_label'
+                              ? 'Price Label'
+                              : 'Add Text'}
+                    </label>
+                    <input
+                      type="text"
+                      value={drawingText}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setDrawingText(e.target.value)
+                      }
+                      onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                        e.key === 'Enter' && handleTextSubmit()
+                      }
+                      className="w-full px-3 py-2 bg-[#131722] border border-[#3a3e47] rounded text-white text-sm focus:outline-none focus:border-[#2962ff]"
+                      placeholder="Enter text..."
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleTextSubmit}
+                      className="px-3 py-1 bg-[#2962ff] text-white rounded text-sm hover:bg-[#1e4db7] transition-colors"
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowTextInput(false)
+                        setDrawingText('')
+                        setTextInputPosition(null)
+                        setActiveTool(null)
+                      }}
+                      className="px-3 py-1 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Property Editor removed - drawing tools were removed as requested */}
+            </div>
+            {/* ── end Main Chart Canvas (containerRef) */}
           </div>
           {/* ── end chart wrapper (flex:1) */}
 

@@ -77,16 +77,22 @@ export default function TickerScroller() {
       await Promise.all(
         TICKER_SYMBOLS.map(async (symbol) => {
           try {
-            const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveDaysAgoStr}/${todayStr}?adjusted=true&sort=desc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
-            const result = await polygonRateLimiter.fetch(url)
-            if (result?.results?.length >= 2) {
-              prevCloseRef.current[symbol] = result.results[1].c
-              const changePercent =
-                ((result.results[0].c - result.results[1].c) / result.results[1].c) * 100
-              setTickerData((prev) =>
-                prev.map((t) => (t.symbol === symbol ? { ...t, change: changePercent } : t))
-              )
-            }
+            const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+            // Fetch last completed session close (prev close baseline)
+            const aggUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveDaysAgoStr}/${todayStr}?adjusted=true&sort=desc&apiKey=${apiKey}`
+            const aggResult = await polygonRateLimiter.fetch(aggUrl)
+            if (!aggResult?.results?.length) return
+            const prevClose = aggResult.results[0].c // most recent completed session
+            prevCloseRef.current[symbol] = prevClose
+
+            // Fetch live last trade price
+            const lastTradeUrl = `https://api.polygon.io/v2/last/trade/${symbol}?apiKey=${apiKey}`
+            const lastTradeResult = await polygonRateLimiter.fetch(lastTradeUrl)
+            const lastPrice = lastTradeResult?.results?.p ?? prevClose
+            const changePercent = ((lastPrice - prevClose) / prevClose) * 100
+            setTickerData((prev) =>
+              prev.map((t) => (t.symbol === symbol ? { ...t, change: changePercent } : t))
+            )
           } catch {
             /* singleton will keep retrying */
           }

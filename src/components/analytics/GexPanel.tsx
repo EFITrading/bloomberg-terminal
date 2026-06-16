@@ -64,6 +64,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
   // Unified Controls (affect both charts)
   const [showPremium, setShowPremium] = useState<boolean>(false)
   const [showAITowers, setShowAITowers] = useState<boolean>(false)
+  const [historicalOIMap] = useState<Map<string, number> | null>(null)
 
   // Fetch expiration dates once
   useEffect(() => {

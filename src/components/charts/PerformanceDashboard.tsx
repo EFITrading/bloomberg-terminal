@@ -513,7 +513,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       if (!symbolsToFetch.includes(bTicker)) {
         symbolsToFetch = [...symbolsToFetch, bTicker]
       }
-      console.log('[BENCHMARK-DBG] symbolsToFetch:', symbolsToFetch)
     }
 
     if (symbolsToFetch.length === 0) {
@@ -737,7 +736,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       if (isBenchmarkMode && benchmarkTicker.trim()) {
         const bTicker = benchmarkTicker.toUpperCase().trim()
         const benchmarkRawData = symbolDataMap[bTicker]
-        console.log('[BENCHMARK-DBG] rebase check: bTicker=', bTicker, '| found=', !!benchmarkRawData)
         if (benchmarkRawData && benchmarkRawData.length > 0) {
           const firstBenchPrice = benchmarkRawData[0].close
           const benchDataMap = new Map(benchmarkRawData.map((p) => [p.timestamp, p.close]))
@@ -1730,23 +1728,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
-  //  BENCHMARK DEBUG 
-  useEffect(() => {
-    console.log('[BENCHMARK-DBG] STATE:', isBenchmarkMode, benchmarkTicker)
-  }, [isBenchmarkMode, benchmarkTicker])
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const btn = document.getElementById('perf-benchmark-btn')
-      console.log('[BENCHMARK-DBG] DOM btn=', btn, btn ? getComputedStyle(btn).display : 'N/A')
-      const header = document.querySelector('.perf-header')
-      if (header) {
-        const r = header.getBoundingClientRect()
-        console.log('[BENCHMARK-DBG] header w=', r.width, 'scrollW=', header.scrollWidth, 'overflow=', getComputedStyle(header).overflow)
-      }
-    }, 600)
-    return () => clearTimeout(t)
-  }, [])
-  //  END BENCHMARK DEBUG 
+
 
   if (!isVisible) return null
 
@@ -1940,7 +1922,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           {/* Timeframe */}
           <select value={timeframe} onChange={e => { setTimeframe(e.target.value as Timeframe); setUseCustomDates(false) }}
             style={{ height: '43px', padding: '0 6px', flexShrink: 0, background: 'linear-gradient(180deg, #1a1a1a 0%, #050505 100%)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '5px', fontSize: '14px', fontWeight: '700', fontFamily: 'monospace', cursor: 'pointer', outline: 'none', letterSpacing: '0.6px', colorScheme: 'dark', accentColor: '#ff6600' }}>
-            {(['1D','1W','1M','3M','6M','1Y','2Y','5Y','10Y','20Y','YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
+            {(['1D', '1W', '1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '20Y', 'YTD'] as Timeframe[]).map(tf => <option key={tf} value={tf}>{tf}</option>)}
           </select>
 
           {/* Date range */}
