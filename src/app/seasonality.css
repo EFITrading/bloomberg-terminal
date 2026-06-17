@@ -431,6 +431,7 @@ body * {
    so the page height is content-driven, not forced to viewport height */
 .data-driven-container .seasonax-container {
   min-height: auto !important;
+  margin-top: 0 !important;
 }
 
 /* Data-Driven Header with Centered Layout */
